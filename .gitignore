@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+logs/
+midnight-level-db/
+.env
+reports/
+package-lock.json
+*.prover

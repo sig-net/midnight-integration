@@ -1,0 +1,57 @@
+{
+  "compiler-version": "0.31.0",
+  "language-version": "0.23.0",
+  "runtime-version": "0.16.0",
+  "circuits": [
+    {
+      "name": "schnorrChallenge",
+      "pure": true,
+      "proof": false,
+      "arguments": [
+        {
+          "name": "ann_x",
+          "type": {
+            "type-name": "Field"
+          }
+        },
+        {
+          "name": "ann_y",
+          "type": {
+            "type-name": "Field"
+          }
+        },
+        {
+          "name": "pk_x",
+          "type": {
+            "type-name": "Field"
+          }
+        },
+        {
+          "name": "pk_y",
+          "type": {
+            "type-name": "Field"
+          }
+        },
+        {
+          "name": "msg",
+          "type": {
+            "type-name": "Vector",
+            "length": 4,
+            "type": {
+              "type-name": "Field"
+            }
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Field"
+      }
+    }
+  ],
+  "witnesses": [
+  ],
+  "contracts": [
+  ],
+  "ledger": [
+  ]
+}
