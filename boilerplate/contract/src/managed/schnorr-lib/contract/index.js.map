@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "index.js",
+  "sourceRoot": "../../../../",
+  "sources": ["src/schnorr-lib.compact", "compiler/standard-library.compact", "src/./schnorr.compact"],
+  "names": [],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;EAAA;;;;;;;;;;MASA,AAAA,gBAIC;;OAAA;;;;GACA;EAdD;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;GAcC;ECdD,AAAA,iBAAA;mEAAA;;;ECyDE,AAAA,mBAcC,CAbqB,OAAY,EACZ,OAAY,EACZ,MAAW,EACX,MAAW,EACX,KAAqB;UAEnC,OAGK,kCAD4B,OAAK;mDAAS,OAAK;kDAAQ,MAAI;kDAAQ,MAAI;iDAAO,KAAG;WAIrF,OAAK;GACb;EF9DH,AAAA,mBAIC,CAHC,OAAY,EAAE,OAAY,EAAE,MAAW,EAAE,MAAW,EAAE,KAAqB;oCAE3C,OAAK,EAAE,OAAK,EAAE,MAAI,EAAE,MAAI,EAAE,KAAG;GAC9D;;;;;;;;;;;;;;;;;;;;;;;EAJD,AAAA,gBAIC;;;;UAHC,OAAY;UAAE,OAAY;UAAE,MAAW;UAAE,MAAW;UAAE,KAAqB;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;8CAA3E,OAAY;8CAAE,OAAY;8CAAE,MAAW;8CAAE,MAAW;8CAAE,KAAqB;GAG5E;;;;"
+}
