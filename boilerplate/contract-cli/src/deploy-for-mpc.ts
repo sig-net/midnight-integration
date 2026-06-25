@@ -124,13 +124,11 @@ async function main() {
   console.log(`# Vault receives ERC20: ${sepoliaVaultAddressHex}`);
 
   // Compute the E2E test user's derived Sepolia address.
-  // The path is a 256-byte buffer with userCommitment in the first 32 bytes.
+  // The derivation path is the lowercase hex of the user's identity commitment.
   const E2E_USER_SK = Buffer.from('22b8e577b3f638b2b361f36fd62d7138ed489d9afe3da5f7c325e2d0a95ae043', 'hex');
   const userCommitment = hash2x32(pad32('vault:user:'), E2E_USER_SK);
-  const testPath = new Uint8Array(PATH_SIZE);
-  testPath.set(userCommitment, 0);
-  const testPathHex = Buffer.from(testPath).toString('hex');
-  const userDerivedAddr = deriveEvmAddress('0x' + MPC_PUBLIC_KEY_HEX!, contractAddress, testPathHex);
+  const commitmentHex = Buffer.from(userCommitment).toString('hex');
+  const userDerivedAddr = deriveEvmAddress('0x' + MPC_PUBLIC_KEY_HEX!, contractAddress, commitmentHex);
   console.log(`# E2E test user commitment: ${Buffer.from(userCommitment).toString('hex')}`);
   console.log(`# E2E test derived address: ${userDerivedAddr}`);
   console.log(`#   → Fund this with USDC + Sepolia ETH for gas`);

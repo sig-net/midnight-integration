@@ -20,7 +20,7 @@ import WebSocket from 'ws';
 import { ethers } from 'ethers';
 import * as api from '../api';
 import { type WalletContext } from '../api';
-import { type VaultPrivateState, type VaultProviders } from '../common-types';
+import { type VaultPrivateState, type VaultProviders, VaultPrivateStateId } from '../common-types';
 import { currentDir, getConfig } from '../config';
 import { createLogger } from '../logger-utils';
 import { hash2x32, pad32, deriveEvmAddress } from '../crypto-utils';
@@ -240,8 +240,12 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
 
   const testCaip2Id = encodeString('eip155:11155111', CAIP2_ID_SIZE);
   const testKeyVersion = 0n;
+  // The path carries the lowercase hex of the identity commitment as ASCII bytes,
+  // zero-padded. The contract verifies this hex decodes to the commitment, and the
+  // MPC reads it back as a plain derivation string.
+  const commitmentHex = Buffer.from(userIdentityCommitment).toString('hex');
   const testPath = new Uint8Array(PATH_SIZE);
-  testPath.set(userIdentityCommitment, 0);
+  new TextEncoder().encodeInto(commitmentHex, testPath);
   const testAlgo = encodeString('ecdsa', ALGO_SIZE);
   const testDest = encodeString('ethereum', DEST_SIZE);
   const testParams = encodeLengthPrefixed(new Uint8Array(0), PARAMS_SIZE);
@@ -283,8 +287,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       info('MPC PK hash', truncHex(Buffer.from(ledger!.mpcPubKeyHash).toString('hex')));
       info('Vault address', `0x${Buffer.from(ledger!.sepoliaVaultAddress).toString('hex')}`);
 
-      const pathHex = Buffer.from(testPath).toString('hex');
-      const userEvmAddress = deriveEvmAddress(MPC_SECP256K1_PUBKEY, DEPLOYED_CONTRACT_ADDRESS, pathHex);
+      const userEvmAddress = deriveEvmAddress(MPC_SECP256K1_PUBKEY, DEPLOYED_CONTRACT_ADDRESS, commitmentHex);
       const sepoliaProvider = new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
       testEvmNonce = BigInt(await sepoliaProvider.getTransactionCount(userEvmAddress));
       ok(`Sepolia connected`);
@@ -701,5 +704,203 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       console.log(`  └${line}┘`);
     },
     1000 * 60 * 5,
+  );
+
+  // ════════════════════════════════════════════════════════════════
+  //  Withdraw flow (outbound): surrender a shielded coin → vault pays
+  //  out the ERC20 on Sepolia → completeWithdraw finalizes / refunds.
+  // ════════════════════════════════════════════════════════════════
+
+  // The path withdraw constructs in-circuit is the literal string "vault".
+  const vaultPath = new Uint8Array(PATH_SIZE);
+  new TextEncoder().encodeInto('vault', vaultPath);
+  // Where the vault sends the ERC20 on withdraw (any address; a burn addr keeps it simple).
+  const DEST_EVM = new Uint8Array(Buffer.from('000000000000000000000000000000000000dEaD', 'hex'));
+  const sepolia = () => new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
+  const vaultEvmAddress = () => deriveEvmAddress(MPC_SECP256K1_PUBKEY, DEPLOYED_CONTRACT_ADDRESS!, 'vault');
+
+  const vaultTokenTypeRaw = (): string => {
+    const e = convertFieldToBytes(32, bytesToBigint(SEPOLIA_USDC_ADDRESS), 'erc20');
+    return rawTokenType(hash2x32(pad32('erc20:vault:'), e), DEPLOYED_CONTRACT_ADDRESS!);
+  };
+  // The withdraw coin is a circuit parameter: arbitrary nonce, vault-token color,
+  // value == amount. The wallet funds the value from the caller's balance.
+  const vaultColorBytes = (): Uint8Array => new Uint8Array(Buffer.from(vaultTokenTypeRaw(), 'hex'));
+  let e2eNonceCtr = 0;
+  const vaultCoin = (value: bigint, color: Uint8Array = vaultColorBytes()) =>
+    ({ nonce: new Uint8Array(32).fill((e2eNonceCtr++ % 250) + 1), color, value });
+  const shieldedVaultBalance = async (ctx: WalletContext = walletCtx): Promise<bigint> => {
+    const s: any = await Rx.firstValueFrom(ctx.wallet.state().pipe(Rx.filter((x: any) => x.isSynced)));
+    return s.shielded.balances[vaultTokenTypeRaw()] ?? 0n;
+  };
+  const shieldedPk = async (ctx: WalletContext = walletCtx): Promise<{ bytes: Uint8Array }> => {
+    const s: any = await Rx.firstValueFrom(ctx.wallet.state().pipe(Rx.filter((x: any) => x.isSynced)));
+    return { bytes: new Uint8Array(Buffer.from(s.shielded.coinPublicKey.toHexString().replace(/^0x/, ''), 'hex')) };
+  };
+  // Replicate the contract's withdraw requestId (path="vault", args=[dest, amount]).
+  const buildWithdrawRid = (signetNonce: bigint, vaultEvmNonce: bigint, destEvm: Uint8Array, amount: bigint): Uint8Array => {
+    const fsig = new Uint8Array(CALLDATA_FUNC_SIG_SIZE);
+    new TextEncoder().encodeInto('transfer(address,uint256)', fsig);
+    const args = [convertFieldToBytes(32, bytesToBigint(destEvm), 'dest'), convertFieldToBytes(32, amount, 'amount')];
+    return computeRequestId({
+      nonce: signetNonce, evmChainId: testEvmChainId, evmNonce: vaultEvmNonce, evmGasLimit: testEvmGasLimit,
+      evmMaxFee: testEvmMaxFee, evmPriorityFee: testEvmPriorityFee, evmValue: testEvmValue, evmTo: SEPOLIA_USDC_ADDRESS,
+      calldataFuncSig: fsig, calldataArgsCommitment: computeCalldataArgsCommitment(args), caip2Id: testCaip2Id,
+      keyVersion: Number(testKeyVersion), path: vaultPath, algo: testAlgo, dest: testDest, params: testParams,
+      outputSchema: testOutputSchema, respondSchema: testRespondSchema,
+    });
+  };
+  // Full deposit → MPC sign → broadcast → claim; returns the minted coin's nonce.
+  const mintFreshCoin = async (amount: bigint): Promise<Uint8Array> => {
+    const led = await api.getLedgerState(providers, DEPLOYED_CONTRACT_ADDRESS!);
+    const signetNonce = led!.signetNonce ?? 0n;
+    const userEvm = deriveEvmAddress(MPC_SECP256K1_PUBKEY, DEPLOYED_CONTRACT_ADDRESS!, commitmentHex);
+    const userNonce = BigInt(await sepolia().getTransactionCount(userEvm));
+    const fsig = new Uint8Array(CALLDATA_FUNC_SIG_SIZE);
+    new TextEncoder().encodeInto('transfer(address,uint256)', fsig);
+    const args = [convertFieldToBytes(32, bytesToBigint(led!.sepoliaVaultAddress), 'vault'), convertFieldToBytes(32, amount, 'amount')];
+    const rid = computeRequestId({
+      nonce: signetNonce, evmChainId: testEvmChainId, evmNonce: userNonce, evmGasLimit: testEvmGasLimit,
+      evmMaxFee: testEvmMaxFee, evmPriorityFee: testEvmPriorityFee, evmValue: testEvmValue, evmTo: SEPOLIA_USDC_ADDRESS,
+      calldataFuncSig: fsig, calldataArgsCommitment: computeCalldataArgsCommitment(args), caip2Id: testCaip2Id,
+      keyVersion: Number(testKeyVersion), path: testPath, algo: testAlgo, dest: testDest, params: testParams,
+      outputSchema: testOutputSchema, respondSchema: testRespondSchema,
+    });
+    const mpcP = handleMpcWebSocket(MPC_WS_URL, Buffer.from(rid).toString('hex'), SEPOLIA_RPC_URL);
+    await deployedContract.callTx.deposit(SEPOLIA_USDC_ADDRESS, amount, testEvmChainId, userNonce, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testPath, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
+    const resp = await mpcP;
+    const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
+    await deployedContract.callTx.claim(rid, out, resp.pk, resp.announcement, resp.response);
+    return hash2x32(pad32('erc20:mint:'), rid);
+  };
+
+  // ── STEP 6: Withdraw success — surrender the coin, vault pays out, finalize ──
+  it(
+    'STEP 6 — withdraw → MPC signs vault→dest transfer → completeWithdraw (success, final)',
+    async () => {
+      section('STEP 6', 'Withdraw from the vault (success)');
+      const before = await shieldedVaultBalance();
+
+      const led = await api.getLedgerState(providers, DEPLOYED_CONTRACT_ADDRESS!);
+      const vaultNonce = BigInt(await sepolia().getTransactionCount(vaultEvmAddress()));
+      const wrid = buildWithdrawRid(led!.signetNonce ?? 0n, vaultNonce, DEST_EVM, testAmount);
+      const wridHex = Buffer.from(wrid).toString('hex');
+      const refundPk = await shieldedPk();
+
+      const mpcP = handleMpcWebSocket(MPC_WS_URL, wridHex, SEPOLIA_RPC_URL);
+
+      wait('Generating ZK proof for withdraw()...');
+      await deployedContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, refundPk, testEvmChainId, vaultNonce, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
+      ok('withdraw() confirmed — coin surrendered');
+      expect(await shieldedVaultBalance()).toBe(before - testAmount);
+
+      wait('MPC signing vault→dest transfer + broadcasting...');
+      const resp = await mpcP;
+      const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
+      expect(out[0] === 0xde && out[1] === 0xad).toBe(false); // expect success, not deadbeef
+
+      await deployedContract.callTx.completeWithdraw(wrid, out, resp.pk, resp.announcement, resp.response);
+      ok('completeWithdraw(success) — withdrawal final, no refund');
+      expect(await shieldedVaultBalance()).toBe(before - testAmount); // NOT refunded
+      const after = await api.getLedgerState(providers, DEPLOYED_CONTRACT_ADDRESS!);
+      expect(after!.refundRecipient.member(wrid)).toBe(false);
+    },
+    1000 * 60 * 15,
+  );
+
+  // ── STEP 7: Withdraw failure (stale nonce) → deadbeef → refund ──
+  it(
+    'STEP 7 — withdraw with a stale nonce → MPC 0xdeadbeef → completeWithdraw refunds the coin',
+    async () => {
+      section('STEP 7', 'Withdraw failure → refund');
+      await mintFreshCoin(testAmount); // ensure the wallet holds vault-token balance
+      const before = await shieldedVaultBalance();
+
+      const led = await api.getLedgerState(providers, DEPLOYED_CONTRACT_ADDRESS!);
+      const vaultNonce = BigInt(await sepolia().getTransactionCount(vaultEvmAddress()));
+      const staleNonce = vaultNonce > 0n ? vaultNonce - 1n : 0n; // already-used → MPC returns deadbeef
+      const wrid = buildWithdrawRid(led!.signetNonce ?? 0n, staleNonce, DEST_EVM, testAmount);
+      const wridHex = Buffer.from(wrid).toString('hex');
+
+      const mpcP = handleMpcWebSocket(MPC_WS_URL, wridHex, SEPOLIA_RPC_URL);
+      await deployedContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, await shieldedPk(), testEvmChainId, staleNonce, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
+      expect(await shieldedVaultBalance()).toBe(before - testAmount); // surrendered
+
+      const resp = await mpcP;
+      const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
+      expect(out[0]).toBe(0xde); // deadbeef failure
+      await deployedContract.callTx.completeWithdraw(wrid, out, resp.pk, resp.announcement, resp.response);
+      ok('completeWithdraw(deadbeef) — coin refunded');
+      expect(await shieldedVaultBalance()).toBe(before); // restored
+    },
+    1000 * 60 * 15,
+  );
+
+  // ── STEP 8: Bearer transfer — value moves with the coin (#3/#4/#7) ──
+  // Balance-based: A transfers its ENTIRE vault-token balance to B. A can then no
+  // longer withdraw (nothing to fund); B can (it now holds the balance). The coin
+  // nonce is arbitrary on both sides — no evolved-nonce reading needed.
+  // Wallet B is funded from A programmatically (NIGHT transfer + dust registration via
+  // api.fundWalletForFees), so no manual tDUST setup is needed. MIDNIGHT_WALLET_SEED_B
+  // can override B's seed; it defaults to ...0002.
+  it(
+    'STEP 8 — transfer value A→B: old owner cannot withdraw, new owner can; complete is permissionless',
+    async () => {
+      section('STEP 8', 'Bearer transfer: value moves with the coin');
+      await mintFreshCoin(testAmount); // ensure A holds at least testAmount
+
+      // Build + join as wallet B. The dev chain only endows the genesis seed, so B
+      // starts with no NIGHT/DUST and cannot pay proving fees. Build it WITHOUT the
+      // (otherwise infinite) fund-wait, then fund it from A: transfer NIGHT and
+      // register it for dust generation so B has a fee budget for its own withdraw.
+      const SECOND_SEED = process.env.MIDNIGHT_WALLET_SEED_B || '0000000000000000000000000000000000000000000000000000000000000002';
+      const bCtx = await api.buildWallet(config, SECOND_SEED);
+      await api.fundWalletForFees(walletCtx, bCtx, 50_000_000_000_000n);
+      const bProviders = await api.configureProviders(bCtx, config);
+      const bSecret = hash2x32(pad32('vault:sk:'), new Uint8Array(Buffer.from(SECOND_SEED, 'hex')));
+      const bContract = await api.joinContract(bProviders, DEPLOYED_CONTRACT_ADDRESS!, { secretKey: bSecret });
+
+      // A transfers its ENTIRE vault-token balance to B (so A truly cannot withdraw).
+      const aBalance = await shieldedVaultBalance();
+      expect(aBalance).toBeGreaterThanOrEqual(testAmount);
+      const bAddr = (await Rx.firstValueFrom(bCtx.wallet.state().pipe(Rx.filter((x: any) => x.isSynced))) as any).shielded.address;
+      const recipe = await walletCtx.wallet.transferTransaction(
+        [{ type: 'shielded', outputs: [{ type: vaultTokenTypeRaw(), receiverAddress: bAddr, amount: aBalance }] }],
+        { shieldedSecretKeys: walletCtx.shieldedSecretKeys, dustSecretKey: walletCtx.dustSecretKey },
+        { ttl: new Date(Date.now() + 30 * 60 * 1000) },
+      );
+      const signed = await walletCtx.wallet.signRecipe(recipe, (p: Uint8Array) => walletCtx.unshieldedKeystore.signData(p));
+      await walletCtx.wallet.submitTransaction(await walletCtx.wallet.finalizeRecipe(signed));
+      // Wait for A → 0 and B → aBalance.
+      await Rx.firstValueFrom(walletCtx.wallet.state().pipe(Rx.throttleTime(5000), Rx.filter((s: any) => s.isSynced && (s.shielded.balances[vaultTokenTypeRaw()] ?? 0n) === 0n)));
+      await Rx.firstValueFrom(bCtx.wallet.state().pipe(Rx.throttleTime(5000), Rx.filter((s: any) => s.isSynced && (s.shielded.balances[vaultTokenTypeRaw()] ?? 0n) >= testAmount)));
+      ok('value transferred A → B');
+
+      // #3 — A now holds 0 vault tokens: its withdraw cannot be funded → must fail.
+      const vaultNonceA = BigInt(await sepolia().getTransactionCount(vaultEvmAddress()));
+      await expect(
+        deployedContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, await shieldedPk(), testEvmChainId, vaultNonceA, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema),
+      ).rejects.toThrow();
+      ok('#3 — original owner (0 balance) can no longer withdraw');
+
+      // #4 — B holds the balance and withdraws (arbitrary coin nonce, balance-funded).
+      const ledB = await api.getLedgerState(bProviders, DEPLOYED_CONTRACT_ADDRESS!);
+      const vaultNonceB = BigInt(await sepolia().getTransactionCount(vaultEvmAddress()));
+      const wrid = buildWithdrawRid(ledB!.signetNonce ?? 0n, vaultNonceB, DEST_EVM, testAmount);
+      const wridHex = Buffer.from(wrid).toString('hex');
+
+      const mpcP = handleMpcWebSocket(MPC_WS_URL, wridHex, SEPOLIA_RPC_URL);
+      await bContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, await shieldedPk(bCtx), testEvmChainId, vaultNonceB, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
+      ok('#4 — new owner (B) withdrew from the transferred balance');
+
+      const resp = await mpcP;
+      const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
+      // #7 — completeWithdraw is permissionless: wallet A finalizes B's withdrawal.
+      await deployedContract.callTx.completeWithdraw(wrid, out, resp.pk, resp.announcement, resp.response);
+      ok('#7 — third party (A) finalized B’s withdrawal (permissionless)');
+
+      await bCtx.wallet.stop();
+    },
+    1000 * 60 * 20,
   );
 });

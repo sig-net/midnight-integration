@@ -75,12 +75,12 @@ console.log(`initialized: ${ledger!.initialized}`);
 console.log(`mpcPubKeyHash: ${Buffer.from(ledger!.mpcPubKeyHash).toString('hex')}`);
 console.log(`sepoliaVaultAddress: 0x${Buffer.from(ledger!.sepoliaVaultAddress).toString('hex')}`);
 
-// Derive user's Sepolia address (where the user must fund USDC before deposit)
-// The user's path = identity commitment in first 32 bytes of Bytes<256>
-const userPath = new Uint8Array(256);
-userPath.set(hash2x32(pad32('vault:user:'), secretKey), 0);
-const userPathHex = Buffer.from(userPath).toString('hex');
-const userEvmAddress = deriveEvmAddress(MPC_SECP256K1_PUBKEY, contractAddress, userPathHex);
+// Derive user's Sepolia address (where the user must fund USDC before deposit).
+// The derivation path is the lowercase hex of the user's identity commitment —
+// the same string the contract stores (and verifies) in the path field, and that
+// the MPC reads back as a plain string.
+const commitmentHex = Buffer.from(deployerCommitment).toString('hex');
+const userEvmAddress = deriveEvmAddress(MPC_SECP256K1_PUBKEY, contractAddress, commitmentHex);
 
 console.log('\n=== E2E Setup Complete ===');
 console.log(`MIDNIGHT_CONTRACT_ADDRESS=${contractAddress}`);

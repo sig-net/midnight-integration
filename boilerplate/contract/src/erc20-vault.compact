@@ -55,13 +55,51 @@ export ledger signetOutputData: Map<Bytes<32>, Bytes<4096>>;   // index 21
 export ledger initialized: Counter;
 export ledger sepoliaVaultAddress: Bytes<20>;
 sealed ledger deployer: Bytes<32>;
+// Pending withdrawals: requestId -> refund recipient (Zswap public key bytes),
+// so a failed withdrawal can be re-minted to a user-chosen key. Declared after
+// all signet fields so it never shifts their positions.
+export ledger refundRecipient: Map<Bytes<32>, Bytes<32>>;
+// Coins surrendered via withdraw() are taken into this contract-held slot with
+// writeCoin (the escrow pattern), giving the contract explicit possession of the
+// received coin. NOTE: what makes a receive combined with other circuit logic
+// *balanceable* is kernel.checkpoint() (the guaranteed/fallible segment boundary),
+// not writeCoin — see the comment in withdraw().
+export ledger heldCoin: QualifiedShieldedCoinInfo;
 
 // ---- Witness: get the caller's secret key for identity ----
 witness callerSecretKey(): Bytes<32>;
 
+
 // ---- Helper: compute user identity commitment from secret key ----
 circuit userCommitment(sk: Bytes<32>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([pad(32, "vault:user:"), sk]);
+}
+
+// ---- Hex helpers: verify a path holds the canonical hex of a commitment ----
+// Compact cannot ENCODE bytes->hex in-circuit (nibble extraction needs integer
+// div/mod/shift, which the prime field has no native op for). But it CAN DECODE
+// hex->bytes with multiply/add/compare. So the derivation path (a public value)
+// carries the hex string, and we verify in-circuit that it canonically decodes
+// to the commitment. The prover cannot supply a wrong or non-canonical string,
+// so this is as strong as computing the hex on-chain — and it lets the MPC treat
+// the path as a plain opaque string (no hex special-case in the MPC).
+circuit charToNibble(c: Uint<8>): Uint<8> {
+  const isDigit = (c >= 48) && (c <= 57);   // '0'..'9'
+  const isLower = (c >= 97) && (c <= 102);  // 'a'..'f' (lowercase only => canonical)
+  assert(isDigit || isLower, "non-canonical hex char");
+  const base = c - 48;                        // safe: c >= 48 in both accepted ranges
+  const adjust = isLower ? 39 : 0;            // 'a'(97) - 48 - 39 = 10
+  return base - adjust;                       // digit: base 0..9 (adjust 0); lower: base 49..54 (adjust 39)
+}
+
+// Assert that hexStr (64 lowercase hex chars) decodes exactly to commitment.
+circuit assertHexOf(commitment: Bytes<32>, hexStr: Bytes<64>): [] {
+  for (const i of 0 .. 32) {
+    const hi = charToNibble(slice<1>(hexStr, 2 * i) as Uint<8>);
+    const lo = charToNibble(slice<1>(hexStr, 2 * i + 1) as Uint<8>);
+    assert((slice<1>(commitment, i) as Field) == (hi as Field) * 16 + (lo as Field),
+           "path hex does not match commitment");
+  }
 }
 
 // The MPC key is sealed at deployment. The vault address depends on the
@@ -70,6 +108,7 @@ circuit userCommitment(sk: Bytes<32>): Bytes<32> {
 constructor(mpcPk: JubjubPoint, deployerCommitment: Bytes<32>) {
   mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
   deployer = disclose(deployerCommitment);
+  heldCoin = default<QualifiedShieldedCoinInfo>;
 }
 
 export circuit initialize(sepoliaVault: Bytes<20>): [] {
@@ -165,12 +204,13 @@ export circuit deposit(
   assert(evmGasLimit > 0 as Uint<64>, "Gas limit must be positive");
 
   // Get caller's secret key and compute identity commitment.
-  // The path must embed the commitment in its first 32 bytes (MPC derivation path).
-  // We verify this in-circuit — can't use `as Field as Bytes<256>` because
-  // Bytes<32> can exceed the BLS scalar field (~2^253).
+  // The path carries the canonical lowercase hex of the commitment (64 chars),
+  // zero-padded to 256 bytes. We verify the hex decodes to the commitment, so the
+  // MPC can use the path as an opaque derivation string (no hex special-case).
   const sk = callerSecretKey();
   const caller = disclose(userCommitment(sk));
-  assert(slice<32>(path, 0) == caller, "Path must contain identity commitment");
+  assertHexOf(caller, slice<64>(path, 0));
+  assert(slice<192>(path, 64) == pad(192, ""), "Path must be zero-padded after hex");
 
   // Read current nonce
   const nonceValue = signetNonce as Uint<64>;
@@ -234,6 +274,133 @@ export circuit deposit(
 }
 
 // ============================================================
+// Withdraw: surrender shielded tokens to pull ERC20 out of the vault
+// ============================================================
+// Optimistic model (mirrors the Hydration/Solana erc20-vault):
+//   - The user surrenders `amount` of their shielded vault coin up front.
+//   - A signet request transfers the ERC20 FROM the vault address
+//     (path = "vault") to destEvmAddress; the user broadcasts it.
+//   - On EVM failure the MPC returns a 0xdeadbeef output and the user
+//     calls completeWithdraw() to re-mint the coin (refund).
+export circuit withdraw(
+  erc20Address: Bytes<20>,
+  amount: Uint<128>,
+  coin: ShieldedCoinInfo,
+  destEvmAddress: Bytes<20>,
+  refundPk: ZswapCoinPublicKey,
+  evmChainId: Uint<64>,
+  evmNonce: Uint<64>,
+  evmGasLimit: Uint<64>,
+  evmMaxFee: Uint<128>,
+  evmPriorityFee: Uint<128>,
+  evmValue: Uint<128>,
+  caip2Id: Bytes<64>,
+  keyVersion: Uint<32>,
+  algo: Bytes<32>,
+  dest: Bytes<64>,
+  params: Bytes<512>,
+  outputSchema: Bytes<256>,
+  respondSchema: Bytes<256>
+): [] {
+  // ---- Validate, then receive + take possession, then checkpoint ----
+  // The wallet can only balance a receive that's combined with other circuit logic
+  // if the coin offer sits in the GUARANTEED transcript segment. kernel.checkpoint()
+  // (below) closes that segment after the receive, so the ~15 signet ledger writes
+  // land in the FALLIBLE segment and don't drag the coin offer with them (otherwise:
+  // "Could not create a valid guaranteed offer"). Validation runs BEFORE the receive
+  // and is therefore guaranteed, so a bad coin/params fails and the tx can't be
+  // proven → the coin is never taken (atomic). The wallet funds the coin from the
+  // caller's balance (Zswap: only coins they hold), so the spend IS the authorization
+  // (no depositor check; any dest).
+  assert(initialized >= 1, "Not initialized");
+  assert(amount > 0 as Uint<128>, "Amount must be positive");
+  assert(amount <= 18446744073709551615 as Uint<128>, "Amount exceeds Uint<64> max");
+  assert(evmValue == 0 as Uint<128>, "No ETH value for ERC20 transfer");
+  assert(erc20Address as Field != 0 as Field, "ERC20 address cannot be zero");
+  assert(evmChainId > 0 as Uint<64>, "Chain ID must be positive");
+  assert(evmGasLimit > 0 as Uint<64>, "Gas limit must be positive");
+  // The surrendered coin must be the vault token for THIS ERC20, of exactly `amount`,
+  // so a worthless coin can never pull a real ERC20 from the vault.
+  const domainSep = persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "erc20:vault:"),
+    disclose(erc20Address) as Field as Bytes<32>
+  ]);
+  const color = tokenType(domainSep, kernel.self());
+  assert(coin.color == color, "Coin is not the vault token for this ERC20");
+  assert(coin.value == amount, "Coin value must equal the withdraw amount");
+  // ---- Compute requestId + reject duplicates BEFORE taking the coin (guaranteed) ----
+  // requestId depends only on signetNonce + the EVM params, NOT on the surrendered coin, so
+  // two concurrent identical withdraws (a retry race) funded by different coins compute the
+  // SAME id. Checking membership here — in the guaranteed segment, before receiveShielded —
+  // means a duplicate fails a guaranteed assert → the whole tx is rejected → the coin is never
+  // taken. If this check sat after the checkpoint (fallible), the receive would already have
+  // committed while the fallible segment rolled back, stranding the coin. The check adds only
+  // reads (a hash + a member lookup) to the guaranteed cost budget.
+  const path = pad(256, "vault");
+  const nonceValue = signetNonce as Uint<64>;
+  const calldataFuncSig = pad(256, "transfer(address,uint256)");
+  // args = [destEvmAddress, amount]
+  const calldataArgsCommitment = persistentHash<Vector<2, Bytes<32>>>([
+    destEvmAddress as Field as Bytes<32>,
+    amount as Field as Bytes<32>
+  ]);
+  const requestId = disclose(signet_request_id(
+    nonceValue,
+    evmChainId, evmNonce, evmGasLimit, evmMaxFee, evmPriorityFee, evmValue,
+    erc20Address,
+    calldataFuncSig,
+    calldataArgsCommitment,
+    caip2Id, keyVersion, path, algo, dest, params, outputSchema, respondSchema
+  ));
+  assert(!signetRequestNonce.member(requestId), "Request already exists");
+
+  receiveShielded(disclose(coin));
+  heldCoin.writeCoin(disclose(coin), right<ZswapCoinPublicKey, ContractAddress>(kernel.self()));
+
+  // checkpoint() closes the guaranteed atomic unit: all validation + the duplicate-request
+  // check + the receive + writeCoin are guaranteed, so the wallet funds the coin offer in the
+  // guaranteed Zswap offer AND a duplicate/bad input is rejected before the coin is taken. The
+  // ~15 signet writes below fall in the fallible segment (too costly for the guaranteed
+  // budget). Because the only operation that can fail (the duplicate check) is now guaranteed,
+  // the fallible segment has no failure path: the coin-take and the refund record can never
+  // come apart, so a surrendered coin can't be stranded.
+  kernel.checkpoint();
+
+  signetNonce.increment(1);
+
+  // ---- Store calldata args ----
+  signetCalldataFuncSig.insert(requestId, disclose(calldataFuncSig));
+  signetCalldataArgCount.insert(requestId, 2 as Uint<32>);
+  const argKey0 = calldataArgKey(requestId, 0 as Field);
+  signetCalldataArgs.insert(argKey0, disclose(destEvmAddress as Field as Bytes<32>));
+  const argKey1 = calldataArgKey(requestId, 1 as Field);
+  signetCalldataArgs.insert(argKey1, disclose(amount as Field as Bytes<32>));
+
+  // ---- Store EVM tx params ----
+  signetEvmTo.insert(requestId, disclose(erc20Address));
+  signetEvmChainId.insert(requestId, disclose(evmChainId));
+  signetEvmNonce.insert(requestId, disclose(evmNonce));
+  signetEvmGasLimit.insert(requestId, disclose(evmGasLimit));
+  signetEvmMaxFee.insert(requestId, disclose(evmMaxFee));
+  signetEvmPriorityFee.insert(requestId, disclose(evmPriorityFee));
+  signetEvmValue.insert(requestId, disclose(evmValue));
+
+  // ---- Store routing fields ----
+  signetRequestNonce.insert(requestId, nonceValue);
+  signetCaip2Id.insert(requestId, disclose(caip2Id));
+  signetKeyVersion.insert(requestId, disclose(keyVersion));
+  signetPath.insert(requestId, disclose(path));
+  signetAlgo.insert(requestId, disclose(algo));
+  signetDest.insert(requestId, disclose(dest));
+  signetParams.insert(requestId, disclose(params));
+  signetOutputSchema.insert(requestId, disclose(outputSchema));
+  signetRespondSchema.insert(requestId, disclose(respondSchema));
+
+  // ---- Record refund recipient for failure ----
+  refundRecipient.insert(requestId, disclose(refundPk.bytes));
+}
+
+// ============================================================
 // Claim: user claims tokens after MPC confirms EVM tx success
 // ============================================================
 // The user calls claim() with the MPC's Schnorr signature over
@@ -284,9 +451,10 @@ export circuit claim(
   const sk = callerSecretKey();
   const caller = userCommitment(sk);
 
-  // Verify caller is the original depositor (path's first 32 bytes = commitment)
+  // Verify caller is the original depositor: the stored path's hex decodes to
+  // this caller's commitment.
   const storedPath = signetPath.lookup(rid);
-  assert(slice<32>(storedPath, 0) == caller, "Not the original depositor");
+  assertHexOf(caller, slice<64>(storedPath, 0));
 
   // Read amount from calldata args[1] and erc20 address from evmTo
   const amountBytes = signetCalldataArgs.lookup(calldataArgKey(rid, 1 as Field));
@@ -306,9 +474,6 @@ export circuit claim(
   ]);
   const recipient = left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey());
   mintShieldedToken(domainSep, amount as Uint<64>, mintNonce, recipient);
-
-  // Store outputData for auditability
-  signetOutputData.insert(rid, disclose(outputData));
 
   // Clean up: remove all signet maps for this request
   // Calldata args (compound keys — 2 args for ERC20 vault)
@@ -340,3 +505,88 @@ export circuit claim(
   signetRespondSchema.remove(rid);
 }
 
+// ============================================================
+// Complete withdrawal: finalize a withdraw; refund on failure
+// ============================================================
+// On success the withdrawal is final (the ERC20 already left the vault).
+// On a 0xdeadbeef failure (or a transfer that returned false), the
+// surrendered shielded coin is re-minted to the withdrawer.
+export circuit completeWithdraw(
+  requestId: Bytes<32>,
+  outputData: Bytes<4096>,
+  pk: JubjubPoint,
+  announcement: JubjubPoint,
+  response: Field
+): [] {
+  const rid = disclose(requestId);
+
+  // pk must be the MPC's registered key
+  assert(persistentHash<JubjubPoint>(pk) == mpcPubKeyHash, "Unauthorized: wrong public key");
+
+  // Schnorr-verify the MPC response over (requestId, hash(outputData))
+  const outHash = persistentHash<Bytes<4096>>(outputData);
+  const msg = [
+    slice<16>(rid, 0) as Field,
+    slice<16>(rid, 16) as Field,
+    slice<16>(outHash, 0) as Field,
+    slice<16>(outHash, 16) as Field
+  ];
+  Schnorr_schnorrVerify<4>(
+    msg,
+    Schnorr_SchnorrSignature { announcement: announcement, response: response },
+    pk
+  );
+
+  // Must be a pending withdrawal. Permissionless: the refund always goes to the
+  // recipient pinned at withdraw time, so it doesn't matter who calls this.
+  assert(refundRecipient.member(rid), "Withdrawal not found");
+
+  // Refund unless the transfer succeeded. A success output's first byte is
+  // 0x01; a 0xdeadbeef failure (or a `false` return = 0x00) is not. Checking
+  // one byte avoids the BLS-field overflow that a full 32-byte cast risks.
+  // Disclosed: whether a refund happens is public (a mint is observable).
+  const succeeded = disclose(slice<1>(outputData, 0) as Field == 1);
+
+  if (!succeeded) {
+    const amountBytes = signetCalldataArgs.lookup(calldataArgKey(rid, 1 as Field));
+    const amount = amountBytes as Field as Uint<128>;
+    const erc20Addr = signetEvmTo.lookup(rid);
+    const domainSep = persistentHash<Vector<2, Bytes<32>>>([
+      pad(32, "erc20:vault:"),
+      erc20Addr as Field as Bytes<32>
+    ]);
+    const mintNonce = persistentHash<Vector<2, Bytes<32>>>([
+      pad(32, "erc20:refund:"),
+      rid
+    ]);
+    const recipient = left<ZswapCoinPublicKey, ContractAddress>(
+      ZswapCoinPublicKey { bytes: refundRecipient.lookup(rid) }
+    );
+    mintShieldedToken(domainSep, amount as Uint<64>, mintNonce, recipient);
+  }
+
+  // ---- Clean up the withdrawal + signet maps ----
+  refundRecipient.remove(rid);
+  const argKey0 = calldataArgKey(rid, 0 as Field);
+  const argKey1 = calldataArgKey(rid, 1 as Field);
+  signetCalldataArgs.remove(argKey0);
+  signetCalldataArgs.remove(argKey1);
+  signetCalldataFuncSig.remove(rid);
+  signetCalldataArgCount.remove(rid);
+  signetEvmTo.remove(rid);
+  signetEvmChainId.remove(rid);
+  signetEvmNonce.remove(rid);
+  signetEvmGasLimit.remove(rid);
+  signetEvmMaxFee.remove(rid);
+  signetEvmPriorityFee.remove(rid);
+  signetEvmValue.remove(rid);
+  signetRequestNonce.remove(rid);
+  signetCaip2Id.remove(rid);
+  signetKeyVersion.remove(rid);
+  signetPath.remove(rid);
+  signetAlgo.remove(rid);
+  signetDest.remove(rid);
+  signetParams.remove(rid);
+  signetOutputSchema.remove(rid);
+  signetRespondSchema.remove(rid);
+}
