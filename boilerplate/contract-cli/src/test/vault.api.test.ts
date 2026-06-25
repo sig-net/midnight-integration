@@ -47,7 +47,7 @@ import { deriveEvmAddress } from '../crypto-utils';
 import { startEvmHarness, type EvmHarness } from './evm-harness';
 import { startMpcWatcher, type MpcWatcher } from './mpc-watcher';
 
-const logDir = path.resolve(currentDir, '..', 'logs', 'tests', `vault-${new Date().toISOString()}.log`);
+const logDir = path.resolve(currentDir, '..', 'logs', 'tests', `vault-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
 const logger = await createLogger(logDir);
 
 
