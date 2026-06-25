@@ -27,10 +27,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: npm
+
+      # package-lock.json is gitignored in this repo, so npm ci / setup-node's npm
+      # cache (both require a committed lockfile) can't be used — cache ~/.npm keyed
+      # on the manifests instead, and install with npm install.
+      - name: Cache npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('package.json', 'boilerplate/*/package.json') }}
+          restore-keys: npm-
 
       - name: Install workspace dependencies
-        run: npm ci
+        run: npm install
 
       # ── Compact toolchain ────────────────────────────────────────────────
       - name: Install the Compact developer tools

@@ -19,8 +19,8 @@ cd "$ROOT"
 
 phase() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
-phase "1/6  Install workspace dependencies (npm ci)"
-npm ci
+phase "1/6  Install workspace dependencies (npm install — lockfile is gitignored)"
+npm install
 
 phase "2/6  Compile the contract — full ZK, generates ~428MB of proving keys"
 compact compile boilerplate/contract/src/erc20-vault.compact boilerplate/contract/src/managed/erc20-vault
