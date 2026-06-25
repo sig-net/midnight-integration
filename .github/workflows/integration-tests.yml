@@ -1,0 +1,102 @@
+name: integration-tests
+
+# Runs the vault integration suite (vault.api.test.ts) on every PR. The suite drives
+# the real flow end to end: a dockerized Midnight standalone stack (node + indexer +
+# proof-server) for the contract, a local Hardhat EVM for the cross-chain leg, and a
+# simulated MPC (watcher) that signs only requests it observes on-chain.
+
+on:
+  pull_request:
+  workflow_dispatch:        # lets you trigger a run by hand from the Actions tab
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true  # a new push to the PR cancels the in-flight run
+
+jobs:
+  vault-integration:
+    runs-on: ubuntu-latest   # 4 vCPU / 16 GB — proof-server is restarted per test to stay under it
+    timeout-minutes: 90      # full ZK compile + ~13 proven txs is slow
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      # ── Compact toolchain ────────────────────────────────────────────────
+      - name: Install the Compact developer tools
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+          # the installer drops `compact` in ~/.local/bin; expose it to later steps
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Select the pinned compiler version
+        run: compact update 0.31.0
+
+      # The 428 MB of proving keys are a pure function of the .compact source +
+      # compiler version, so cache them and only recompile when the source changes.
+      - name: Cache compiled contract (ZK keys)
+        id: zk-cache
+        uses: actions/cache@v4
+        with:
+          path: boilerplate/contract/src/managed
+          key: zk-0.31.0-${{ hashFiles('boilerplate/contract/src/erc20-vault.compact') }}
+
+      - name: Compile the contract (full ZK)
+        if: steps.zk-cache.outputs.cache-hit != 'true'
+        run: compact compile boilerplate/contract/src/erc20-vault.compact boilerplate/contract/src/managed/erc20-vault
+
+      - name: Build the contract workspace
+        # tsc → dist/index.js (imported as @midnight-ntwrk/contract) and copies the
+        # managed keys/zkir into dist/managed, where the ZK config provider reads them.
+        run: npm run build -w boilerplate/contract
+
+      # ── Local EVM (not a workspace; installs + compiles on its own) ───────
+      - name: Build the local-EVM harness
+        working-directory: boilerplate/evm
+        run: |
+          npm install
+          npx hardhat compile
+
+      # ── Dockerized Midnight standalone stack ─────────────────────────────
+      - name: Start the standalone stack (node + indexer + proof-server)
+        working-directory: boilerplate/contract-cli
+        run: |
+          docker compose -f standalone.yml pull
+          docker compose -f standalone.yml up -d
+          ./scripts/wait-for-stack.sh
+
+      - name: Run the vault integration suite
+        working-directory: boilerplate/contract-cli
+        run: npx vitest run src/test/vault.api.test.ts
+
+      # ── Always: surface results, then tear the stack down ────────────────
+      - name: Upload test report and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-artifacts
+          path: |
+            boilerplate/contract-cli/reports/report.xml
+            boilerplate/contract-cli/logs/**
+          if-no-files-found: ignore
+
+      - name: Dump stack logs on failure
+        if: failure()
+        working-directory: boilerplate/contract-cli
+        run: docker compose -f standalone.yml logs --no-color --tail=200
+
+      - name: Tear down the standalone stack
+        if: always()
+        working-directory: boilerplate/contract-cli
+        run: docker compose -f standalone.yml down -v
