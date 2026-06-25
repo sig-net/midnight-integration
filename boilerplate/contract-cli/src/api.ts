@@ -3,7 +3,7 @@ import { contracts, witnesses } from '@midnight-ntwrk/contract';
 import * as CompiledContract from '@midnight-ntwrk/compact-js/effect/CompiledContract';
 import * as ledger from '@midnight-ntwrk/ledger-v8';
 import { unshieldedToken } from '@midnight-ntwrk/ledger-v8';
-import { deployContract, findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
+import { deployContract, findDeployedContract, submitCallTx, createCallTxOptions } from '@midnight-ntwrk/midnight-js-contracts';
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
@@ -280,7 +280,8 @@ const deriveKeysFromSeed = (seed: string) => {
   return derivationResult.keys;
 };
 
-export const buildWalletAndWaitForFunds = async (
+// Build + sync a wallet without blocking on funds (for a wallet genesis doesn't endow).
+export const buildWallet = async (
   config: Config,
   seed: string,
 ): Promise<WalletContext> => {
@@ -308,21 +309,104 @@ export const buildWalletAndWaitForFunds = async (
 
   logger.info(`Your wallet seed is: ${seed}`);
   logger.info(`Unshielded address: ${unshieldedKeystore.getBech32Address()}`);
+  await waitForSync(wallet);
 
-  // Wait for sync
-  const syncedState = await waitForSync(wallet);
+  return { wallet, shieldedSecretKeys, dustSecretKey, unshieldedKeystore };
+};
+
+export const buildWalletAndWaitForFunds = async (
+  config: Config,
+  seed: string,
+): Promise<WalletContext> => {
+  const ctx = await buildWallet(config, seed);
+  const syncedState = await waitForSync(ctx.wallet);
 
   const balance = syncedState.unshielded.balances[unshieldedToken().raw] ?? 0n;
   if (balance === 0n) {
     logger.info('Your wallet balance is: 0');
     logger.info('Waiting to receive tokens...');
-    const fundedBalance = await waitForFunds(wallet);
+    const fundedBalance = await waitForFunds(ctx.wallet);
     logger.info(`Your wallet balance is: ${fundedBalance}`);
   } else {
     logger.info(`Your wallet balance is: ${balance}`);
   }
 
-  return { wallet, shieldedSecretKeys, dustSecretKey, unshieldedKeystore };
+  return ctx;
+};
+
+// Fund a fresh wallet's proving fees: transfer NIGHT, then register it for dust generation
+// (register → finalizeRecipe → submit — do NOT also signRecipe, or the node rejects with
+// "Custom error: 192"). Returns the resulting dust balance.
+export const fundWalletForFees = async (
+  funder: WalletContext,
+  target: WalletContext,
+  nightAmount: bigint,
+): Promise<bigint> => {
+  const NIGHT = unshieldedToken().raw;
+  const readDust = (s: any): bigint => {
+    const bal = s.dust.balance(new Date());
+    return typeof bal === 'bigint' ? bal : BigInt(bal ?? 0);
+  };
+
+  // 1. funder → target NIGHT transfer (funder pays the fee from its own dust).
+  const tState: any = await Rx.firstValueFrom(target.wallet.state().pipe(Rx.filter((s) => s.isSynced)));
+  const recipe = await funder.wallet.transferTransaction(
+    [{ type: 'unshielded', outputs: [{ type: NIGHT, receiverAddress: tState.unshielded.address, amount: nightAmount }] }],
+    { shieldedSecretKeys: funder.shieldedSecretKeys, dustSecretKey: funder.dustSecretKey },
+    { ttl: new Date(Date.now() + 30 * 60 * 1000) },
+  );
+  const signed = await funder.wallet.signRecipe(recipe, (p) => funder.unshieldedKeystore.signData(p));
+  await funder.wallet.submitTransaction(await funder.wallet.finalizeRecipe(signed));
+  logger.info(`Funding ${nightAmount} NIGHT → target wallet; waiting for receipt...`);
+
+  // 2. wait for the target to receive the NIGHT.
+  const funded: any = await Rx.firstValueFrom(
+    target.wallet.state().pipe(
+      Rx.throttleTime(3000),
+      Rx.filter((s: any) => s.isSynced && (s.unshielded.balances[NIGHT] ?? 0n) >= nightAmount),
+    ),
+  );
+
+  // 3. register the received NIGHT for dust generation (documented flow; no signRecipe).
+  await target.wallet
+    .registerNightUtxosForDustGeneration(
+      funded.unshielded.availableCoins,
+      target.unshieldedKeystore.getPublicKey(),
+      (p) => target.unshieldedKeystore.signData(p),
+    )
+    .then((r) => target.wallet.finalizeRecipe(r))
+    .then((tx) => target.wallet.submitTransaction(tx));
+  logger.info('Dust registration submitted; waiting for dust to appear...');
+
+  // 4. wait for a spendable dust (fee) balance to appear.
+  const ready: any = await Rx.firstValueFrom(
+    target.wallet.state().pipe(
+      Rx.throttleTime(5000),
+      Rx.filter((s: any) => s.isSynced && readDust(s) > 0n),
+    ),
+  );
+  const dust = readDust(ready);
+  logger.info(`Target wallet dust (fee) balance: ${dust}`);
+  return dust;
+};
+
+// completeWithdraw with optional coinPublicKey → encryptionPublicKey mappings, needed when
+// the refund mints to another wallet's key (the prover needs its encryption key).
+export const completeWithdrawWithMappings = async (
+  providers: VaultProviders,
+  contractAddress: string,
+  args: unknown[],
+  coinToEncPk?: ReadonlyMap<string, string>,
+) => {
+  const opts = createCallTxOptions(
+    vaultCompiledContract,
+    'completeWithdraw',
+    contractAddress as any,
+    'vaultPrivateState',
+    coinToEncPk as any,
+    args as any,
+  );
+  return submitCallTx(providers as any, opts as any);
 };
 
 export const randomBytes = (length: number): Uint8Array => {
@@ -336,7 +420,7 @@ export const buildFreshWallet = async (config: Config): Promise<WalletContext> =
 
 export const configureProviders = async (ctx: WalletContext, config: Config) => {
   const walletAndMidnightProvider = await createWalletAndMidnightProvider(ctx);
-  const zkConfigProvider = new NodeZkConfigProvider<'initialize' | 'deposit' | 'claim'>(contractConfig.zkConfigPath);
+  const zkConfigProvider = new NodeZkConfigProvider<'initialize' | 'deposit' | 'claim' | 'withdraw' | 'completeWithdraw'>(contractConfig.zkConfigPath);
   const accountId = walletAndMidnightProvider.getCoinPublicKey();
   const storagePassword = `${Buffer.from(accountId, 'hex').toString('base64')}!`;
   return {
