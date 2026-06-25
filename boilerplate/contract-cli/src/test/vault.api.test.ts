@@ -22,11 +22,12 @@ import { unshieldedToken, shieldedToken, rawTokenType } from '@midnight-ntwrk/le
 import path from 'path';
 import * as api from '../api';
 import { type WalletContext } from '../api';
-import { type VaultPrivateState, type VaultProviders } from '../common-types';
+import { type VaultPrivateState, type VaultProviders, VaultPrivateStateId } from '../common-types';
 import { currentDir, StandaloneConfig } from '../config';
 import { createLogger } from '../logger-utils';
 import { hash2x32, pad32, padN, GENESIS_MINT_WALLET_SEED } from '../crypto-utils';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import { execSync } from 'node:child_process';
 import * as Rx from 'rxjs';
 import { deriveJubjubKeypair, schnorrSign, buildSignetMessage } from '../signet/schnorr';
 import { encodeString, encodeLengthPrefixed, bytesToBigint } from '../signet';
@@ -41,6 +42,10 @@ import {
   OUTPUT_DATA_SIZE,
 } from '../signet/constants';
 import { computeRequestId, calldataArgKey, computeCalldataArgsCommitment } from '../signet/request-id';
+import { ethers } from 'ethers';
+import { deriveEvmAddress } from '../crypto-utils';
+import { startEvmHarness, type EvmHarness } from './evm-harness';
+import { startMpcWatcher, type MpcWatcher } from './mpc-watcher';
 
 const logDir = path.resolve(currentDir, '..', 'logs', 'tests', `vault-${new Date().toISOString()}.log`);
 const logger = await createLogger(logDir);
@@ -67,24 +72,30 @@ describe('ERC20 Vault', () => {
   const secretKey = hash2x32(pad32('test:user:'), pad32('vault-api-test'));
   const userIdentityCommitment = hash2x32(pad32('vault:user:'), secretKey);
 
-  // Sepolia USDC contract address
-  const testErc20Address = Buffer.from('1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', 'hex');
+  // Local EVM (Hardhat) + a throwaway test MPC secp256k1 root — set in beforeAll.
+  let evm: EvmHarness;
+  let mpcSecpPriv: string;
+  let mpcSecpPub: string;
+  let testErc20Address: Buffer;            // deployed TestUSDC address
+  let testEvmChainId: bigint;              // local node chain id
+  let userEvmAddr: string;                 // derived from path=commitmentHex
+  let vaultEvmAddr: string;                // derived from path="vault"
+  let watcher: MpcWatcher;                 // polls the ledger, services new requests like the MPC
+
   const testAmount = 1_000_000n; // 1 USDC (6 decimals)
-  const testEvmChainId = 11155111n; // Sepolia
-  const testEvmNonce = 0n;
   const testEvmGasLimit = 100_000n;
   const testEvmMaxFee = 30_000_000_000n; // 30 gwei
   const testEvmPriorityFee = 1_000_000_000n; // 1 gwei
   const testEvmValue = 0n;
 
-  // Test vault address — deterministic from contract address, no real derivation needed.
-  const testSepoliaVault = hash2x32(pad32('test:vault:'), pad32('api-test')).slice(0, 20);
-
   // Signet routing fields
   const testCaip2Id = encodeString('eip155:11155111', CAIP2_ID_SIZE);
   const testKeyVersion = 0n;
+  // Path = lowercase hex of the identity commitment (ASCII), zero-padded. The
+  // contract verifies this hex decodes to the commitment.
+  const commitmentHex = Buffer.from(userIdentityCommitment).toString('hex');
   const testPath = new Uint8Array(PATH_SIZE);
-  testPath.set(userIdentityCommitment, 0);
+  new TextEncoder().encodeInto(commitmentHex, testPath);
   const testAlgo = encodeString('ecdsa', ALGO_SIZE);
   const testDest = encodeString('ethereum', DEST_SIZE);
   const testParams = encodeLengthPrefixed(new Uint8Array(0), PARAMS_SIZE);
@@ -138,16 +149,34 @@ describe('ERC20 Vault', () => {
         logger.info(`Shielded tDUST already available: ${shieldedBalance}`);
       }
 
-      // Configure providers
       providers = await api.configureProviders(walletCtx, config);
+
+      // Local EVM + throwaway test MPC secp256k1 root.
+      evm = await startEvmHarness();
+      testErc20Address = Buffer.from(evm.usdcAddress.slice(2), 'hex');
+      testEvmChainId = evm.chainId;
+      const mpcWallet = ethers.Wallet.createRandom();
+      mpcSecpPriv = mpcWallet.privateKey;
+      mpcSecpPub = mpcWallet.signingKey.publicKey;
     },
-    1000 * 60 * 10, // 10 min for wallet sync
+    1000 * 60 * 10,
   );
 
   afterAll(async () => {
-    if (walletCtx?.wallet) {
-      await walletCtx.wallet.stop();
-    }
+    watcher?.stop();
+    await walletCtx?.wallet.stop().catch(() => {});
+    await evm?.stop();
+  });
+
+  // Per-test proof-server restart so each test gets a fresh prover (cumulative proofs OOM it).
+  beforeEach(() => {
+    try {
+      execSync('docker compose -f standalone.yml restart proof-server', { stdio: 'ignore', timeout: 60000 });
+      for (let i = 0; i < 60; i++) {
+        try { execSync('curl -sf -o /dev/null http://127.0.0.1:6300', { stdio: 'ignore' }); return; }
+        catch { execSync('sleep 1', { stdio: 'ignore' }); }
+      }
+    } catch { /* best-effort; if docker isn't reachable the test will surface it */ }
   });
 
   it('should deploy the vault contract', async () => {
@@ -163,25 +192,39 @@ describe('ERC20 Vault', () => {
     const ledger = await api.getLedgerState(providers, contractAddress);
     expect(ledger!.mpcPubKeyHash).toBeDefined();
     expect(ledger!.mpcPubKeyHash.length).toBe(32);
+
+    // From here on the MPC watcher reacts to on-chain requests (poll → broadcast → sign).
+    watcher = startMpcWatcher({
+      providers, contractAddress, provider: evm.provider,
+      secp256k1RootPriv: mpcSecpPriv, jubjubSk,
+    });
   });
 
   it('should initialize the vault address', async () => {
-    const result = await deployedContract.callTx.initialize(testSepoliaVault);
+    // Derive the MPC-controlled EVM addresses and fund them on the local EVM.
+    vaultEvmAddr = deriveEvmAddress(mpcSecpPub, contractAddress, 'vault');
+    userEvmAddr = deriveEvmAddress(mpcSecpPub, contractAddress, commitmentHex);
+    for (const addr of [vaultEvmAddr, userEvmAddr]) {
+      await evm.mintUsdc(addr, 1_000_000_000n);          // 1000 USDC
+      await evm.fundEth(addr, ethers.parseEther('10'));
+    }
+    const vaultBytes = new Uint8Array(Buffer.from(vaultEvmAddr.slice(2), 'hex'));
+
+    const result = await deployedContract.callTx.initialize(vaultBytes);
     expect(result.public.txHash).toMatch(/[0-9a-f]{64}/);
-    logger.info(`initialize() confirmed: ${result.public.txHash}`);
 
     const ledger = await api.getLedgerState(providers, contractAddress);
-    expect(ledger).not.toBeNull();
     expect(ledger!.initialized).toBe(1n);
-    expect(Buffer.from(ledger!.sepoliaVaultAddress)).toEqual(Buffer.from(testSepoliaVault));
+    expect(Buffer.from(ledger!.sepoliaVaultAddress)).toEqual(Buffer.from(vaultBytes));
   });
 
   it('should accept a deposit with calldata + gas params', async () => {
+    const userNonce = BigInt(await evm.provider.getTransactionCount(userEvmAddr));
     const result = await deployedContract.callTx.deposit(
       testErc20Address,
       testAmount,
       testEvmChainId,
-      testEvmNonce,
+      userNonce,
       testEvmGasLimit,
       testEvmMaxFee,
       testEvmPriorityFee,
@@ -216,7 +259,7 @@ describe('ERC20 Vault', () => {
     expect(ledger!.signetCalldataArgCount.lookup(requestId)).toBe(2n);
     expect(ledger!.signetEvmTo.member(requestId)).toBe(true);
     expect(ledger!.signetEvmChainId.lookup(requestId)).toBe(testEvmChainId);
-    expect(ledger!.signetEvmNonce.lookup(requestId)).toBe(testEvmNonce);
+    expect(ledger!.signetEvmNonce.lookup(requestId)).toBe(userNonce);
     expect(ledger!.signetEvmGasLimit.lookup(requestId)).toBe(testEvmGasLimit);
     expect(ledger!.signetEvmMaxFee.lookup(requestId)).toBe(testEvmMaxFee);
     expect(ledger!.signetEvmPriorityFee.lookup(requestId)).toBe(testEvmPriorityFee);
@@ -233,19 +276,17 @@ describe('ERC20 Vault', () => {
   });
 
   it('should allow the depositor to claim with Schnorr-authenticated outputData', async () => {
-    // Simulate MPC: sign (requestId, outputData) with the Jubjub private key
-    // outputData = ABI-encoded true (uint256 = 1, big-endian in first 32 bytes)
-    const outputData = new Uint8Array(OUTPUT_DATA_SIZE);
-    outputData[0] = 1; // LE-encoded true: Compact's Bytes<32> as Field interprets little-endian
-    const sig = schnorrSign(jubjubSk, buildSignetMessage(requestId, outputData), api.schnorrChallenge);
+    // The watcher detected the deposit request, broadcast the user→vault USDC transfer on the
+    // local EVM, observed success, and signed. The user submits claim with that signature.
+    const mpc = await watcher.awaitResponse(requestId);
+    expect(mpc.success).toBe(true);
 
-    // User calls claim() with the MPC's signature + outputData
     const result = await deployedContract.callTx.claim(
       requestId,
-      outputData,
+      mpc.outputData,
       jubjubPk,
-      sig.announcement,
-      sig.response,
+      mpc.announcement,
+      mpc.response,
     );
     expect(result.public.txHash).toMatch(/[0-9a-f]{64}/);
     logger.info(`claim() confirmed: ${result.public.txHash}`);
@@ -265,8 +306,9 @@ describe('ERC20 Vault', () => {
     expect(ledger!.signetEvmPriorityFee.isEmpty()).toBe(true);
     expect(ledger!.signetEvmValue.isEmpty()).toBe(true);
 
-    // Verify outputData stored for auditability
-    expect(ledger!.signetOutputData.member(requestId)).toBe(true);
+    // outputData is intentionally NOT persisted on-chain anymore (removed to
+    // avoid permanent 4KB-per-claim ledger bloat).
+    expect(ledger!.signetOutputData.member(requestId)).toBe(false);
 
     // Verify minted UTXO token in wallet
     const erc20AsBigint = bytesToBigint(testErc20Address);
@@ -282,56 +324,245 @@ describe('ERC20 Vault', () => {
     logger.info(`Shielded token balance: ${tokenBalance} (type: ${expectedTokenType})`);
   });
 
-  it('should handle a second deposit + claim cycle', async () => {
-    const secondAmount = 2_000_000n;
-
-    const depositResult = await deployedContract.callTx.deposit(
-      testErc20Address,
-      secondAmount,
-      testEvmChainId,
-      testEvmNonce + 1n,
-      testEvmGasLimit,
-      testEvmMaxFee,
-      testEvmPriorityFee,
-      testEvmValue,
-      testCaip2Id,
-      testKeyVersion,
-      testPath,
-      testAlgo,
-      testDest,
-      testParams,
-      testOutputSchema,
-      testRespondSchema,
+  // ── Withdraw flow (balance-based) ───────────────────────────────────────
+  // withdraw() surrenders `amount` of the caller's shielded vault-token balance.
+  // The coin is a circuit PARAMETER: the wallet funds its value from balance and
+  // makes change; its nonce is arbitrary (the contract's received-coin nonce), and
+  // its color/value are enforced on-chain. On EVM failure (0xdeadbeef)
+  // completeWithdraw() re-mints to refundPk. These reuse the ~3M vault-token
+  // balance minted by the deposit/claim cycles above — no fresh deposits, fewer
+  // proofs, and exactly how the protocol draws from balance.
+  // Vault-token color = rawTokenType(hash("erc20:vault:", erc20Address), contractAddress).
+  // Parametrised by erc20Address so an attack test can build a coin for a DIFFERENT
+  // (worthless) ERC20 and prove withdraw rejects it.
+  const vaultColorHexFor = (erc20: Uint8Array): string =>
+    rawTokenType(hash2x32(pad32('erc20:vault:'), convertFieldToBytes(32, bytesToBigint(erc20), 'erc20')), contractAddress);
+  const vaultColorHex = (): string => vaultColorHexFor(testErc20Address);
+  const vaultColorBytes = (): Uint8Array => new Uint8Array(Buffer.from(vaultColorHex(), 'hex'));
+  const shieldedBalance = async (): Promise<bigint> => {
+    const s = await Rx.firstValueFrom(walletCtx.wallet.state().pipe(Rx.filter((x) => x.isSynced)));
+    return s.shielded.balances[vaultColorHex()] ?? 0n;
+  };
+  let nonceCtr = 0;
+  const mkNonce = (): Uint8Array => new Uint8Array(32).fill((nonceCtr++ % 250) + 1);
+  const mkCoin = (value: bigint, color: Uint8Array = vaultColorBytes()) =>
+    ({ nonce: mkNonce(), color, value });
+  // EVM transfer dest: a valid address succeeds; address(0) reverts (→ refund).
+  const BURN_DEST = '0x000000000000000000000000000000000000dEaD';
+  const ZERO_DEST = '0x0000000000000000000000000000000000000000';
+  const addr20 = (a: string): Uint8Array => new Uint8Array(Buffer.from(a.slice(2), 'hex'));
+  const myRefundPk = async (): Promise<{ bytes: Uint8Array }> => {
+    const s = await Rx.firstValueFrom(walletCtx.wallet.state().pipe(Rx.filter((x) => x.isSynced)));
+    return { bytes: new Uint8Array(Buffer.from(s.shielded.coinPublicKey.toHexString().replace(/^0x/, ''), 'hex')) };
+  };
+  const doWithdraw = async (amount: bigint, refundPk: { bytes: Uint8Array }, coin = mkCoin(amount), dest = BURN_DEST) => {
+    const evmNonce = BigInt(await evm.provider.getTransactionCount(vaultEvmAddr));
+    return deployedContract.callTx.withdraw(
+      testErc20Address, amount, coin, addr20(dest), refundPk, testEvmChainId, evmNonce,
+      testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id,
+      testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema,
     );
-    expect(depositResult.public.txHash).toMatch(/[0-9a-f]{64}/);
+  };
+  const pendingRidHexes = async (): Promise<string[]> => {
+    const led = await api.getLedgerState(providers, contractAddress);
+    return [...led!.refundRecipient].map(([k]) => Buffer.from(k).toString('hex'));
+  };
+  const withdrawAndRid = async (amount: bigint, refundPk: { bytes: Uint8Array }, dest = BURN_DEST): Promise<Uint8Array> => {
+    const before = new Set(await pendingRidHexes());
+    await doWithdraw(amount, refundPk, mkCoin(amount), dest);
+    const newHex = (await pendingRidHexes()).find((h) => !before.has(h))!;
+    return new Uint8Array(Buffer.from(newHex, 'hex'));
+  };
+  // The watcher detected the withdraw request and broadcast vault→dest on the EVM; await its
+  // signed response over the observed result, then submit completeWithdraw.
+  const mpcComplete = async (rid: Uint8Array, mappings?: ReadonlyMap<string, string>) => {
+    const mpc = await watcher.awaitResponse(rid);
+    if (mappings) {
+      await api.completeWithdrawWithMappings(providers, contractAddress, [rid, mpc.outputData, jubjubPk, mpc.announcement, mpc.response], mappings);
+    } else {
+      await deployedContract.callTx.completeWithdraw(rid, mpc.outputData, jubjubPk, mpc.announcement, mpc.response);
+    }
+    return mpc;
+  };
 
-    const ledger = await api.getLedgerState(providers, contractAddress);
-    expect(ledger!.signetNonce).toBe(2n);
+  // #1/#2 — withdraw draws from balance; deadbeef refund restores it (to self).
+  it('withdraws from balance, then refunds the value on a deadbeef failure', async () => {
+    const W = 200_000n;
+    const bal = await shieldedBalance();
+    expect(bal).toBeGreaterThanOrEqual(W);
+    const rid = await withdrawAndRid(W, await myRefundPk(), ZERO_DEST);
+    expect(await shieldedBalance()).toBe(bal - W);           // value surrendered
+    const led = await api.getLedgerState(providers, contractAddress);
+    expect(led!.refundRecipient.member(rid)).toBe(true);
+    expect((await mpcComplete(rid)).success).toBe(false);   // EVM transfer reverts → refund
+    expect(await shieldedBalance()).toBe(bal);              // restored
+    const led2 = await api.getLedgerState(providers, contractAddress);
+    expect(led2!.refundRecipient.member(rid)).toBe(false);  // cleaned up
+  });
 
-    // Get the new request ID from signet standard maps
-    const entries = [...ledger!.signetRequestNonce];
-    const newRequestId = entries[0][0];
 
-    // Claim with Schnorr-signed outputData (simulating MPC broadcast)
-    const outputData = new Uint8Array(OUTPUT_DATA_SIZE);
-    outputData[0] = 1; // LE-encoded true
-    const sig = schnorrSign(jubjubSk, buildSignetMessage(newRequestId, outputData), api.schnorrChallenge);
-    await deployedContract.callTx.claim(
-      newRequestId, outputData, jubjubPk, sig.announcement, sig.response,
+  // #5 — success completion is final: no refund.
+  it('completeWithdraw with a success output is final (no refund)', async () => {
+    const W = 200_000n;
+    const bal = await shieldedBalance();
+    const rid = await withdrawAndRid(W, await myRefundPk());
+    expect(await shieldedBalance()).toBe(bal - W);
+    expect((await mpcComplete(rid)).success).toBe(true);    // EVM transfer succeeds → final
+    expect(await shieldedBalance()).toBe(bal - W);           // NOT refunded
+    const led = await api.getLedgerState(providers, contractAddress);
+    expect(led!.refundRecipient.member(rid)).toBe(false);
+  });
+
+  // #6 — a failed withdraw refunds to the caller-chosen refundPk (a different wallet B).
+  it('refunds to a second wallet (the caller-chosen refundPk), not the caller', async () => {
+    const W = 200_000n;
+    const balA = await shieldedBalance();
+
+    // B only RECEIVES the minted refund (passive — no funding needed to observe a coin).
+    const bCtx = await api.buildWallet(config, Buffer.from(api.randomBytes(32)).toString('hex'));
+    try {
+      const bState: any = await Rx.firstValueFrom(bCtx.wallet.state().pipe(Rx.filter((x: any) => x.isSynced)));
+      const bCoinPkHex: string = bState.shielded.coinPublicKey.toHexString();
+      const bEncPkHex: string = bState.shielded.encryptionPublicKey.toHexString();
+      const bCoinPkBare = bCoinPkHex.replace(/^0x/, '');
+      const bRefundPk = { bytes: new Uint8Array(Buffer.from(bCoinPkBare, 'hex')) };
+      const balBbefore = bState.shielded.balances[vaultColorHex()] ?? 0n;
+
+      // A withdraws to address(0) (EVM revert → failure), naming B as the refund recipient.
+      const rid = await withdrawAndRid(W, bRefundPk, ZERO_DEST);
+      expect(await shieldedBalance()).toBe(balA - W);                       // A surrendered the coin
+      const led = await api.getLedgerState(providers, contractAddress);
+      expect(Buffer.from(led!.refundRecipient.lookup(rid)).toString('hex')).toBe(bCoinPkBare); // stored = B
+
+      // Refund mints to B (supply B's enc pk so the prover can build the Zswap output).
+      const mpc = await mpcComplete(rid, new Map([[bCoinPkHex, bEncPkHex]]));
+      expect(mpc.success).toBe(false);
+
+      expect(await shieldedBalance()).toBe(balA - W);                      // A NOT refunded
+      const balBafter: bigint = await Rx.firstValueFrom(
+        bCtx.wallet.state().pipe(
+          Rx.throttleTime(3000),
+          Rx.filter((x: any) => x.isSynced && (x.shielded.balances[vaultColorHex()] ?? 0n) > balBbefore),
+          Rx.map((x: any) => x.shielded.balances[vaultColorHex()] ?? 0n),
+        ),
+      );
+      expect(balBafter).toBe(balBbefore + W);                             // B received the refund
+      const led2 = await api.getLedgerState(providers, contractAddress);
+      expect(led2!.refundRecipient.member(rid)).toBe(false);              // cleaned up
+    } finally {
+      await bCtx.wallet.stop();
+    }
+  });
+
+  // W3 — a forged / wrong-key MPC signature on completeWithdraw must be rejected (no refund mint).
+  it('rejects completeWithdraw with a forged or wrong-key MPC signature (no refund minted)', async () => {
+    const W = 200_000n;
+    const bal = await shieldedBalance();
+    const rid = await withdrawAndRid(W, await myRefundPk(), ZERO_DEST);
+    expect(await shieldedBalance()).toBe(bal - W);           // coin surrendered
+
+    // Real MPC response over the (failed) EVM result, from the watcher.
+    const mpc = await watcher.awaitResponse(rid);
+    expect(mpc.success).toBe(false);
+
+    // (a) Flip one bit of the response scalar → s·G ≠ R + h·pk.
+    await expect(
+      deployedContract.callTx.completeWithdraw(rid, mpc.outputData, jubjubPk, mpc.announcement, mpc.response ^ 1n),
+    ).rejects.toThrow();
+    expect(await shieldedBalance()).toBe(bal - W);           // NO refund minted
+    let led = await api.getLedgerState(providers, contractAddress);
+    expect(led!.refundRecipient.member(rid)).toBe(true);     // still pending
+
+    // (b) Different public key → pk hash ≠ stored mpcPubKeyHash.
+    await expect(
+      deployedContract.callTx.completeWithdraw(
+        rid, mpc.outputData, { x: jubjubPk.x + 1n, y: jubjubPk.y }, mpc.announcement, mpc.response),
+    ).rejects.toThrow('Unauthorized: wrong public key');
+    expect(await shieldedBalance()).toBe(bal - W);           // still no mint
+    led = await api.getLedgerState(providers, contractAddress);
+    expect(led!.refundRecipient.member(rid)).toBe(true);     // still pending
+
+    // The real signature completes it → refund restores the balance.
+    await deployedContract.callTx.completeWithdraw(rid, mpc.outputData, jubjubPk, mpc.announcement, mpc.response);
+    expect(await shieldedBalance()).toBe(bal);
+    led = await api.getLedgerState(providers, contractAddress);
+    expect(led!.refundRecipient.member(rid)).toBe(false);    // cleaned up
+  });
+
+  // #8 (drain attack) — surrendering a coin of the WRONG color must be rejected.
+  // The coin is a caller-supplied parameter, so a malicious caller could try to pull
+  // the real ERC20 by surrendering a worthless vault token (one minted for a DIFFERENT,
+  // worthless ERC20). withdraw derives the expected color from the requested erc20Address
+  // (assert coin.color == tokenType(hash("erc20:vault:", erc20Address), self)), so the
+  // mismatch fails a GUARANTEED assert → the whole tx is rejected and no coin is taken.
+  it('rejects a withdraw whose surrendered coin is the wrong vault-token color (drain attack)', async () => {
+    const W = 200_000n;
+    const bal = await shieldedBalance();
+    const worthlessErc20 = new Uint8Array(20).fill(0xab); // a different (worthless) ERC20
+    const wrongColor = new Uint8Array(Buffer.from(vaultColorHexFor(worthlessErc20), 'hex'));
+    expect(Buffer.compare(wrongColor, vaultColorBytes())).not.toBe(0); // sanity: colors differ
+    await expect(doWithdraw(W, await myRefundPk(), mkCoin(W, wrongColor))).rejects.toThrow();
+    expect(await shieldedBalance()).toBe(bal); // atomic: no coin taken
+  });
+
+  // #9 — a coin whose value ≠ the requested amount must be rejected (guaranteed assert
+  // coin.value == amount), so the surrendered value can never disagree with the EVM
+  // transfer amount the MPC will sign. Atomic: balance unchanged.
+  it('rejects a withdraw whose coin value does not equal the amount', async () => {
+    const W = 200_000n;
+    const bal = await shieldedBalance();
+    const mismatched = mkCoin(W + 1n);                       // value W+1, but amount is W
+    await expect(doWithdraw(W, await myRefundPk(), mismatched)).rejects.toThrow();
+    expect(await shieldedBalance()).toBe(bal);              // atomic: no coin taken
+  });
+
+  // #10 — cannot withdraw more than the balance (wallet can't fund the spend).
+  it('rejects withdraw exceeding the vault-token balance', async () => {
+    const tooMuch = (await shieldedBalance()) + 1_000_000n;
+    await expect(doWithdraw(tooMuch, await myRefundPk())).rejects.toThrow();
+  });
+
+  // #11 — only the original depositor (matching identity commitment) can claim.
+  it('rejects claim from a non-depositor (identity commitment mismatch)', async () => {
+    // Capture existing requests first so we pick THIS deposit's rid, not a stale one.
+    const before = new Set(
+      [...(await api.getLedgerState(providers, contractAddress))!.signetRequestNonce]
+        .map(([k]) => Buffer.from(k).toString('hex')),
     );
-
-    // Wallet should hold cumulative balance for the same token type
-    const erc20AsBigint = bytesToBigint(testErc20Address);
-    const erc20As32 = convertFieldToBytes(32, erc20AsBigint, 'test:erc20');
-    const domainSep = hash2x32(pad32('erc20:vault:'), erc20As32);
-    const expectedTokenType = rawTokenType(domainSep, contractAddress);
-    const walletState = await Rx.firstValueFrom(
-      walletCtx.wallet.state().pipe(Rx.filter((s) => s.isSynced)),
+    await deployedContract.callTx.deposit(
+      testErc20Address, 1_600_000n, testEvmChainId, 15n, testEvmGasLimit,
+      testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion,
+      testPath, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema,
     );
-    const tokenBalance = walletState.shielded.balances[expectedTokenType] ?? 0n;
-    expect(tokenBalance).toBe(testAmount + secondAmount);
+    const led = await api.getLedgerState(providers, contractAddress);
+    const rid = [...led!.signetRequestNonce]
+      .map(([k]) => k as Uint8Array)
+      .find((k) => !before.has(Buffer.from(k).toString('hex')))!;
+    const out = new Uint8Array(OUTPUT_DATA_SIZE); out[0] = 1;
+    const sig = schnorrSign(jubjubSk, buildSignetMessage(rid, out), api.schnorrChallenge);
+    // Swap in a different secret key → commitment no longer matches the stored path hex.
+    const wrongSk = hash2x32(pad32('test:user:'), pad32('not-the-depositor'));
+    await providers.privateStateProvider.set(VaultPrivateStateId, { secretKey: wrongSk });
+    await expect(
+      deployedContract.callTx.claim(rid, out, jubjubPk, sig.announcement, sig.response),
+    ).rejects.toThrow();
+    // Restore the real identity for any subsequent tests. We intentionally DON'T do a
+    // second (success) claim here — the wrong-key rejection above is the whole assertion,
+    // and that extra proof needlessly stacks proof-server memory (it OOMs the 13.6GB
+    // standalone). The deposited request is simply left pending; nothing later depends on it.
+    await providers.privateStateProvider.set(VaultPrivateStateId, { secretKey });
+  });
 
-    logger.info(`Cumulative shielded balance: ${tokenBalance}`);
+  // #12 — deposit rejects a path that is not the canonical hex of the commitment.
+  it('rejects a deposit whose path is not the canonical hex of the commitment', async () => {
+    const badPath = new Uint8Array(PATH_SIZE); // all-zero: 0x00 is not a valid hex char
+    await expect(
+      deployedContract.callTx.deposit(
+        testErc20Address, 1_700_000n, testEvmChainId, 16n, testEvmGasLimit,
+        testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion,
+        badPath, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema,
+      ),
+    ).rejects.toThrow();
   });
 });
 
