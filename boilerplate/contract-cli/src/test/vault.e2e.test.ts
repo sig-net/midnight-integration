@@ -112,7 +112,7 @@ const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL || `https://sepolia.infura.i
 // Derive user secret key from wallet seed — one secret for the user
 const USER_SECRET_KEY = hash2x32(pad32('vault:sk:'), new Uint8Array(Buffer.from(WALLET_SEED, 'hex')));
 const SEPOLIA_USDC_ADDRESS = Buffer.from('1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', 'hex');
-const MPC_SECP256K1_PUBKEY = '0x024eef776e4f257d68983e45b340c2e9546c5df95447900b6aadfec68fb46fdee2';
+const MPC_SECP256K1_PUBKEY = process.env.MPC_SECP256K1_PUBKEY || '0x024eef776e4f257d68983e45b340c2e9546c5df95447900b6aadfec68fb46fdee2';
 
 // ──────────────────────────────────────────────────────────────
 //  MPC WebSocket handler
