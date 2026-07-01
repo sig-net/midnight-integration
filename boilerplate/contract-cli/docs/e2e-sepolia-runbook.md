@@ -1,8 +1,10 @@
-# E2E runbook — vault against real Sepolia + real MPC
+# E2E runbook — vault against real Sepolia + fakenet MPC signer
 
-`vault.e2e.test.ts` runs the full cross-chain flow against **real Sepolia** and a
-**running MPC response server** (not the local Hardhat harness the api tests use).
-It covers deposit, claim (+ 4 claim-rejection cases), and withdraw:
+`vault.e2e.test.ts` runs the full cross-chain flow against **real Sepolia** and the
+**fakenet MPC signer** (`yarn response` → the `fakenet-signer` workspace) — a
+single-key dev signer that holds `MPC_ROOT_KEY` and signs directly, **not** a real
+threshold MPC. (The `vault.api.test.ts` suite instead uses an in-process simulator +
+local Hardhat.) It covers deposit, claim (+ 4 claim-rejection cases), and withdraw:
 
 - STEP 6 — withdraw → MPC signs vault→dest transfer → completeWithdraw (success)
 - STEP 7 — withdraw with a stale nonce → MPC `0xdeadbeef` → completeWithdraw refunds
@@ -85,13 +87,13 @@ Save the printed **contract address** and **derived Sepolia vault address**.
 Send USDC (`0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`) and ETH for gas to the
 derived vault address (and the user address for deposits).
 
-## Step 7 — Terminal B: start the MPC server
+## Step 7 — Terminal B: start the fakenet MPC signer
 
 Set `MIDNIGHT_CONTRACT_ADDRESSES=<contract address>` in `solana-signet-program/.env`, then:
 
 ```sh
 cd ../solana-signet-program
-yarn response          # listens on ws://localhost:3030; logs the Jubjub pk hash
+yarn response          # fakenet-signer; listens on ws://localhost:3030; logs the Jubjub pk hash
 ```
 
 ## Step 8 — Terminal C: run the suite
