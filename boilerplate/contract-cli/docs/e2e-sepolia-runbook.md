@@ -101,8 +101,7 @@ yarn response          # fakenet-signer; listens on ws://localhost:3030; logs th
 ```sh
 cd boilerplate/contract-cli
 MIDNIGHT_CONTRACT_ADDRESS=<Step 5> \
-MPC_SECP256K1_PUBKEY=<St
-ep 2> \
+MPC_SECP256K1_PUBKEY=<Step 2> \
 SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/<key> \
 MPC_WS_URL=ws://localhost:3030 \
 MIDNIGHT_NETWORK=standalone \
