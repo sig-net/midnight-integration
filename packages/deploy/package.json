@@ -1,0 +1,26 @@
+{
+  "name": "@midnight-erc20-vault/deploy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Generic Midnight deployer: point it at a managed/ dir, it builds and submits the deploy tx (midday buildDeployTransaction pattern).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "@effect/platform-node": "^0.107.0",
+    "@midnight-ntwrk/compact-js": "^2.5.1",
+    "@midnight-ntwrk/compact-js-node": "^2.5.1",
+    "@midnight-ntwrk/ledger-v8": "^8.1.0",
+    "@midnight-ntwrk/platform-js": "^3.0.0",
+    "effect": "^3.21.4"
+  }
+}
