@@ -7,3 +7,4 @@ midnight-level-db/
 reports/
 package-lock.json
 *.prover
+*.DS_Store
