@@ -1,0 +1,27 @@
+pragma language_version >= 0.22;
+
+import CompactStandardLibrary;
+
+// Placeholder contract: proves the package plumbing (compact compile -> typecheck
+// -> simulator unit tests) end to end. The real ERC20 vault (deposit / withdraw /
+// claim / completeWithdraw + schnorr-lib.compact) replaces this during the port.
+
+export ledger round: Counter;
+export ledger secretHash: Bytes<32>;
+
+witness placeholderSecret(): Bytes<32>;
+
+constructor() {
+}
+
+export circuit increment(): [] {
+  round.increment(1);
+}
+
+export circuit recordSecret(): [] {
+  secretHash = disclose(persistentHash<Bytes<32>>(placeholderSecret()));
+}
+
+export pure circuit echo(value: Bytes<32>): Bytes<32> {
+  return value;
+}

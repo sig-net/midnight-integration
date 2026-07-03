@@ -1,0 +1,28 @@
+{
+  "name": "@midnight-erc20-vault/signature-responses-contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Compact contract the MPC posts (requestId -> response) entries to; watchers poll it instead of the old websocket. src/index.ts is the curated export surface.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./managed/*": "./src/managed/*"
+  },
+  "scripts": {
+    "compact": "compact compile --skip-zk src/signature-responses.compact src/managed",
+    "compact:zk": "compact compile src/signature-responses.compact src/managed",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "deploy": "tsx deploy.ts"
+  },
+  "dependencies": {
+    "@midnight-erc20-vault/deploy": "*"
+  },
+  "devDependencies": {
+    "@midnight-ntwrk/compact-runtime": "^0.16.0",
+    "@types/node": "^26.1.0",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}
