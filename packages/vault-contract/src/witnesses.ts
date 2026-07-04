@@ -1,16 +1,34 @@
-// Handwritten witnesses live beside the contract they serve. These serve the
-// placeholder contract; the real vault witnesses (callerSecretKey,
-// getSchnorrReduction) and VaultPrivateState replace them during the port.
+// Handwritten witnesses live beside the contract they serve. The vault's
+// identity model: callerSecretKey supplies the user's secret from private
+// state; only its commitment (userCommitment in the contract) ever reaches
+// the ledger.
 
 import type { Witnesses } from "./managed/contract/index.js";
 
-export type VaultPrivateState = Record<string, never>;
+/** Private state carried through vault circuit calls. */
+export interface VaultPrivateState {
+  /** The caller's 32-byte identity secret; never disclosed on-chain. */
+  readonly secretKey: Uint8Array;
+}
 
-export const createVaultPrivateState = (): VaultPrivateState => ({});
+/**
+ * Build the vault's private state.
+ *
+ * @param secretKey - The caller's 32-byte identity secret.
+ * @returns A fresh private state holding `secretKey`.
+ */
+export const createVaultPrivateState = (
+  secretKey: Uint8Array,
+): VaultPrivateState => ({ secretKey });
 
+/**
+ * Witness implementations, typed against the generated `Witnesses` shape.
+ * `callerSecretKey` feeds the contract's identity commitment (and thereby the
+ * MPC derivation path) from private state.
+ */
 export const witnesses: Witnesses<VaultPrivateState> = {
-  placeholderSecret: ({ privateState }): [VaultPrivateState, Uint8Array] => [
+  callerSecretKey: ({ privateState }): [VaultPrivateState, Uint8Array] => [
     privateState,
-    new Uint8Array(32),
+    privateState.secretKey,
   ],
 };

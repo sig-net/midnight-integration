@@ -1,0 +1,201 @@
+// ============================================================================
+// SignetRequests — shared Compact library for sig-net (signet) MPC signature
+// requests from Midnight contracts.
+// ============================================================================
+// A signet contract records "please sign this EVM transaction" requests in its
+// public ledger. The sig-net MPC network needs only the contract address: it
+// reads the request index from ledger field 0 (the signet layout convention),
+// re-assembles and signs the EVM transaction with the caller's derived key,
+// and posts the response for on-chain verification.
+//
+// Read more:
+//   - sig-net docs (chain signatures, key derivation): https://docs.sig.network/
+//   - canonical request shape this mirrors: sig-net/mpc
+//     chain-signatures/primitives/src/bidirectional.rs (SignBidirectionalEvent)
+//   - Compact language reference (modules, types):
+//     https://docs.midnight.network/compact/reference/compact-reference
+//
+// Import from a contract (resolved through node_modules via COMPACT_PATH —
+// see the consuming package's compile script):
+//   import "@midnight-erc20-vault/signet-midnight/src/SignetRequests";
+//
+// This file must contain ONLY this module (plus comments) so the compiler
+// accepts it as an external module import.
+
+module SignetRequests {
+  import CompactStandardLibrary;
+
+  // ---- Identifiers ---------------------------------------------------------
+
+  // Nominal id of a signet request. Deliberately CHAIN-AGNOSTIC: downstream
+  // consumers (the signature-responses contract, response pollers, the MPC)
+  // treat it as an opaque 32-byte key, whatever kind of request it identifies.
+  // Each request kind mints ids via its own domain-separated hash circuit
+  // (see signetEVMSignatureRequestId). `new type` makes it NOT interchangeable
+  // with any other Bytes<32> — cast explicitly: `someHash as SignetRequestId`.
+  export new type SignetRequestId = Bytes<32>;
+
+  // ---- Request parameter groups --------------------------------------------
+
+  // The EVM transaction to be signed, decomposed into typed fields
+  // (EIP-1559 / type-2: https://eips.ethereum.org/EIPS/eip-1559).
+  // Decomposed rather than pre-serialized so the requesting contract can
+  // enforce invariants field by field; the MPC re-assembles and RLP-encodes
+  // off-chain.
+  export struct EVMTransactionParams {
+    to: Bytes<20>;                   // call target (e.g. the ERC20 contract)
+    chainId: Uint<64>;               // EVM chain id (also expressed in caip2Id)
+    nonce: Uint<64>;                 // account nonce of the derived sender
+    gasLimit: Uint<64>;              // gas ceiling for the call
+    maxFeePerGas: Uint<128>;         // wei
+    maxPriorityFeePerGas: Uint<128>; // wei
+    value: Uint<128>;                // ETH sent with the call, in wei
+  }
+
+  // ABI calldata for the EVM call: function signature + fixed-capacity arg
+  // slots (Compact has no dynamic arrays; argCount says how many of the slots
+  // are used). Each arg is one left-padded 32-byte ABI word.
+  // https://docs.soliditylang.org/en/latest/abi-spec.html
+  export struct EVMCalldata {
+    funcSig: Bytes<256>;        // zero-padded ASCII, e.g. "transfer(address,uint256)"
+    argCount: Uint<32>;         // how many leading slots of `args` are used
+    args: Vector<4, Bytes<32>>; // ABI words; unused slots must be zero
+  }
+
+  // MPC routing: which key signs, for which chain, and how the response comes
+  // back. These are opaque strings to the MPC's key-derivation — see
+  // https://docs.sig.network/ for the derivation scheme.
+  export struct SignetMPCRoutingParams {
+    caip2Id: Bytes<64>;        // target chain in CAIP-2 form, e.g. "eip155:11155111"
+                               // (https://chainagnostic.org/CAIPs/caip-2)
+    keyVersion: Uint<32>;      // MPC root-key version to derive from
+    path: Bytes<256>;          // key-derivation path; by signet-Midnight
+                               // convention the canonical lowercase hex of the
+                               // caller's identity commitment, zero-padded
+                               // (enforced by assertPathCommitment)
+    algo: Bytes<32>;           // signature scheme, e.g. "ecdsa"
+    dest: Bytes<64>;           // response destination, e.g. "ethereum"
+    params: Bytes<512>;        // scheme-specific extras (opaque to contracts)
+    outputSchema: Bytes<256>;  // MPC output_deserialization_schema
+    respondSchema: Bytes<256>; // MPC respond_serialization_schema
+  }
+
+  // The caller-supplied portion of a request: everything the dapp frontend
+  // chooses freely. What it does NOT contain is the calldata — that is
+  // assembled and enforced by the requesting contract, so a malicious client
+  // cannot have the MPC sign an arbitrary call.
+  export struct SignetEVMSignatureRequestParams {
+    evmTransaction: EVMTransactionParams;
+    mpcRouting: SignetMPCRoutingParams;
+  }
+
+  // ---- The canonical request record ----------------------------------------
+
+  // One signature request, stored per SignetRequestId in the request index.
+  // This is the minimum the MPC needs to build, sign, and route one EVM
+  // transaction. Response-side data (the MPC's output) is deliberately NOT
+  // here — it is written after signing and belongs in its own ledger state
+  // (see the signature-responses contract).
+  export struct SignetEVMSignatureRequest {
+    requestNonce: Uint<64>;             // contract-local nonce at creation time
+    evmTransaction: EVMTransactionParams;
+    calldata: EVMCalldata;              // contract-enforced, never caller-chosen
+    mpcRouting: SignetMPCRoutingParams;
+  }
+
+  // The on-ledger request index. Signet layout convention: a conforming
+  // contract declares this as its FIRST ledger field, so the MPC can find and
+  // deserialize it knowing only the contract address.
+  export type SignetEVMSignatureRequestIndex =
+    Map<SignetRequestId, SignetEVMSignatureRequest>;
+
+  // ---- Request id -----------------------------------------------------------
+
+  // Canonical id of an EVM signature request: the domain-separated persistent
+  // hash of the entire request record. The id therefore commits to every
+  // field — the MPC (or anyone) recomputes it off-chain and refuses records
+  // whose stored key does not match.
+  //
+  // The "signet:evm:request:" domain tag partitions the SignetRequestId space
+  // per request kind: when other target chains land (each with its own
+  // request struct and its own signet<Chain>SignatureRequestId circuit under
+  // its own tag), ids from different kinds can never collide or be confused.
+  export pure circuit signetEVMSignatureRequestId(
+    request: SignetEVMSignatureRequest
+  ): SignetRequestId {
+    return persistentHash<Vector<2, Bytes<32>>>([
+      pad(32, "signet:evm:request:"),
+      persistentHash<SignetEVMSignatureRequest>(request)
+    ]) as SignetRequestId;
+  }
+
+  // ---- Path <-> identity binding ---------------------------------------------
+  // Compact cannot ENCODE bytes->hex in-circuit (nibble extraction needs
+  // integer div/mod/shift, which the prime field has no native op for). But it
+  // CAN DECODE hex->bytes with multiply/add/compare. So the derivation path (a
+  // public value) carries the hex string, and we verify in-circuit that it
+  // canonically decodes to the commitment. The prover cannot supply a wrong or
+  // non-canonical string, so this is as strong as computing the hex on-chain —
+  // and it lets the MPC treat the path as a plain opaque string (no hex
+  // special-case in the MPC).
+
+  // Decode one canonical hex character ('0'-'9', lowercase 'a'-'f') to 0..15.
+  pure circuit charToNibble(c: Uint<8>): Uint<8> {
+    const isDigit = (c >= 48) && (c <= 57);  // '0'..'9'
+    const isLower = (c >= 97) && (c <= 102); // 'a'..'f' (lowercase only => canonical)
+    assert(isDigit || isLower, "non-canonical hex char");
+    const base = c - 48;             // safe: c >= 48 in both accepted ranges
+    const adjust = isLower ? 39 : 0; // 'a'(97) - 48 - 39 = 10
+    return base - adjust;
+  }
+
+  // Assert that hexStr (64 lowercase hex chars) decodes exactly to commitment.
+  export pure circuit assertHexOf(commitment: Bytes<32>, hexStr: Bytes<64>): [] {
+    for (const i of 0 .. 32) {
+      const hi = charToNibble(slice<1>(hexStr, 2 * i) as Uint<8>);
+      const lo = charToNibble(slice<1>(hexStr, 2 * i + 1) as Uint<8>);
+      assert((slice<1>(commitment, i) as Field) == (hi as Field) * 16 + (lo as Field),
+             "path hex does not match commitment");
+    }
+  }
+
+  // Assert the full path <-> identity binding: the path is EXACTLY the
+  // canonical lowercase hex of `commitment`, zero-padded to 256 bytes. This
+  // makes identity -> path -> MPC-derived account a forced 1:1 mapping: no one
+  // can request signatures under another identity's derived key, and no
+  // identity can spread across multiple derived keys via case/suffix
+  // malleability. See https://docs.sig.network/ for path-based derivation.
+  export pure circuit assertPathCommitment(
+    commitment: Bytes<32>,
+    path: Bytes<256>
+  ): [] {
+    assertHexOf(commitment, slice<64>(path, 0));
+    assert(slice<192>(path, 64) == pad(192, ""), "Path must be zero-padded after hex");
+  }
+
+  // ---- Request construction ---------------------------------------------------
+
+  // Assemble the canonical request record from its parts, enforcing the
+  // path <-> identity binding on the way. The requesting contract supplies:
+  //   - pathCommitment: the DISCLOSED identity commitment of the caller
+  //     (derived from a secret-key witness — see the vault's userCommitment)
+  //   - requestNonce:   its contract-local nonce (typically a Counter read)
+  //   - requestParams:  the caller-supplied EVM tx + MPC routing params
+  //   - calldata:       the CONTRACT-built calldata (never caller-supplied)
+  // Store the result under signetEVMSignatureRequestId(request) in the
+  // request index.
+  export pure circuit constructSignetEVMSignatureRequest(
+    pathCommitment: Bytes<32>,
+    requestNonce: Uint<64>,
+    requestParams: SignetEVMSignatureRequestParams,
+    calldata: EVMCalldata
+  ): SignetEVMSignatureRequest {
+    assertPathCommitment(pathCommitment, requestParams.mpcRouting.path);
+    return SignetEVMSignatureRequest {
+      requestNonce: requestNonce,
+      evmTransaction: requestParams.evmTransaction,
+      calldata: calldata,
+      mpcRouting: requestParams.mpcRouting
+    };
+  }
+}

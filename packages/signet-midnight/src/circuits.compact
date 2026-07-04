@@ -1,0 +1,23 @@
+pragma language_version >= 0.22;
+
+// Compiled export surface of the SignetRequests module.
+//
+// SignetRequests.compact must stay a module-only file (that is what lets
+// contracts import it), but a bare module compiles to nothing. This
+// contract-less program re-exports the module's pure circuits so the compiler
+// emits them as pureCircuits in managed/contract/index.js — giving the
+// package an in-process, provable-logic-identical reference implementation:
+// unit tests exercise the REAL circuits, and off-chain code (request-id
+// hashing, path checks) reuses them instead of hand-porting the algorithms.
+//
+// Compile with --skip-zk only: pure circuits run in TS without proving keys.
+
+import CompactStandardLibrary;
+import "./SignetRequests";
+
+export {
+  signetEVMSignatureRequestId,
+  assertHexOf,
+  assertPathCommitment,
+  constructSignetEVMSignatureRequest
+};

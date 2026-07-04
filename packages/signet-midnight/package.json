@@ -7,9 +7,16 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "files": [
+    "src"
+  ],
   "scripts": {
+    "compile": "compact compile --skip-zk src/circuits.compact src/managed",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "^0.16.0"
   },
   "devDependencies": {
     "typescript": "^6.0.3",

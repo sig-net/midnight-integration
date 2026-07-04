@@ -9,14 +9,15 @@
     "./managed/*": "./src/managed/*"
   },
   "scripts": {
-    "compile": "compact compile --skip-zk src/erc20-vault.compact src/managed",
-    "compile:zk": "compact compile src/erc20-vault.compact src/managed",
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/erc20-vault.compact src/managed",
+    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/erc20-vault.compact src/managed",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "deploy": "tsx deploy.ts"
   },
   "dependencies": {
-    "@midnight-erc20-vault/deploy": "*"
+    "@midnight-erc20-vault/deploy": "*",
+    "@midnight-erc20-vault/signet-midnight": "*"
   },
   "devDependencies": {
     "@midnight-ntwrk/compact-runtime": "^0.16.0",

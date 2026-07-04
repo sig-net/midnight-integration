@@ -11,8 +11,10 @@ This repository is a single **npm workspace**. Its members live under `packages/
 - **`packages/deploy`** — generic Midnight deployer (see its `AGENTS.md`).
 
 Run `npm install` from the repo root — never from inside a member.
-Run `npm run compile` once before `build`/`test`: the contract packages typecheck
-against their generated `src/managed/` output.
+Run `npm run compile` once before `build`/`test`: the contract packages AND
+`packages/signet-midnight` typecheck against their generated `src/managed/`
+output (signet-midnight compiles its Compact module's pure circuits via
+`src/circuits.compact` — skip-zk only, no `compile:zk` script on purpose).
 
 This repo is a **bit-by-bit rewrite** of the old
 `~/Projects/github.com/sig-net/midnight-erc20-vault` checkout (its `repo-layout.md`
@@ -66,6 +68,15 @@ exception for that specific case.
   finding the real type — dig for it in the SDK's type definitions
   (`node_modules/<pkg>/**/*.d.ts`) or the project's own packages, and use or
   re-export that.
+- **ALWAYS write JSDoc on everything exported.** Every exported function,
+  const, type, interface, and interface method carries a JSDoc block stating its
+  purpose, one `@param <name> - <purpose>` per parameter, `@returns` when it
+  returns a value, and `@throws` when it throws. Types live in the TypeScript
+  signature ONLY — never repeat them in `{braces}` in the JSDoc, they drift.
+  Document non-obvious contracts (mutation, consumption, ordering invariants) in
+  the description, and cross-reference related exports with `{@link Name}`.
+  Internal helpers get the same treatment when their behavior isn't obvious from
+  the signature.
 - **ALWAYS use an `enum` for a fixed set of named constants.** Status/state
   machines, kinds, modes, variants — model them as a named TypeScript `enum`, never
   a bare union of string literals or repeated inline literals. Reference members
