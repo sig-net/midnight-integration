@@ -142,6 +142,25 @@ export function requestIdHex(requestId: SignetRequestId): string {
   return Array.from(requestId, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** Byte width of the mpcRouting.path field (Compact `Bytes<256>`). */
+export const PATH_BYTES = 256;
+
+/**
+ * Build the canonical MPC derivation path for an identity commitment: the
+ * lowercase hex of the commitment as ASCII, zero-padded to {@link PATH_BYTES}
+ * — exactly what the contract's `assertPathCommitment` accepts. Use this to
+ * populate `SignetMPCRoutingParams.path` when constructing requests.
+ *
+ * @param commitment - 32-byte identity commitment (e.g. from the vault's
+ *   compiled `userCommitment` circuit).
+ * @returns The 256-byte path field value.
+ */
+export function signetPathOfCommitment(commitment: Uint8Array): Uint8Array {
+  const path = new Uint8Array(PATH_BYTES);
+  path.set(new TextEncoder().encode(requestIdHex(commitment)));
+  return path;
+}
+
 /**
  * Parse the on-ledger request map into a plain-JS index keyed by hex
  * request id.

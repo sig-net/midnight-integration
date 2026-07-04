@@ -48,7 +48,9 @@ struct DepositRequest {
 
 witness callerSecretKey(): Bytes<32>;
 
-pure circuit userCommitment(sk: Bytes<32>): Bytes<32> {
+// Exported so off-chain code (deploy tooling, tests) computes commitments by
+// calling the compiled circuit — never by re-porting the hash.
+export pure circuit userCommitment(sk: Bytes<32>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([pad(32, "vault:user:"), sk]);
 }
 
