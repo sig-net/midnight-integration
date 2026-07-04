@@ -11,7 +11,7 @@ This repository is a single **npm workspace**. Its members live under `packages/
 - **`packages/deploy`** — generic Midnight deployer (see its `AGENTS.md`).
 
 Run `npm install` from the repo root — never from inside a member.
-Run `npm run compact` once before `build`/`test`: the contract packages typecheck
+Run `npm run compile` once before `build`/`test`: the contract packages typecheck
 against their generated `src/managed/` output.
 
 This repo is a **bit-by-bit rewrite** of the old
@@ -47,9 +47,9 @@ exception for that specific case.
   add it to that member's tsconfig `include` in the same change; a file outside
   `include` passes silently and then breaks in the IDE.
 - **NEVER commit generated compiler output.** Each contract package's
-  `src/managed/` is produced by `npm run compact` and is gitignored. Default
+  `src/managed/` is produced by `npm run compile` and is gitignored. Default
   compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run
-  `compact:zk` only when proving keys are actually needed (real deploys).
+  `compile:zk` only when proving keys are actually needed (real deploys).
 - **Shared plumbing lives ONCE, in `packages/lib`.** The moment a second package
   needs a helper, it moves to lib and both import it. Never copy
   config/wallet/provider/logging code between packages — per-package copies are the
@@ -79,7 +79,7 @@ exception for that specific case.
 The two contract packages are deliberately identical in shape; these rules apply to
 both (and to any future contract package):
 
-- **Compile before you check.** `npm run compact` regenerates `src/managed/`;
+- **Compile before you check.** `npm run compile` regenerates `src/managed/`;
   typecheck and tests read its emitted `contract/index.d.ts`.
 - **`src/index.ts` is the curated export surface** — it re-exports the managed
   output plus the handwritten witnesses. Consumers import the package root; NEVER

@@ -29,7 +29,7 @@
     │       └── index.ts
     │
     ├── vault-contract/             # @midnight-erc20-vault/vault-contract
-    │   ├── package.json            # scripts: compact (compile), build (tsc), test, deploy
+    │   ├── package.json            # scripts: compile, compile:zk, build (tsc), test, deploy
     │   ├── tsconfig.json
     │   ├── .gitignore              # src/managed/  (generated — never committed)
     │   ├── src/

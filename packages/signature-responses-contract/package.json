@@ -9,8 +9,8 @@
     "./managed/*": "./src/managed/*"
   },
   "scripts": {
-    "compact": "compact compile --skip-zk src/signature-responses.compact src/managed",
-    "compact:zk": "compact compile src/signature-responses.compact src/managed",
+    "compile": "compact compile --skip-zk src/signature-responses.compact src/managed",
+    "compile:zk": "compact compile src/signature-responses.compact src/managed",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "deploy": "tsx deploy.ts"
