@@ -194,7 +194,7 @@ Each task has a **Done when** — don't move on until it holds.
 
 ## Phase 1 — Finish the deposit flow (simulator level)
 
-- [ ] **1.1 Export `userCommitment` for off-chain use.** It is vault-specific
+- [x] **1.1 Export `userCommitment` for off-chain use.** ✅ `316e905` It is vault-specific
       (domain tag `"vault:user:"`), so it does NOT move into SignetRequests.
       Add `export` to the `userCommitment` circuit in
       `packages/vault-contract/src/erc20-vault.compact` so it lands in the
@@ -204,7 +204,7 @@ Each task has a **Done when** — don't move on until it holds.
       *Done when:* a vault test calls `pureCircuits.userCommitment(sk)` and
       uses it to build a valid `path` (hex via `requestIdHex` from
       signet-midnight, zero-padded to 256).
-- [ ] **1.2 Deposit round-trip simulator test.** In
+- [x] **1.2 Deposit round-trip simulator test.** ✅ `316e905` In
       `packages/vault-contract/tests/contract.test.ts`: initialize the
       contract (deployer commitment from 1.1), call `deposit` through the
       simulator (`contract.circuits.deposit(ctx, signetParams,
@@ -216,7 +216,7 @@ Each task has a **Done when** — don't move on until it holds.
       trees — this closes the last decode-correctness gap.
       *Done when:* all three reads deep-equal the input; the map key equals
       `pureCircuits.signetEVMSignatureRequestId(record)` (signet-midnight).
-- [ ] **1.3 Validation + gating tests.** initialize: deployer-gated (wrong sk
+- [x] **1.3 Validation + gating tests.** ✅ `316e905` initialize: deployer-gated (wrong sk
       rejected), one-shot (second call rejected). deposit: rejects when
       uninitialized, zero erc20 address, zero amount, amount > Uint<64> max,
       `to != erc20Address`, nonzero `value`, zero chainId/gasLimit, duplicate
@@ -225,7 +225,11 @@ Each task has a **Done when** — don't move on until it holds.
       the actual dedup semantics), wrong-identity path (hex of a different
       commitment).
       *Done when:* each assert in deposit/initialize has a test tripping it.
-- [ ] **1.4 Protocol-freeze pass on the request layout.** ⚠️ LAST chance
+- [ ] **1.4 Protocol-freeze pass on the request layout.** ⏸ DEFERRED — see
+      D11: field right-sizing deviates from the request structure used on
+      other signet chains; needs MPC-team sign-off first. The ⚠️ below still
+      applies: do this (or explicitly accept a redeploy) before Phase 3's
+      first persistent deployment. ⚠️ LAST chance
       before persistent deployments — this changes stored bytes AND ids.
       Right-size the padded fields in `SignetRequests.compact`: `path` 256→64
       (it IS exactly the 64-char hex; the zero-pad assert then disappears),
@@ -512,5 +516,29 @@ watchers poll. The MVP's websocket push is dead and must not return.
 `SignetEVMSignatureRequest`.
 **Why:** It's written after signing; including it would force rewriting the
 whole record on respond and entangle request/response lifecycles.
+
+### D11 — Task 1.4 (field right-sizing) deferred (2026-07-04, task 1.4)
+**Decision:** The protocol-freeze/right-sizing pass is ON HOLD pending a
+discussion with the MPC team: shrinking the padded fields deviates from the
+standard signet request structure used on other chains, and whether Midnight
+may deviate (to win proving time: est. ~419K → ~150-250K rows) is their call.
+**Impact:** Current widths (path 256, funcSig 256, params 512, schemas 256,
+caip2Id/dest 64) remain the wire format for now. Any persistent deployment
+made before 1.4 lands must be treated as throwaway — 1.4 changes stored bytes
+AND all request ids. Executors of Phases 2-4: proceed, but do not promote any
+deployment to "long-lived" status until 1.4 is resolved either way.
+
+### D12 — Path building + LE word encoding confirmed (2026-07-04, tasks 1.1-1.2)
+**Decision:** `signetPathOfCommitment(commitment)` in signet-midnight is the
+one true way to build the path field off-chain (hex via `requestIdHex`,
+zero-padded to `PATH_BYTES = 256`). Confirmed empirically via the round-trip
+test: Compact `X as Field as Bytes<32>` is LITTLE-ENDIAN embedding — a
+`Bytes<20>` address becomes `address-bytes || 12 zero bytes`, a `Uint` amount
+becomes its LE bytes. Decode ABI-word args off-chain with LE (the old
+monitor's `bytesToBigintLE` convention was correct).
+**Impact:** Phase 5 monitor rewrite and any tx-builder port must use LE for
+arg words. Also fixed in the same commit: signet-midnight `tests/` are now in
+tsconfig `include` — before `316e905` the type tripwires never actually
+guarded `npm run build`.
 
 <!-- Append new decisions below this line. -->
