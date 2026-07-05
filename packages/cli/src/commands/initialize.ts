@@ -1,0 +1,48 @@
+// `initialize` — the deployer's one-off call sealing the vault's EVM address
+// into the contract config. Gated in-circuit to the deployer identity.
+
+import { requireConfigValue } from "../config.ts";
+import type { CliContext } from "../context.ts";
+import { getUserIdentity } from "../identity.ts";
+
+/** Options for {@link initialize}. */
+export interface InitializeOptions {
+  /** The vault's EVM address (20-byte 0x hex) to seal into the contract. */
+  readonly vaultEvmAddress: string;
+}
+
+/** Decode a validated 0x-prefixed hex address to its 20 bytes. */
+const evmAddressBytes = (hex: string): Uint8Array =>
+  Uint8Array.from(
+    hex
+      .replace(/^0x/i, "")
+      .match(/.{2}/g)!
+      .map((byte) => parseInt(byte, 16)),
+  );
+
+/**
+ * Call the vault's `initialize` circuit on the deployed contract.
+ *
+ * The caller must be the DEPLOYER identity: the circuit compares the
+ * `callerSecretKey` witness commitment against the sealed `deployer` field,
+ * so `VAULT_USER_SECRET_KEY` must hold the deployer's secret for this
+ * command.
+ *
+ * @param context - The CLI context.
+ * @param options - The initialize arguments.
+ * @throws NotImplementedError — until the context's vault join is wired.
+ */
+export async function initialize(context: CliContext, options: InitializeOptions): Promise<void> {
+  requireConfigValue(context.config.vaultContractAddress, "VAULT_CONTRACT_ADDRESS");
+  if (!/^0x[0-9a-fA-F]{40}$/.test(options.vaultEvmAddress)) {
+    throw new Error(`--vault-evm-address must be a 20-byte 0x hex address; got "${options.vaultEvmAddress}".`);
+  }
+  const identity = getUserIdentity(context.config);
+  console.log(`vault contract:    ${context.config.vaultContractAddress}`);
+  console.log(`vault EVM address: ${options.vaultEvmAddress}`);
+  console.log(`caller commitment: ${identity.commitmentHex} (must equal the sealed deployer)`);
+
+  const vault = await context.vault();
+  await vault.callTx.initialize(evmAddressBytes(options.vaultEvmAddress));
+  console.log("initialize submitted and finalized");
+}

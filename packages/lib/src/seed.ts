@@ -61,3 +61,40 @@ export function parseSeed(input: string): { seed: Uint8Array; source: Derivation
 export function generateMnemonic(): string {
   return bip39.generateMnemonic(english, 256);
 }
+
+/**
+ * Resolve a 32-byte identity secret key from the environment: `env[envVar]`
+ * (hex, optional 0x prefix) when set, else the bytes of `fallbackSeed` (the
+ * wallet seed doubling as the identity). Contract packages use this for the
+ * secret whose commitment gates a circuit (e.g. the vault deployer identity),
+ * and clients use it for the caller identity answering a secret-key witness.
+ *
+ * @param envVar - Name of the environment variable holding the hex secret.
+ * @param env - The environment to read from.
+ * @param fallbackSeed - The wallet seed (hex or mnemonic) used as the identity when `env[envVar]` is unset.
+ * @returns The 32-byte secret key.
+ * @throws If `env[envVar]` is set but not 32 bytes of hex, or if it is unset
+ * and `fallbackSeed` does not parse to exactly 32 bytes (e.g. a mnemonic).
+ */
+export function parseIdentitySecretKey(
+  envVar: string,
+  env: Record<string, string | undefined>,
+  fallbackSeed: string,
+): Uint8Array {
+  const raw = env[envVar]?.trim();
+  if (raw) {
+    const hex = raw.replace(/^0x/i, "");
+    if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+      throw new ParseError(`${envVar} must be exactly 32 bytes of hex`);
+    }
+    return Uint8Array.from(hex.match(/.{2}/g)!.map((byte) => parseInt(byte, 16)));
+  }
+  const { seed } = parseSeed(fallbackSeed);
+  if (seed.length !== 32) {
+    throw new ParseError(
+      `The fallback seed parses to ${seed.length} bytes; the identity secret needs exactly 32. ` +
+        `Set ${envVar} explicitly.`,
+    );
+  }
+  return seed;
+}

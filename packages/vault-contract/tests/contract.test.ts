@@ -226,7 +226,7 @@ describe("deposit round-trip", () => {
   it("stores the request readable identically via ledger(), the shared parser, and the RAW reader", () => {
     const { contract, ctx } = deployInitialized();
 
-    const next = contract.circuits.deposit(ctx, VALID_PARAMS, VALID_ARGS)
+    const next = contract.circuits.requestDeposit(ctx, VALID_PARAMS, VALID_ARGS)
       .context;
     const state = next.currentQueryContext.state;
 
@@ -372,7 +372,7 @@ describe("deposit validation", () => {
     "rejects $name",
     ({ params, args, throws }) => {
       const { contract, ctx } = deployInitialized();
-      expect(() => contract.circuits.deposit(ctx, params, args)).toThrow(
+      expect(() => contract.circuits.requestDeposit(ctx, params, args)).toThrow(
         throws,
       );
     },
@@ -381,7 +381,7 @@ describe("deposit validation", () => {
   it("rejects before initialize", () => {
     const { contract, ctx } = deployContract();
     expect(() =>
-      contract.circuits.deposit(ctx, VALID_PARAMS, VALID_ARGS),
+      contract.circuits.requestDeposit(ctx, VALID_PARAMS, VALID_ARGS),
     ).toThrow(/Not initialized/);
   });
 
@@ -391,12 +391,12 @@ describe("deposit validation", () => {
     // so an identical resubmission is a NEW request. Document that here.
     const { contract, ctx } = deployInitialized();
 
-    const afterFirst = contract.circuits.deposit(
+    const afterFirst = contract.circuits.requestDeposit(
       ctx,
       VALID_PARAMS,
       VALID_ARGS,
     ).context;
-    const afterSecond = contract.circuits.deposit(
+    const afterSecond = contract.circuits.requestDeposit(
       afterFirst,
       VALID_PARAMS,
       VALID_ARGS,

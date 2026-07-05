@@ -1,3 +1,21 @@
+# Sig Network Midnight ERC20 Vault Demo
+
+An end to end demo showing how Sig Network chain signature technology can be used to deposit ERC20 assets on Ethereum for use as shielded UTXOs on the Midnight Blockchain.
+
+## Quick Start
+Start by running an end to end integration test driving a CLI application.
+
+### Setup For the End to End Tests
+This demo comprises of 3 processes: the Midnight Stack, the MPC Server, and the test.
+
+#### **Step 0**: Install Dependencies and Compile Midnight Contracts
+```sh
+cd <repo>
+npm install
+compact update 0.31.1
+npm run compile:zk
+```
+
 
 ```
 ├── README.md                       # this readme
@@ -61,3 +79,6 @@
 
 ## TODOs
 - extend deploy scripts to allow rejoining and upgrading of existing contract deployments
+- remove all the unnecessary padding from the signet signing request to reduce circuit size and proving time
+- move generic types into signet.js
+- why is initialise needed??... something about that is how the vault EVM address is derived??

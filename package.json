@@ -18,6 +18,7 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "deploy:vault": "npm run deploy -w @midnight-erc20-vault/vault-contract",
-    "deploy:responses": "npm run deploy -w @midnight-erc20-vault/signature-responses-contract"
+    "deploy:responses": "npm run deploy -w @midnight-erc20-vault/signature-responses-contract",
+    "cli": "npm run cli -w @midnight-erc20-vault/cli --"
   }
 }

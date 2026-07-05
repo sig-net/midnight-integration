@@ -1,0 +1,28 @@
+{
+  "name": "@midnight-erc20-vault/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Example client CLI of the Midnight ERC20 vault — the reference orchestration a UI or any program would implement. Integration tests drive the vault through this package.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "cli": "tsx src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@midnight-erc20-vault/lib": "*",
+    "@midnight-erc20-vault/signet-midnight": "*",
+    "@midnight-erc20-vault/vault-contract": "*",
+    "@midnight-ntwrk/midnight-js": "^4.1.1",
+    "commander": "^15.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

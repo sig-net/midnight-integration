@@ -9,14 +9,14 @@ const DEPLOYER_COMMITMENT = pureCircuits.userCommitment(SECRET_KEY);
 
 - using typed single location extraction of signature requests data instead of extracting bit by bit without any types
 ```ts
-// e.g. packages/vault-contract/tests/contract.test.ts:168
-const rawIndex = readSignetEVMSignatureRequestIndexFromState(rawState);
-const typedIndex = toSignetEVMSignatureRequestIndex(
-    ledger(ctx.currentQueryContext.state).signetRequestsIndex,
-);
-expect(rawIndex).toEqual(typedIndex);
-expect(rawIndex.size).toBe(0);
+// Now in the midnight indexer:
+const contractState = await this.publicDataProvider.queryContractState(contractAddress);
+if (!contractState?.data) {
+    console.warn(`no state data found for contract '${contractAddress}'`);
+    continue;
+};
+const typedState = readSignetEVMSignatureRequestIndexFromState(contractState.data);
 
 // instead of:
-// FIXME: show excerpt from old midnight requests of how the state was being manually exported without any types
+// FIXME: show summary excerpt from old midnight requests of how the state was being manually exported without any types (summary, all is too much)!!
 ```

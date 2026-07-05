@@ -75,7 +75,7 @@ export circuit initialize(vaultEvm: Bytes<20>): [] {
 // ---- Deposit -----------------------------------------------------------------------
 // Records a signet request for `transfer(vault, amount)` on the ERC20, to be
 // signed by the MPC with the caller's derived key and broadcast off-chain.
-export circuit deposit(
+export circuit requestDeposit(
   signetParams: SignetEVMSignatureRequestParams,
   depositRequest: DepositRequest
 ): [] {

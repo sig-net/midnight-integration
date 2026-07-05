@@ -83,6 +83,7 @@ Key MVP files (old checkout):
 | `packages/signature-responses-contract` | Contract the MPC posts `(requestId → response)` to; watchers poll it | placeholder stub |
 | `packages/deploy` | Generic deployer. `src/deploy.ts` has the typed skeleton; port `buildDeployTransaction` from midday `app/ui/lib/actions/buildDeployTransaction.ts` (see its README) | stub, deps installed |
 | `packages/lib` | Shared runtime plumbing (config/providers/wallet/logging) — the ONLY copy | stub |
+| `packages/cli` | Example client CLI: the reference orchestration a UI would implement (read state, initialize, deposit/withdraw E2E via polled responses). Integration tests drive the vault THROUGH it | skeleton scaffolded; commands stubbed with NotImplementedError |
 | `packages/integration-tests` | Future: anything needing a running stack | does not exist yet |
 
 Key library files (all in `packages/signet-midnight/src/`), which MUST stay in
@@ -123,7 +124,7 @@ never committed, regenerate with compile.
 
 | Circuit | MVP rows | Refactor rows |
 |---|---|---|
-| deposit | k=19, 454,021 | k=19, **419,499** (whole-struct hash is CHEAPER than MVP's 18-field scheme) |
+| requestDeposit (MVP `deposit`, renamed per D13) | k=19, 454,021 | k=19, **419,499** (whole-struct hash is CHEAPER than MVP's 18-field scheme) |
 | initialize | k=13, 4,344 | k=13, 4,344 |
 | claim | k=19, 438,548 | not ported yet — this is the target baseline |
 | completeWithdraw | k=18, 261,967 | not ported |
@@ -295,19 +296,74 @@ Each task has a **Done when** — don't move on until it holds.
       *Done when:* a script/test proves the MPC-convention read works against
       a real indexer, not just the simulator.
 
-## Phase 4 — Integration-test orchestration (deposit half)
+## Phase 4 — CLI client + integration-test orchestration (deposit half)
 
-- [ ] **4.1 Scaffold `packages/integration-tests`** (vitest; env-gated so the
+`packages/cli` (scaffolded: commander command surface, config/identity wiring
+via lib, every network boundary a NotImplementedError stub) is the example
+client — the reference orchestration a UI would implement. Integration tests
+drive the vault THROUGH its exported command functions; tests consume the
+CLI, never the reverse. Its README documents the command surface and both
+E2E flows.
+
+- [x] **4.1 Rename vault circuits to the client-facing names (D13).** ✅ (commit pending)
+      `deposit` → `requestDeposit` in
+      `packages/vault-contract/src/erc20-vault.compact` + all TS/test
+      references. Future ports land directly under the new names: MVP
+      `claim` → `claimDeposit` (Phase 8), MVP `withdraw` → `requestWithdraw`,
+      MVP `completeWithdraw` → `refundWithdraw` (Phase 9). Circuit names are
+      part of the generated API and the call-tx key location, so rename
+      before any persistent deployment.
+      *Done when:* compile/build/test green; baselines table row renamed.
+- [ ] **4.2 lib midnight-js provider plumbing (D14)** (closes the
+      "providers" half of 2.2). Port midday's
+      `app/playground/lib/providers.ts` into `packages/lib`:
+      `buildProviders<C>(wallet, zkConfigPath, config)` returning the
+      midnight-js `MidnightProviders` set (levelPrivateStateProvider,
+      indexerPublicDataProvider, NodeZkConfigProvider,
+      httpClientProofProvider) + the ~40-line WalletFacade →
+      WalletProvider/MidnightProvider adapter (`balanceTx` =
+      balanceUnboundTransaction → signRecipe → finalizeRecipe; `submitTx` =
+      facade.submitTransaction). Deps (all resolve latest = 4.1.1, matching
+      lib's existing `@midnight-ntwrk/midnight-js`):
+      midnight-js-indexer-public-data-provider,
+      midnight-js-http-client-proof-provider,
+      midnight-js-node-zk-config-provider,
+      midnight-js-level-private-state-provider. Gotcha from midday:
+      midnight-js reads a process-global network id — call `setNetworkId`
+      once at entry. The midnight-js ledger types come from
+      midnight-js-protocol while lib uses ledger-v8; same underlying classes,
+      bridge nominal identities the way midday's adapter does.
+      *Done when:* lib exposes `buildProviders` + the adapter, and the cli
+      context's `publicDataProvider()`/`vault()` getters are wired:
+      `findDeployedContract(providers, { contractAddress, compiledContract
+      (lib makeCompiledContract), privateStateId, initialPrivateState })` —
+      `initialize` then executes against the local stack via
+      `vault.callTx.initialize(...)`.
+- [ ] **4.3 Wire the remaining CLI commands** (the command logic already
+      exists; replace the remaining NotImplementedError boundaries):
+      `read-state` works as soon as 4.2 lands (its body is complete — doubles
+      as the 3.2 from-the-outside verification tool); `request-deposit`
+      additionally needs the MPC routing constants + codec ported from the
+      MVP (`contract-cli/src/signet/constants.ts`) to construct the signet
+      request arguments, then recompute the id via
+      `pureCircuits.signetEVMSignatureRequestId` + `requestIdHex`, assert it
+      equals the ledger map key, print it; `poll-response` against the
+      placeholder record; `broadcast-evm` (add `ethers` to the cli package
+      then).
+      *Done when:* request-deposit lands a request on the local stack and
+      read-state decodes it back with a matching id.
+- [ ] **4.4 Scaffold `packages/integration-tests`** (vitest; env-gated so the
       suite SKIPS cleanly when no stack is configured — AGENTS.md forbids
       network access in unit tests, this package is the sanctioned home).
-- [ ] **4.2 "Ensure deployed" helper — deploy once, reuse forever.** Reads the
+      Tests import the CLI's exported command functions.
+- [ ] **4.5 "Ensure deployed" helper — deploy once, reuse forever.** Reads the
       manifest; verifies the address still answers (indexer query + field-0
       shape + contractSourceHash match); deploys fresh only if missing/stale.
       *Done when:* second run of the suite reuses the first run's contract.
-- [ ] **4.3 Deposit integration test:** build path from the caller commitment,
-      call `deposit` via real providers/wallet, poll the indexer, decode with
-      the shared state reader, recompute the id via compiled circuits, assert
-      it matches the map key.
+- [ ] **4.6 Deposit integration test:** drive the CLI's `requestDeposit` and
+      `readState` functions against real providers/wallet — the CLI builds
+      the path, submits, and verifies the id; the test asserts on the
+      results and never re-implements the orchestration.
       *Done when:* a deposit lands on a real chain and the MPC-style read
       returns exactly what was submitted.
 
@@ -347,9 +403,11 @@ Each task has a **Done when** — don't move on until it holds.
 
 ## Phase 7 — Integration orchestration (response half)
 
-- [ ] **7.1 Extend the integration suite:** deposit → monitor (or a scripted
-      MPC simulator — port `boilerplate/contract-cli/src/test/mpc-simulator.ts`)
-      signs and posts the response → poller sees it.
+- [ ] **7.1 Extend the integration suite:** deposit via the CLI → monitor (or
+      a scripted MPC simulator — port
+      `boilerplate/contract-cli/src/test/mpc-simulator.ts`) signs and posts
+      the response to the responses contract → the CLI's `pollResponse` (not
+      a bespoke test poller) picks it up.
       *Done when:* request→response round-trip runs green against the local
       stack without manual steps.
 
@@ -365,21 +423,26 @@ Each task has a **Done when** — don't move on until it holds.
 - [ ] **8.2 Vault config: add `mpcPubKeyHash`** (sealed, constructor arg —
       completes the MVP constructor: `persistentHash<JubjubPoint>(mpcPk)`).
       Update deploy tooling + manifest + tests.
-- [ ] **8.3 Port `claim`** (MVP ~L387-480): pk-hash check, ERC20 return-value
-      check, Schnorr verify over (requestId, hash(outputData)) as 16-byte
-      field limbs, caller identity vs the stored request's path — a single
-      `signetRequestsIndex.lookup(rid)` replaces the MVP's per-field reads —
-      mint shielded tokens (domain separator binds erc20 + contract address;
-      mint nonce binds requestId), then ONE `remove` replaces the MVP's 19.
+- [ ] **8.3 Port `claim` as `claimDeposit`** (D13; MVP ~L387-480): pk-hash
+      check, ERC20 return-value check, Schnorr verify over (requestId,
+      hash(outputData)) as 16-byte field limbs, caller identity vs the stored
+      request's path — a single `signetRequestsIndex.lookup(rid)` replaces
+      the MVP's per-field reads — mint shielded tokens (domain separator
+      binds erc20 + contract address; mint nonce binds requestId), then ONE
+      `remove` replaces the MVP's 19. Coin handling on the client side is
+      free: midnight-js `callTx` balances the mint's offer like any call
+      (D14) — verify it, don't build it.
       *Done when:* simulator test passes deposit→simulated-response→claim;
       double-claim + wrong identity rejected; rows measured vs MVP's 438,548
       and logged.
-- [ ] **8.4 Claim integration test** on the local stack (response read from
-      the responses contract, not passed by hand).
+- [ ] **8.4 Claim integration test** on the local stack: wire the CLI's
+      `claim-deposit` command (replacing its NotImplementedError stub) and
+      drive it from the suite (response read from the responses contract,
+      not passed by hand). `deposit-e2e` now runs start to finish.
 
 ## Phase 9 — Port withdraw + completeWithdraw
 
-- [ ] **9.1 Port `withdraw`** (MVP ~L281-375): token-color check
+- [ ] **9.1 Port `withdraw` as `requestWithdraw`** (D13; MVP ~L281-375): token-color check
       (`tokenType(domainSep, kernel.self())`), coin escrow (`receiveShielded`
       + `heldCoin.writeCoin`), `kernel.checkpoint()` ordering (validate → take
       coin → fallible-but-pure writes so the coin can't strand),
@@ -389,19 +452,22 @@ Each task has a **Done when** — don't move on until it holds.
       `constructSignetEVMSignatureRequest`, which currently ALWAYS enforces
       the identity binding (likely: a second construct variant or an
       explicit vault-path circuit in the vault itself).
-- [ ] **9.2 Port `completeWithdraw`** (MVP ~L483-561): Schnorr verify,
-      success = first output byte == 0x01 (one-byte check avoids BLS overflow
-      of a 32-byte cast), refund mint to the pinned recipient on failure,
-      permissionless caller, cleanup.
+- [ ] **9.2 Port `completeWithdraw` as `refundWithdraw`** (D13; MVP
+      ~L483-561): Schnorr verify, success = first output byte == 0x01
+      (one-byte check avoids BLS overflow of a 32-byte cast), refund mint to
+      the pinned recipient on failure, permissionless caller, cleanup.
+      (The name covers both branches: success finalizes, failure refunds.)
 - [ ] **9.3 Simulator + integration tests** for the full withdraw lifecycle
-      (success and refund branches).
+      (success and refund branches). Wire the CLI's `request-withdraw`,
+      `refund-withdraw`, and `withdraw-e2e` stubs; the suite drives them.
 
 ## Phase 10 — End-to-end + hardening
 
 - [ ] **10.1 Full e2e run** (local stack or Sepolia per a new runbook ported
-      from the MVP's `docs/e2e-sepolia-runbook.md`): deposit → sign → EVM
-      broadcast → respond → claim; withdraw → refund path. Document as
-      `docs/runbook.md`.
+      from the MVP's `docs/e2e-sepolia-runbook.md`), driven by the CLI's
+      `deposit-e2e` and `withdraw-e2e` commands: request → sign → EVM
+      broadcast → respond → claim/settle, refund branch included. Document
+      as `docs/runbook.md`.
 - [ ] **10.2 CI:** compile → build → test on every push (skip-zk); zk compile
       as a weekly/manual job — it is the row-count canary (compare against the
       baselines table above).
@@ -424,6 +490,8 @@ Each task has a **Done when** — don't move on until it holds.
 
 - 1.4 is the only task that breaks stored-data compatibility — do it BEFORE
   Phase 3's first persistent deployment, or accept a redeploy.
+- The CLI wiring (4.3) precedes the integration suite (4.4+) — tests consume
+  the CLI, never the reverse.
 - Phases 5 and 6 can proceed in parallel with 4 (different repos/packages);
   7 needs both.
 - Keep the deployment manifest (2.3) authoritative from its first existence.
@@ -558,5 +626,48 @@ e.g. the following should NEVER BE DONE:
 // call once the deploy tx lands, and write deployments/<network>.json.
 ```
 DON'T DO THAT EVER!
+
+### D13 — Client-facing circuit names from the CLI sketch (2026-07-05)
+**Decision:** Vault circuits adopt request/claim/refund naming:
+`requestDeposit` (was `deposit` — rename pending, task 4.1), `claimDeposit`
+(MVP `claim`), `requestWithdraw` (MVP `withdraw`), `refundWithdraw` (MVP
+`completeWithdraw`). `packages/cli` was scaffolded under these names
+(commander command surface, config/identity wiring via lib, network
+boundaries stubbed with NotImplementedError; `parseIdentitySecretKey`
+promoted from vault deploy.ts into lib as its second consumer appeared).
+**Why:** The request/complete split IS the protocol's shape — one circuit
+records the signature request, another presents the MPC attestation; the
+names say which half you're calling. Chosen by Bernard in the CLI sketch.
+**Alternatives rejected:** keeping MVP names with a CLI-level mapping — a
+permanent naming seam for zero benefit pre-deployment.
+**Impact:** vault-contract rename before any persistent deployment (circuit
+names are part of the generated API and call-tx key location); Phases 8–9
+port under the new names. Note `refundWithdraw` settles BOTH branches
+(success finalizes, failure refunds) — name kept per the sketch despite the
+wider semantics.
+
+### D14 — Circuit calls via midnight-js callTx, not hand-rolled call txs (2026-07-05)
+**Decision:** Clients call circuits on deployed contracts through midnight-js:
+`findDeployedContract(providers, ...)` → `contract.callTx.<circuit>(...)`,
+with lib porting midday's `buildProviders` + WalletFacade adapter
+(`app/playground/lib/providers.ts`, proven working in
+`clis/14_data_extraction`). The CLI's `CliContext` (config + lazy
+`publicDataProvider()`/`vault()` getters, built in main.ts and injected into
+every command) is the seam; commands never assemble transactions.
+**Why:** compact-js binds and locally runs circuits but does NOT assemble +
+prove + submit a ledger call transaction — midnight-js is the orchestration
+layer for exactly that, and its `callTx` balances coin-bearing calls
+(claimDeposit's mint, requestWithdraw's escrow) for free.
+`findDeployedContract` consumes the same compact-js CompiledContract lib's
+`makeCompiledContract` already builds, so deploy (2.1, compact-js) and call
+(midnight-js) share one contract binding.
+**Alternatives rejected:** hand-porting midnight-js-contracts'
+`createUnprovenLedgerCallTx` internals (ContractCallPrototype → Intent →
+fromPartsRandomized) into lib — reimplements maintained code and deferred
+Zswap offer support to Phase 8 for no benefit.
+**Impact:** cli depends on `@midnight-ntwrk/midnight-js` (4.1.1 = latest,
+matches lib); 4.2 is a midday port, not new plumbing; 8.3's client-side coin
+work disappears. midnight-js reads a process-global network id
+(`setNetworkId`) — one call at entry, the only global in the stack.
 
 <!-- Append new decisions below this line. -->
