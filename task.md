@@ -315,7 +315,7 @@ E2E flows.
       before any persistent deployment.
       *Done when:* compile/build/test green; baselines table row renamed.
 - [x] **4.2 midnight-js provider plumbing (D14)** (closes the "providers"
-      half of 2.2). ✅ Verified against a live local stack via the
+      half of 2.2). ✅ `4a8d7dc` Verified against a live local stack via the
       integration suite (task 4.4): the initialize step ran the cli's
       `initialize` (real callTx through the proof server, finalized on
       chain) and `readState`, and the ledger read back `initialized: 1`
@@ -357,7 +357,7 @@ E2E flows.
       suite SKIPS cleanly when no stack is configured — AGENTS.md forbids
       network access in unit tests, this package is the sanctioned home).
       Tests import the CLI's exported command functions.
-      ✅ Done (see D15–D17): one ordered `tests/e2e.test.ts` pipeline gated on
+      ✅ `4a8d7dc` (see D15–D17): one ordered `tests/e2e.test.ts` pipeline gated on
       `RUN_INTEGRATION_TESTS` (root `npm run test:integration` sets it,
       `--bail 1`); env accumulator seeded from repo-root `.env` +
       process.env; setup steps skip-if-set so a populated `.env` reuses the
