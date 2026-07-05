@@ -3,3 +3,4 @@
 
 export * from "./managed/contract/index.js";
 export * from "./witnesses.ts";
+export * from "./providers.ts";

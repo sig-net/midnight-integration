@@ -1,8 +1,12 @@
 // Runnable CLI entrypoint (`npm run cli`) — a thin commander shell over the
-// exported command functions in ./commands. No orchestration logic lives
-// here; integration tests import the command functions directly.
+// exported command functions in ./commands. Flow: define the commands, parse
+// (help/validation stay offline), then build the wallet + context ONCE and
+// run the selected command. No orchestration logic lives here; integration
+// tests import the command functions directly.
 
 import { Command, InvalidArgumentError } from "commander";
+
+import { deriveAccountKeys, withSyncedWalletFacade } from "@midnight-erc20-vault/lib";
 
 import { broadcastEvm } from "./commands/broadcast-evm.ts";
 import { claimDeposit } from "./commands/claim-deposit.ts";
@@ -14,12 +18,8 @@ import { refundWithdraw } from "./commands/refund-withdraw.ts";
 import { requestDeposit } from "./commands/request-deposit.ts";
 import { requestWithdraw } from "./commands/request-withdraw.ts";
 import { withdrawE2E } from "./commands/withdraw-e2e.ts";
-import { getCliConfig } from "./config.ts";
+import { getCliConfig, requireConfigValue } from "./config.ts";
 import { createCliContext, type CliContext } from "./context.ts";
-
-// One context per invocation: config resolved from the environment, connected
-// resources (providers, joined vault) lazy inside the context's getters.
-const context = (): CliContext => createCliContext(getCliConfig());
 
 const parseBigintArg = (value: string): bigint => {
   if (!/^\d+$/.test(value)) {
@@ -53,19 +53,23 @@ const withPollingOptions = (command: Command): Command =>
     .option("--interval-ms <ms>", "poll interval", parseMsArg, 5_000)
     .option("--timeout-ms <ms>", "give-up timeout per polling stage", parseMsArg, 300_000);
 
+// Each action only records the selected command; the work runs after parsing,
+// once the context exists (see the bottom of this file).
+let work: ((context: CliContext) => Promise<void>) | undefined;
+
 program
   .command("read-state")
-  .description("decode the vault's pending signature requests from the indexer (MPC-convention raw read)")
-  .action(async () => {
-    await readState(context());
+  .description("read the vault's public ledger: config, and pending signature requests")
+  .action(() => {
+    work = (context) => readState(context);
   });
 
 program
   .command("initialize")
   .description("deployer-only one-off: seal the vault's EVM address into the contract config")
   .requiredOption("--vault-evm-address <address>", "the vault's EVM address (20-byte 0x hex)")
-  .action(async (options: { vaultEvmAddress: string }) => {
-    await initialize(context(), options);
+  .action((options: { vaultEvmAddress: string }) => {
+    work = (context) => initialize(context, options);
   });
 
 program
@@ -73,8 +77,10 @@ program
   .description("record a deposit signature request on the vault's ledger; prints the request id")
   .requiredOption("--amount <amount>", "deposit amount in ERC20 base units", parseBigintArg)
   .requiredOption("--evm-nonce <nonce>", "nonce of the user's derived EVM account", parseBigintArg)
-  .action(async (options: { amount: bigint; evmNonce: bigint }) => {
-    console.log(await requestDeposit(context(), options));
+  .action((options: { amount: bigint; evmNonce: bigint }) => {
+    work = async (context) => {
+      console.log(await requestDeposit(context, options));
+    };
   });
 
 withPollingOptions(
@@ -82,24 +88,28 @@ withPollingOptions(
     .command("poll-response")
     .description("poll the signature-responses contract for a request's MPC response")
     .requiredOption("--request-id <hex>", "the request id to poll for", parseRequestIdArg),
-).action(async (options: { requestId: string; intervalMs: number; timeoutMs: number }) => {
-  console.log(await pollResponse(context(), options));
+).action((options: { requestId: string; intervalMs: number; timeoutMs: number }) => {
+  work = async (context) => {
+    console.log(await pollResponse(context, options));
+  };
 });
 
 program
   .command("broadcast-evm")
   .description("broadcast an MPC-signed EVM transaction; prints the transaction hash")
   .requiredOption("--signed-transaction <hex>", "the signed, RLP-encoded EVM transaction (0x hex)")
-  .action(async (options: { signedTransaction: string }) => {
-    console.log(await broadcastEvm(context(), options));
+  .action((options: { signedTransaction: string }) => {
+    work = async (context) => {
+      console.log(await broadcastEvm(context, options));
+    };
   });
 
 program
   .command("claim-deposit")
   .description("claim a completed deposit: verify the MPC attestation in-circuit and mint shielded tokens")
   .requiredOption("--request-id <hex>", "the request id to claim", parseRequestIdArg)
-  .action(async (options: { requestId: string }) => {
-    await claimDeposit(context(), options);
+  .action((options: { requestId: string }) => {
+    work = (context) => claimDeposit(context, options);
   });
 
 withPollingOptions(
@@ -108,8 +118,8 @@ withPollingOptions(
     .description("full deposit flow: request → poll signed tx → broadcast → poll attestation → claim")
     .requiredOption("--amount <amount>", "deposit amount in ERC20 base units", parseBigintArg)
     .requiredOption("--evm-nonce <nonce>", "nonce of the user's derived EVM account", parseBigintArg),
-).action(async (options: { amount: bigint; evmNonce: bigint; intervalMs: number; timeoutMs: number }) => {
-  await depositE2E(context(), options);
+).action((options: { amount: bigint; evmNonce: bigint; intervalMs: number; timeoutMs: number }) => {
+  work = (context) => depositE2E(context, options);
 });
 
 program
@@ -117,16 +127,18 @@ program
   .description("escrow a shielded vault coin and record a withdraw signature request; prints the request id")
   .requiredOption("--amount <amount>", "withdraw amount in ERC20 base units", parseBigintArg)
   .requiredOption("--dest-evm-address <address>", "destination EVM address (20-byte 0x hex)")
-  .action(async (options: { amount: bigint; destEvmAddress: string }) => {
-    console.log(await requestWithdraw(context(), options));
+  .action((options: { amount: bigint; destEvmAddress: string }) => {
+    work = async (context) => {
+      console.log(await requestWithdraw(context, options));
+    };
   });
 
 program
   .command("refund-withdraw")
   .description("settle a withdraw request: success is final, failure re-mints the escrow to the refund recipient")
   .requiredOption("--request-id <hex>", "the request id to settle", parseRequestIdArg)
-  .action(async (options: { requestId: string }) => {
-    await refundWithdraw(context(), options);
+  .action((options: { requestId: string }) => {
+    work = (context) => refundWithdraw(context, options);
   });
 
 withPollingOptions(
@@ -135,15 +147,29 @@ withPollingOptions(
     .description("full withdraw flow: request → poll signed tx → broadcast → poll attestation → settle")
     .requiredOption("--amount <amount>", "withdraw amount in ERC20 base units", parseBigintArg)
     .requiredOption("--dest-evm-address <address>", "destination EVM address (20-byte 0x hex)"),
-).action(
-  async (options: { amount: bigint; destEvmAddress: string; intervalMs: number; timeoutMs: number }) => {
-    await withdrawE2E(context(), options);
-  },
-);
+).action((options: { amount: bigint; destEvmAddress: string; intervalMs: number; timeoutMs: number }) => {
+  work = (context) => withdrawE2E(context, options);
+});
 
-try {
-  await program.parseAsync(process.argv);
-} catch (error) {
-  console.error(error instanceof Error ? `${error.name}: ${error.message}` : String(error));
-  process.exitCode = 1;
+// Parse is offline: help, --version and argument errors never touch the
+// network. Only when a command was actually selected do we pay for the
+// wallet session + contract join.
+await program.parseAsync(process.argv);
+const selected = work;
+
+if (selected !== undefined) {
+  try {
+    const config = getCliConfig();
+    // Fail on missing config before any network connection is opened.
+    requireConfigValue(config.vaultContractAddress, "VAULT_CONTRACT_ADDRESS");
+
+    const keys = deriveAccountKeys(config.userSeed, config.midnightNodeConfig.networkId);
+    await withSyncedWalletFacade(keys, config.midnightNodeConfig, async (facade) => {
+      const context = await createCliContext(config, { facade, keys });
+      await selected(context);
+    });
+  } catch (error) {
+    console.error(error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+    process.exitCode = 1;
+  }
 }

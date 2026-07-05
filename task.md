@@ -314,38 +314,36 @@ E2E flows.
       part of the generated API and the call-tx key location, so rename
       before any persistent deployment.
       *Done when:* compile/build/test green; baselines table row renamed.
-- [ ] **4.2 lib midnight-js provider plumbing (D14)** (closes the
-      "providers" half of 2.2). Port midday's
-      `app/playground/lib/providers.ts` into `packages/lib`:
-      `buildProviders<C>(wallet, zkConfigPath, config)` returning the
-      midnight-js `MidnightProviders` set (levelPrivateStateProvider,
-      indexerPublicDataProvider, NodeZkConfigProvider,
-      httpClientProofProvider) + the ~40-line WalletFacade →
-      WalletProvider/MidnightProvider adapter (`balanceTx` =
-      balanceUnboundTransaction → signRecipe → finalizeRecipe; `submitTx` =
-      facade.submitTransaction). Deps (all resolve latest = 4.1.1, matching
-      lib's existing `@midnight-ntwrk/midnight-js`):
-      midnight-js-indexer-public-data-provider,
-      midnight-js-http-client-proof-provider,
-      midnight-js-node-zk-config-provider,
-      midnight-js-level-private-state-provider. Gotcha from midday:
-      midnight-js reads a process-global network id — call `setNetworkId`
-      once at entry. The midnight-js ledger types come from
-      midnight-js-protocol while lib uses ledger-v8; same underlying classes,
-      bridge nominal identities the way midday's adapter does.
-      *Done when:* lib exposes `buildProviders` + the adapter, and the cli
-      context's `publicDataProvider()`/`vault()` getters are wired:
-      `findDeployedContract(providers, { contractAddress, compiledContract
-      (lib makeCompiledContract), privateStateId, initialPrivateState })` —
-      `initialize` then executes against the local stack via
-      `vault.callTx.initialize(...)`.
+- [ ] **4.2 midnight-js provider plumbing (D14)** (closes the "providers"
+      half of 2.2). CODE LANDED, verification against a live stack still
+      open. What landed, and where (D14 amendment — providers are
+      CONTRACT-package concerns, not lib):
+      - lib `src/midnight-providers.ts`: `createWalletAndMidnightProvider(
+        facade, keys)` — the generic WalletFacade →
+        WalletProvider/MidnightProvider adapter (`balanceTx` =
+        balanceUnboundTransaction → signRecipe → finalizeRecipe; `submitTx` =
+        facade.submitTransaction; `as never` casts bridge
+        midnight-js-protocol vs ledger-v8 nominal identities).
+      - vault-contract `src/providers.ts`: `buildVaultProviders(facade,
+        keys, config)` → `VaultProviders` (= `MidnightProviders<
+        VaultCircuitId, VaultPrivateStateId, VaultPrivateState>`), plus
+        `vaultCompiledContract` and `VAULT_PRIVATE_STATE_ID` — the vault
+        package IS the SDK a client consumes. Provider deps installed there
+        at 4.1.1 (= latest, matches lib's midnight-js).
+      - cli: `createCliContext(config, {facade, keys})` (`src/context.ts`)
+        joins the vault; `CliContext` = { config, providers, vault }.
+        main.ts owns the lifecycle linearly: parse (offline) → derive keys →
+        `withSyncedWalletFacade` → createCliContext → run the selected
+        command. `setNetworkId` (midnight-js process-global) is called in
+        createCliContext.
+      *Done when:* `initialize` and `read-state` execute against the local
+      stack (Phase 3.1) — the code paths exist end-to-end but have never
+      touched a running node/indexer/proof server.
 - [ ] **4.3 Wire the remaining CLI commands** (the command logic already
       exists; replace the remaining NotImplementedError boundaries):
-      `read-state` works as soon as 4.2 lands (its body is complete — doubles
-      as the 3.2 from-the-outside verification tool); `request-deposit`
-      additionally needs the MPC routing constants + codec ported from the
-      MVP (`contract-cli/src/signet/constants.ts`) to construct the signet
-      request arguments, then recompute the id via
+      `request-deposit` needs the MPC routing constants + codec ported from
+      the MVP (`contract-cli/src/signet/constants.ts`) to construct the
+      signet request arguments, then recompute the id via
       `pureCircuits.signetEVMSignatureRequestId` + `requestIdHex`, assert it
       equals the ledger map key, print it; `poll-response` against the
       placeholder record; `broadcast-evm` (add `ethers` to the cli package
@@ -669,5 +667,11 @@ Zswap offer support to Phase 8 for no benefit.
 matches lib); 4.2 is a midday port, not new plumbing; 8.3's client-side coin
 work disappears. midnight-js reads a process-global network id
 (`setNetworkId`) — one call at entry, the only global in the stack.
+**Amendment (2026-07-05, task 4.2):** provider composition lives in the
+CONTRACT package (`vault-contract/src/providers.ts` — zk path, private-state
+id, circuit-id union are all vault-specific; the contract package is the
+SDK), not in lib; lib carries only the generic WalletFacade adapter
+(`createWalletAndMidnightProvider`). The CLI context is EAGER: built once per
+command inside a synced wallet session (`withCliContext`), no lazy getters.
 
 <!-- Append new decisions below this line. -->

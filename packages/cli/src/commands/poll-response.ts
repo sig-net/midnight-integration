@@ -41,8 +41,6 @@ export async function pollResponse(context: CliContext, options: PollResponseOpt
   console.log(`responses contract: ${responsesContractAddress}`);
   console.log(`request id:         ${options.requestId}`);
   console.log(`poll:               every ${options.intervalMs}ms, up to ${options.timeoutMs}ms`);
-
-  await context.publicDataProvider();
   throw new NotImplementedError(
     "poll-response cannot decode a response yet: the signature-responses contract stores a placeholder " +
       "32-byte record that cannot carry a signed EVM transaction or a Schnorr attestation",

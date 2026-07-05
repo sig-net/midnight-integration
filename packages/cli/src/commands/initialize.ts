@@ -1,7 +1,6 @@
 // `initialize` — the deployer's one-off call sealing the vault's EVM address
 // into the contract config. Gated in-circuit to the deployer identity.
 
-import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
 import { getUserIdentity } from "../identity.ts";
 
@@ -30,10 +29,9 @@ const evmAddressBytes = (hex: string): Uint8Array =>
  *
  * @param context - The CLI context.
  * @param options - The initialize arguments.
- * @throws NotImplementedError — until the context's vault join is wired.
+ * @throws If the address is malformed or the circuit rejects the caller.
  */
 export async function initialize(context: CliContext, options: InitializeOptions): Promise<void> {
-  requireConfigValue(context.config.vaultContractAddress, "VAULT_CONTRACT_ADDRESS");
   if (!/^0x[0-9a-fA-F]{40}$/.test(options.vaultEvmAddress)) {
     throw new Error(`--vault-evm-address must be a 20-byte 0x hex address; got "${options.vaultEvmAddress}".`);
   }
@@ -42,7 +40,6 @@ export async function initialize(context: CliContext, options: InitializeOptions
   console.log(`vault EVM address: ${options.vaultEvmAddress}`);
   console.log(`caller commitment: ${identity.commitmentHex} (must equal the sealed deployer)`);
 
-  const vault = await context.vault();
-  await vault.callTx.initialize(evmAddressBytes(options.vaultEvmAddress));
-  console.log("initialize submitted and finalized");
+  const result = await context.vault.callTx.initialize(evmAddressBytes(options.vaultEvmAddress));
+  console.log(`initialize finalized in tx ${result.public.txId}`);
 }

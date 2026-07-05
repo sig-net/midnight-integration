@@ -13,11 +13,15 @@ Read the root `/AGENTS.md` first; everything there applies. Local rules:
 - Config is read ONCE in `src/config.ts`, composing lib's
   `getMidnightNodeConfig` with the CLI-specific env. No other file in this
   package reads `process.env`.
-- Connected resources (providers, wallet, the joined vault handle) come from
-  the `CliContext` built in `src/context.ts` — lazily, so parsing/validation
-  never touches the network. Commands never construct providers, wallets, or
-  contract handles themselves; circuit calls go through the joined handle's
-  `callTx.<circuit>(...)` (midnight-js), never hand-assembled transactions.
+- Connected resources come from the `CliContext` (`src/context.ts`): config +
+  the vault's providers + the JOINED vault contract handle. `main.ts` builds
+  it ONCE after parsing — parse/help stay offline, then wallet session →
+  `createCliContext` → run the selected command. Commands never construct
+  providers, wallets, or contract handles themselves; circuit calls go
+  through `context.vault.callTx.<circuit>(...)` (midnight-js), never
+  hand-assembled transactions. The vault-specific pieces (compiled contract,
+  providers, witnesses, private-state id) are vault-contract exports — the
+  contract package IS the SDK; this package just drives it.
 - All MPC hand-offs are POLLED from the signature-responses contract. No
   websockets, no push channels.
 - Unit tests here are pure (config parsing and the like); anything needing a

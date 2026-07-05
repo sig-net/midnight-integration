@@ -12,31 +12,34 @@ Two ways to consume it:
   configuration from the environment.
 - **As a library** — import the command functions from
   `@midnight-erc20-vault/cli`; each command is one exported async function
-  taking `(context, options)`, where the `CliContext` (built by
-  `createCliContext(config)`) carries the config plus lazy access to the
-  connected resources: the indexer public-data provider and the joined vault
-  contract handle (midnight-js `findDeployedContract` →
-  `vault.callTx.<circuit>(...)`). `src/main.ts` is only a thin commander
-  shell over them.
+  taking `(context, options)`. The `CliContext` carries the config, the
+  vault's midnight-js providers, and the JOINED vault contract handle
+  (`findDeployedContract` → `context.vault.callTx.<circuit>(...)`); build one
+  with `createCliContext(config, { facade, keys })` inside lib's
+  `withSyncedWalletFacade` — see the bottom of `src/main.ts` for the whole
+  lifecycle in a dozen lines. The vault-specific pieces (compiled-contract
+  binding, providers, witnesses) are `@midnight-erc20-vault/vault-contract`
+  exports — the contract package is the SDK; this CLI just drives it.
 
 ## Commands
 
 | Command | What it does | Status |
 |---|---|---|
-| `read-state` | Decode the vault's pending signature requests (ledger field 0) from raw indexer state — the same MPC-convention read the monitor uses; no compiled contract needed | stubbed |
-| `initialize` | Deployer-only one-off: seal the vault's EVM address into the contract config | stubbed |
-| `request-deposit` | Record a deposit signature request on the vault's ledger; prints the request id | stubbed |
-| `poll-response` | Poll the signature-responses contract for a request's MPC response | stubbed |
-| `broadcast-evm` | Broadcast an MPC-signed EVM transaction; prints the tx hash | stubbed |
+| `read-state` | Read the vault's public ledger via the typed `ledger()` decode: config + pending signature requests | wired |
+| `initialize` | Deployer-only one-off: seal the vault's EVM address into the contract config (`callTx.initialize`) | wired |
+| `request-deposit` | Record a deposit signature request on the vault's ledger; prints the request id | stubbed (routing constants) |
+| `poll-response` | Poll the signature-responses contract for a request's MPC response | stubbed (placeholder record) |
+| `broadcast-evm` | Broadcast an MPC-signed EVM transaction; prints the tx hash | stubbed (ethers pending) |
 | `claim-deposit` | Verify the MPC attestation in-circuit and mint shielded vault tokens | stubbed (circuit not ported) |
-| `deposit-e2e` | Full deposit orchestration (see below) | stubbed |
+| `deposit-e2e` | Full deposit orchestration (see below) | partial |
 | `request-withdraw` | Escrow a shielded coin and record a withdraw signature request | stubbed (circuit not ported) |
 | `refund-withdraw` | Settle a withdraw: success is final, failure re-mints the escrow to the refund recipient | stubbed (circuit not ported) |
 | `withdraw-e2e` | Full withdraw orchestration (see below) | stubbed |
 
-Stubbed commands parse their arguments, load config, derive the caller
-identity, print what they would do, then throw `NotImplementedError` naming
-the missing piece. See **Status** below for what is missing and why.
+Every command runs inside a wallet session and a joined vault contract (see
+**Running**). Stubbed commands validate their inputs, print what they would
+do, then throw `NotImplementedError` naming the missing piece. See **Status**
+below.
 
 ## The deposit flow (`deposit-e2e`)
 
@@ -123,23 +126,18 @@ deployed vault + signature-responses contracts, and a funded wallet.
 
 ## Status
 
-The package is a **skeleton**: the command surface, configuration, identity
-derivation, and the command logic itself are real; the `CliContext`'s
-connected-resource getters throw `NotImplementedError`. What is missing, in
-dependency order:
+The wallet session, vault providers, contract join, `read-state`, and
+`initialize` are fully wired (pending a run against a live stack). Still
+missing, in dependency order:
 
-1. **midnight-js provider plumbing in `packages/lib`** — the provider set
-   (indexer public-data / proof-server / zk-config / private-state store)
-   plus the WalletFacade → WalletProvider/MidnightProvider adapter, so the
-   context can `findDeployedContract` and commands can call
-   `vault.callTx.<circuit>(...)` (which balances, proves, and submits —
-   coin-bearing calls included). Blocks everything that touches the chain.
-2. **The MPC routing constants + codec** (keyVersion, algo, dest, schemas,
+1. **The MPC routing constants + codec** (keyVersion, algo, dest, schemas,
    gas defaults) ported from the MVP — needed by `request-deposit` to
-   construct the signet request arguments.
-3. **The real response record in the signature-responses contract** — the
+   construct the signet request arguments; the circuit call itself is one
+   `context.vault.callTx.requestDeposit(...)` away.
+2. **The real response record in the signature-responses contract** — the
    current placeholder stores 32 bytes per request, which cannot carry a
-   signed EVM transaction or a Schnorr attestation. Blocks `poll-response`.
-4. **Vault circuits `claimDeposit`, `requestWithdraw`, `refundWithdraw`** —
+   signed EVM transaction or a Schnorr attestation. Blocks `poll-response`
+   (and joining the responses contract into the context).
+3. **Vault circuits `claimDeposit`, `requestWithdraw`, `refundWithdraw`** —
    not yet ported from the MVP.
-5. **`ethers`** for `broadcast-evm` — added when that command is wired.
+4. **`ethers`** for `broadcast-evm` — added when that command is wired.

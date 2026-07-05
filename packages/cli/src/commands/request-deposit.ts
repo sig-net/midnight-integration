@@ -23,17 +23,17 @@ export interface RequestDepositOptions {
  * the typed circuit arguments — `signetParams` (EVM transaction params for
  * the sweep + MPC routing with `path` and `caip2Id` from the config) and the
  * deposit request (`erc20Address`, `amount`) — then
- * `vault.callTx.requestDeposit(signetParams, depositRequest)` via the
- * context's joined handle. Afterwards recompute the request id off-chain with
- * the compiled `signetEVMSignatureRequestId` circuit and assert it matches
- * the ledger's map key before returning it.
+ * `context.vault.callTx.requestDeposit(signetParams, depositRequest)`.
+ * Afterwards recompute the request id off-chain with the compiled
+ * `signetEVMSignatureRequestId` circuit and assert it matches the ledger's
+ * map key before returning it.
  *
  * @param context - The CLI context.
  * @param options - The deposit arguments.
  * @returns The request id as 64-char lowercase hex.
  * @throws NotImplementedError — the argument construction still needs the MPC
  * routing constants (keyVersion, algo, dest, schemas) and gas defaults ported
- * from the MVP, and the context's vault join is not wired.
+ * from the MVP.
  */
 export async function requestDeposit(context: CliContext, options: RequestDepositOptions): Promise<string> {
   const { config } = context;
@@ -49,7 +49,7 @@ export async function requestDeposit(context: CliContext, options: RequestDeposi
   console.log(`amount:            ${options.amount} (evm nonce ${options.evmNonce})`);
   console.log(`caller commitment: ${identity.commitmentHex}`);
   throw new NotImplementedError(
-    "request-deposit needs the joined vault handle from the context (not wired) and the MPC routing " +
-      "constants/codec ported from the MVP to construct the signet request arguments",
+    "request-deposit needs the MPC routing constants/codec ported from the MVP to construct the signet " +
+      "request arguments — then it calls context.vault.callTx.requestDeposit(...)",
   );
 }

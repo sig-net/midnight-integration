@@ -32,6 +32,10 @@ import type { MidnightNodeConfig } from "./midnight-node-config.ts";
 import type { NetworkId } from "./network-id.ts";
 import { parseSeed } from "./seed.ts";
 
+// Consumers hold facades/states we hand them without adding the wallet-sdk
+// packages themselves — re-export the handle types alongside the builders.
+export type { FacadeState, TransactionIdentifier, WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
+
 /** The live key material for one account. Reused for signing / balancing. */
 export interface AccountKeys {
   shieldedSecretKeys: ledger.ZswapSecretKeys;
