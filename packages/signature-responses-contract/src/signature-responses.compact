@@ -1,28 +1,42 @@
-pragma language_version >= 0.22;
+pragma language_version >= 0.20;
 
 import CompactStandardLibrary;
 
-// Placeholder contract: proves the package plumbing (compact compile -> typecheck
-// -> simulator unit tests) end to end. The real signature-responses contract
-// (postResponse: requestId -> response map the MPC writes and clients poll)
-// replaces this during the port.
+// signatureResponseIndex is an index of signature responses, indexed by a hash of requestId.
+// FIXME: pick a different data type to allow multiple publishes to remove need for authentication
+export ledger signatureResponseIndex: Map<Bytes<32>, Bytes<32>>;
 
-export ledger round: Counter;
-export ledger secretHash: Bytes<32>;
+// only the owner may post reponse data
+export ledger owner: Maybe<Bytes<32>>;
 
-witness placeholderSecret(): Bytes<32>;
+// localSecretKey used for caller to prove they are the owner
+witness localSecretKey(): Bytes<32>;
 
-constructor() {
+export circuit initialise(): [] {
+    assert(!owner.is_some, "Contract has already been intialised");
+    owner = disclose(some<Bytes<32>>(ownerCommittment(localSecretKey())));
 }
 
-export circuit increment(): [] {
-  round.increment(1);
+// postResponse posts the given requestId and response to the signature response index on the ledger.
+export circuit postResponse(requestId: Bytes<32>, signatureResponse: Bytes<32>): [] {
+    assert(owner.is_some, "Contract not yet intialised");
+    assert(owner.value == disclose(ownerCommittment(localSecretKey())), "Only the owner may post responses");
+
+    // Check if response data for this request already present.
+    // Return early without error (unless given value is different to what is already stored).
+    if (signatureResponseIndex.member(disclose(requestId))) {
+        assert(
+            signatureResponseIndex.lookup(disclose(requestId)) == disclose(signatureResponse),
+            "signature response already stored differs from given value"
+        );
+        return [];
+    }
+
+    // post response data
+    signatureResponseIndex.insert(disclose(requestId), disclose(signatureResponse));
 }
 
-export circuit recordSecret(): [] {
-  secretHash = disclose(persistentHash<Bytes<32>>(placeholderSecret()));
-}
-
-export pure circuit echo(value: Bytes<32>): Bytes<32> {
-  return value;
+// ownerCommittment generates an owner committment given a secret key
+export pure circuit ownerCommittment(sk: Bytes<32>): Bytes<32> {
+    return persistentHash<Vector<2, Bytes<32>>>([pad(32, "owner:sk:"), sk]);
 }

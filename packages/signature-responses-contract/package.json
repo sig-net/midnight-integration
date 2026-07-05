@@ -16,7 +16,7 @@
     "deploy": "tsx deploy.ts"
   },
   "dependencies": {
-    "@midnight-erc20-vault/deploy": "*"
+    "@midnight-erc20-vault/lib": "*"
   },
   "devDependencies": {
     "@midnight-ntwrk/compact-runtime": "^0.16.0",

@@ -13,22 +13,22 @@ import "@midnight-erc20-vault/signet-midnight/src/SignetRequests";
 // DO NOT DECLARE ANY OTHER LEDGER STATE ABOVE THIS LINE!
 export ledger signetRequestsIndex: SignetEVMSignatureRequestIndex;
 
-// Contract-local request counter: gives each request its requestNonce and is
-// the MPC's cheap "any new requests?" polling signal.
+// Contract-local request counter: gives each Signet signature request its requestNonce.
 export ledger signetNonce: Counter;
 
-// ---- Contract config (declared AFTER the signet fields) -------------------------
-// Set once at deploy/initialize time; deposit refuses to run before then.
+// ---- Contract Own Storage (declared AFTER the signet fields) -------------------------
 
 // Becomes 1 once initialize() has run.
 export ledger initialized: Counter;
+
 // The vault's own EVM address: the contract-enforced recipient of every
 // deposit transfer. Set in initialize() rather than the constructor because
 // the MPC derives it FROM this contract's address (epsilon derivation — see
 // https://docs.sig.network/), which does not exist until after deployment.
 export ledger vaultEvmAddress: Bytes<20>;
+
 // Identity commitment of the deployer; only they may call initialize().
-// Sealed: immutable after the constructor, so the gate cannot be moved.
+// Sealed: immutable after the constructor
 sealed ledger deployer: Bytes<32>;
 
 // ---- Contract-specific types ---------------------------------------------------
@@ -48,8 +48,8 @@ struct DepositRequest {
 
 witness callerSecretKey(): Bytes<32>;
 
-// Exported so off-chain code (deploy tooling, tests) computes commitments by
-// calling the compiled circuit — never by re-porting the hash.
+// Exported so off-chain code (deploy tooling, tests) may compute commitments by
+// calling the compiled circuit.
 export pure circuit userCommitment(sk: Bytes<32>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([pad(32, "vault:user:"), sk]);
 }

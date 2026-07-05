@@ -244,25 +244,34 @@ Each task has a **Done when** — don't move on until it holds.
 
 ## Phase 2 — Deploy tooling
 
-- [ ] **2.1 Port `buildDeployTransaction`** in `packages/deploy/src/deploy.ts`
-      from midday's `app/ui/lib/actions/buildDeployTransaction.ts` (pointer in
-      `packages/deploy/README.md`; deps already installed: compact-js,
-      compact-js-node, ledger-v8, platform-js, effect). Keep the existing
-      typed skeleton (`DeployParams`/`DeployTransaction`). Add constructor-arg
-      support — the vault needs `deployerCommitment: Uint8Array`.
-      *Done when:* a unit test builds a deploy tx for the vault's managed
-      output. Building needs zk keys → the test must skip cleanly (with a
-      visible skip reason) when `src/managed/keys/` is absent.
+- [x] **2.1 Port `buildDeployTransaction`** — DIRECTION CHANGE: the generic
+      `packages/deploy` package was dropped (constructors grew args —
+      `deployerCommitment: Uint8Array` — which a generic deployer can only
+      take untyped, forcing dynamic module loading + witness stubs). Instead
+      the midday port lives in `packages/lib/src/deploy.ts`
+      (`makeCompiledContract` + `buildDeployTransaction`, generic over
+      `<C, PS>` so constructor args stay statically typed) and
+      `packages/lib/src/wallet.ts` (`submitUnprovenTransaction`,
+      `withSyncedWalletFacade`, from midday `SeedWallet.ts`). Each contract
+      package's `deploy.ts` statically imports its own generated module and
+      passes its real witnesses — no stubs, no `contract-info.json` parsing.
+      ✅ *Done:* `tests/deploy.test.ts` in both contract packages builds a
+      deploy tx from the real managed output (skips cleanly, with a visible
+      reason, when `src/managed/keys/` is absent — run `compile:zk` first).
 - [ ] **2.2 Port wallet/provider plumbing into `packages/lib`** from the old
       repo's contract-cli (typed env config, indexer/node/proof-server
-      providers, wallet build/restore, logging). ONE copy; deploy +
-      integration-tests consume it. JSDoc everything (AGENTS rule).
+      providers, wallet build/restore, logging). ONE copy; contract deploy
+      scripts + integration-tests consume it. JSDoc everything (AGENTS rule).
+      Partially done via 2.1 (deploy config, facade lifecycle, unproven-tx
+      submission); still open: providers, logging.
       *Done when:* lib exposes typed config + provider builders; no
       per-package copies anywhere.
 - [ ] **2.3 Vault `deploy.ts`** (`packages/vault-contract/deploy.ts`, run via
       `npm run deploy -w @midnight-erc20-vault/vault-contract`): compile:zk →
       build deploy tx (deployer commitment via `pureCircuits.userCommitment`)
-      → sign/prove/submit via lib wallet → call `initialize(vaultEvmAddress)`
+      → sign/prove/submit via lib wallet ✅ (done via 2.1's rewrite; deployer
+      identity = `VAULT_DEPLOYER_SECRET_KEY`, falling back to the
+      `DEPLOYER_SEED` bytes) → still open: call `initialize(vaultEvmAddress)`
       → write a **deployment manifest** `deployments/<network>.json`:
       { contractAddress, constructorArgs, contractSourceHash (hash of the
       .compact source + compiler version), deployedAt, initialized }.
@@ -540,5 +549,14 @@ monitor's `bytesToBigintLE` convention was correct).
 arg words. Also fixed in the same commit: signet-midnight `tests/` are now in
 tsconfig `include` — before `316e905` the type tripwires never actually
 guarded `npm run build`.
+
+### D1# — NEVER ADD REFERENCES TO THIS TASK FILE ANYWHERE OUTSIDE OF THIS FILE
+**Decision:** never add references to this file outside of this file. it will be deleted once these tasks are complete.
+e.g. the following should NEVER BE DONE:
+```ts
+// Follow-ups (task.md 2.3): call initialize(vaultEvmAddress) as a circuit
+// call once the deploy tx lands, and write deployments/<network>.json.
+```
+DON'T DO THAT EVER!
 
 <!-- Append new decisions below this line. -->

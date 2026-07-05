@@ -8,6 +8,8 @@ import {
   mergeWalletEntries,
   WalletEntrySchema,
   WalletFacade,
+  type FacadeState,
+  type TransactionIdentifier,
 } from "@midnight-ntwrk/wallet-sdk-facade";
 import { ShieldedWallet } from "@midnight-ntwrk/wallet-sdk-shielded";
 import { DustWallet } from "@midnight-ntwrk/wallet-sdk-dust-wallet";
@@ -116,4 +118,68 @@ export function initialiseWalletFacade(keys: AccountKeys, config: MidnightNodeCo
     dust: (cfg) =>
       DustWallet(cfg).startWithSecretKey(keys.dustSecretKey, ledger.LedgerParameters.initialParameters().dust),
   });
+}
+
+// Recipes (balancing plans for submitted transactions) expire 30 min out.
+const RECIPE_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * Balance, sign, prove and submit a serialized unproven transaction (e.g. a
+ * contract deploy built by `buildDeployTransaction` in deploy.ts). Proving
+ * happens in `finalizeRecipe` via the facade's configured proof server.
+ *
+ * @param facade - A started (and synced) wallet facade that pays for and submits the transaction.
+ * @param keys - The key material of the same wallet, for balancing and signing.
+ * @param serializedTransaction - The unproven transaction bytes.
+ * @returns The submitted transaction's identifier.
+ * @throws If the wallet cannot cover fees, proving fails, or the node rejects the transaction.
+ */
+export async function submitUnprovenTransaction(
+  facade: WalletFacade,
+  keys: AccountKeys,
+  serializedTransaction: Uint8Array,
+): Promise<TransactionIdentifier> {
+  // Deserialize back into the ledger UnprovenTransaction the facade balances.
+  const tx = ledger.Transaction.deserialize<ledger.SignatureEnabled, ledger.PreProof, ledger.PreBinding>(
+    "signature",
+    "pre-proof",
+    "pre-binding",
+    serializedTransaction,
+  );
+
+  // Balance (add dust/fee inputs) → sign those inputs → finalize (prove) → submit.
+  const recipe = await facade.balanceUnprovenTransaction(
+    tx,
+    { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
+    { ttl: new Date(Date.now() + RECIPE_TTL_MS) },
+  );
+  const signed = await facade.signRecipe(recipe, (payload) => keys.unshieldedKeystore.signData(payload));
+  const finalized = await facade.finalizeRecipe(signed);
+  return facade.submitTransaction(finalized);
+}
+
+/**
+ * Run `fn` against a started-and-synced {@link WalletFacade}, then stop the
+ * facade — even when `fn` throws. The one place the start / wait-for-sync /
+ * stop boilerplate lives.
+ *
+ * @param keys - The account to open the facade for (see {@link deriveAccountKeys}).
+ * @param config - The stack the facade connects to.
+ * @param fn - Work to run with the live facade; receives the synced state for balance checks.
+ * @returns Whatever `fn` returns.
+ * @throws Whatever {@link initialiseWalletFacade}, the facade start/sync, or `fn` throws.
+ */
+export async function withSyncedWalletFacade<T>(
+  keys: AccountKeys,
+  config: MidnightNodeConfig,
+  fn: (facade: WalletFacade, state: FacadeState) => Promise<T>,
+): Promise<T> {
+  const facade = await initialiseWalletFacade(keys, config);
+  await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
+  try {
+    const state = await facade.waitForSyncedState();
+    return await fn(facade, state);
+  } finally {
+    await facade.stop().catch(() => {});
+  }
 }

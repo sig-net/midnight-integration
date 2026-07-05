@@ -8,7 +8,6 @@ This repository is a single **npm workspace**. Its members live under `packages/
   of the repo. Seed of a future signet.js Midnight adapter.
 - **`packages/vault-contract`** / **`packages/signature-responses-contract`** — one
   package per Compact contract, no contract/sdk split. See "Contract packages" below.
-- **`packages/deploy`** — generic Midnight deployer (see its `AGENTS.md`).
 
 Run `npm install` from the repo root — never from inside a member.
 Run `npm run compile` once before `build`/`test`: the contract packages AND
@@ -122,6 +121,11 @@ both (and to any future contract package):
   → `createCircuitContext(sampleContractAddress(), CPK, state, ps)` → call circuits,
   threading `result.context` forward → decode with `ledger(ctx.currentQueryContext.state)`.
   Pure circuits are called directly via `pureCircuits.<name>(...)`.
-- **Contract-specific deploy steps stay in this package's `deploy.ts`** (managed
-  path, tag, post-deploy initialise circuit call) — never in `packages/deploy`,
-  which must stay generic.
+- **The deploy split: generic plumbing in lib, everything contract-specific in
+  this package's `deploy.ts`.** `packages/lib`'s deploy/wallet helpers
+  (`buildDeployTransaction`, `makeCompiledContract`, `submitUnprovenTransaction`,
+  …) know no contract; the deploy script owns the constructor args, witnesses,
+  private state and post-deploy circuit calls, statically importing its own
+  generated module so all of it stays fully typed. There is no generic deployer
+  package — that inversion (dynamic module loading, witness stubs) was tried and
+  dropped when constructors grew args.
