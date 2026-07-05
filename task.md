@@ -105,8 +105,8 @@ lockstep — field order and widths are the wire format:
 ```
 npm install                      # repo root ONLY, never inside a member
 npm run compile                  # all packages with a compile script (--skip-zk)
-npm run compile vault-contract   # one package (scripts/compile.sh dispatcher)
-npm run compile:zk vault-contract# with proving keys (slow; prints k/rows)
+npm run compile:vault            # one package (also :responses, :signet)
+npm run compile:vault:zk         # with proving keys (slow; prints k/rows)
 npm run build                    # tsc --noEmit everywhere; REQUIRES compile first
 npm run test                     # vitest everywhere (simulator-only)
 ```

@@ -8,8 +8,13 @@
     "packages/*"
   ],
   "scripts": {
-    "compile": "scripts/compile.sh",
-    "compile:zk": "scripts/compile.sh --zk",
+    "compile": "npm run compile --workspaces --if-present",
+    "compile:zk": "npm run compile:zk --workspaces --if-present",
+    "compile:vault": "npm run compile -w @midnight-erc20-vault/vault-contract",
+    "compile:vault:zk": "npm run compile:zk -w @midnight-erc20-vault/vault-contract",
+    "compile:responses": "npm run compile -w @midnight-erc20-vault/signature-responses-contract",
+    "compile:responses:zk": "npm run compile:zk -w @midnight-erc20-vault/signature-responses-contract",
+    "compile:signet": "npm run compile -w @midnight-erc20-vault/signet-midnight",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "deploy:vault": "npm run deploy -w @midnight-erc20-vault/vault-contract",
