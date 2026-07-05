@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Demonstrates sig-net cross-chain interactions from Midnight: an ERC20 vault driven by MPC-signed EVM transactions. Run `npm run compile` once before `build`/`test` — the contract packages and signet-midnight typecheck against the generated managed/ output.",
+  "description": "Demonstrates sig-net cross-chain interactions from Midnight: an ERC20 vault driven by MPC-signed EVM transactions. Run `npm run compile` once before `build`/`test` \u2014 the contract packages and signet-midnight typecheck against the generated managed/ output.",
   "workspaces": [
     "packages/*"
   ],
@@ -17,6 +17,7 @@
     "compile:signet": "npm run compile -w @midnight-erc20-vault/signet-midnight",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:integration": "npm run test:integration -w @midnight-erc20-vault/integration-tests",
     "deploy:vault": "npm run deploy -w @midnight-erc20-vault/vault-contract",
     "deploy:responses": "npm run deploy -w @midnight-erc20-vault/signature-responses-contract",
     "cli": "npm run cli -w @midnight-erc20-vault/cli --"

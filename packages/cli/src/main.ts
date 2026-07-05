@@ -161,7 +161,7 @@ if (selected !== undefined) {
   try {
     const config = getCliConfig();
     // Fail on missing config before any network connection is opened.
-    requireConfigValue(config.vaultContractAddress, "VAULT_CONTRACT_ADDRESS");
+    requireConfigValue(config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
 
     const keys = deriveAccountKeys(config.userSeed, config.midnightNodeConfig.networkId);
     await withSyncedWalletFacade(keys, config.midnightNodeConfig, async (facade) => {

@@ -84,7 +84,7 @@ Key MVP files (old checkout):
 | `packages/deploy` | Generic deployer. `src/deploy.ts` has the typed skeleton; port `buildDeployTransaction` from midday `app/ui/lib/actions/buildDeployTransaction.ts` (see its README) | stub, deps installed |
 | `packages/lib` | Shared runtime plumbing (config/providers/wallet/logging) — the ONLY copy | stub |
 | `packages/cli` | Example client CLI: the reference orchestration a UI would implement (read state, initialize, deposit/withdraw E2E via polled responses). Integration tests drive the vault THROUGH it | skeleton scaffolded; commands stubbed with NotImplementedError |
-| `packages/integration-tests` | Future: anything needing a running stack | does not exist yet |
+| `packages/integration-tests` | Anything needing a running stack: the ordered e2e pipeline (env check → compile/deploy → key/address derivation → MPC hand-off printout → initialize → deposit preflight) driving the vault through the cli | scaffolded, pipeline through initialize working |
 
 Key library files (all in `packages/signet-midnight/src/`), which MUST stay in
 lockstep — field order and widths are the wire format:
@@ -314,10 +314,13 @@ E2E flows.
       part of the generated API and the call-tx key location, so rename
       before any persistent deployment.
       *Done when:* compile/build/test green; baselines table row renamed.
-- [ ] **4.2 midnight-js provider plumbing (D14)** (closes the "providers"
-      half of 2.2). CODE LANDED, verification against a live stack still
-      open. What landed, and where (D14 amendment — providers are
-      CONTRACT-package concerns, not lib):
+- [x] **4.2 midnight-js provider plumbing (D14)** (closes the "providers"
+      half of 2.2). ✅ Verified against a live local stack via the
+      integration suite (task 4.4): the initialize step ran the cli's
+      `initialize` (real callTx through the proof server, finalized on
+      chain) and `readState`, and the ledger read back `initialized: 1`
+      with the sealed EVM address. What landed, and where (D14 amendment —
+      providers are CONTRACT-package concerns, not lib):
       - lib `src/midnight-providers.ts`: `createWalletAndMidnightProvider(
         facade, keys)` — the generic WalletFacade →
         WalletProvider/MidnightProvider adapter (`balanceTx` =
@@ -350,10 +353,23 @@ E2E flows.
       then).
       *Done when:* request-deposit lands a request on the local stack and
       read-state decodes it back with a matching id.
-- [ ] **4.4 Scaffold `packages/integration-tests`** (vitest; env-gated so the
+- [x] **4.4 Scaffold `packages/integration-tests`** (vitest; env-gated so the
       suite SKIPS cleanly when no stack is configured — AGENTS.md forbids
       network access in unit tests, this package is the sanctioned home).
       Tests import the CLI's exported command functions.
+      ✅ Done (see D15–D17): one ordered `tests/e2e.test.ts` pipeline gated on
+      `RUN_INTEGRATION_TESTS` (root `npm run test:integration` sets it,
+      `--bail 1`); env accumulator seeded from repo-root `.env` +
+      process.env; setup steps skip-if-set so a populated `.env` reuses the
+      first run's deployment (a manual precursor of 4.5). Pulled forward
+      along the way: root `docker-compose.yaml` + `standalone.env.example`
+      (most of 3.1 — `docker compose up -d --wait` is the one command; no
+      separate wait script needed, healthchecks are in the compose),
+      signet-midnight ports (`deriveEvmAddress` epsilon v1.0.0, D16;
+      `deriveJubjubKeypair`; `deriveMpcKeys`; `generateMpcRootKey` — all
+      golden-vector-tested against the MVP implementations), and
+      `deployVault(env)` exported from vault-contract (deploy.ts is now a
+      thin shell) so the suite deploys in-process.
 - [ ] **4.5 "Ensure deployed" helper — deploy once, reuse forever.** Reads the
       manifest; verifies the address still answers (indexer query + field-0
       shape + contractSourceHash match); deploys fresh only if missing/stale.
@@ -673,5 +689,60 @@ id, circuit-id union are all vault-specific; the contract package is the
 SDK), not in lib; lib carries only the generic WalletFacade adapter
 (`createWalletAndMidnightProvider`). The CLI context is EAGER: built once per
 command inside a synced wallet session (`withCliContext`), no lazy getters.
+
+### D15 — MIDNIGHT_VAULT_CONTRACT_ADDRESS (2026-07-05, task 4.4)
+**Decision:** The vault-contract-address env var is
+`MIDNIGHT_VAULT_CONTRACT_ADDRESS` (was `VAULT_CONTRACT_ADDRESS` in the cli).
+Renamed across cli src/tests/README and the root `.env.example` (which was
+also rewritten from its stale MVP copy — dead `MIDNIGHT_WALLET_SEED*` /
+`MPC_WS_URL` vars dropped).
+**Why:** It coexists in the same env block with `EVM_VAULT_ADDRESS` (the
+vault's derived EVM account); the `MIDNIGHT_` prefix disambiguates which
+chain the address lives on. Chosen by Bernard.
+**Impact:** cli only (config field name `vaultContractAddress` unchanged).
+
+### D16 — Epsilon derivation ported at v1.0.0, not imported from signet.js (2026-07-05, task 4.4)
+**Decision:** `deriveEvmAddress` lives in signet-midnight
+(`src/epsilon-derivation.ts`), ported from the MVP's `crypto-utils.ts`:
+`keccak256("sig.network v1.0.0 epsilon derivation,<chainId>,<contract>,<path>")`
+(COMMA-separated, default chainId `midnight:testnet`), point-added to the MPC
+root secp256k1 key (@noble/curves replaces tiny-secp256k1; epsilon reduced
+mod n first — noble throws on unreduced scalars).
+**Why:** signet.js's `deriveChildPublicKey` implements the v2.0.0
+COLON-separated scheme — incompatible with the live fakenet response server
+(solana-signet-program `CryptoUtils.ts`), which hashes the v1.0.0 comma
+string. Same-derivation-or-wrong-address is load-bearing, so the port pins
+golden vectors generated from the MVP implementation in its tests.
+**Alternatives rejected:** importing signet.js (derives different addresses);
+waiting for the server to move to v2 (blocks the whole e2e flow).
+**Impact:** When the MPC server upgrades to v2 derivation, this module and
+its tests change together; the "belongs in signet.js" header comments mark
+the upstream path. Same-file ports: `deriveJubjubKeypair` (seed of the
+schnorr module, Phase 8) and `deriveMpcKeys`/`generateMpcRootKey`.
+
+### D17 — Integration suite = one ordered vitest file with an env accumulator (2026-07-05, task 4.4)
+**Decision:** The pipeline is a single `tests/e2e.test.ts` with sequential
+`it` steps sharing a module-level env accumulator (`{...repo .env,
+...process.env}` — real env wins; process.env itself never mutated; passed
+explicitly to `getCliConfig(env)`/`getDeployConfig(env)`/subprocesses). Each
+derived value lives under its canonical env-var name: presence = the step's
+skip signal, and the printed hand-off block is exactly those keys. Gating:
+`describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)` (flag read from the
+real env only) + `--bail 1` in `test:integration` for abort-on-first-failure.
+Vault deploys run in-process via the new `deployVault(env)` export
+(vault-contract `src/deploy-vault.ts`); only the compact compiler is shelled
+out to. The suite loads the repo-root `.env` itself via a minimal parser
+(`src/env-file.ts`) — nothing else in the repo reads `.env`, and node bans
+`--env-file` in NODE_OPTIONS.
+**Why:** vitest runs test FILES in parallel isolated workers — cross-file
+env mutation breaks; same-file `it`s run sequentially with zero config (repo
+keeps having no vitest.config anywhere; per-`it` timeouts as the third arg).
+Skip-if-set makes run 2 reuse run 1's deployment, which the two-phase MPC
+hand-off requires anyway (the server can only be configured after the first
+run prints the contract address).
+**Impact:** 4.5's manifest-based "ensure deployed" can replace the manual
+env-block reuse later without changing the suite's shape. The initialize
+step already drives the cli's wired `initialize` + `readState` (the live
+half of 4.2's *Done when*).
 
 <!-- Append new decisions below this line. -->

@@ -29,7 +29,7 @@ export interface RequestWithdrawOptions {
  * ported to the vault contract.
  */
 export async function requestWithdraw(context: CliContext, options: RequestWithdrawOptions): Promise<string> {
-  const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "VAULT_CONTRACT_ADDRESS");
+  const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
   if (!/^0x[0-9a-fA-F]{40}$/.test(options.destEvmAddress)) {
     throw new Error(`--dest-evm-address must be a 20-byte 0x hex address; got "${options.destEvmAddress}".`);
   }

@@ -5,6 +5,9 @@
 
 export * from "./signet-requests.ts";
 export * from "./state-reader.ts";
+export * from "./epsilon-derivation.ts";
+export * from "./schnorr.ts";
+export * from "./mpc-keys.ts";
 
 /**
  * Compiled pure circuits of SignetRequests.compact (run `npm run compile`

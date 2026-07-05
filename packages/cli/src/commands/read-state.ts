@@ -19,7 +19,7 @@ const hex = (bytes: Uint8Array): string => Buffer.from(bytes).toString("hex");
  * @throws If no contract state exists at the configured address.
  */
 export async function readState(context: CliContext): Promise<void> {
-  const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "VAULT_CONTRACT_ADDRESS");
+  const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
 
   const contractState = await context.providers.publicDataProvider.queryContractState(vaultContractAddress);
   if (!contractState) {

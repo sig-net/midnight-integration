@@ -50,7 +50,7 @@ export interface CliContext {
   readonly config: CliConfig;
   /** The vault's provider set (public data / proof / zk-config / private state / wallet). */
   readonly providers: VaultProviders;
-  /** The vault at `VAULT_CONTRACT_ADDRESS`, joined with witnesses + the configured identity. */
+  /** The vault at `MIDNIGHT_VAULT_CONTRACT_ADDRESS`, joined with witnesses + the configured identity. */
   readonly vault: DeployedVaultContract;
 }
 
@@ -62,12 +62,12 @@ export interface CliContext {
  * @param config - The resolved CLI configuration.
  * @param wallet - The started wallet (main.ts opens it via lib's `withSyncedWalletFacade`).
  * @returns The context to hand to a command function.
- * @throws If `VAULT_CONTRACT_ADDRESS` is unset or no contract answers there.
+ * @throws If `MIDNIGHT_VAULT_CONTRACT_ADDRESS` is unset or no contract answers there.
  */
 export async function createCliContext(config: CliConfig, wallet: CliWallet): Promise<CliContext> {
   setNetworkId(config.midnightNodeConfig.networkId);
 
-  const vaultContractAddress = requireConfigValue(config.vaultContractAddress, "VAULT_CONTRACT_ADDRESS");
+  const vaultContractAddress = requireConfigValue(config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
   const providers = buildVaultProviders(wallet.facade, wallet.keys, config.midnightNodeConfig);
 
   const vault = await findDeployedContract(providers, {

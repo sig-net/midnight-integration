@@ -37,7 +37,7 @@ export interface RequestDepositOptions {
  */
 export async function requestDeposit(context: CliContext, options: RequestDepositOptions): Promise<string> {
   const { config } = context;
-  const vaultContractAddress = requireConfigValue(config.vaultContractAddress, "VAULT_CONTRACT_ADDRESS");
+  const vaultContractAddress = requireConfigValue(config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
   const erc20Address = requireConfigValue(config.erc20Address, "ERC20_ADDRESS");
   const caip2Id = requireConfigValue(config.caip2Id, "EVM_CHAIN_ID");
   if (options.amount <= 0n) {

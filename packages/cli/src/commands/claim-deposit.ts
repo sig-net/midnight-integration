@@ -29,7 +29,7 @@ export interface ClaimDepositOptions {
  * to the vault contract.
  */
 export async function claimDeposit(context: CliContext, options: ClaimDepositOptions): Promise<void> {
-  const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "VAULT_CONTRACT_ADDRESS");
+  const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
   console.log(`vault contract: ${vaultContractAddress}`);
   console.log(`request id:     ${options.requestId}`);
   throw new NotImplementedError("the claimDeposit circuit is not yet ported to the vault contract");

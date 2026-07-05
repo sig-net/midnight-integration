@@ -1,0 +1,73 @@
+# Midnight Network local development stack: node + indexer + proof server.
+# Bring it up with `docker compose up -d`; the integration tests
+# (packages/integration-tests) expect these endpoints on localhost.
+#
+# Mirrors the official reference compose:
+# https://github.com/midnightntwrk/midnight-local-dev (standalone.yml).
+# Image tags are the newest stable releases within the major versions that
+# reference pins — when bumping, cross-check against midnight-local-dev for
+# the blessed compatible set.
+#
+# Source repositories for the three images:
+#   - proof-server       -> proof-server crate in https://github.com/midnightntwrk/midnight-ledger
+#   - indexer-standalone -> https://github.com/midnightntwrk/midnight-indexer
+#   - midnight-node      -> https://github.com/midnightntwrk/midnight-node
+services:
+  proof-server:
+    # Zero-knowledge proof generation service. Wallets/dApps offload the
+    # expensive ZK proving for shielded (Zswap) transactions to this server.
+    container_name: 'midnight-proof-server'
+    image: 'midnightntwrk/proof-server:8.1.0'
+    command: ['midnight-proof-server -v']
+    ports:
+      - '127.0.0.1:6300:6300'
+    environment:
+      RUST_BACKTRACE: 'full'
+
+  indexer:
+    # "Standalone" indexer = Chain Indexer + Indexer API + Wallet Indexer
+    # bundled into one executable with an in-process SQLite DB. It reads
+    # blocks from the node and exposes a GraphQL API (port 8088, path
+    # /api/v3/graphql) that wallets/dApps query.
+    container_name: 'midnight-indexer'
+    image: 'midnightntwrk/indexer-standalone:4.3.3'
+    # Dev-only secrets/passwords for the indexer's internal stores; the file
+    # is committed because these are local-only defaults.
+    env_file: standalone.env.example
+    ports:
+      - '127.0.0.1:8088:8088'
+    environment:
+      RUST_LOG: 'indexer=info,chain_indexer=info,indexer_api=info,wallet_indexer=info,indexer_common=info,fastrace_opentelemetry=off,info'
+      # Must match the network the node runs; 'undeployed' is the local/dev
+      # chain identifier (same value lib's NETWORK_ID config defaults to).
+      APP__APPLICATION__NETWORK_ID: 'undeployed'
+    healthcheck:
+      test: ['CMD-SHELL', 'cat /var/run/indexer-standalone/running']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      node:
+        condition: service_healthy
+
+  node:
+    # The Midnight blockchain node (Substrate / Cardano Partner Chains based).
+    # Produces blocks and exposes the RPC/WS endpoint on 9944 that the
+    # indexer follows and wallets connect to. CFG_PRESET 'dev' = single-node
+    # local chain with instant block production and dev keys.
+    container_name: 'midnight-node'
+    image: 'midnightntwrk/midnight-node:0.22.5'
+    ports:
+      - '127.0.0.1:9944:9944'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9944/health']
+      interval: 2s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    environment:
+      CFG_PRESET: 'dev'
+      # Beneficiary of block-production rewards; arbitrary-but-valid hex on a
+      # local dev chain.
+      SIDECHAIN_BLOCK_BENEFICIARY: '04bcf7ad3be7a5c790460be82a713af570f22e0f801f6659ab8e84a52be6969e'

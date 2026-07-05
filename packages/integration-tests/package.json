@@ -1,0 +1,24 @@
+{
+  "name": "@midnight-erc20-vault/integration-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Integration tests that drive the vault through @midnight-erc20-vault/cli against a running Midnight stack. Env-gated: skips entirely unless RUN_INTEGRATION_TESTS is set.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run --bail 1 --disable-console-intercept"
+  },
+  "dependencies": {
+    "@midnight-erc20-vault/cli": "*",
+    "@midnight-erc20-vault/lib": "*",
+    "@midnight-erc20-vault/signet-midnight": "*",
+    "@midnight-erc20-vault/vault-contract": "*",
+    "ethers": "^6.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

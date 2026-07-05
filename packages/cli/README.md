@@ -101,7 +101,7 @@ the rest is CLI-specific.
 | `MIDNIGHT_NODE_URL`, `MIDNIGHT_NODE_INDEXER_URL`, `MIDNIGHT_NODE_INDEXER_WS_URL`, `MIDNIGHT_NODE_PROOF_SERVER_URL` | Endpoint overrides | per-network defaults |
 | `USER_SEED` | Wallet seed (hex or mnemonic) paying for Midnight transactions | local-stack genesis mint wallet |
 | `VAULT_USER_SECRET_KEY` | 32-byte hex vault identity secret (answers the `callerSecretKey` witness) | the seed bytes |
-| `VAULT_CONTRACT_ADDRESS` | Deployed ERC20 vault contract on Midnight | — |
+| `MIDNIGHT_VAULT_CONTRACT_ADDRESS` | Deployed ERC20 vault contract on Midnight | — |
 | `RESPONSES_CONTRACT_ADDRESS` | Deployed signature-responses contract on Midnight | — |
 | `EVM_RPC_URL` | JSON-RPC endpoint of the EVM chain | — |
 | `EVM_CHAIN_ID` | EVM chain id (also yields the CAIP-2 routing id `eip155:<id>`) | — |

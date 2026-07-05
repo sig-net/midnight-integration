@@ -40,7 +40,7 @@ const CASES: Case[] = [
     env: {
       USER_SEED: CUSTOM_SEED,
       VAULT_USER_SECRET_KEY: `0x${CUSTOM_SECRET}`,
-      VAULT_CONTRACT_ADDRESS: "0200aabb",
+      MIDNIGHT_VAULT_CONTRACT_ADDRESS: "0200aabb",
       RESPONSES_CONTRACT_ADDRESS: "0200ccdd",
       EVM_RPC_URL: "https://sepolia.example/rpc",
       EVM_CHAIN_ID: "11155111",
@@ -60,7 +60,7 @@ const CASES: Case[] = [
   {
     name: "whitespace-only optionals are treated as unset",
     env: {
-      VAULT_CONTRACT_ADDRESS: "   ",
+      MIDNIGHT_VAULT_CONTRACT_ADDRESS: "   ",
       RESPONSES_CONTRACT_ADDRESS: "   ",
       EVM_RPC_URL: "   ",
       EVM_CHAIN_ID: "   ",
@@ -97,10 +97,10 @@ describe("getCliConfig", () => {
 
 describe("requireConfigValue", () => {
   it("returns a present value unchanged", () => {
-    expect(requireConfigValue("0200aabb", "VAULT_CONTRACT_ADDRESS")).toBe("0200aabb");
+    expect(requireConfigValue("0200aabb", "MIDNIGHT_VAULT_CONTRACT_ADDRESS")).toBe("0200aabb");
   });
 
   it("fails on an absent value, naming the env var to set", () => {
-    expect(() => requireConfigValue(undefined, "VAULT_CONTRACT_ADDRESS")).toThrow(/VAULT_CONTRACT_ADDRESS/);
+    expect(() => requireConfigValue(undefined, "MIDNIGHT_VAULT_CONTRACT_ADDRESS")).toThrow(/MIDNIGHT_VAULT_CONTRACT_ADDRESS/);
   });
 });
