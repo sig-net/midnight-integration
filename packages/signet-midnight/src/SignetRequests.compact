@@ -109,6 +109,12 @@ module SignetRequests {
   export type SignetEVMSignatureRequestIndex =
     Map<SignetRequestId, SignetEVMSignatureRequest>;
 
+  // The contract-local request counter. Signet layout convention: declared as
+  // the SECOND ledger field (directly after the index). It sources each
+  // request's requestNonce and doubles as the MPC's cheap change-detection
+  // signal — an unchanged counter means no new requests since the last poll.
+  export type SignetNonce = Counter;
+
   // ---- Request id -----------------------------------------------------------
 
   // Canonical id of an EVM signature request: the domain-separated persistent

@@ -5,10 +5,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { StateMap, StateValue } from "@midnight-ntwrk/compact-runtime";
+import { CompactTypeUnsignedInteger, StateMap, StateValue } from "@midnight-ntwrk/compact-runtime";
 
 import {
-  readSignetEVMSignatureRequestIndexFromState,
+  readSignetRequestsLedgerFromState,
   requestIdHex,
   requestIdType,
   signetEVMSignatureRequestType,
@@ -48,9 +48,17 @@ const SAMPLE_REQUEST: SignetEVMSignatureRequest = {
 };
 
 const REQUEST_ID = bytes(32, 0x2f);
+const NONCE = 8n;
+
+const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
+
+/** Counter cell as the runtime stores it: a u64 in a plain cell. */
+const counterCell = (value: bigint) =>
+  StateValue.newCell({ value: u64.toValue(value), alignment: u64.alignment() });
 
 // Contract root state: an array of ledger fields with the request index map
-// at field 0 — the signet layout convention.
+// at field 0 and the request counter at field 1 — the signet layout
+// convention.
 const syntheticContractState = () => {
   const map = new StateMap().insert(
     {
@@ -62,24 +70,29 @@ const syntheticContractState = () => {
       alignment: signetEVMSignatureRequestType.alignment(),
     }),
   );
-  return StateValue.newArray().arrayPush(StateValue.newMap(map));
+  return StateValue.newArray()
+    .arrayPush(StateValue.newMap(map))
+    .arrayPush(counterCell(NONCE));
 };
 
 describe("state-reader (MPC-style raw decode)", () => {
-  it("round-trips a request through raw state by field position", () => {
-    const index = readSignetEVMSignatureRequestIndexFromState(
+  it("round-trips a request and the nonce through raw state by field position", () => {
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
       syntheticContractState(),
     );
 
-    expect(index.size).toBe(1);
-    const decoded = index.get(requestIdHex(REQUEST_ID));
+    expect(nonce).toBe(NONCE);
+    expect(requestsIndex.size).toBe(1);
+    const decoded = requestsIndex.get(requestIdHex(REQUEST_ID));
     expect(decoded).toEqual(SAMPLE_REQUEST);
   });
 
-  it("returns an empty index for an empty map", () => {
-    const empty = StateValue.newArray().arrayPush(
-      StateValue.newMap(new StateMap()),
-    );
-    expect(readSignetEVMSignatureRequestIndexFromState(empty).size).toBe(0);
+  it("returns an empty index and a zero nonce for a fresh contract", () => {
+    const fresh = StateValue.newArray()
+      .arrayPush(StateValue.newMap(new StateMap()))
+      .arrayPush(counterCell(0n));
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(fresh);
+    expect(requestsIndex.size).toBe(0);
+    expect(nonce).toBe(0n);
   });
 });

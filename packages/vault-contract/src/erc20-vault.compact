@@ -8,13 +8,14 @@ import CompactStandardLibrary;
 import "@midnight-erc20-vault/signet-midnight/src/SignetRequests";
 
 // ---- Signet ledger layout ----------------------------------------------------
-// The request index MUST be ledger field 0: the MPC locates it by position,
-// knowing only this contract's address (signet layout convention).
-// DO NOT DECLARE ANY OTHER LEDGER STATE ABOVE THIS LINE!
+// The request index MUST be ledger field 0 and the nonce counter field 1: the
+// MPC locates them by position, knowing only this contract's address (signet
+// layout convention). DO NOT DECLARE ANY OTHER LEDGER STATE ABOVE THESE!
 export ledger signetRequestsIndex: SignetEVMSignatureRequestIndex;
 
-// Contract-local request counter: gives each Signet signature request its requestNonce.
-export ledger signetNonce: Counter;
+// Contract-local request counter: gives each signet signature request its
+// requestNonce, and lets the MPC cheaply detect new requests.
+export ledger signetNonce: SignetNonce;
 
 // ---- Contract Own Storage (declared AFTER the signet fields) -------------------------
 

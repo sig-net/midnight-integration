@@ -24,7 +24,7 @@ import {
   deriveEvmAddress,
   deriveMpcKeys,
   generateMpcRootKey,
-  readSignetEVMSignatureRequestIndexFromState,
+  readSignetRequestsLedgerFromState,
 } from "@midnight-erc20-vault/signet-midnight";
 import { deployVault, ledger } from "@midnight-erc20-vault/vault-contract";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
@@ -303,10 +303,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       const publicDataProvider = indexerPublicDataProvider(nodeConfig.indexerUrl, nodeConfig.indexerWsUrl);
       const contractState = await publicDataProvider.queryContractState(vaultContractAddress);
       expect(contractState).toBeTruthy();
-      const rawIndex = readSignetEVMSignatureRequestIndexFromState(contractState!.data);
-      expect([...rawIndex.keys()]).toContain(requestId);
+      const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(contractState!.data);
+      expect([...requestsIndex.keys()]).toContain(requestId);
+      expect(nonce).toBeGreaterThan(0n);
 
-      const record = rawIndex.get(requestId)!;
+      const record = requestsIndex.get(requestId)!;
       expect(record.evmTransaction.nonce).toBe(evmNonce);
       expect(bytesToBigint(record.calldata.args[1])).toBe(amount);
 

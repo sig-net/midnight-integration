@@ -11,7 +11,7 @@ import {
 
 import {
   pureCircuits as signetCircuits,
-  readSignetEVMSignatureRequestIndexFromState,
+  readSignetRequestsLedgerFromState,
   requestIdHex,
   signetFieldNode,
   signetPathOfCommitment,
@@ -167,12 +167,13 @@ describe("erc20-vault ledger shape", () => {
     const node = signetFieldNode(rawState, SIGNET_REQUESTS_INDEX_FIELD);
     expect(node.type()).toBe("map");
 
-    const rawIndex = readSignetEVMSignatureRequestIndexFromState(rawState);
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(rawState);
     const typedIndex = toSignetEVMSignatureRequestIndex(
       ledger(ctx.currentQueryContext.state).signetRequestsIndex,
     );
-    expect(rawIndex).toEqual(typedIndex);
-    expect(rawIndex.size).toBe(0);
+    expect(requestsIndex).toEqual(typedIndex);
+    expect(requestsIndex.size).toBe(0);
+    expect(nonce).toBe(0n);
   });
 });
 
@@ -235,10 +236,12 @@ describe("deposit round-trip", () => {
       ledger(state).signetRequestsIndex,
     );
     // Read 2: MPC-style raw read — no compiled contract involved.
-    const rawIndex = readSignetEVMSignatureRequestIndexFromState(state);
+    const rawLedger = readSignetRequestsLedgerFromState(state);
 
     expect(typedIndex.size).toBe(1);
-    expect(rawIndex).toEqual(typedIndex);
+    expect(rawLedger.requestsIndex).toEqual(typedIndex);
+    // The raw counter read matches the generated one.
+    expect(rawLedger.nonce).toBe(ledger(state).signetNonce);
 
     const [idHex, record] = [...typedIndex.entries()][0];
 

@@ -1,10 +1,11 @@
-// MPC-style raw state reader: decode the signet request index out of a
-// contract's raw ledger state WITHOUT the compiled contract. This is how the
-// MPC monitor consumes signet contracts — it has only a contract address,
-// queries raw state from the indexer (queryContractState(address).data), and
-// decodes by the signet convention: the request index is the FIRST ledger
-// field. The compiled contract's generated ledger() does exactly this walk
-// internally; here we hand-compose the same compact-runtime type descriptors.
+// MPC-style raw state reader: decode the signet ledger fields out of a
+// contract's raw state WITHOUT the compiled contract. This is how the MPC
+// monitor consumes signet contracts — it has only a contract address, queries
+// raw state from the indexer (queryContractState(address).data), and decodes
+// by the signet layout convention: the request index is ledger field 0, the
+// request counter field 1. The compiled contract's generated ledger() does
+// exactly this walk internally; here we hand-compose the same compact-runtime
+// type descriptors.
 
 import {
   CompactTypeBytes,
@@ -26,6 +27,9 @@ import {
 
 /** Signet layout convention: the request index is ledger field 0. */
 export const SIGNET_REQUESTS_INDEX_FIELD = 0;
+
+/** Signet layout convention: the request counter (`SignetNonce`) is ledger field 1. */
+export const SIGNET_NONCE_FIELD = 1;
 
 // ---- Type descriptors (must mirror SignetRequests.compact field-for-field) ----
 // Field order and widths MUST match the Compact structs: fromValue consumes
@@ -291,35 +295,53 @@ export function signetFieldNode(
 }
 
 /**
- * MPC-style read: parse the signet request index out of raw contract state
+ * The decoded signet ledger fields of a conforming contract — the complete
+ * view the MPC needs: the request index (field 0) and the request counter
+ * (field 1, Compact `SignetNonce`), whose value doubles as a cheap
+ * change-detection signal (unchanged nonce ⇒ no new requests).
+ */
+export interface SignetRequestsLedger {
+  /** The request counter (ledger field {@link SIGNET_NONCE_FIELD}). */
+  nonce: bigint;
+  /**
+   * The request index (ledger field {@link SIGNET_REQUESTS_INDEX_FIELD}),
+   * keyed by hex request id.
+   */
+  requestsIndex: SignetEVMSignatureRequestIndex;
+}
+
+/**
+ * MPC-style read: parse the signet ledger fields out of raw contract state
  * by field position alone — no compiled contract, no generated `ledger()`,
  * only the signet layout convention and the canonical descriptors above.
  *
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`
  *   from the indexer or `ctx.currentQueryContext.state` from the simulator.
- * @param fieldIndex - Ledger field position of the request index; defaults
- *   to {@link SIGNET_REQUESTS_INDEX_FIELD} per the signet convention.
- * @returns The decoded index, keyed by hex request id.
- * @throws Error if the field is missing or is not a `Map`.
+ * @returns The decoded {@link SignetRequestsLedger}.
+ * @throws Error if a field is missing or has the wrong state-value shape.
  */
-export function readSignetEVMSignatureRequestIndexFromState(
-  raw: RawContractState,
-  fieldIndex: number = SIGNET_REQUESTS_INDEX_FIELD,
-): SignetEVMSignatureRequestIndex {
-  const map = signetFieldNode(raw, fieldIndex).asMap();
+export function readSignetRequestsLedgerFromState(raw: RawContractState): SignetRequestsLedger {
+  const map = signetFieldNode(raw, SIGNET_REQUESTS_INDEX_FIELD).asMap();
   if (map === undefined) {
-    throw new Error(`Ledger field ${fieldIndex} is not a Map`);
+    throw new Error(`Ledger field ${SIGNET_REQUESTS_INDEX_FIELD} is not a Map`);
   }
-  const index: SignetEVMSignatureRequestIndex = new Map();
+  const requestsIndex: SignetEVMSignatureRequestIndex = new Map();
   for (const key of map.keys()) {
     // fromValue consumes its input, so hand each descriptor a copy.
     const requestId = requestIdType.fromValue([...key.value]);
     const cell = map.get(key)?.asCell();
     if (cell === undefined) continue;
-    index.set(
+    requestsIndex.set(
       requestIdHex(requestId),
       signetEVMSignatureRequestType.fromValue([...cell.value]),
     );
   }
-  return index;
+
+  const nonceCell = signetFieldNode(raw, SIGNET_NONCE_FIELD).asCell();
+  if (nonceCell === undefined) {
+    throw new Error(`Ledger field ${SIGNET_NONCE_FIELD} is not a Cell`);
+  }
+  const nonce = u64.fromValue([...nonceCell.value]);
+
+  return { nonce, requestsIndex };
 }

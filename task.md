@@ -93,8 +93,9 @@ lockstep — field order and widths are the wire format:
    `module` + comments, or external `import` of it breaks.
 2. `signet-requests.ts` — hand-written TS twins of the structs (documented).
 3. `state-reader.ts` — hand-composed compact-runtime descriptors + raw state
-   walk (`readSignetEVMSignatureRequestIndexFromState`). This is what the MPC
-   monitor will use: decode by field position, no compiled contract.
+   walk (`readSignetRequestsLedgerFromState` → `SignetRequestsLedger`
+   {nonce, requestsIndex}; fields 1 and 0). This is what the MPC monitor
+   uses: decode by field position, no compiled contract.
 4. `circuits.compact` — contract-less program re-exporting the module's pure
    circuits so they compile to `managed/contract/index.js` `pureCircuits`.
 5. `tests/circuits.test.ts` + `tests/state-reader.test.ts` — behavior tests
@@ -787,5 +788,28 @@ already consuming signet-midnight via a file symlink — the 5.1 question is
 live) decoded it and signed with the correctly-derived user key. Known
 server-side leftover for 5.2: no processed-set/nonce gating — it re-signs
 the same request every poll.
+
+### D19 — SignetNonce in the module; reader returns the whole signet ledger view (2026-07-05)
+**Decision:** The signet layout convention is now TWO typed fields exported by
+`SignetRequests.compact`: `SignetEVMSignatureRequestIndex` (field 0) and
+`SignetNonce = Counter` (field 1) — the vault declares
+`export ledger signetNonce: SignetNonce`. The raw reader correspondingly
+returns the whole view: `readSignetRequestsLedgerFromState(raw):
+SignetRequestsLedger` ({nonce, requestsIndex}; name chosen over
+"SignetLedgerLayout" — it is the decoded ledger of the SignetRequests
+convention, mirroring the module name). The old index-only function is gone;
+`SIGNET_NONCE_FIELD = 1` joins `SIGNET_REQUESTS_INDEX_FIELD = 0`.
+**Why:** the nonce is protocol (it sources requestNonce and is the MPC's
+cheap change-detection signal), so its type and field position belong to the
+module, not to each contract's private conventions. One reader call gives a
+poller everything it needs.
+**Impact:** type-alias only — Counter's wire format is unchanged, existing
+deployments stay readable (verified against the live `83f74b…` vault).
+MidnightMonitor (solana-signet-program) consumes the new view and got its
+nonce-gating + processedRequests back: unchanged nonce ⇒ skip poll; the
+watermark advances only when every pending request processed cleanly, so
+failures retry. Verified live: server start seeded `(none)→1` processing the
+old request once; a fresh deposit moved `1→2` and ONLY the new request was
+picked up; all other polls silent.
 
 <!-- Append new decisions below this line. -->
