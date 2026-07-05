@@ -295,7 +295,7 @@ Each task has a **Done when** — don't move on until it holds.
       old MidnightMonitor for usage.)
       *Done when:* a script/test proves the MPC-convention read works against
       a real indexer, not just the simulator.
-      ✅ Proven stronger than spec by the integration suite's deposit step:
+      ✅ `dd067b5` Proven stronger than spec by the integration suite's deposit step:
       the raw reader decoded a POPULATED map (live deposit request) from
       `indexerPublicDataProvider(...).queryContractState(...)` against the
       local stack, with nonce/amount matching what was submitted — and the
@@ -358,7 +358,7 @@ E2E flows.
       then).
       *Done when:* request-deposit lands a request on the local stack and
       read-state decodes it back with a matching id.
-      ➕ `request-deposit` DONE (see D18): constants/codec in signet-midnight
+      ➕ `request-deposit` DONE `dd067b5` (see D18): constants/codec in signet-midnight
       `src/constants.ts`, structs built in the command, id recomputed with
       the compiled circuit and asserted as the ledger map key — verified live
       (the *Done when* holds for it). Still stubbed: `poll-response`
@@ -390,7 +390,7 @@ E2E flows.
       results and never re-implements the orchestration.
       *Done when:* a deposit lands on a real chain and the MPC-style read
       returns exactly what was submitted.
-      ✅ The suite's deposit step fetches the real EVM nonce from Sepolia,
+      ✅ `dd067b5` The suite's deposit step fetches the real EVM nonce from Sepolia,
       drives `requestDeposit` (0.1 USDC) + `readState`, then re-reads the
       request MPC-style (raw reader, real indexer) and asserts nonce/amount.
       Cross-repo confirmation: the fakenet response server picked the request
