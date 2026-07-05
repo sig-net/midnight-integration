@@ -305,7 +305,7 @@ drive the vault THROUGH its exported command functions; tests consume the
 CLI, never the reverse. Its README documents the command surface and both
 E2E flows.
 
-- [x] **4.1 Rename vault circuits to the client-facing names (D13).** ✅ (commit pending)
+- [x] **4.1 Rename vault circuits to the client-facing names (D13).** ✅ `59b3276`
       `deposit` → `requestDeposit` in
       `packages/vault-contract/src/erc20-vault.compact` + all TS/test
       references. Future ports land directly under the new names: MVP
