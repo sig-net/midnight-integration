@@ -28,6 +28,22 @@ export async function getEthBalance(rpcUrl: string, address: string): Promise<bi
 }
 
 /**
+ * Read an address's next transaction nonce (pending count).
+ *
+ * @param rpcUrl - JSON-RPC endpoint (e.g. `SEPOLIA_RPC_URL`).
+ * @param address - The account to query.
+ * @returns The nonce for the account's next transaction.
+ */
+export async function getTransactionNonce(rpcUrl: string, address: string): Promise<bigint> {
+  const provider = new JsonRpcProvider(rpcUrl);
+  try {
+    return BigInt(await provider.getTransactionCount(address, "pending"));
+  } finally {
+    provider.destroy();
+  }
+}
+
+/**
  * Read an address's ERC20 token balance along with the token's decimals.
  *
  * @param rpcUrl - JSON-RPC endpoint (e.g. `SEPOLIA_RPC_URL`).

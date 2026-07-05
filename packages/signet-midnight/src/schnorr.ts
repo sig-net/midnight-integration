@@ -19,6 +19,9 @@ import {
 /** Jubjub curve scalar field order (group order of the generator). */
 export const JUBJUB_ORDER = 6554484396890773809930967563523245729705921265872317281365359162392183254199n;
 
+/** BLS12-381 scalar field order (the Compact `Field` type modulus). */
+export const BLS_ORDER = 52435875175126190479447740508185965837690552500527637822603658699938581184513n;
+
 const bytes32Type = new CompactTypeBytes(32);
 const vec2x32Type = new CompactTypeVector(2, bytes32Type);
 
@@ -36,6 +39,24 @@ export function bytesToBigint(bytes: Uint8Array): bigint {
     result = (result << 8n) | BigInt(bytes[i]);
   }
   return result;
+}
+
+/**
+ * Convert a bigint to exactly 32 little-endian bytes. Matches Compact's
+ * `Field as Bytes<32>` encoding (the inverse of {@link bytesToBigint});
+ * negative inputs are interpreted in the BLS scalar field.
+ *
+ * @param n - The integer to encode.
+ * @returns The 32-byte little-endian encoding.
+ */
+export function bigintToBytes32(n: bigint): Uint8Array {
+  const buf = new Uint8Array(32);
+  let v = n < 0n ? n + BLS_ORDER : n;
+  for (let i = 0; i < 32; i++) {
+    buf[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return buf;
 }
 
 /** A Jubjub keypair: the secret scalar and its public curve point. */

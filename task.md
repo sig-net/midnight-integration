@@ -287,7 +287,7 @@ Each task has a **Done when** — don't move on until it holds.
       a compose file to port; put it in root `scripts/` or `packages/lib`).
       Include a health-check that waits for all three endpoints.
       *Done when:* one command brings the stack up healthy from scratch.
-- [ ] **3.2 Deploy vault to local stack and verify from the outside.** Query
+- [x] **3.2 Deploy vault to local stack and verify from the outside.** Query
       the deployed address via the indexer with NO compiled contract:
       `readSignetEVMSignatureRequestIndexFromState(contractState.data)` sees
       an empty map at field 0; the counter at field 1 reads 0. (Provider:
@@ -295,6 +295,11 @@ Each task has a **Done when** — don't move on until it holds.
       old MidnightMonitor for usage.)
       *Done when:* a script/test proves the MPC-convention read works against
       a real indexer, not just the simulator.
+      ✅ Proven stronger than spec by the integration suite's deposit step:
+      the raw reader decoded a POPULATED map (live deposit request) from
+      `indexerPublicDataProvider(...).queryContractState(...)` against the
+      local stack, with nonce/amount matching what was submitted — and the
+      response server performed the same read independently.
 
 ## Phase 4 — CLI client + integration-test orchestration (deposit half)
 
@@ -353,6 +358,11 @@ E2E flows.
       then).
       *Done when:* request-deposit lands a request on the local stack and
       read-state decodes it back with a matching id.
+      ➕ `request-deposit` DONE (see D18): constants/codec in signet-midnight
+      `src/constants.ts`, structs built in the command, id recomputed with
+      the compiled circuit and asserted as the ledger map key — verified live
+      (the *Done when* holds for it). Still stubbed: `poll-response`
+      (responses contract is a placeholder), `broadcast-evm`.
 - [x] **4.4 Scaffold `packages/integration-tests`** (vitest; env-gated so the
       suite SKIPS cleanly when no stack is configured — AGENTS.md forbids
       network access in unit tests, this package is the sanctioned home).
@@ -374,12 +384,18 @@ E2E flows.
       manifest; verifies the address still answers (indexer query + field-0
       shape + contractSourceHash match); deploys fresh only if missing/stale.
       *Done when:* second run of the suite reuses the first run's contract.
-- [ ] **4.6 Deposit integration test:** drive the CLI's `requestDeposit` and
+- [x] **4.6 Deposit integration test:** drive the CLI's `requestDeposit` and
       `readState` functions against real providers/wallet — the CLI builds
       the path, submits, and verifies the id; the test asserts on the
       results and never re-implements the orchestration.
       *Done when:* a deposit lands on a real chain and the MPC-style read
       returns exactly what was submitted.
+      ✅ The suite's deposit step fetches the real EVM nonce from Sepolia,
+      drives `requestDeposit` (0.1 USDC) + `readState`, then re-reads the
+      request MPC-style (raw reader, real indexer) and asserts nonce/amount.
+      Cross-repo confirmation: the fakenet response server picked the request
+      up on its poll, decoded every field, derived the SAME user EVM address
+      (epsilon v1.0.0 match, D16) and signed the sweep tx.
 
 ## Phase 5 — Response server (cross-repo: solana-signet-program)
 
@@ -744,5 +760,32 @@ run prints the contract address).
 env-block reuse later without changing the suite's shape. The initialize
 step already drives the cli's wired `initialize` + `readState` (the live
 half of 4.2's *Done when*).
+
+### D18 — Routing constants/codec in signet-midnight; request structs built in the cli (2026-07-05, task 4.3)
+**Decision:** `packages/signet-midnight/src/constants.ts` carries the field
+widths (CAIP2 64 / algo 32 / dest 64 / params 512 / schemas 256; path width
+already in signet-requests.ts), the routing string constants
+(`SIGNET_ALGO_ECDSA`, `SIGNET_DEST_ETHEREUM`, `SIGNET_DEFAULT_KEY_VERSION`)
+and the one codec `asciiPadded` (Compact `pad(N, "text")` — zero-padded, the
+refactor's convention for EVERY string-ish request field; the MVP's 2-byte
+length-prefixed codec is dead with the old layout). The cli's
+`request-deposit` command builds the structs itself: gas defaults
+(gasLimit 100k / 30 gwei / 1 gwei tip) and the ERC20 result schema JSON are
+command-local, not library constants. `bigintToBytes32` (LE) joined
+`bytesToBigint` in signet-midnight schnorr.ts so callers can rebuild the
+contract's calldata words off-chain. Id verification races are accepted:
+the command reads signetNonce before the call and recomputes the id — a
+concurrent request would make the assert fail loudly, which is correct for
+a single-user client.
+**Why:** widths + routing values are protocol/wire concerns (signet.js-shaped);
+what a specific flow puts in them (gas, schemas) is app orchestration and
+lives with the command per the cli AGENTS.
+**Impact:** verified live end to end: request landed, id matched the ledger
+map key, the raw MPC-style read returned it from a real indexer, and the
+response server (Bernard's WIP monitor rewrite in solana-signet-program,
+already consuming signet-midnight via a file symlink — the 5.1 question is
+live) decoded it and signed with the correctly-derived user key. Known
+server-side leftover for 5.2: no processed-set/nonce gating — it re-signs
+the same request every poll.
 
 <!-- Append new decisions below this line. -->

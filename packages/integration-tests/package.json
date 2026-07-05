@@ -14,6 +14,7 @@
     "@midnight-erc20-vault/lib": "*",
     "@midnight-erc20-vault/signet-midnight": "*",
     "@midnight-erc20-vault/vault-contract": "*",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "^4.1.1",
     "ethers": "^6.17.0"
   },
   "devDependencies": {

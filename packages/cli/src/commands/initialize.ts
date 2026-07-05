@@ -2,6 +2,7 @@
 // into the contract config. Gated in-circuit to the deployer identity.
 
 import type { CliContext } from "../context.ts";
+import { evmAddressBytes } from "../evm.ts";
 import { getUserIdentity } from "../identity.ts";
 
 /** Options for {@link initialize}. */
@@ -9,15 +10,6 @@ export interface InitializeOptions {
   /** The vault's EVM address (20-byte 0x hex) to seal into the contract. */
   readonly vaultEvmAddress: string;
 }
-
-/** Decode a validated 0x-prefixed hex address to its 20 bytes. */
-const evmAddressBytes = (hex: string): Uint8Array =>
-  Uint8Array.from(
-    hex
-      .replace(/^0x/i, "")
-      .match(/.{2}/g)!
-      .map((byte) => parseInt(byte, 16)),
-  );
 
 /**
  * Call the vault's `initialize` circuit on the deployed contract.

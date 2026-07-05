@@ -15,17 +15,25 @@ import {
   getUserIdentity,
   initialize,
   readState,
+  requestDeposit,
   requireConfigValue,
 } from "@midnight-erc20-vault/cli";
 import { deriveAccountKeys, getDeployConfig, getMidnightNodeConfig, withSyncedWalletFacade } from "@midnight-erc20-vault/lib";
-import { deriveEvmAddress, deriveMpcKeys, generateMpcRootKey } from "@midnight-erc20-vault/signet-midnight";
+import {
+  bytesToBigint,
+  deriveEvmAddress,
+  deriveMpcKeys,
+  generateMpcRootKey,
+  readSignetEVMSignatureRequestIndexFromState,
+} from "@midnight-erc20-vault/signet-midnight";
 import { deployVault, ledger } from "@midnight-erc20-vault/vault-contract";
+import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { parseEther, parseUnits } from "ethers";
 import { describe, expect, it } from "vitest";
 
 import { loadRepoDotEnv } from "../src/env-file.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../src/preflight.ts";
-import { getErc20Balance, getEthBalance, SEPOLIA_USDC_ADDRESS } from "../src/sepolia.ts";
+import { getErc20Balance, getEthBalance, getTransactionNonce, SEPOLIA_USDC_ADDRESS } from "../src/sepolia.ts";
 import { runRootScript } from "../src/subprocess.ts";
 
 const MINUTE = 60_000;
@@ -241,7 +249,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
   );
 
   it(
-    "deposit: user EVM account funding preflight (deposit flow itself is TODO)",
+    "deposit: user EVM account funding preflight",
     async () => {
       const rpcUrl = requireEnv("SEPOLIA_RPC_URL");
       const userAddress = requireEnv("EVM_USER_ADDRESS");
@@ -258,9 +266,59 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       expect(balance, `fund ${userAddress} with >= 0.1 of ERC20 ${erc20Address} on Sepolia`).toBeGreaterThanOrEqual(
         parseUnits("0.1", decimals),
       );
-
-      console.log("funding preflight passed — the deposit flow itself lands with the cli's request-deposit wiring");
     },
     MINUTE,
+  );
+
+  it(
+    "deposit: request a deposit through the cli and read it back MPC-style",
+    async () => {
+      // The cli needs the EVM-side config; default what the pipeline hasn't
+      // pinned (Sepolia + canonical USDC, matching the funding preflight).
+      env.ERC20_ADDRESS ??= SEPOLIA_USDC_ADDRESS;
+      env.EVM_CHAIN_ID ??= "11155111";
+
+      const config = getCliConfig(env);
+      const vaultContractAddress = requireConfigValue(config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
+
+      // The sweep tx sender is the user's derived EVM account; its next nonce
+      // comes from the chain, exactly as a wallet would fetch it.
+      const evmNonce = await getTransactionNonce(requireEnv("SEPOLIA_RPC_URL"), requireEnv("EVM_USER_ADDRESS"));
+      const amount = parseUnits("0.1", 6); // 0.1 USDC — the funding preflight's minimum
+
+      const keys = deriveAccountKeys(config.userSeed, config.midnightNodeConfig.networkId);
+      const requestId = await withSyncedWalletFacade(keys, config.midnightNodeConfig, async (facade) => {
+        const context = await createCliContext(config, { facade, keys });
+        const id = await requestDeposit(context, { amount, evmNonce });
+        await readState(context);
+        return id;
+      });
+
+      expect(requestId).toMatch(/^[0-9a-f]{64}$/);
+
+      // MPC-convention verification: decode the request index from RAW
+      // contract state (field 0, no compiled contract) — the exact read the
+      // response server performs — and find the request under its id.
+      const nodeConfig = getMidnightNodeConfig(env);
+      const publicDataProvider = indexerPublicDataProvider(nodeConfig.indexerUrl, nodeConfig.indexerWsUrl);
+      const contractState = await publicDataProvider.queryContractState(vaultContractAddress);
+      expect(contractState).toBeTruthy();
+      const rawIndex = readSignetEVMSignatureRequestIndexFromState(contractState!.data);
+      expect([...rawIndex.keys()]).toContain(requestId);
+
+      const record = rawIndex.get(requestId)!;
+      expect(record.evmTransaction.nonce).toBe(evmNonce);
+      expect(bytesToBigint(record.calldata.args[1])).toBe(amount);
+
+      banner([
+        `Deposit request recorded on the vault ledger:`,
+        "",
+        `  request id: ${requestId}`,
+        "",
+        "The response server (yarn response, MIDNIGHT_CONTRACT_ADDRESSES set to",
+        "this vault) should pick it up on its next poll and sign the EVM tx.",
+      ]);
+    },
+    15 * MINUTE,
   );
 });
