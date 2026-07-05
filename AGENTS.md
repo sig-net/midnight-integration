@@ -60,6 +60,25 @@ exception for that specific case.
   in-process via `@midnight-ntwrk/compact-runtime` — no network, no docker, no
   proof server. Anything that needs a running stack belongs in the (future)
   `packages/integration-tests`, nowhere else.
+- **Tests must read at a glance — table-driven over helper-driven.** A reader must
+  see a test's inputs and expected outcome in the test itself (or its table row)
+  without tracing helper functions. Concretely:
+  - When one function under test has many input → error/output cases, write ONE
+    typed case table + `it.each`, not N copy-pasted `it` blocks.
+  - Long-hand written-out tests remain the right tool where the table shape
+    doesn't fit: fringe cases whose setup deviates from the table's shared
+    arrange step, multi-step scenarios, or single-case testing of a method
+    with little functionality. Don't force those into a table — a table with
+    per-row setup switches is worse than separate tests.
+  - Base fixtures are visible const literals (e.g. `VALID_PARAMS`), never factory
+    functions with hidden defaults. A case's variation is an explicit spread of
+    the base with the delta inline in the row — the row shows base + what changed.
+  - Never wrap the function under test in a helper that defaults away its
+    arguments; call it directly with every argument visible at the call site.
+  - Setup harnesses (e.g. `deployInitialized()`) are acceptable magic: hide the
+    *arrange* step, never the *act* or *assert*.
+  - Prefer slightly verbose but self-contained over terse but indirect —
+    verbosity costs lines; indirection costs comprehension.
 - **The websocket response path is dead. NEVER reintroduce it.** All signature
   responses flow through the signature-responses contract and are polled. No ws
   subscription, not even "temporarily as a fallback".

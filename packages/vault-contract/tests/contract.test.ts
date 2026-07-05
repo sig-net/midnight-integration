@@ -7,7 +7,6 @@ import {
   createCircuitContext,
   createConstructorContext,
   sampleContractAddress,
-  type CircuitContext,
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
@@ -60,21 +59,22 @@ const bytesToBigintLE = (b: Uint8Array): bigint => {
 const SECRET_KEY = bytes(32, 7);
 const OTHER_SECRET_KEY = bytes(32, 8);
 
-// Commitments computed via the COMPILED circuit (task 1.1) — never re-ported.
+// Commitments computed via the COMPILED circuit
 const DEPLOYER_COMMITMENT = pureCircuits.userCommitment(SECRET_KEY);
 const OTHER_COMMITMENT = pureCircuits.userCommitment(OTHER_SECRET_KEY);
 
 const VAULT_EVM = bytes(20, 0xee);
 const ERC20 = bytes(20, 0xaa);
+const ZERO_ADDRESS = new Uint8Array(20);
 const AMOUNT = 1_000_000n;
 const UINT64_MAX = 18446744073709551615n;
 
-const signetParams = (
-  overrides: {
-    evmTransaction?: Partial<SignetEVMSignatureRequestParams["evmTransaction"]>;
-    mpcRouting?: Partial<SignetEVMSignatureRequestParams["mpcRouting"]>;
-  } = {},
-): SignetEVMSignatureRequestParams => ({
+/**
+ * Known-good signet params for a deposit — the base every test varies from.
+ * Shared across tests: NEVER mutate; build a variation as an explicit spread
+ * of this base with the delta inline (see {@link DEPOSIT_REJECTION_CASES}).
+ */
+const VALID_PARAMS: SignetEVMSignatureRequestParams = {
   evmTransaction: {
     to: ERC20,
     chainId: 11155111n,
@@ -83,7 +83,6 @@ const signetParams = (
     maxFeePerGas: 30000000000n,
     maxPriorityFeePerGas: 2000000000n,
     value: 0n,
-    ...overrides.evmTransaction,
   },
   mpcRouting: {
     caip2Id: asciiPadded("eip155:11155111", 64),
@@ -94,15 +93,27 @@ const signetParams = (
     params: bytes(512, 0),
     outputSchema: bytes(256, 0x07),
     respondSchema: bytes(256, 0x08),
-    ...overrides.mpcRouting,
   },
-});
+};
 
-const depositArgs = (overrides: Partial<{ erc20Address: Uint8Array; amount: bigint }> = {}) => ({
+/**
+ * The deposit circuit's `DepositRequest` struct argument. The compact compiler
+ * inlines the struct type anonymously into the generated circuit signature;
+ * this named interface matches it structurally.
+ */
+interface DepositArgs {
+  erc20Address: Uint8Array;
+  amount: bigint;
+}
+
+/**
+ * Known-good deposit request args — the base every test varies from.
+ * Shared across tests: NEVER mutate; build a variation as an explicit spread.
+ */
+const VALID_ARGS: DepositArgs = {
   erc20Address: ERC20,
   amount: AMOUNT,
-  ...overrides,
-});
+};
 
 // ---- Harness ----
 
@@ -132,13 +143,6 @@ const deployInitialized = () => {
   const next = contract.circuits.initialize(ctx, VAULT_EVM).context;
   return { contract, ctx: next };
 };
-
-const deposit = (
-  contract: ReturnType<typeof deployContract>["contract"],
-  ctx: CircuitContext<VaultPrivateState>,
-  params: SignetEVMSignatureRequestParams = signetParams(),
-  args: { erc20Address: Uint8Array; amount: bigint } = depositArgs(),
-) => contract.circuits.deposit(ctx, params, args);
 
 // ---- Tests ----
 
@@ -172,8 +176,8 @@ describe("erc20-vault ledger shape", () => {
   });
 });
 
-describe("userCommitment (task 1.1)", () => {
-  it("computes a 32-byte commitment off-chain via the compiled circuit", () => {
+describe("userCommitment", () => {
+  it("check 32-byte commitments computed off-chain via the compiled circuit", () => {
     expect(DEPLOYER_COMMITMENT).toHaveLength(32);
     expect(DEPLOYER_COMMITMENT).not.toEqual(new Uint8Array(32));
     expect(DEPLOYER_COMMITMENT).not.toEqual(OTHER_COMMITMENT);
@@ -218,12 +222,12 @@ describe("initialize", () => {
   });
 });
 
-describe("deposit round-trip (task 1.2)", () => {
+describe("deposit round-trip", () => {
   it("stores the request readable identically via ledger(), the shared parser, and the RAW reader", () => {
     const { contract, ctx } = deployInitialized();
-    const params = signetParams();
 
-    const next = deposit(contract, ctx, params).context;
+    const next = contract.circuits.deposit(ctx, VALID_PARAMS, VALID_ARGS)
+      .context;
     const state = next.currentQueryContext.state;
 
     // Read 1: generated ledger().
@@ -239,8 +243,8 @@ describe("deposit round-trip (task 1.2)", () => {
     const [idHex, record] = [...typedIndex.entries()][0];
 
     // Caller-supplied parts come back verbatim.
-    expect(record.evmTransaction).toEqual(params.evmTransaction);
-    expect(record.mpcRouting).toEqual(params.mpcRouting);
+    expect(record.evmTransaction).toEqual(VALID_PARAMS.evmTransaction);
+    expect(record.mpcRouting).toEqual(VALID_PARAMS.mpcRouting);
     expect(record.requestNonce).toBe(0n);
 
     // Contract-built calldata: transfer(vaultEvmAddress, amount).
@@ -266,100 +270,119 @@ describe("deposit round-trip (task 1.2)", () => {
   });
 });
 
-describe("deposit validation (task 1.3)", () => {
+// Paths for the rejection table below: one bound to the wrong identity, and
+// one with garbage after the commitment hex (the contract requires the rest
+// of the path to be zero-padded).
+const OTHER_PATH = signetPathOfCommitment(OTHER_COMMITMENT);
+const DIRTY_PATH = signetPathOfCommitment(DEPLOYER_COMMITMENT);
+DIRTY_PATH[200] = 0x41;
+
+/** One row of the deposit rejection table: full inputs → expected error. */
+interface DepositRejectionCase {
+  /** Test name, completing the sentence "rejects <name>". */
+  name: string;
+  /** Complete signet params passed to the circuit. */
+  params: SignetEVMSignatureRequestParams;
+  /** Complete deposit request args passed to the circuit. */
+  args: DepositArgs;
+  /** Error the circuit must throw. */
+  throws: RegExp;
+}
+
+const DEPOSIT_REJECTION_CASES: DepositRejectionCase[] = [
+  {
+    name: "a zero ERC20 address",
+    params: {
+      ...VALID_PARAMS,
+      evmTransaction: { ...VALID_PARAMS.evmTransaction, to: ZERO_ADDRESS },
+    },
+    args: { ...VALID_ARGS, erc20Address: ZERO_ADDRESS },
+    throws: /ERC20 address cannot be zero/,
+  },
+  {
+    name: "a zero amount",
+    params: VALID_PARAMS,
+    args: { ...VALID_ARGS, amount: 0n },
+    throws: /Amount must be positive/,
+  },
+  {
+    name: "an amount above Uint<64> max (unclaimable)",
+    params: VALID_PARAMS,
+    args: { ...VALID_ARGS, amount: UINT64_MAX + 1n },
+    throws: /Amount exceeds Uint<64> max/,
+  },
+  {
+    name: "an EVM 'to' that is not the ERC20 contract",
+    params: {
+      ...VALID_PARAMS,
+      evmTransaction: { ...VALID_PARAMS.evmTransaction, to: bytes(20, 0xbb) },
+    },
+    args: VALID_ARGS,
+    throws: /EVM 'to' must be the ERC20 contract/,
+  },
+  {
+    name: "a nonzero ETH value",
+    params: {
+      ...VALID_PARAMS,
+      evmTransaction: { ...VALID_PARAMS.evmTransaction, value: 1n },
+    },
+    args: VALID_ARGS,
+    throws: /No ETH value for ERC20 transfer/,
+  },
+  {
+    name: "a zero chain id",
+    params: {
+      ...VALID_PARAMS,
+      evmTransaction: { ...VALID_PARAMS.evmTransaction, chainId: 0n },
+    },
+    args: VALID_ARGS,
+    throws: /Chain ID must be positive/,
+  },
+  {
+    name: "a zero gas limit",
+    params: {
+      ...VALID_PARAMS,
+      evmTransaction: { ...VALID_PARAMS.evmTransaction, gasLimit: 0n },
+    },
+    args: VALID_ARGS,
+    throws: /Gas limit must be positive/,
+  },
+  {
+    name: "a path bound to someone else's identity",
+    params: {
+      ...VALID_PARAMS,
+      mpcRouting: { ...VALID_PARAMS.mpcRouting, path: OTHER_PATH },
+    },
+    args: VALID_ARGS,
+    throws: /path hex does not match commitment/,
+  },
+  {
+    name: "a path with garbage after the hex",
+    params: {
+      ...VALID_PARAMS,
+      mpcRouting: { ...VALID_PARAMS.mpcRouting, path: DIRTY_PATH },
+    },
+    args: VALID_ARGS,
+    throws: /zero-padded/,
+  },
+];
+
+describe("deposit validation", () => {
+  it.each(DEPOSIT_REJECTION_CASES)(
+    "rejects $name",
+    ({ params, args, throws }) => {
+      const { contract, ctx } = deployInitialized();
+      expect(() => contract.circuits.deposit(ctx, params, args)).toThrow(
+        throws,
+      );
+    },
+  );
+
   it("rejects before initialize", () => {
     const { contract, ctx } = deployContract();
-    expect(() => deposit(contract, ctx)).toThrow(/Not initialized/);
-  });
-
-  it("rejects a zero ERC20 address", () => {
-    const { contract, ctx } = deployInitialized();
-    const zero = new Uint8Array(20);
     expect(() =>
-      deposit(
-        contract,
-        ctx,
-        signetParams({ evmTransaction: { to: zero } }),
-        depositArgs({ erc20Address: zero }),
-      ),
-    ).toThrow(/ERC20 address cannot be zero/);
-  });
-
-  it("rejects a zero amount", () => {
-    const { contract, ctx } = deployInitialized();
-    expect(() =>
-      deposit(contract, ctx, signetParams(), depositArgs({ amount: 0n })),
-    ).toThrow(/Amount must be positive/);
-  });
-
-  it("rejects amounts above Uint<64> max (unclaimable)", () => {
-    const { contract, ctx } = deployInitialized();
-    expect(() =>
-      deposit(
-        contract,
-        ctx,
-        signetParams(),
-        depositArgs({ amount: UINT64_MAX + 1n }),
-      ),
-    ).toThrow(/Amount exceeds Uint<64> max/);
-  });
-
-  it("rejects when the EVM 'to' is not the ERC20 contract", () => {
-    const { contract, ctx } = deployInitialized();
-    expect(() =>
-      deposit(
-        contract,
-        ctx,
-        signetParams({ evmTransaction: { to: bytes(20, 0xbb) } }),
-      ),
-    ).toThrow(/EVM 'to' must be the ERC20 contract/);
-  });
-
-  it("rejects a nonzero ETH value", () => {
-    const { contract, ctx } = deployInitialized();
-    expect(() =>
-      deposit(contract, ctx, signetParams({ evmTransaction: { value: 1n } })),
-    ).toThrow(/No ETH value for ERC20 transfer/);
-  });
-
-  it("rejects a zero chain id", () => {
-    const { contract, ctx } = deployInitialized();
-    expect(() =>
-      deposit(contract, ctx, signetParams({ evmTransaction: { chainId: 0n } })),
-    ).toThrow(/Chain ID must be positive/);
-  });
-
-  it("rejects a zero gas limit", () => {
-    const { contract, ctx } = deployInitialized();
-    expect(() =>
-      deposit(
-        contract,
-        ctx,
-        signetParams({ evmTransaction: { gasLimit: 0n } }),
-      ),
-    ).toThrow(/Gas limit must be positive/);
-  });
-
-  it("rejects a path bound to someone else's identity", () => {
-    const { contract, ctx } = deployInitialized();
-    expect(() =>
-      deposit(
-        contract,
-        ctx,
-        signetParams({
-          mpcRouting: { path: signetPathOfCommitment(OTHER_COMMITMENT) },
-        }),
-      ),
-    ).toThrow(/path hex does not match commitment/);
-  });
-
-  it("rejects a path with garbage after the hex", () => {
-    const { contract, ctx } = deployInitialized();
-    const dirty = signetPathOfCommitment(DEPLOYER_COMMITMENT);
-    dirty[200] = 0x41;
-    expect(() =>
-      deposit(contract, ctx, signetParams({ mpcRouting: { path: dirty } })),
-    ).toThrow(/zero-padded/);
+      contract.circuits.deposit(ctx, VALID_PARAMS, VALID_ARGS),
+    ).toThrow(/Not initialized/);
   });
 
   it("identical deposits get DISTINCT ids — requestNonce differentiates them", () => {
@@ -367,10 +390,17 @@ describe("deposit validation (task 1.3)", () => {
     // trip in the normal flow because the nonce is part of the hashed record,
     // so an identical resubmission is a NEW request. Document that here.
     const { contract, ctx } = deployInitialized();
-    const params = signetParams();
 
-    const afterFirst = deposit(contract, ctx, params).context;
-    const afterSecond = deposit(contract, afterFirst, params).context;
+    const afterFirst = contract.circuits.deposit(
+      ctx,
+      VALID_PARAMS,
+      VALID_ARGS,
+    ).context;
+    const afterSecond = contract.circuits.deposit(
+      afterFirst,
+      VALID_PARAMS,
+      VALID_ARGS,
+    ).context;
 
     const index = toSignetEVMSignatureRequestIndex(
       ledger(afterSecond.currentQueryContext.state).signetRequestsIndex,

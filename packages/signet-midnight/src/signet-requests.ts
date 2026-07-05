@@ -4,6 +4,13 @@
 // managed/contract/index.d.ts, and these named types match them structurally,
 // so ledger reads assign to them without casts.
 //
+// The lockstep is enforced by each consuming contract's simulator tests: the
+// "erc20-vault ledger shape" test in packages/vault-contract/tests/
+// contract.test.ts assigns the generated `ledger().signetRequestsIndex` to the
+// named SignetEVMSignatureRequestLedgerIndex type — the assignment itself is
+// the assertion, so any structural drift between the generated managed types
+// and these twins fails that package's `npm run build` / `npm run test`.
+//
 // Read more: https://docs.sig.network/ (signet protocol) and the module
 // header in SignetRequests.compact (layout convention, path binding).
 
@@ -151,8 +158,7 @@ export const PATH_BYTES = 256;
  * — exactly what the contract's `assertPathCommitment` accepts. Use this to
  * populate `SignetMPCRoutingParams.path` when constructing requests.
  *
- * @param commitment - 32-byte identity commitment (e.g. from the vault's
- *   compiled `userCommitment` circuit).
+ * @param commitment - 32-byte identity commitment.
  * @returns The 256-byte path field value.
  */
 export function signetPathOfCommitment(commitment: Uint8Array): Uint8Array {

@@ -18,7 +18,8 @@ import {
 const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
-const sampleRequest: SignetEVMSignatureRequest = {
+// Shared across tests: NEVER mutate; build a variation as an explicit spread.
+const SAMPLE_REQUEST: SignetEVMSignatureRequest = {
   requestNonce: 7n,
   evmTransaction: {
     to: bytes(20, 0xaa),
@@ -46,18 +47,18 @@ const sampleRequest: SignetEVMSignatureRequest = {
   },
 };
 
-const requestId = bytes(32, 0x2f);
+const REQUEST_ID = bytes(32, 0x2f);
 
 // Contract root state: an array of ledger fields with the request index map
 // at field 0 — the signet layout convention.
 const syntheticContractState = () => {
   const map = new StateMap().insert(
     {
-      value: requestIdType.toValue(requestId),
+      value: requestIdType.toValue(REQUEST_ID),
       alignment: requestIdType.alignment(),
     },
     StateValue.newCell({
-      value: signetEVMSignatureRequestType.toValue(sampleRequest),
+      value: signetEVMSignatureRequestType.toValue(SAMPLE_REQUEST),
       alignment: signetEVMSignatureRequestType.alignment(),
     }),
   );
@@ -71,8 +72,8 @@ describe("state-reader (MPC-style raw decode)", () => {
     );
 
     expect(index.size).toBe(1);
-    const decoded = index.get(requestIdHex(requestId));
-    expect(decoded).toEqual(sampleRequest);
+    const decoded = index.get(requestIdHex(REQUEST_ID));
+    expect(decoded).toEqual(SAMPLE_REQUEST);
   });
 
   it("returns an empty index for an empty map", () => {

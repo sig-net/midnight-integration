@@ -27,11 +27,16 @@ const asciiPadded = (text: string, length: number): Uint8Array => {
 };
 
 // A commitment and its canonical path: lowercase hex, zero-padded to 256.
-const commitment = bytes(32, 0x5a);
-const commitmentHex = requestIdHex(commitment); // "5a" * 32
-const path = asciiPadded(commitmentHex, 256);
+// Shared across tests: NEVER mutate; build a variation as a fresh copy.
+const COMMITMENT = bytes(32, 0x5a);
+const COMMITMENT_HEX = requestIdHex(COMMITMENT); // "5a" * 32
+const PATH = asciiPadded(COMMITMENT_HEX, 256);
 
-const requestParams: SignetEVMSignatureRequestParams = {
+/**
+ * Known-good request params bound to {@link COMMITMENT}'s path.
+ * Shared across tests: NEVER mutate; build a variation as an explicit spread.
+ */
+const REQUEST_PARAMS: SignetEVMSignatureRequestParams = {
   evmTransaction: {
     to: bytes(20, 0xaa),
     chainId: 11155111n,
@@ -44,7 +49,7 @@ const requestParams: SignetEVMSignatureRequestParams = {
   mpcRouting: {
     caip2Id: asciiPadded("eip155:11155111", 64),
     keyVersion: 0n,
-    path,
+    path: PATH,
     algo: asciiPadded("ecdsa", 32),
     dest: asciiPadded("ethereum", 64),
     params: bytes(512, 0),
@@ -53,36 +58,63 @@ const requestParams: SignetEVMSignatureRequestParams = {
   },
 };
 
-const calldata: EVMCalldata = {
+/** Sample calldata record. Shared across tests: NEVER mutate. */
+const CALLDATA: EVMCalldata = {
   funcSig: asciiPadded("transfer(address,uint256)", 256),
   argCount: 2n,
   args: [bytes(32, 1), bytes(32, 2), bytes(32, 0), bytes(32, 0)],
 };
 
+/** One row of the assertHexOf table: full inputs → accepted or expected error. */
+interface AssertHexOfCase {
+  /** Test name, completing the sentence "assertHexOf <name>". */
+  name: string;
+  /** 32-byte commitment the hex is checked against. */
+  commitment: Uint8Array;
+  /** 64-byte candidate hex encoding. */
+  hex: Uint8Array;
+  /** Error the circuit must throw, or null when it must accept. */
+  throws: RegExp | null;
+}
+
+const ASSERT_HEX_OF_CASES: AssertHexOfCase[] = [
+  {
+    name: "accepts the canonical lowercase hex of a commitment",
+    commitment: COMMITMENT,
+    hex: asciiPadded(COMMITMENT_HEX, 64),
+    throws: null,
+  },
+  {
+    name: "rejects non-canonical (uppercase) hex",
+    commitment: COMMITMENT,
+    hex: asciiPadded(COMMITMENT_HEX.toUpperCase(), 64),
+    throws: /non-canonical hex char/,
+  },
+  {
+    name: "rejects hex of a different commitment",
+    commitment: bytes(32, 0x11),
+    hex: asciiPadded(COMMITMENT_HEX, 64),
+    throws: /does not match commitment/,
+  },
+];
+
 describe("SignetRequests compiled circuits", () => {
-  it("assertHexOf accepts the canonical lowercase hex of a commitment", () => {
-    expect(() =>
-      pureCircuits.assertHexOf(commitment, asciiPadded(commitmentHex, 64)),
-    ).not.toThrow();
-  });
-
-  it("assertHexOf rejects non-canonical (uppercase) hex", () => {
-    const uppercase = asciiPadded(commitmentHex.toUpperCase(), 64);
-    expect(() => pureCircuits.assertHexOf(commitment, uppercase)).toThrow(
-      /non-canonical hex char/,
-    );
-  });
-
-  it("assertHexOf rejects hex of a different commitment", () => {
-    expect(() =>
-      pureCircuits.assertHexOf(bytes(32, 0x11), asciiPadded(commitmentHex, 64)),
-    ).toThrow(/does not match commitment/);
-  });
+  it.each(ASSERT_HEX_OF_CASES)(
+    "assertHexOf $name",
+    ({ commitment, hex, throws }) => {
+      const call = () => pureCircuits.assertHexOf(commitment, hex);
+      if (throws === null) {
+        expect(call).not.toThrow();
+      } else {
+        expect(call).toThrow(throws);
+      }
+    },
+  );
 
   it("assertPathCommitment rejects non-zero bytes after the hex", () => {
-    const dirty = new Uint8Array(path);
+    const dirty = new Uint8Array(PATH);
     dirty[200] = 0x41;
-    expect(() => pureCircuits.assertPathCommitment(commitment, dirty)).toThrow(
+    expect(() => pureCircuits.assertPathCommitment(COMMITMENT, dirty)).toThrow(
       /zero-padded/,
     );
   });
@@ -91,17 +123,17 @@ describe("SignetRequests compiled circuits", () => {
     // Twin-type tripwire: params/result typed via the hand-written twins.
     const request: SignetEVMSignatureRequest =
       pureCircuits.constructSignetEVMSignatureRequest(
-        commitment,
+        COMMITMENT,
         1n,
-        requestParams,
-        calldata,
+        REQUEST_PARAMS,
+        CALLDATA,
       );
 
     expect(request).toEqual({
       requestNonce: 1n,
-      evmTransaction: requestParams.evmTransaction,
-      calldata,
-      mpcRouting: requestParams.mpcRouting,
+      evmTransaction: REQUEST_PARAMS.evmTransaction,
+      calldata: CALLDATA,
+      mpcRouting: REQUEST_PARAMS.mpcRouting,
     });
   });
 
@@ -110,18 +142,18 @@ describe("SignetRequests compiled circuits", () => {
       pureCircuits.constructSignetEVMSignatureRequest(
         bytes(32, 0x11), // not the commitment the path encodes
         1n,
-        requestParams,
-        calldata,
+        REQUEST_PARAMS,
+        CALLDATA,
       ),
     ).toThrow(/does not match commitment/);
   });
 
   it("request ids are deterministic, 32 bytes, and field-sensitive", () => {
     const request = pureCircuits.constructSignetEVMSignatureRequest(
-      commitment,
+      COMMITMENT,
       1n,
-      requestParams,
-      calldata,
+      REQUEST_PARAMS,
+      CALLDATA,
     );
 
     const id = pureCircuits.signetEVMSignatureRequestId(request);
