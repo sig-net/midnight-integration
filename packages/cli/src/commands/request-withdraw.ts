@@ -2,6 +2,8 @@
 // shielded vault coin and record a signature request asking the MPC to sign
 // an EVM transfer from the vault's derived address to the destination.
 
+import type { SignetRequestIdHex } from "@midnight-erc20-vault/signet-midnight";
+
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
 import { NotImplementedError } from "../errors.ts";
@@ -28,7 +30,7 @@ export interface RequestWithdrawOptions {
  * @throws NotImplementedError — the `requestWithdraw` circuit is not yet
  * ported to the vault contract.
  */
-export async function requestWithdraw(context: CliContext, options: RequestWithdrawOptions): Promise<string> {
+export async function requestWithdraw(context: CliContext, options: RequestWithdrawOptions): Promise<SignetRequestIdHex> {
   const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
   if (!/^0x[0-9a-fA-F]{40}$/.test(options.destEvmAddress)) {
     throw new Error(`--dest-evm-address must be a 20-byte 0x hex address; got "${options.destEvmAddress}".`);

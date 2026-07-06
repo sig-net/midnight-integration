@@ -5,22 +5,26 @@
 // (queryContractState(address).data), and decodes by the signet response
 // layout convention: the per-request counter index is ledger field 0, the
 // response log field 1 (see "Response Ledger Layout" in Signet.compact). The
-// generic state-tree walk (RawContractState, signetFieldNode) and the request
-// id descriptor are shared with the requests reader.
+// generic state-tree walk (RawContractState, signetFieldNode) and the shared
+// base descriptors live in signature-state-reading.ts.
 
 import {
   CompactTypeBytes,
-  CompactTypeUnsignedInteger,
   type CompactType,
 } from "@midnight-ntwrk/compact-runtime";
 
-import { requestIdHex, type SignetRequestId } from "./signet-requests.ts";
+import {
+  requestIdHex,
+  type SignetRequestId,
+  type SignetRequestIdHex,
+} from "./signet-requests.ts";
 
 import {
   requestIdType,
   signetFieldNode,
+  u64,
   type RawContractState,
-} from "./signature-requests-state-reader.ts";
+} from "./signature-state-reading.ts";
 
 /** Signet response layout convention: the counter index is ledger field 0. */
 export const SIGNATURE_RESPONSE_COUNTER_INDEX_FIELD = 0;
@@ -33,7 +37,6 @@ export const SIGNATURE_RESPONSE_INDEX_FIELD = 1;
 // sequentially, so field order and width here must match the Compact structs
 // exactly — a mismatch is silent data corruption, not an error.
 
-const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 /** Descriptor for one response value (Compact `SignetEVMSignatureResponse`, a `Bytes<65>`). */
 const bytes65 = new CompactTypeBytes(65);
 
@@ -94,7 +97,7 @@ export const signatureResponseKeyType: CompactType<SignatureResponseKey> = {
  * {@link requestIdHex}) to the number of responses posted for that request.
  * Entries in the response log exist for counts `0 .. value - 1`.
  */
-export type SignatureResponseCounterIndex = Map<string, bigint>;
+export type SignatureResponseCounterIndex = Map<SignetRequestIdHex, bigint>;
 
 /**
  * Plain-JS response log parsed out of the ledger, keyed by
@@ -105,18 +108,18 @@ export type SignatureResponseIndex = Map<string, SignetEVMSignatureResponse>;
 
 /**
  * Build the {@link SignatureResponseIndex} key for a `(requestId, count)`
- * pair. `Uint8Array` keys compare by reference, so the composite key is
- * flattened to a string.
+ * pair — the composite Compact key flattened to a string so it works as a JS
+ * `Map` key.
  *
- * @param requestId - 32-byte request id the response answers.
+ * @param id - The request id the response answers, in canonical hex form.
  * @param count - 0-based post count within that request.
  * @returns `"<hexRequestId>:<count>"`.
  */
 export function signatureResponseIndexKey(
-  requestId: SignetRequestId,
+  id: SignetRequestIdHex,
   count: bigint,
 ): string {
-  return `${requestIdHex(requestId)}:${count}`;
+  return `${id}:${count}`;
 }
 
 /**
@@ -188,7 +191,7 @@ export function readSignetResponsesLedgerFromState(
     const cell = responseMap.get(key)?.asCell();
     if (cell === undefined) continue;
     signatureResponseIndex.set(
-      signatureResponseIndexKey(responseKey.requestId, responseKey.count),
+      signatureResponseIndexKey(requestIdHex(responseKey.requestId), responseKey.count),
       bytes65.fromValue([...cell.value]),
     );
   }

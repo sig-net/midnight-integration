@@ -212,7 +212,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
   });
 
   it(
-    "initialize: seal vault EVM address and read back state",
+    "initialize [erc-vault contract method call]: seal vault EVM address and read back state",
     async () => {
       const config = getCliConfig(env);
       const vaultContractAddress = requireConfigValue(config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
@@ -249,7 +249,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
   );
 
   it(
-    "deposit: user EVM account funding preflight",
+    "deposit funding preflight: check user EVM account for minimum ETH and USDC balances.",
     async () => {
       const rpcUrl = requireEnv("SEPOLIA_RPC_URL");
       const userAddress = requireEnv("EVM_USER_ADDRESS");
@@ -271,7 +271,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
   );
 
   it(
-    "deposit: request a deposit through the cli and read it back MPC-style",
+    "requestDeposit [erc-vault contract method call]: request a deposit through the cli and read it back MPC-style",
     async () => {
       // The cli needs the EVM-side config; default what the pipeline hasn't
       // pinned (Sepolia + canonical USDC, matching the funding preflight).

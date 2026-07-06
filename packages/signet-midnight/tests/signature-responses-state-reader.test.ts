@@ -79,10 +79,10 @@ describe("signature-responses-state-reader (MPC-style raw decode)", () => {
 
     expect(signatureResponseIndex.size).toBe(2);
     expect(
-      signatureResponseIndex.get(signatureResponseIndexKey(REQUEST_ID, 0n)),
+      signatureResponseIndex.get(signatureResponseIndexKey(requestIdHex(REQUEST_ID), 0n)),
     ).toEqual(RESPONSE_0);
     expect(
-      signatureResponseIndex.get(signatureResponseIndexKey(REQUEST_ID, 1n)),
+      signatureResponseIndex.get(signatureResponseIndexKey(requestIdHex(REQUEST_ID), 1n)),
     ).toEqual(RESPONSE_1);
   });
 

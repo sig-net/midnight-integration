@@ -17,7 +17,12 @@
   },
   "dependencies": {
     "@midnight-erc20-vault/lib": "*",
-    "@midnight-erc20-vault/signet-midnight": "*"
+    "@midnight-erc20-vault/signet-midnight": "*",
+    "@midnight-ntwrk/midnight-js": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "^4.1.1",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "^4.1.1"
   },
   "devDependencies": {
     "@midnight-ntwrk/compact-runtime": "^0.16.0",

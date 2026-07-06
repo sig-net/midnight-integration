@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   pureCircuits,
-  requestIdHex,
+  bytesToHex,
   type SignetEVMSignatureRequest,
   type SignetEVMSignatureRequestParams,
   type EVMCalldata,
@@ -29,7 +29,7 @@ const asciiPadded = (text: string, length: number): Uint8Array => {
 // A commitment and its canonical path: lowercase hex, zero-padded to 256.
 // Shared across tests: NEVER mutate; build a variation as a fresh copy.
 const COMMITMENT = bytes(32, 0x5a);
-const COMMITMENT_HEX = requestIdHex(COMMITMENT); // "5a" * 32
+const COMMITMENT_HEX = bytesToHex(COMMITMENT); // "5a" * 32
 const PATH = asciiPadded(COMMITMENT_HEX, 256);
 
 /**

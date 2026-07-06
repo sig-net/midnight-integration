@@ -7,6 +7,7 @@
 import { Command, InvalidArgumentError } from "commander";
 
 import { deriveAccountKeys, withSyncedWalletFacade } from "@midnight-erc20-vault/lib";
+import { parseSignetRequestIdHex, type SignetRequestIdHex } from "@midnight-erc20-vault/signet-midnight";
 
 import { broadcastEvm } from "./commands/broadcast-evm.ts";
 import { claimDeposit } from "./commands/claim-deposit.ts";
@@ -35,12 +36,12 @@ const parseMsArg = (value: string): number => {
   return Number(value);
 };
 
-const parseRequestIdArg = (value: string): string => {
-  const hex = value.replace(/^0x/i, "").toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(hex)) {
+const parseRequestIdArg = (value: string): SignetRequestIdHex => {
+  try {
+    return parseSignetRequestIdHex(value);
+  } catch {
     throw new InvalidArgumentError("must be a 32-byte request id in hex");
   }
-  return hex;
 };
 
 const program = new Command("erc20-vault-cli").description(
@@ -88,7 +89,7 @@ withPollingOptions(
     .command("poll-response")
     .description("poll the signature-responses contract for a request's MPC response")
     .requiredOption("--request-id <hex>", "the request id to poll for", parseRequestIdArg),
-).action((options: { requestId: string; intervalMs: number; timeoutMs: number }) => {
+).action((options: { requestId: SignetRequestIdHex; intervalMs: number; timeoutMs: number }) => {
   work = async (context) => {
     console.log(await pollResponse(context, options));
   };
@@ -108,7 +109,7 @@ program
   .command("claim-deposit")
   .description("claim a completed deposit: verify the MPC attestation in-circuit and mint shielded tokens")
   .requiredOption("--request-id <hex>", "the request id to claim", parseRequestIdArg)
-  .action((options: { requestId: string }) => {
+  .action((options: { requestId: SignetRequestIdHex }) => {
     work = (context) => claimDeposit(context, options);
   });
 
@@ -137,7 +138,7 @@ program
   .command("refund-withdraw")
   .description("settle a withdraw request: success is final, failure re-mints the escrow to the refund recipient")
   .requiredOption("--request-id <hex>", "the request id to settle", parseRequestIdArg)
-  .action((options: { requestId: string }) => {
+  .action((options: { requestId: SignetRequestIdHex }) => {
     work = (context) => refundWithdraw(context, options);
   });
 

@@ -6,6 +6,8 @@
 // vault-specific providers / witnesses / compiled-contract binding from the
 // vault package itself — the "SDK" generated from the contract.
 
+import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
+import { type PublicDataProvider } from '@midnight-ntwrk/midnight-js-types';
 import { findDeployedContract, type FoundContract } from "@midnight-ntwrk/midnight-js/contracts";
 // midnight-js reads a process-global network id (unlike compact-js, which
 // takes it explicitly). createCliContext sets it once per invocation.
@@ -39,6 +41,10 @@ export interface CliWallet {
   readonly keys: AccountKeys;
 }
 
+export interface MidnightProviders {
+  indexerPublicDataProvider: PublicDataProvider;
+}
+
 /**
  * Everything a command needs: the resolved config, the vault's midnight-js
  * providers, and the joined vault contract. Commands receive this instead of
@@ -48,6 +54,8 @@ export interface CliWallet {
 export interface CliContext {
   /** The resolved CLI configuration. */
   readonly config: CliConfig;
+  /** Midnight providers - service providers or interacting with midnight nodes */
+  readonly midnightProviders: MidnightProviders;
   /** The vault's provider set (public data / proof / zk-config / private state / wallet). */
   readonly providers: VaultProviders;
   /** The vault at `MIDNIGHT_VAULT_CONTRACT_ADDRESS`, joined with witnesses + the configured identity. */
@@ -77,6 +85,16 @@ export async function createCliContext(config: CliConfig, wallet: CliWallet): Pr
     initialPrivateState: createVaultPrivateState(config.userSecretKey),
   });
 
-  return { config, providers, vault };
+  return {
+    config,
+    midnightProviders: {
+      indexerPublicDataProvider: indexerPublicDataProvider(
+        config.midnightNodeConfig.indexerUrl,
+        config.midnightNodeConfig.indexerWsUrl,
+      ),
+    },
+    providers,
+    vault,
+  };
 }
 

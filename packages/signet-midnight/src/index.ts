@@ -4,8 +4,11 @@
 // boilerplate/contract-cli/src/signet/.
 
 export * from "./signet-requests.ts";
+export * from "./signature-state-reading.ts";
 export * from "./signature-requests-state-reader.ts";
 export * from "./signature-responses-state-reader.ts";
+export * from "./signature-response-verification.ts";
+export * from "./signet-request-response-reader.ts";
 export * from "./constants.ts";
 export * from "./epsilon-derivation.ts";
 export * from "./schnorr.ts";

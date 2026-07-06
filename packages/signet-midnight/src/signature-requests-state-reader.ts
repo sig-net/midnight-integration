@@ -1,18 +1,18 @@
-// MPC-style raw state reader: decode the signet ledger fields out of a
-// contract's raw state WITHOUT the compiled contract. This is how the MPC
-// monitor consumes signet contracts — it has only a contract address, queries
-// raw state from the indexer (queryContractState(address).data), and decodes
-// by the signet layout convention: the request index is ledger field 0, the
-// request counter field 1. The compiled contract's generated ledger() does
-// exactly this walk internally; here we hand-compose the same compact-runtime
-// type descriptors.
+// MPC-style raw state reader for the signature-REQUESTS side: decode the signet
+// request ledger fields out of a contract's raw state WITHOUT the compiled
+// contract. This is how the MPC monitor consumes signet contracts — it has only
+// a contract address, queries raw state from the indexer
+// (queryContractState(address).data), and decodes by the signet layout
+// convention: the request index is ledger field 0, the request counter field 1.
+// The compiled contract's generated ledger() does exactly this walk internally;
+// here we hand-compose the same compact-runtime type descriptors. The generic
+// tree walk and shared base descriptors live in signature-state-reading.ts.
 
 import {
   CompactTypeBytes,
   CompactTypeUnsignedInteger,
   CompactTypeVector,
   type CompactType,
-  type StateValue,
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
@@ -22,8 +22,15 @@ import {
   type SignetEVMSignatureRequest,
   type SignetEVMSignatureRequestIndex,
   type SignetMPCRoutingParams,
-  type SignetRequestId,
 } from "./signet-requests.ts";
+
+import {
+  bytes32,
+  requestIdType,
+  signetFieldNode,
+  u64,
+  type RawContractState,
+} from "./signature-state-reading.ts";
 
 /** Signet layout convention: the request index is ledger field 0. */
 export const SIGNET_REQUESTS_INDEX_FIELD = 0;
@@ -34,27 +41,19 @@ export const SIGNET_NONCE_FIELD = 1;
 // ---- Type descriptors (must mirror Signet.compact field-for-field) ----
 // Field order and widths MUST match the Compact structs: fromValue consumes
 // the aligned value sequentially, so a reorder or width change here is silent
-// data corruption, not an error.
+// data corruption, not an error. The base u64 / bytes32 / requestIdType
+// descriptors are shared and imported from signature-state-reading.ts.
 
 const u32 = new CompactTypeUnsignedInteger(4294967295n, 4);
-const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 const u128 = new CompactTypeUnsignedInteger(
   340282366920938463463374607431768211455n,
   16,
 );
 const bytes20 = new CompactTypeBytes(20);
-const bytes32 = new CompactTypeBytes(32);
 const bytes64 = new CompactTypeBytes(64);
 const bytes256 = new CompactTypeBytes(256);
 const bytes512 = new CompactTypeBytes(512);
 const argsVector = new CompactTypeVector(4, bytes32);
-
-/**
- * Descriptor for a request id ledger key (Compact `SignetRequestId`, a
- * nominal `Bytes<32>`). Use it to encode a {@link SignetRequestId} into the
- * aligned form the state tree stores, or decode one back.
- */
-export const requestIdType: CompactType<SignetRequestId> = bytes32;
 
 /**
  * Descriptor for the decomposed EVM transaction (Compact
@@ -240,59 +239,6 @@ export const signetEVMSignatureRequestType: CompactType<SignetEVMSignatureReques
         .concat(signetMPCRoutingParamsType.toValue(request.mpcRouting));
     },
   };
-
-// ---- Raw state walk ----
-
-/**
- * What the indexer / simulator hands us: a bare `StateValue`, or anything
- * wrapping one under `.state` (e.g. `ChargedState`,
- * `queryContractState(address).data`).
- */
-export type RawContractState = StateValue | { state: StateValue };
-
-/**
- * Unwrap a {@link RawContractState} to the underlying `StateValue`.
- *
- * @param raw - Bare state value or a `.state`-carrying wrapper.
- * @returns The bare `StateValue`.
- */
-const unwrap = (raw: RawContractState): StateValue =>
-  "state" in raw ? raw.state : raw;
-
-/**
- * Resolve a flat ledger field index to its node in the raw state tree.
- *
- * The runtime stores ledger fields as a root array and chunks them one level
- * deep once the field count grows, so chunked roots are flattened before
- * indexing. Chunk detection assumes signet field 0 is a `Map`, never a
- * `List` (whose node is also array-typed) — guaranteed by the signet layout
- * convention.
- *
- * @param raw - Raw contract state from the indexer or simulator.
- * @param flatIndex - Zero-based ledger field position in declaration order.
- * @returns The `StateValue` node holding that field.
- * @throws Error if `flatIndex` is beyond the contract's field count.
- */
-export function signetFieldNode(
-  raw: RawContractState,
-  flatIndex: number,
-): StateValue {
-  const root = unwrap(raw);
-  if (root.type() !== "array") {
-    if (flatIndex === 0) return root;
-    throw new Error(`Field index ${flatIndex} out of range: root is a leaf`);
-  }
-  const nodes = root.asArray() ?? [];
-  const fields =
-    nodes[0]?.type() === "array"
-      ? nodes.flatMap((chunk) => chunk.asArray() ?? [])
-      : nodes;
-  const node = fields[flatIndex];
-  if (node === undefined) {
-    throw new Error(`Field index ${flatIndex} out of range`);
-  }
-  return node;
-}
 
 /**
  * The decoded signet ledger fields of a conforming contract — the complete

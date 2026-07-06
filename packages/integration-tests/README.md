@@ -27,22 +27,17 @@ The suite is one ordered pipeline in `tests/e2e.test.ts` (`--bail 1` stops it
 at the first failing step):
 
 1. **env check** — stack reachable, compiler present, `SEPOLIA_RPC_URL` set.
-2. **compile** (`compile:vault-contract:zk`) — skipped when
-   `MIDNIGHT_VAULT_CONTRACT_ADDRESS` is set.
-3. **deploy** (in-process `deployVault`) — skipped when the address is set;
-   otherwise prints the address to save.
+2. **compile** (`compile:vault-contract:zk`) — skipped when `MIDNIGHT_VAULT_CONTRACT_ADDRESS` is set.
+3. **deploy** (in-process `deployVault`) — skipped when the address is set; otherwise prints the address to save.
 4. **derive `MPC_ROOT_KEY`** — skipped when set.
 5. **derive MPC public keys** — skipped when all three are set.
 6. **derive `EVM_VAULT_ADDRESS`** (path `"vault"`) — skipped when set.
-7. **derive `EVM_USER_ADDRESS`** (path = user commitment hex) — skipped when
-   set; this is the address you fund on Sepolia.
-8. **print MPC server configuration** — always runs; also prints the full
-   minimal `.env` block for subsequent runs.
-9. **initialize** — drives the cli's `initialize` + `readState`; skips the
-   circuit call (but still asserts) when the vault is already initialized.
-10. **deposit funding preflight** — `EVM_USER_ADDRESS` must hold ≥ 0.01 ETH
-    and ≥ 0.1 of the ERC20 (`ERC20_ADDRESS`, default Sepolia USDC). The
-    deposit flow itself lands with the cli's `request-deposit` wiring.
+7. **derive `EVM_USER_ADDRESS`** (path = user commitment hex) — skipped when set; this is the address you fund on Sepolia.
+8. **print MPC server configuration** — always runs; also prints the full minimal `.env` block for subsequent runs.
+9. **initialize** *[erc-vault contract method call]* — drives the cli's `initialize` + `readState`; skips the circuit call (but still asserts) when the vault is already initialized.
+10. **deposit funding preflight** — `EVM_USER_ADDRESS` must hold ≥ 0.01 ETH and ≥ 0.1 of the ERC20 (`ERC20_ADDRESS`, default Sepolia USDC). The deposit flow itself lands with the cli's `request-deposit` wiring.
+11. **requestDeposit** *[erc-vault contract method call]* — drives the cli's `requestDeposit` to post a signature request for a sweep transaction for the asset being deposited from the `EVM_USER_ADDRESS` to the `EVM_VAULT_ADDRESS` for the MPC to sign.
+12. **pollSignatureResponse** - drive the cli's `pollResponse` to watch for the signature of the deposit sweep transaction posted by the MPC to the signature responses contract.
 
 Plain `npm run test` (root) skips the whole suite — it only runs when
 `RUN_INTEGRATION_TESTS` is set, which `test:integration-tests` does for you.

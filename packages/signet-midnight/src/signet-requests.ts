@@ -132,21 +132,80 @@ export interface SignetEVMSignatureRequestLedgerIndex
   lookup(requestId: SignetRequestId): SignetEVMSignatureRequest;
 }
 
+declare const signetRequestIdHexBrand: unique symbol;
+
+/**
+ * 64-char lowercase hex rendering of a {@link SignetRequestId} — THE
+ * representation of a request id everywhere in TypeScript. Raw
+ * {@link SignetRequestId} bytes appear only at the Compact boundary (state
+ * readers, compiled-circuit calls); the moment an id crosses that boundary it
+ * becomes this type. Branded (the TS analogue of Compact's `new type`) so an
+ * arbitrary string cannot pose as a request id: mint one with
+ * {@link requestIdHex} (from ledger bytes) or {@link parseSignetRequestIdHex}
+ * (from user input), and go back to bytes with {@link requestIdBytes}.
+ */
+export type SignetRequestIdHex = string & {
+  readonly [signetRequestIdHexBrand]: true;
+};
+
 /** Plain-JS index parsed out of the ledger, keyed by hex request id. */
 export type SignetEVMSignatureRequestIndex = Map<
-  string,
+  SignetRequestIdHex,
   SignetEVMSignatureRequest
 >;
 
 /**
- * Render a request id as a lowercase hex string, usable as a JS `Map` key
- * (`Uint8Array` keys compare by reference, so raw ids don't work as keys).
+ * Render bytes as a lowercase hex string, no `0x` prefix.
+ *
+ * @param bytes - The bytes to render.
+ * @returns Lowercase hex, two chars per byte.
+ */
+export function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Render a request id in its canonical TS form (see
+ * {@link SignetRequestIdHex}) — also usable as a JS `Map` key, which raw
+ * `Uint8Array` ids are not (they compare by reference).
  *
  * @param requestId - 32-byte request id.
- * @returns 64-char lowercase hex string, no `0x` prefix.
+ * @returns The branded 64-char lowercase hex string, no `0x` prefix.
  */
-export function requestIdHex(requestId: SignetRequestId): string {
-  return Array.from(requestId, (b) => b.toString(16).padStart(2, "0")).join("");
+export function requestIdHex(requestId: SignetRequestId): SignetRequestIdHex {
+  return bytesToHex(requestId) as SignetRequestIdHex;
+}
+
+/**
+ * Validate and normalize an untrusted string (CLI argument, config value)
+ * into a {@link SignetRequestIdHex}: an optional `0x` prefix is stripped and
+ * the digits lowercased before validation.
+ *
+ * @param value - The candidate request id string.
+ * @returns The branded, normalized request id hex.
+ * @throws Error if the value is not 64 hex chars after normalization.
+ */
+export function parseSignetRequestIdHex(value: string): SignetRequestIdHex {
+  const hex = value.replace(/^0x/i, "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hex)) {
+    throw new Error(`not a 32-byte request id in hex: "${value}"`);
+  }
+  return hex as SignetRequestIdHex;
+}
+
+/**
+ * Decode a request id back to its 32 raw bytes for the Compact boundary
+ * (compiled-circuit calls, ledger lookups).
+ *
+ * @param id - The request id in canonical hex form.
+ * @returns The 32-byte request id.
+ */
+export function requestIdBytes(id: SignetRequestIdHex): SignetRequestId {
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    bytes[i] = Number.parseInt(id.slice(2 * i, 2 * i + 2), 16);
+  }
+  return bytes;
 }
 
 /** Byte width of the mpcRouting.path field (Compact `Bytes<256>`). */
@@ -163,7 +222,7 @@ export const PATH_BYTES = 256;
  */
 export function signetPathOfCommitment(commitment: Uint8Array): Uint8Array {
   const path = new Uint8Array(PATH_BYTES);
-  path.set(new TextEncoder().encode(requestIdHex(commitment)));
+  path.set(new TextEncoder().encode(bytesToHex(commitment)));
   return path;
 }
 

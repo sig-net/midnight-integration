@@ -44,6 +44,10 @@ export interface CliConfig {
   readonly caip2Id?: string;
   /** Address of the ERC20 token the vault holds (20-byte 0x hex). */
   readonly erc20Address?: string;
+  /** Address of the EVM vault account - derived from vaultContractAddress */
+  readonly evmVaultAddress?: string;
+  /** EVM address of the user's account - dervied from depositing user's committment */
+  readonly evmUserAddress?: string;
 }
 
 /**
@@ -86,6 +90,8 @@ export function getCliConfig(env: Record<string, string | undefined> = process.e
     evmChainId,
     caip2Id: evmChainId === undefined ? undefined : `eip155:${evmChainId}`,
     erc20Address,
+    evmVaultAddress: env.EVM_VAULT_ADDRESS?.trim() || undefined,
+    evmUserAddress: env.EVM_USER_ADDRESS?.trim() || undefined,
   };
 }
 

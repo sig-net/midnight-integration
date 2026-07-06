@@ -21,6 +21,7 @@ import {
   toSignetEVMSignatureRequestIndex,
   type SignetEVMSignatureRequest,
   type SignetEVMSignatureRequestParams,
+  type SignetRequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
 import { ledger } from "@midnight-erc20-vault/vault-contract";
 
@@ -74,7 +75,7 @@ async function readVaultLedger(context: CliContext, vaultContractAddress: string
  * @throws If required config is missing, the vault is uninitialized, or the
  *   recomputed id does not appear on the ledger.
  */
-export async function requestDeposit(context: CliContext, options: RequestDepositOptions): Promise<string> {
+export async function requestDeposit(context: CliContext, options: RequestDepositOptions): Promise<SignetRequestIdHex> {
   const { config } = context;
   const vaultContractAddress = requireConfigValue(config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
   const erc20Address = requireConfigValue(config.erc20Address, "ERC20_ADDRESS");
