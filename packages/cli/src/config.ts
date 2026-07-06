@@ -57,7 +57,7 @@ export interface CliConfig {
  * `MIDNIGHT_NODE_*`). CLI-specific variables:
  * - `USER_SEED` — wallet seed (default: the genesis mint wallet of the local stack).
  * - `VAULT_USER_SECRET_KEY` — 32-byte hex identity secret (default: the seed bytes).
- * - `MIDNIGHT_VAULT_CONTRACT_ADDRESS`, `SIGNET_CONTRACT_ADDRESS` — deployed contract addresses.
+ * - `MIDNIGHT_VAULT_CONTRACT_ADDRESS`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` — deployed contract addresses.
  * - `EVM_RPC_URL`, `EVM_CHAIN_ID`, `ERC20_ADDRESS` — the EVM side.
  *
  * @param env - The environment to read from.
@@ -85,7 +85,7 @@ export function getCliConfig(env: Record<string, string | undefined> = process.e
     userSeed,
     userSecretKey,
     vaultContractAddress: env.MIDNIGHT_VAULT_CONTRACT_ADDRESS?.trim() || undefined,
-    signetContractAddress: env.SIGNET_CONTRACT_ADDRESS?.trim() || undefined,
+    signetContractAddress: env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS?.trim() || undefined,
     evmRpcUrl: env.EVM_RPC_URL?.trim() || undefined,
     evmChainId,
     caip2Id: evmChainId === undefined ? undefined : `eip155:${evmChainId}`,

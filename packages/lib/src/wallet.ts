@@ -53,8 +53,7 @@ export interface WalletAddresses {
 /**
  * The fee settings the facade balances transactions with: it burns
  * `feesWithMargin(params, feeBlocksMargin) + additionalFeeOverhead` per
- * transaction. Exported so dust estimations can use the exact same values
- * (see @nyxels/contract-sdk's DustCostParameters).
+ * transaction.
  */
 export const COST_PARAMETERS: { readonly additionalFeeOverhead: bigint; readonly feeBlocksMargin: number } = {
   additionalFeeOverhead: 300_000_000_000n,

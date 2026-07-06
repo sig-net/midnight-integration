@@ -30,7 +30,7 @@ const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Poll the signet contract at `SIGNET_CONTRACT_ADDRESS` until the MPC's
+ * Poll the signet contract at `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` until the MPC's
  * remote execution response (attestation) for `requestId` appears, and
  * return it.
  *
@@ -53,7 +53,7 @@ export async function pollRemoteExecutionResponse(
 ): Promise<SignetRemoteExecutionResponse> {
   const signetContractAddress = requireConfigValue(
     context.config.signetContractAddress,
-    "SIGNET_CONTRACT_ADDRESS",
+    "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
   );
   const vaultContractAddress = requireConfigValue(
     context.config.vaultContractAddress,

@@ -41,7 +41,7 @@ const CASES: Case[] = [
       USER_SEED: CUSTOM_SEED,
       VAULT_USER_SECRET_KEY: `0x${CUSTOM_SECRET}`,
       MIDNIGHT_VAULT_CONTRACT_ADDRESS: "0200aabb",
-      SIGNET_CONTRACT_ADDRESS: "0200ccdd",
+      MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "0200ccdd",
       EVM_RPC_URL: "https://sepolia.example/rpc",
       EVM_CHAIN_ID: "11155111",
       ERC20_ADDRESS,
@@ -61,7 +61,7 @@ const CASES: Case[] = [
     name: "whitespace-only optionals are treated as unset",
     env: {
       MIDNIGHT_VAULT_CONTRACT_ADDRESS: "   ",
-      SIGNET_CONTRACT_ADDRESS: "   ",
+      MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "   ",
       EVM_RPC_URL: "   ",
       EVM_CHAIN_ID: "   ",
       ERC20_ADDRESS: "   ",

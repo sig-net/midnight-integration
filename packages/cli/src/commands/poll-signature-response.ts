@@ -27,7 +27,7 @@ const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Poll the signet contract at `SIGNET_CONTRACT_ADDRESS` until a VALID
+ * Poll the signet contract at `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` until a VALID
  * signature response for `requestId` appears, and return the 65-byte
  * `r||s||v` signature as hex.
  *
@@ -50,7 +50,7 @@ const sleep = (ms: number): Promise<void> =>
 export async function pollSignatureResponse(context: CliContext, options: PollSignatureResponseOptions): Promise<string> {
   const signetContractAddress = requireConfigValue(
     context.config.signetContractAddress,
-    "SIGNET_CONTRACT_ADDRESS",
+    "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
   );
   const vaultContractAddress = requireConfigValue(
     context.config.vaultContractAddress,
