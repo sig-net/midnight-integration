@@ -97,7 +97,7 @@ export interface SignetEVMSignatureRequestParams {
  * `SignetEVMSignatureRequest`), stored per {@link SignetRequestId} in a
  * contract's request index. Mirrors the MPC's SignBidirectionalEvent with the
  * EVM transaction decomposed; response-side output data is deliberately
- * absent (it lives in the signature-responses contract).
+ * absent (it lives in the central signet contract).
  */
 export interface SignetEVMSignatureRequest {
   /** Contract-local nonce captured when the request was created. */

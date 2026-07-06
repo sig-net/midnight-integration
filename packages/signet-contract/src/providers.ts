@@ -1,14 +1,13 @@
-// The signature-responses contract's midnight-js provider set — everything
-// SPECIFIC about talking to a deployed instance: the compiled-contract binding
-// (generated module + this package's managed assets), the zk-config path the
-// proof provider reads keys from, the circuit-id union, and the private-state
+// The signet contract's midnight-js provider set — everything SPECIFIC about
+// talking to a deployed instance: the compiled-contract binding (generated
+// module + this package's managed assets), the zk-config path the proof
+// provider reads keys from, the circuit-id union, and the private-state
 // store id. The generic wallet + adapter come from @midnight-erc20-vault/lib;
 // clients compose the two and call `findDeployedContract(providers, ...)` to
-// obtain a handle whose `callTx.postSignatureResponse(...)` posts a response.
+// obtain a handle whose `callTx.postSignatureResponse(...)` /
+// `callTx.postRemoteExecutionResponse(...)` posts a response.
 //
-// Modeled on vault-contract/src/providers.ts. The one difference: this contract
-// declares NO witnesses (posting is unauthenticated), so the compiled contract
-// binds via `makeVacantCompiledContract` instead of `makeCompiledContract`.
+// Modeled on vault-contract/src/providers.ts.
 
 import { fileURLToPath } from "node:url";
 
@@ -21,39 +20,39 @@ import type { WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
 
 import {
   createWalletAndMidnightProvider,
-  makeVacantCompiledContract,
+  makeCompiledContract,
   type AccountKeys,
   type MidnightNodeConfig,
 } from "@midnight-erc20-vault/lib";
 
 import { Contract } from "./managed/contract/index.js";
-import { type SignatureResponsesPrivateState } from "./witnesses.ts";
+import { witnesses, type SignetContractPrivateState } from "./witnesses.ts";
 
 /** The contract's provable circuit ids, straight from the generated contract. */
-export type SignatureResponseCircuitId = keyof InstanceType<typeof Contract>["provableCircuits"] & string;
+export type SignetContractCircuitId = keyof InstanceType<typeof Contract>["provableCircuits"] & string;
 
 /**
  * Literal of the private-state storage key. Just a string, but a single-value
  * union so the providers/`findDeployedContract` pairing is enforced by the
  * type system.
  */
-export type SignatureResponsesPrivateStateId = "signature-responses";
+export type SignetContractPrivateStateId = "signet-contract";
 
 /**
  * Key under which midnight-js persists this contract's private state locally
- * (in the private-state store from {@link buildSignatureResponseProviders}).
+ * (in the private-state store from {@link buildSignetContractProviders}).
  * Distinct per contract so two clients don't share an entry.
  */
-export const SIGNATURE_RESPONSES_PRIVATE_STATE_ID: SignatureResponsesPrivateStateId = "signature-responses";
+export const SIGNET_CONTRACT_PRIVATE_STATE_ID: SignetContractPrivateStateId = "signet-contract";
 
-/** The full midnight-js provider set, typed to the signature-responses contract. */
-export type SignatureResponseProviders = MidnightProviders<
+/** The full midnight-js provider set, typed to the signet contract. */
+export type SignetContractProviders = MidnightProviders<
   // PCK: the union of the contract's provable circuit names.
-  SignatureResponseCircuitId,
+  SignetContractCircuitId,
   // PSI: the private-state storage key literal.
-  SignatureResponsesPrivateStateId,
+  SignetContractPrivateStateId,
   // PS: the shape of the contract's (empty) private state object.
-  SignatureResponsesPrivateState
+  SignetContractPrivateState
 >;
 
 // The compiler output dir (holds contract/, keys/, zkir/) — the "zk config
@@ -61,34 +60,35 @@ export type SignatureResponseProviders = MidnightProviders<
 const managedPath = fileURLToPath(new URL("./managed", import.meta.url));
 
 /**
- * The signature-responses compact-js compiled-contract binding: generated
- * module + this package's compiled assets. Bound VACANT (no witnesses — see
- * the file header). Consumed by `findDeployedContract` (and deploy tooling).
+ * The signet-contract compact-js compiled-contract binding: generated module,
+ * the `getSchnorrReduction` witness (see witnesses.ts), and this package's
+ * compiled assets. Consumed by `findDeployedContract` (and deploy tooling).
  */
-export const signatureResponsesCompiledContract = makeVacantCompiledContract<
-  Contract<SignatureResponsesPrivateState>,
-  SignatureResponsesPrivateState
+export const signetContractCompiledContract = makeCompiledContract<
+  Contract<SignetContractPrivateState>,
+  SignetContractPrivateState
 >(
-  "signature-responses",
+  "signet-contract",
   Contract,
+  witnesses,
   managedPath,
 );
 
 /**
- * Build the midnight-js provider set for the signature-responses contract.
+ * Build the midnight-js provider set for the signet contract.
  *
  * @param facade - A started (and synced) wallet facade — see lib's `withSyncedWalletFacade`.
  * @param keys - The key material of the same wallet, for balancing and signing.
  * @param config - The Midnight network endpoints to run against.
  * @returns The provider set to hand to `findDeployedContract` / `deployContract`.
  */
-export function buildSignatureResponseProviders(
+export function buildSignetContractProviders(
   facade: WalletFacade,
   keys: AccountKeys,
   config: MidnightNodeConfig,
-): SignatureResponseProviders {
+): SignetContractProviders {
   // Retrieves the ZK artifacts of a contract needed to create proofs.
-  const zkConfigProvider = new NodeZkConfigProvider<SignatureResponseCircuitId>(managedPath);
+  const zkConfigProvider = new NodeZkConfigProvider<SignetContractCircuitId>(managedPath);
 
   // The wallet, adapted to midnight-js's balancer + submitter interfaces
   // (the facade itself does not implement WalletProvider/MidnightProvider).
@@ -101,12 +101,12 @@ export function buildSignatureResponseProviders(
     // other dApps sharing the same LevelDB. This contract's private state is
     // empty, so nothing is lost if the store is cleared.
     privateStateProvider: levelPrivateStateProvider({
-      privateStateStoreName: "signature-responses-private-states",
-      signingKeyStoreName: "signature-responses-signing-keys",
+      privateStateStoreName: "signet-contract-private-states",
+      signingKeyStoreName: "signet-contract-signing-keys",
       accountId,
       // A constant in client source is obfuscation, not secrecy — acceptable
       // here only because nothing sensitive is stored (empty private state).
-      privateStoragePasswordProvider: () => "&*(BHJqwe419-sigResponses",
+      privateStoragePasswordProvider: () => "&*(BHJqwe419-signetContract",
     }),
 
     // Retrieves public data from the blockchain.

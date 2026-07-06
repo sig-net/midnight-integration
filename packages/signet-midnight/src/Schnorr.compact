@@ -1,0 +1,96 @@
+// ============================================================================
+// Schnorr — shared Compact library: Schnorr signature verification on the
+// Jubjub curve embedded in BLS12-381.
+// ============================================================================
+// Polyfill: to be replaced by `jubjubSchnorrVerify` when CompactStandardLibrary
+// ships it in a future compiler release. See:
+// https://github.com/LFDT-Minokawa/compact/blob/25b22e3/compiler/standard-library.compact
+//
+// The sig-net MPC attests remote EVM execution by Schnorr-signing a message
+// on Jubjub (see signetAttestationMessage in Signet.compact); contracts
+// verify that signature in-circuit — the signet contract at post time, the
+// vault again at claim time. The challenge is Poseidon (transientHash), so
+// off-chain signers MUST compute it through the COMPILED schnorrChallenge
+// pure circuit (re-exported via circuits.compact), never a TS reimplementation.
+//
+// Import from a contract (resolved through node_modules via COMPACT_PATH —
+// see the consuming package's compile script):
+//   import "@midnight-erc20-vault/signet-midnight/src/Schnorr" prefix Schnorr_;
+//
+// This file must contain ONLY this module (plus comments) so the compiler
+// accepts it as an external module import.
+
+module Schnorr {
+  import CompactStandardLibrary;
+
+  // One Schnorr signature: the nonce commitment R and the response scalar
+  // s = (k + c * sk) mod JUBJUB_ORDER.
+  export struct SchnorrSignature {
+    announcement: JubjubPoint;
+    response: Field;
+  }
+
+  // The tuple Poseidon-hashed into the challenge: both points' coordinates
+  // then the message limbs, in exactly this order — the wire format the MPC
+  // signs against. Never reorder.
+  struct SchnorrHashInput<#n> {
+    ann_x: Field;
+    ann_y: Field;
+    pk_x: Field;
+    pk_y: Field;
+    msg: Vector<n, Field>;
+  }
+
+  // The witness provides the quotient and remainder of dividing the challenge
+  // hash by 2^248, so we can truncate it to fit in Jubjub's scalar field.
+  witness getSchnorrReduction(challengeHash: Field): [Field, Uint<248>];
+
+  export circuit schnorrVerify<#n>(
+                   msg: Vector<n, Field>,
+                   signature: SchnorrSignature,
+                   pk: JubjubPoint
+                   ): [] {
+    const {announcement, response} = signature;
+    const cFull: Field =
+            transientHash<SchnorrHashInput<n>>(
+              SchnorrHashInput<n> { ann_x: jubjubPointX(announcement),
+                                    ann_y: jubjubPointY(announcement),
+                                    pk_x: jubjubPointX(pk),
+                                    pk_y: jubjubPointY(pk),
+                                    msg: msg }
+              );
+    // Truncate the challenge to 248 bits via witness-assisted division by
+    // 2^248: the witness provides (quotient, remainder) with cFull ==
+    // q * 2^248 + r and r : Uint<248>, guaranteeing r < 2^248 < the Jubjub
+    // subgroup order. Needed because ecMul requires scalars < JUBJUB_ORDER
+    // (~2^252.4) while transientHash outputs BLS12-381 field values (~2^255).
+    const TWO_248: Field =
+            452312848583266388373324160190187140051835877600158453279131187530910662656 as Field;
+    const [q, cTruncated] = getSchnorrReduction(cFull);
+    assert(disclose(q) * TWO_248 + (disclose(cTruncated) as Field) == cFull,
+           "Invalid challenge reduction"
+           );
+    const c: Field = disclose(cTruncated) as Field;
+    const lhs: JubjubPoint = ecMulGenerator(response);
+    const rhs: JubjubPoint = ecAdd(announcement, ecMul(pk, c));
+    assert(jubjubPointX(lhs) == jubjubPointX(rhs) && jubjubPointY(lhs) == jubjubPointY(rhs),
+           "Invalid attestation signature");
+  }
+
+  // The full (untruncated) Poseidon challenge. Off-chain signers call the
+  // compiled copy of this and truncate mod 2^248 to match schnorrVerify's
+  // reduction.
+  export pure circuit schnorrChallenge(
+                        ann_x: Field,
+                        ann_y: Field,
+                        pk_x: Field,
+                        pk_y: Field,
+                        msg: Vector<4, Field>
+                        ): Field {
+    const cFull: Field =
+            transientHash<SchnorrHashInput<4>>(
+              SchnorrHashInput<4> { ann_x: ann_x, ann_y: ann_y, pk_x: pk_x, pk_y: pk_y, msg: msg }
+              );
+    return cFull;
+  }
+}

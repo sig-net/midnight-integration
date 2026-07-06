@@ -25,7 +25,7 @@ npm run compile:zk
 │
 ├── docs/
 │   ├── architecture.md             # full flow: fund derived account → deposit() → MPC signs →
-│   │                               #   postResponse() on signature-responses contract → watcher
+│   │                               #   postSignatureResponse() on signet contract → watcher
 │   │                               #   submits EVM tx → MPC confirms → Schnorr response → claim()
 │   └── e2e-sepolia-runbook.md      # moved from boilerplate/contract-cli/docs/
 │
@@ -62,12 +62,12 @@ npm run compile:zk
     │   └── deploy.ts               # deploy script: constructor args + witnesses live here; the
     │                               #   generic build/submit plumbing comes from @.../lib
     │
-    ├── signature-responses-contract/   # @midnight-erc20-vault/signature-responses-contract
+    ├── signet-contract/   # @midnight-erc20-vault/signet-contract
     │   ├── package.json
     │   ├── tsconfig.json
     │   ├── .gitignore                  # src/managed/
     │   ├── src/
-    │   │   ├── signature-responses.compact
+    │   │   ├── signet-contract.compact
     │   │   ├── witnesses.ts            # localSecretKey (owner proof)
     │   │   ├── index.ts
     │   │   └── managed/

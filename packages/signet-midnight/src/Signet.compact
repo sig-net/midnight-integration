@@ -6,9 +6,11 @@
 // in its public ledger. The sig-net MPC network needs only the contract address:
 // it reads the request index from ledger field 0 (the signet layout convention),
 // re-assembles and signs the EVM transaction with the caller's derived key,
-// and posts the response to the signature-responses contract for polling.
-// Request and response are counterparts and are defined side by side here;
-// the pure circuits that operate on them follow below.
+// and posts its responses to the CENTRAL signet contract for polling — first
+// the signature (the client broadcasts the signed transaction), then, after
+// watching the remote execution, the Schnorr-signed attestation of its result.
+// Requests and both response kinds are counterparts and are defined side by
+// side here; the pure circuits that operate on them follow below.
 //
 // Read more:
 //   - sig-net docs (chain signatures, key derivation): https://docs.sig.network/
@@ -27,7 +29,7 @@ module Signet {
   // ---- Identifiers ---------------------------------------------------------
 
   // Nominal id of a signet request. Deliberately CHAIN-AGNOSTIC: downstream
-  // consumers (the signature-responses contract, response pollers, the MPC)
+  // consumers (the signet contract, response pollers, the MPC)
   // treat it as an opaque 32-byte key, whatever kind of request it identifies.
   // Each request kind mints ids via its own domain-separated hash circuit
   // (see signetEVMSignatureRequestId). `new type` makes it NOT interchangeable
@@ -104,9 +106,36 @@ module Signet {
 
   // The counterpart to SignetEVMSignatureRequest: the raw 65-byte r||s||v
   // signature over the requested EVM transaction, produced by the MPC and
-  // posted to the signature-responses contract. The request id it answers
-  // lives in the response index key (see SignatureResponseKey), not here.
+  // posted to the signet contract. The requesting client attaches it to the
+  // rebuilt transaction and broadcasts — the MPC never submits. The request
+  // id it answers lives in the response index key (see SignetResponseKey).
   export new type SignetEVMSignatureResponse = Bytes<65>;
+
+  // The MPC's attestation of the REMOTE EXECUTION of a requested transaction:
+  // after the client broadcasts, the MPC watches the destination chain and
+  // Schnorr-signs (requestId, hash(outputData)) on Jubjub — see
+  // signetAttestationMessage. Unlike the ECDSA signature response (secp256k1,
+  // unverifiable in-circuit), this attestation IS verified in-circuit by the
+  // signet contract at post time, so stored records are authentic by
+  // construction. A requester contract (e.g. the vault's claimDeposit)
+  // re-verifies it when the user presents it.
+  export struct SignetRemoteExecutionResponse {
+    // Full ABI-encoded return data of the remote call, zero-padded. First
+    // 32-byte word == 1 signals success; a 0xdeadbeef prefix is the MPC's
+    // error sentinel for a failed/absent execution.
+    outputData: Bytes<4096>;
+
+    // The MPC attestation key (Jubjub). Hash-checked against the signet
+    // contract's sealed mpcPubKeyHash at post time, and again by requester
+    // contracts at claim time.
+    pk: JubjubPoint;
+
+    // Schnorr nonce commitment R.
+    announcement: JubjubPoint;
+
+    // Schnorr response scalar s.
+    response: Field;
+  }
 
   // ---- Requester Ledger Layout -----------------------------------------------
 
@@ -121,32 +150,46 @@ module Signet {
   // signal — an unchanged counter means no new requests since the last poll.
   export new type SignetNonce = Counter;
 
-  // ---- Response Ledger Layout -----------------------------------------------
-  // Posting to the signature-responses contract is UNAUTHENTICATED: the MPC
-  // cannot yet produce Midnight proofs, so posts cannot be attributed to it.
-  // The ledger is therefore append-only — each post lands under a fresh
-  // (requestId, count) key, so a rogue poster can add noise but can never
-  // overwrite or block the genuine response. Clients enumerate a request's
-  // entries and verify each signature off-chain, which guarantees at least
-  // one valid response stays retrievable (signet.js wraps this in a helper).
+  // ---- Signet Contract Ledger Layout ------------------------------------------
+  // The CENTRAL signet contract on Midnight stores both MPC response kinds.
+  // Its layout convention (find everything knowing only the contract address):
+  //   field 0: SignatureResponseCounterIndex
+  //   field 1: SignatureResponseIndex
+  //   field 2: RemoteExecutionResponseIndex
+  //   field 3: mpcPubKeyHash (sealed Bytes<32>)
+  //
+  // The two kinds get different defenses:
+  //   - Signature responses are secp256k1 ECDSA — unverifiable in-circuit —
+  //     so their log is UNAUTHENTICATED and append-only: each post lands
+  //     under a fresh (requestId, count) key; a rogue poster can add noise
+  //     but never overwrite or block the genuine response. Clients enumerate
+  //     a request's entries and verify each signature off-chain.
+  //   - Remote execution responses are Schnorr on Jubjub — the embedded
+  //     curve — so the contract verifies them IN-CIRCUIT at post time
+  //     against its sealed MPC key hash. Garbage cannot land; one
+  //     authenticated slot per request suffices, first valid write wins.
 
-  // Per-request post counter. Signet layout convention: the signature-responses
-  // contract declares this as its FIRST ledger field, so pollers can find it
-  // knowing only the contract address. The counter reads the number of posts
-  // made for that request; entries exist for counts 0..counter-1.
+  // Per-request post counter for signature responses (field 0). The counter
+  // reads the number of posts made for that request; entries exist for
+  // counts 0..counter-1.
   export new type SignatureResponseCounterIndex = Map<SignetRequestId, Counter>;
 
-  // Composite key of one posted response: the request id it answers plus this
-  // post's 0-based count, sourced from SignatureResponseCounterIndex.
-  export struct SignatureResponseKey {
+  // Composite key of one posted signature response: the request id it
+  // answers plus this post's 0-based count, sourced from
+  // SignatureResponseCounterIndex. (Remote execution responses need no key
+  // struct — authenticated posts are keyed by request id alone.)
+  export struct SignetResponseKey {
     count: Uint<64>;
     requestId: SignetRequestId;
   };
 
-  // The on-ledger response log, keyed by (requestId, count). Signet layout
-  // convention: declared as the SECOND ledger field, directly after the
-  // counter index.
-  export new type SignatureResponseIndex = Map<SignatureResponseKey, SignetEVMSignatureResponse>;
+  // The on-ledger signature response log (field 1), keyed by
+  // (requestId, count).
+  export new type SignatureResponseIndex = Map<SignetResponseKey, SignetEVMSignatureResponse>;
+
+  // The on-ledger remote execution response index (field 2): one
+  // contract-verified attestation per request.
+  export new type RemoteExecutionResponseIndex = Map<SignetRequestId, SignetRemoteExecutionResponse>;
 
   // ---- Request id -----------------------------------------------------------
 
@@ -166,6 +209,30 @@ module Signet {
       pad(32, "signet:evm:request:"),
       persistentHash<SignetEVMSignatureRequest>(request)
     ]) as SignetRequestId;
+  }
+
+  // ---- Remote execution attestation message ----------------------------------
+
+  // The message the MPC Schnorr-signs to attest a remote execution:
+  // (requestId, hash(outputData)) as four 16-byte little-endian field limbs.
+  // Hashing the FULL outputData binds any return type/length; the 16-byte
+  // split is needed because a 32-byte value overflows the BLS scalar field.
+  // ONE implementation for everyone: the signet contract verifies posts
+  // against it, requester contracts (claimDeposit) re-verify against it, and
+  // off-chain signers call the compiled copy (via circuits.compact) — never
+  // a TS re-implementation.
+  export pure circuit signetAttestationMessage(
+    requestId: SignetRequestId,
+    outputData: Bytes<4096>
+  ): Vector<4, Field> {
+    const rid = requestId as Bytes<32>;
+    const outHash = persistentHash<Bytes<4096>>(outputData);
+    return [
+      slice<16>(rid, 0) as Field,
+      slice<16>(rid, 16) as Field,
+      slice<16>(outHash, 0) as Field,
+      slice<16>(outHash, 16) as Field
+    ];
   }
 
   // ---- Path <-> identity binding ---------------------------------------------

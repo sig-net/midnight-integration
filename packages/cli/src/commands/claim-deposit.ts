@@ -18,7 +18,7 @@ export interface ClaimDepositOptions {
  * Call the vault's `claimDeposit` circuit for a completed deposit request.
  *
  * Wired behavior: fetch the MPC's response (`outputData` + Schnorr signature
- * components) for `requestId` from the signature-responses contract, then
+ * components) for `requestId` from the signet contract, then
  * call the circuit, which verifies the MPC public key hash, the Schnorr
  * signature, the EVM success flag, and the caller identity against the
  * stored request — and mints shielded vault tokens on success. The mint's

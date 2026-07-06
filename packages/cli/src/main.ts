@@ -13,7 +13,8 @@ import { broadcastEvm } from "./commands/broadcast-evm.ts";
 import { claimDeposit } from "./commands/claim-deposit.ts";
 import { depositE2E } from "./commands/deposit-e2e.ts";
 import { initialize } from "./commands/initialize.ts";
-import { pollResponse } from "./commands/poll-response.ts";
+import { formatRemoteExecutionResponse, pollRemoteExecutionResponse } from "./commands/poll-remote-execution-response.ts";
+import { pollSignatureResponse } from "./commands/poll-signature-response.ts";
 import { readState } from "./commands/read-state.ts";
 import { refundWithdraw } from "./commands/refund-withdraw.ts";
 import { requestDeposit } from "./commands/request-deposit.ts";
@@ -86,12 +87,23 @@ program
 
 withPollingOptions(
   program
-    .command("poll-response")
-    .description("poll the signature-responses contract for a request's MPC response")
+    .command("poll-signature-response")
+    .description("poll the signet contract for the MPC's signature over a request's EVM transaction")
     .requiredOption("--request-id <hex>", "the request id to poll for", parseRequestIdArg),
 ).action((options: { requestId: SignetRequestIdHex; intervalMs: number; timeoutMs: number }) => {
   work = async (context) => {
-    console.log(await pollResponse(context, options));
+    console.log(await pollSignatureResponse(context, options));
+  };
+});
+
+withPollingOptions(
+  program
+    .command("poll-remote-execution-response")
+    .description("poll the signet contract for the MPC's attestation of a request's remote EVM execution")
+    .requiredOption("--request-id <hex>", "the request id to poll for", parseRequestIdArg),
+).action((options: { requestId: SignetRequestIdHex; intervalMs: number; timeoutMs: number }) => {
+  work = async (context) => {
+    console.log(formatRemoteExecutionResponse(await pollRemoteExecutionResponse(context, options)));
   };
 });
 

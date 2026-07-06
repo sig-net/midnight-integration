@@ -26,6 +26,40 @@ export const OUTPUT_SCHEMA_BYTES = 256;
 /** Width of `SignetMPCRoutingParams.respondSchema` (`Bytes<256>`). */
 export const RESPOND_SCHEMA_BYTES = 256;
 
+/** Width of `SignetRemoteExecutionResponse.outputData` (`Bytes<4096>`). */
+export const OUTPUT_DATA_SIZE = 4096;
+
+/**
+ * The MPC's error sentinel: `outputData` beginning with these four bytes
+ * marks a failed/absent remote execution (mirrors the sig-net MPC's
+ * MAGIC_ERROR_PREFIX).
+ */
+export const MPC_ERROR_SENTINEL = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+
+/**
+ * Whether an attestation's output data reports a successful remote
+ * execution: the first byte is 1 — the little-endian encoding of the
+ * ABI-decoded success flag, matching the circuits' `outputData as Field == 1`
+ * check.
+ *
+ * @param outputData - The attestation's output data.
+ * @returns `true` when the remote call succeeded.
+ */
+export function remoteExecutionSucceeded(outputData: Uint8Array): boolean {
+  return outputData[0] === 1;
+}
+
+/**
+ * Whether an attestation's output data is the MPC's error sentinel (see
+ * {@link MPC_ERROR_SENTINEL}) rather than a call result.
+ *
+ * @param outputData - The attestation's output data.
+ * @returns `true` when the MPC reported an execution error.
+ */
+export function isRemoteExecutionError(outputData: Uint8Array): boolean {
+  return MPC_ERROR_SENTINEL.every((byte, index) => outputData[index] === byte);
+}
+
 /** Signature algorithm the MPC uses for EVM chains (`algo` field value). */
 export const SIGNET_ALGO_ECDSA = "ecdsa";
 

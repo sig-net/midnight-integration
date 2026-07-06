@@ -12,14 +12,14 @@
     "compile:zk": "npm run compile:zk --workspaces --if-present",
     "compile:vault-contract": "npm run compile -w @midnight-erc20-vault/vault-contract",
     "compile:vault-contract:zk": "npm run compile:zk -w @midnight-erc20-vault/vault-contract",
-    "compile:signature-responses-contract": "npm run compile -w @midnight-erc20-vault/signature-responses-contract",
-    "compile:signature-responses-contract:zk": "npm run compile:zk -w @midnight-erc20-vault/signature-responses-contract",
     "compile:signet-midnight": "npm run compile -w @midnight-erc20-vault/signet-midnight",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:integration-tests": "npm run test:integration -w @midnight-erc20-vault/integration-tests",
     "deploy:vault-contract": "npm run deploy -w @midnight-erc20-vault/vault-contract",
-    "deploy:signature-responses-contract": "npm run deploy -w @midnight-erc20-vault/signature-responses-contract",
-    "cli": "npm run cli -w @midnight-erc20-vault/cli --"
+    "cli": "npm run cli -w @midnight-erc20-vault/cli --",
+    "compile:signet-contract": "npm run compile -w @midnight-erc20-vault/signet-contract",
+    "compile:signet-contract:zk": "npm run compile:zk -w @midnight-erc20-vault/signet-contract",
+    "deploy:signet-contract": "npm run deploy -w @midnight-erc20-vault/signet-contract"
   }
 }

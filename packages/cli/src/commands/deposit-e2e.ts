@@ -1,11 +1,12 @@
 // `deposit-e2e` — the full deposit orchestration a UI would run, composed
 // from the granular commands. Every MPC hand-off is polled from the
-// signature-responses contract.
+// signet contract.
 
 import type { CliContext } from "../context.ts";
 import { broadcastEvm } from "./broadcast-evm.ts";
 import { claimDeposit } from "./claim-deposit.ts";
-import { pollResponse } from "./poll-response.ts";
+import { pollRemoteExecutionResponse } from "./poll-remote-execution-response.ts";
+import { pollSignatureResponse } from "./poll-signature-response.ts";
 import { requestDeposit } from "./request-deposit.ts";
 
 /** Options for {@link depositE2E}. */
@@ -24,7 +25,7 @@ export interface DepositE2EOptions {
  * Run the deposit flow end-to-end:
  * 1. `requestDeposit` records the signature request on the vault's ledger.
  * 2. The MPC (watching the vault via the indexer) signs the EVM sweep and
- *    posts the signed transaction to the signature-responses contract;
+ *    posts the signed transaction to the signet contract;
  *    poll for it.
  * 3. Broadcast the signed transaction to the EVM chain.
  * 4. The MPC observes the receipt and posts the Schnorr-signed
@@ -43,10 +44,10 @@ export async function depositE2E(context: CliContext, options: DepositE2EOptions
 
   const requestId = await requestDeposit(context, { amount, evmNonce });
 
-  const signedTransaction = await pollResponse(context, { requestId, intervalMs, timeoutMs });
+  const signedTransaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs });
   await broadcastEvm(context, { signedTransaction });
 
-  await pollResponse(context, { requestId, intervalMs, timeoutMs });
+  await pollRemoteExecutionResponse(context, { requestId, intervalMs, timeoutMs });
   await claimDeposit(context, { requestId });
 
   console.log(`deposit ${requestId} claimed`);

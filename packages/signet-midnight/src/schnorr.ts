@@ -1,15 +1,22 @@
-// Jubjub Schnorr helpers — seed of the schnorr module planned in README.md.
-// Ported bit by bit from the old repo's boilerplate/contract-cli/src/signet/
-// schnorr.ts; only key derivation has been ported so far (sign/verify/
-// challenge come across with the claim flow).
+// Jubjub Schnorr helpers — the TS side of the shared Schnorr.compact module:
+// key derivation, SIGNING (which needs the secret scalar, so it cannot be a
+// circuit), and key parsing/hashing. Everything provable stays in Compact:
+// the challenge is the COMPILED `pureCircuits.schnorrChallenge`, injected by
+// callers (see SchnorrChallengeFn), and the attestation message is the
+// compiled `pureCircuits.signetAttestationMessage` — this file never
+// re-implements either. Verification lives in circuits only
+// (Schnorr.compact's schnorrVerify, run by the signet contract at post time).
 //
 // This belongs in github.com/sig-net/signet.js as its Midnight adapter —
-// kept here until upstreamed. The derivation is Midnight-specific (Jubjub
-// embedded in BLS12-381 via @midnight-ntwrk/compact-runtime EC ops), which is
-// exactly why signet.js does not cover it today.
+// kept here until upstreamed. The math is Midnight-specific (Jubjub embedded
+// in BLS12-381 via @midnight-ntwrk/compact-runtime EC ops), which is exactly
+// why signet.js does not cover it today.
+
+import { randomBytes } from "node:crypto";
 
 import {
   CompactTypeBytes,
+  CompactTypeJubjubPoint,
   CompactTypeVector,
   ecMulGenerator,
   persistentHash,
@@ -88,4 +95,98 @@ export function deriveJubjubKeypair(seed: Uint8Array): JubjubKeypair {
   const sk = (bytesToBigint(skBytes) % (JUBJUB_ORDER - 1n)) + 1n;
   const pk = ecMulGenerator(sk);
   return { sk, pk };
+}
+
+// ---- Schnorr signing ----
+
+/** 2^248 — challenge truncation modulus (mirrors TWO_248 in Schnorr.compact). */
+export const TWO_248 = 1n << 248n;
+
+/** A Schnorr signature (TS twin of Schnorr.compact's `SchnorrSignature`). */
+export interface SchnorrSignature {
+  /** Nonce commitment R = k * G. */
+  announcement: JubjubPoint;
+  /** Signature scalar s = (k + c * sk) mod JUBJUB_ORDER. */
+  response: bigint;
+}
+
+/**
+ * Computes the Schnorr challenge (full Poseidon transientHash output).
+ * ALWAYS inject the compiled circuit — signet-midnight's own
+ * `pureCircuits.schnorrChallenge` — never a TS re-implementation; keeping it
+ * injected keeps this signer decoupled from any one compiled artifact.
+ */
+export type SchnorrChallengeFn = (
+  annX: bigint,
+  annY: bigint,
+  pkX: bigint,
+  pkY: bigint,
+  msg: bigint[],
+) => bigint;
+
+/**
+ * Sign a message with Schnorr on Jubjub, matching the shared Schnorr.compact
+ * module's verification: `c = challenge mod 2^248`,
+ * `s = (k + c * sk) mod JUBJUB_ORDER`. For signet attestations the message
+ * is the compiled `pureCircuits.signetAttestationMessage(requestId,
+ * outputData)`.
+ *
+ * @param sk - Jubjub private key scalar.
+ * @param msg - Message field limbs.
+ * @param schnorrChallenge - The compiled `pureCircuits.schnorrChallenge`.
+ * @returns The signature (announcement R, response s).
+ * @throws Error if `sk` reduces to zero mod the Jubjub order.
+ */
+export function schnorrSign(
+  sk: bigint,
+  msg: bigint[],
+  schnorrChallenge: SchnorrChallengeFn,
+): SchnorrSignature {
+  const skReduced = ((sk % JUBJUB_ORDER) + JUBJUB_ORDER) % JUBJUB_ORDER;
+  if (skReduced === 0n) {
+    throw new Error("Private key must be non-zero mod JUBJUB_ORDER");
+  }
+
+  const pk = ecMulGenerator(skReduced);
+  const k = (bytesToBigint(randomBytes(32)) % JUBJUB_ORDER) || 1n;
+  const announcement = ecMulGenerator(k);
+
+  // schnorrChallenge returns the full Poseidon hash; truncate to 248 bits
+  // (mod 2^248) to match the circuit's witness-assisted reduction.
+  const cFull = schnorrChallenge(announcement.x, announcement.y, pk.x, pk.y, msg);
+  const c = cFull % TWO_248;
+
+  const response = (((k + c * skReduced) % JUBJUB_ORDER) + JUBJUB_ORDER) % JUBJUB_ORDER;
+  return { announcement, response };
+}
+
+/**
+ * Hash a Jubjub point exactly as the circuits do (`persistentHash<JubjubPoint>`)
+ * — the form the signet contract seals as `mpcPubKeyHash`.
+ *
+ * @param point - The point to hash.
+ * @returns The 32-byte hash.
+ */
+export function hashJubjubPoint(point: JubjubPoint): Uint8Array {
+  return persistentHash(CompactTypeJubjubPoint, point);
+}
+
+/**
+ * Parse a Jubjub public key from its `"x,y"` config/env form (decimal or
+ * 0x-hex field coordinates) — how deploys receive `MPC_JUBJUB_PUBLIC_KEY`.
+ *
+ * @param value - The `"x,y"` string.
+ * @returns The parsed point.
+ * @throws Error if the value is not two comma-separated field coordinates.
+ */
+export function parseJubjubPublicKey(value: string): JubjubPoint {
+  const parts = value.split(",").map((part) => part.trim());
+  if (parts.length !== 2 || parts.some((part) => part === "")) {
+    throw new Error(`expected a Jubjub public key as "x,y"; got "${value}"`);
+  }
+  try {
+    return { x: BigInt(parts[0]), y: BigInt(parts[1]) };
+  } catch {
+    throw new Error(`Jubjub public key coordinates must be decimal or 0x-hex integers; got "${value}"`);
+  }
 }

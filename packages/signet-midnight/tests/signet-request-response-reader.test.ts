@@ -18,13 +18,16 @@ import {
   asciiPadded,
   bigintToBytes32,
   buildUnsignedEvmTransaction,
+  deriveJubjubKeypair,
   requestIdHex,
   requestIdType,
-  signatureResponseKeyType,
   signetEVMSignatureRequestType,
+  signetRemoteExecutionResponseType,
+  signetResponseKeyType,
   SignetRequestResponseReader,
   type SignetEVMSignatureRequest,
   type SignetPublicStateSource,
+  type SignetRemoteExecutionResponse,
 } from "../src/index.ts";
 
 // ---- Fixtures ----
@@ -33,6 +36,7 @@ const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
+const bytes32 = new CompactTypeBytes(32);
 const bytes65 = new CompactTypeBytes(65);
 
 const REQUEST_ID = bytes(32, 0x2f);
@@ -40,7 +44,7 @@ const REQUEST_ID_HEX = requestIdHex(REQUEST_ID);
 const UNKNOWN_ID_HEX = requestIdHex(bytes(32, 0x30));
 
 const REQUESTER_ADDRESS = "requester-contract-address";
-const RESPONSES_ADDRESS = "responses-contract-address";
+const SIGNET_CONTRACT_ADDRESS = "signet-contract-address";
 
 /**
  * Known-good request record for a `transfer(vault, amount)` deposit — the
@@ -122,14 +126,25 @@ const requesterState = (): StateValue => {
     );
 };
 
+// An attestation record for the execution-response tests: real Jubjub points,
+// synthetic scalar — the reader decodes, the CONTRACT verified at post time.
+const EXECUTION_RESPONSE: SignetRemoteExecutionResponse = {
+  outputData: (() => { const out = new Uint8Array(4096); out[0] = 1; return out; })(),
+  pk: deriveJubjubKeypair(bytes(32, 0x42)).pk,
+  announcement: deriveJubjubKeypair(bytes(32, 0x43)).pk,
+  response: 123456789n,
+};
+
 /**
- * Responses state: counter index (field 0) and response log (field 1) for
- * REQUEST_ID. `counterOverride` forces a counter that disagrees with the
- * log, for the inconsistency test.
+ * Signet contract state: signature counter index (field 0), signature log
+ * (field 1), remote execution response index (field 2), sealed MPC key hash
+ * (field 3) for REQUEST_ID. `counterOverride` forces a counter that
+ * disagrees with the log, for the inconsistency test.
  */
-const responsesState = (
+const signetContractState = (
   posts: Uint8Array[],
   counterOverride?: bigint,
+  executionResponse?: SignetRemoteExecutionResponse,
 ): StateValue => {
   const total = counterOverride ?? BigInt(posts.length);
   let counterMap = new StateMap();
@@ -149,11 +164,11 @@ const responsesState = (
   posts.forEach((post, index) => {
     responseMap = responseMap.insert(
       {
-        value: signatureResponseKeyType.toValue({
+        value: signetResponseKeyType.toValue({
           count: BigInt(index),
           requestId: REQUEST_ID,
         }),
-        alignment: signatureResponseKeyType.alignment(),
+        alignment: signetResponseKeyType.alignment(),
       },
       StateValue.newCell({
         value: bytes65.toValue(post),
@@ -161,9 +176,29 @@ const responsesState = (
       }),
     );
   });
+  let executionMap = new StateMap();
+  if (executionResponse !== undefined) {
+    executionMap = executionMap.insert(
+      {
+        value: requestIdType.toValue(REQUEST_ID),
+        alignment: requestIdType.alignment(),
+      },
+      StateValue.newCell({
+        value: signetRemoteExecutionResponseType.toValue(executionResponse),
+        alignment: signetRemoteExecutionResponseType.alignment(),
+      }),
+    );
+  }
   return StateValue.newArray()
     .arrayPush(StateValue.newMap(counterMap))
-    .arrayPush(StateValue.newMap(responseMap));
+    .arrayPush(StateValue.newMap(responseMap))
+    .arrayPush(StateValue.newMap(executionMap))
+    .arrayPush(
+      StateValue.newCell({
+        value: bytes32.toValue(bytes(32, 0x99)),
+        alignment: bytes32.alignment(),
+      }),
+    );
 };
 
 // ---- Harness ----
@@ -172,7 +207,11 @@ const responsesState = (
  * Build a reader over synthetic states, counting state-source queries so the
  * request-record caching is observable.
  */
-const makeReader = (posts: Uint8Array[], counterOverride?: bigint) => {
+const makeReader = (
+  posts: Uint8Array[],
+  counterOverride?: bigint,
+  executionResponse?: SignetRemoteExecutionResponse,
+) => {
   const queries = { requester: 0, responses: 0 };
   const publicDataProvider: SignetPublicStateSource = {
     queryContractState: async (contractAddress) => {
@@ -181,12 +220,12 @@ const makeReader = (posts: Uint8Array[], counterOverride?: bigint) => {
         return { data: requesterState() };
       }
       queries.responses += 1;
-      return { data: responsesState(posts, counterOverride) };
+      return { data: signetContractState(posts, counterOverride, executionResponse) };
     },
   };
   const reader = new SignetRequestResponseReader({
     requesterContractAddress: REQUESTER_ADDRESS,
-    responsesContractAddress: RESPONSES_ADDRESS,
+    signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     publicDataProvider,
   });
   return { reader, queries };
@@ -221,7 +260,7 @@ describe("getSignatureRequest", () => {
     };
     const reader = new SignetRequestResponseReader({
       requesterContractAddress: REQUESTER_ADDRESS,
-      responsesContractAddress: RESPONSES_ADDRESS,
+      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
       publicDataProvider,
     });
     await expect(reader.getSignatureRequest(REQUEST_ID_HEX)).rejects.toThrow(
@@ -334,4 +373,20 @@ describe("getVerifiedSignatureResponse", () => {
       });
     },
   );
+});
+
+describe("getRemoteExecutionResponse", () => {
+  it("returns the posted attestation", async () => {
+    const { reader } = makeReader([], undefined, EXECUTION_RESPONSE);
+    expect(await reader.getRemoteExecutionResponse(REQUEST_ID_HEX)).toEqual(
+      EXECUTION_RESPONSE,
+    );
+  });
+
+  it("returns undefined when no attestation is posted yet", async () => {
+    const { reader } = makeReader([]);
+    expect(
+      await reader.getRemoteExecutionResponse(REQUEST_ID_HEX),
+    ).toBeUndefined();
+  });
 });

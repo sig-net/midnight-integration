@@ -1,6 +1,7 @@
 // One-stop client-side reader for the signet request/response flow: fetch a
 // request record from the requester contract's ledger, enumerate the posts in
-// the signature-responses log, and verify each candidate against the request.
+// the signet contract's signature response log, and verify each candidate
+// against the request.
 // This is the helper the Signet.compact "Response Ledger Layout" comment
 // promises — the log is UNAUTHENTICATED, so a client must verify every post
 // and take the first valid one; this class packages that flow so every
@@ -12,10 +13,11 @@ import type { PublicDataProvider } from "@midnight-ntwrk/midnight-js-types";
 
 import { readSignetRequestsLedgerFromState } from "./signature-requests-state-reader.ts";
 import {
-  readSignetResponsesLedgerFromState,
-  signatureResponseIndexKey,
+  readSignetContractLedgerFromState,
+  signetResponseIndexKey,
   type SignetEVMSignatureResponse,
-} from "./signature-responses-state-reader.ts";
+  type SignetRemoteExecutionResponse,
+} from "./signet-contract-state-reader.ts";
 import { recoverSignetEVMSignatureResponseSigner } from "./signature-response-verification.ts";
 import type { RawContractState } from "./signature-state-reading.ts";
 import type {
@@ -46,8 +48,8 @@ export interface SignetPublicStateSource {
 export interface SignetRequestResponseReaderConfig {
   /** Address of the signet-compliant requester contract (e.g. the vault). */
   readonly requesterContractAddress: string;
-  /** Address of the signature-responses contract. */
-  readonly responsesContractAddress: string;
+  /** Address of the central signet contract. */
+  readonly signetContractAddress: string;
   /** Source of raw contract state, e.g. midnight-js's `indexerPublicDataProvider`. */
   readonly publicDataProvider: SignetPublicStateSource;
 }
@@ -79,7 +81,7 @@ export interface VerifiedSignatureResponseResult {
 }
 
 /**
- * Reader over one requester contract / signature-responses contract pair.
+ * Reader over one requester contract / signet contract pair.
  * Construct once per pair and reuse: fetched request records are cached (they
  * are immutable — the ledger key is their hash), so repeated verification
  * calls cost one responses-contract query each.
@@ -168,16 +170,16 @@ export class SignetRequestResponseReader {
     requestId: SignetRequestIdHex,
   ): Promise<SignetEVMSignatureResponse[]> {
     const raw = await this.queryRawState(
-      this.config.responsesContractAddress,
-      "signature-responses",
+      this.config.signetContractAddress,
+      "signet contract",
     );
     const { signatureResponseCounterIndex, signatureResponseIndex } =
-      readSignetResponsesLedgerFromState(raw);
+      readSignetContractLedgerFromState(raw);
     const totalPosts = signatureResponseCounterIndex.get(requestId) ?? 0n;
     const responses: SignetEVMSignatureResponse[] = [];
     for (let count = 0n; count < totalPosts; count++) {
       const response = signatureResponseIndex.get(
-        signatureResponseIndexKey(requestId, count),
+        signetResponseIndexKey(requestId, count),
       );
       if (response === undefined) {
         throw new Error(
@@ -238,5 +240,28 @@ export class SignetRequestResponseReader {
       verified: verdicts.find((v) => v.rejectedReason === undefined)?.response,
       verdicts,
     };
+  }
+
+  /**
+   * Fetch the MPC's remote execution response (attestation) for `requestId`,
+   * if posted. The signet contract verified it IN-CIRCUIT at post time
+   * (Schnorr over `(requestId, hash(outputData))` against the sealed MPC
+   * key), so it is single-slot and needs no off-chain verification or
+   * verdicts — `undefined` simply means not posted yet, poll again.
+   *
+   * @param requestId - The request id whose attestation to fetch.
+   * @returns The attestation record, or `undefined` when none is posted.
+   * @throws Error when the signet contract has no state on-chain.
+   */
+  async getRemoteExecutionResponse(
+    requestId: SignetRequestIdHex,
+  ): Promise<SignetRemoteExecutionResponse | undefined> {
+    const raw = await this.queryRawState(
+      this.config.signetContractAddress,
+      "signet contract",
+    );
+    return readSignetContractLedgerFromState(raw).remoteExecutionResponseIndex.get(
+      requestId,
+    );
   }
 }

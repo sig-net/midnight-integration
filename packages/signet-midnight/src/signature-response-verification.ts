@@ -1,5 +1,5 @@
 // Client-side verification of MPC signature responses. Posting to the
-// signature-responses contract is UNAUTHENTICATED (see "Response Ledger
+// signet contract's signature response log is UNAUTHENTICATED (see "Signet
 // Layout" in Signet.compact), so a poller must verify every posted response
 // before trusting it: rebuild the unsigned EVM transaction from the on-ledger
 // request record — assembled exactly as the MPC assembles it (sig-net/mpc
@@ -20,7 +20,7 @@ import {
   bytesToHex,
   type SignetEVMSignatureRequest,
 } from "./signet-requests.ts";
-import type { SignetEVMSignatureResponse } from "./signature-responses-state-reader.ts";
+import type { SignetEVMSignatureResponse } from "./signet-contract-state-reader.ts";
 
 /**
  * Decode a zero-padded ASCII field (Compact's `pad(N, "text")` convention)

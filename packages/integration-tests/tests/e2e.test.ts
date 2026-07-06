@@ -14,6 +14,7 @@ import {
   getCliConfig,
   getUserIdentity,
   initialize,
+  pollSignatureResponse,
   readState,
   requestDeposit,
   requireConfigValue,
@@ -25,6 +26,7 @@ import {
   deriveMpcKeys,
   generateMpcRootKey,
   readSignetRequestsLedgerFromState,
+  type SignetRequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
 import { deployVault, ledger } from "@midnight-erc20-vault/vault-contract";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
@@ -270,6 +272,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     MINUTE,
   );
 
+  // prepare request Id for use in subsequent tests
+  // It is populated by the requestDeposit test.
+  let requestId: SignetRequestIdHex;
+
   it(
     "requestDeposit [erc-vault contract method call]: request a deposit through the cli and read it back MPC-style",
     async () => {
@@ -287,7 +293,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       const amount = parseUnits("0.1", 6); // 0.1 USDC — the funding preflight's minimum
 
       const keys = deriveAccountKeys(config.userSeed, config.midnightNodeConfig.networkId);
-      const requestId = await withSyncedWalletFacade(keys, config.midnightNodeConfig, async (facade) => {
+      requestId = await withSyncedWalletFacade(keys, config.midnightNodeConfig, async (facade) => {
         const context = await createCliContext(config, { facade, keys });
         const id = await requestDeposit(context, { amount, evmNonce });
         await readState(context);
@@ -322,4 +328,33 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     },
     15 * MINUTE,
   );
+
+  it(
+    "pollSignatureResponse: poll signet contract for sweep transaction signature response",
+    async () => {
+      // confirm request Id set in previous test after successful deplost request
+      expect(requestId).toBeDefined();
+
+      const config = getCliConfig(env);
+
+      const keys = deriveAccountKeys(config.userSeed, config.midnightNodeConfig.networkId);
+      const signature = await withSyncedWalletFacade(keys, config.midnightNodeConfig, async (facade) => {
+        const context = await createCliContext(config, { facade, keys });
+        const response = await pollSignatureResponse(context, {
+          requestId,
+          intervalMs: 500,
+          timeoutMs: 10000,
+        });
+
+        return response;
+      });
+
+      banner([
+        `MPC has posted back signature!!!`,
+        "",
+        `  signature!!: ${signature}`,
+      ]);
+    },
+    1 * MINUTE,
+  );  
 });

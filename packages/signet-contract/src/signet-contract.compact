@@ -1,0 +1,98 @@
+pragma language_version >= 0.22;
+
+import CompactStandardLibrary;
+
+// Shared signet library: request/response structs, request-id hashing,
+// path<->identity binding, and the attestation message. See the module header
+// in Signet.compact and https://docs.sig.network/ for the protocol.
+import "@midnight-erc20-vault/signet-midnight/src/Signet";
+
+// Jubjub Schnorr verification (polyfill until CompactStandardLibrary ships
+// jubjubSchnorrVerify). See the module header in Schnorr.compact.
+import "@midnight-erc20-vault/signet-midnight/src/Schnorr" prefix Schnorr_;
+
+// The CENTRAL signet contract: the MPC delivers all its responses here, and
+// clients poll it — there is deliberately no push/websocket channel. Ledger
+// layout per "Signet Contract Ledger Layout" in Signet.compact, so pollers
+// need only this contract's address.
+export ledger signatureResponseCounterIndex: SignatureResponseCounterIndex;
+
+export ledger signatureResponseIndex: SignatureResponseIndex;
+
+export ledger remoteExecutionResponseIndex: RemoteExecutionResponseIndex;
+
+// The MPC attestation key, pinned at deploy time: postRemoteExecutionResponse
+// accepts only responses signed by this key.
+export sealed ledger mpcPubKeyHash: Bytes<32>;
+
+constructor(mpcPk: JubjubPoint) {
+    mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
+}
+
+// postSignatureResponse appends a signature response for requestId.
+// Unauthenticated by NECESSITY (secp256k1 ECDSA cannot be verified
+// in-circuit): anyone may post, and nothing is ever overwritten — each post
+// lands under the next (requestId, count) key. Callers verify the posted
+// signatures off-chain to pick out the genuine one.
+export circuit postSignatureResponse(requestId: SignetRequestId, signatureResponse: SignetEVMSignatureResponse): [] {
+    // Everything stored here is public by construction.
+    const disclosedRequestId = disclose(requestId);
+
+    // Ensure the request's counter exists (a fresh Counter reads 0).
+    if (!signatureResponseCounterIndex.member(disclosedRequestId)) {
+        signatureResponseCounterIndex.insertDefault(disclosedRequestId);
+    }
+
+    // Posts so far == this post's 0-based count. Read ONCE into a local so
+    // the stored key and the counter update cannot disagree.
+    const count = signatureResponseCounterIndex.lookup(disclosedRequestId).read();
+    signatureResponseCounterIndex.lookup(disclosedRequestId).increment(1);
+
+    // Store the response under (requestId, count).
+    signatureResponseIndex.insert(
+        SignetResponseKey{
+            requestId: disclosedRequestId,
+            count: count,
+        },
+        disclose(signatureResponse),
+    );
+}
+
+// postRemoteExecutionResponse records the MPC's attestation of requestId's
+// remote execution. Anyone may POST, but nothing unauthentic can LAND: the
+// Schnorr signature over (requestId, hash(outputData)) is verified in-circuit
+// against the sealed MPC key, so the stored record is authentic by
+// construction and one slot per request suffices — clients read it without
+// re-verifying.
+export circuit postRemoteExecutionResponse(
+    requestId: SignetRequestId,
+    executionResponse: SignetRemoteExecutionResponse
+): [] {
+    // Everything stored here is public by construction.
+    const disclosedRequestId = disclose(requestId);
+    const disclosedResponse = disclose(executionResponse);
+
+    // Only the pinned MPC key may attest.
+    assert(
+        persistentHash<JubjubPoint>(disclosedResponse.pk) == mpcPubKeyHash,
+        "unauthorized: attestation pk is not the MPC key"
+    );
+
+    // The attestation must sign THIS request and THIS output.
+    Schnorr_schnorrVerify<4>(
+        signetAttestationMessage(disclosedRequestId, disclosedResponse.outputData),
+        Schnorr_SchnorrSignature {
+            announcement: disclosedResponse.announcement,
+            response: disclosedResponse.response,
+        },
+        disclosedResponse.pk
+    );
+
+    // First valid write wins. A re-post is a no-op, never an overwrite —
+    // Schnorr is randomized, so even the MPC re-signing the same output
+    // yields bytewise-different records; asserting equality would misfire.
+    if (remoteExecutionResponseIndex.member(disclosedRequestId)) {
+        return [];
+    }
+    remoteExecutionResponseIndex.insert(disclosedRequestId, disclosedResponse);
+}

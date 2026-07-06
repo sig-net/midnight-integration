@@ -34,8 +34,8 @@ export interface CliConfig {
   readonly userSecretKey: Uint8Array;
   /** Address of the deployed ERC20 vault contract on Midnight. */
   readonly vaultContractAddress?: string;
-  /** Address of the deployed signature-responses contract on Midnight. */
-  readonly responsesContractAddress?: string;
+  /** Address of the deployed central signet contract on Midnight. */
+  readonly signetContractAddress?: string;
   /** JSON-RPC endpoint of the EVM chain the vault operates on. */
   readonly evmRpcUrl?: string;
   /** Chain id of that EVM chain. */
@@ -57,7 +57,7 @@ export interface CliConfig {
  * `MIDNIGHT_NODE_*`). CLI-specific variables:
  * - `USER_SEED` — wallet seed (default: the genesis mint wallet of the local stack).
  * - `VAULT_USER_SECRET_KEY` — 32-byte hex identity secret (default: the seed bytes).
- * - `MIDNIGHT_VAULT_CONTRACT_ADDRESS`, `RESPONSES_CONTRACT_ADDRESS` — deployed contract addresses.
+ * - `MIDNIGHT_VAULT_CONTRACT_ADDRESS`, `SIGNET_CONTRACT_ADDRESS` — deployed contract addresses.
  * - `EVM_RPC_URL`, `EVM_CHAIN_ID`, `ERC20_ADDRESS` — the EVM side.
  *
  * @param env - The environment to read from.
@@ -85,7 +85,7 @@ export function getCliConfig(env: Record<string, string | undefined> = process.e
     userSeed,
     userSecretKey,
     vaultContractAddress: env.MIDNIGHT_VAULT_CONTRACT_ADDRESS?.trim() || undefined,
-    responsesContractAddress: env.RESPONSES_CONTRACT_ADDRESS?.trim() || undefined,
+    signetContractAddress: env.SIGNET_CONTRACT_ADDRESS?.trim() || undefined,
     evmRpcUrl: env.EVM_RPC_URL?.trim() || undefined,
     evmChainId,
     caip2Id: evmChainId === undefined ? undefined : `eip155:${evmChainId}`,

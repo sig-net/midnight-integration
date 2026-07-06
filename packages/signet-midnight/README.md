@@ -16,5 +16,5 @@ Planned modules (ported from the old repo's `boilerplate/contract-cli/src/signet
 - `constants.ts`
 - `schnorr.ts` — Jubjub response verification (Midnight-specific, not in signet.js)
 - `state-reader.ts` — read pending requests/responses from the Midnight indexer
-- `response-poller.ts` — poll the signature-responses contract for results
+- `signet-request-response-reader.ts` — read/poll the signet contract for results
   (replaces the old websocket subscription — purged, no fallback)

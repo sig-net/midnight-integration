@@ -1,5 +1,5 @@
 // Common signet raw-state reading, shared by the request and response readers
-// (signature-requests-state-reader.ts, signature-responses-state-reader.ts).
+// (signature-requests-state-reader.ts, signet-contract-state-reader.ts).
 // This is the MPC-/client-style path: decode a contract's ledger fields out of
 // its raw state WITHOUT the compiled contract, walking the state tree by field
 // position alone. Here live the generic tree walk (RawContractState,

@@ -414,23 +414,39 @@ E2E flows.
 - [ ] **5.3 Kill the websocket response push in the server** — responses go to
       the signature-responses contract (Phase 6). Keep EVM tx build/sign.
 
-## Phase 6 — signature-responses contract
+## Phase 6 — signet contract (the central responses contract)
 
-- [ ] **6.1 Design the response record with the library patterns:** a module
-      (in signet-midnight, e.g. `SignetResponses.compact`) defining
-      `SignetSignatureResponse` (outputData — or its hash + the data in a
-      wider field, decide and log — Schnorr signature components
-      (announcement point, response scalar, pk), responder) and a field-0
-      `Map<SignetRequestId, SignetSignatureResponse>` index. Same conventions
-      as requests: TS twins + state-reader descriptors + tripwire tests.
-- [ ] **6.2 Implement `signature-responses.compact`** (replace the
-      placeholder): constructor pins the MPC key hash; `respond` circuit gated
-      to the MPC identity; dedup per requestId. Simulator tests.
-- [ ] **6.3 Response poller in signet-midnight** (`response-poller.ts` per the
-      package README plan): poll the responses contract by requestId via the
-      state reader. NO websockets.
-- [ ] **6.4 Deploy** via the Phase-2 tool; manifest entry; extend the monitor
-      to submit responses as Midnight transactions from the MPC identity.
+- [x] **6.1 Design the response records with the library patterns** — decided
+      and logged: the central **signet contract** stores BOTH response kinds
+      with FULL data on-ledger (map values grow; no hash-indirection — claim
+      needs the whole outputData as a circuit argument anyway, and a central
+      contract whose data lives elsewhere defeats its purpose).
+      `Signet.compact`'s "Signet Contract Ledger Layout": field 0
+      `SignatureResponseCounterIndex` + field 1 `SignatureResponseIndex`
+      (65-byte ECDSA sigs in an UNAUTHENTICATED append-only counted log —
+      secp256k1 can't be verified in-circuit; clients verify off-chain),
+      field 2 `RemoteExecutionResponseIndex` (`SignetRemoteExecutionResponse`
+      = `outputData: Bytes<4096>` + Schnorr pk/announcement/response —
+      verified IN-CIRCUIT at post time, so ONE authenticated slot per request
+      suffices), field 3 sealed `mpcPubKeyHash`. TS twins + state-reader
+      descriptors + tripwire tests per the requests conventions.
+- [x] **6.2 Implement `signet-contract.compact`** (package renamed from
+      signature-responses-contract): constructor pins the MPC key hash;
+      `postRemoteExecutionResponse` verifies the Schnorr attestation
+      in-circuit — DATA authentication, not caller-gating: anyone may post,
+      garbage cannot land — with first-write-wins dedup per requestId.
+      `postSignatureResponse` stays the unauthenticated counted log.
+      Simulator tests for both.
+- [x] **6.3 Response reading in signet-midnight** —
+      `SignetRequestResponseReader` (getSignatureRequest /
+      getSignatureResponses / getVerifiedSignatureResponse /
+      getRemoteExecutionResponse) over `signet-contract-state-reader.ts`; the
+      CLI polls through it (`poll-signature-response`,
+      `poll-remote-execution-response`). NO websockets.
+- [ ] **6.4 Deploy** via the Phase-2 tool (deploy tooling updated: takes
+      `MPC_JUBJUB_PUBLIC_KEY` as the constructor arg; posting execution
+      responses needs `compile:zk` keys); manifest entry; extend the monitor
+      to submit responses as Midnight transactions.
 
 ## Phase 7 — Integration orchestration (response half)
 
@@ -444,16 +460,21 @@ E2E flows.
 
 ## Phase 8 — Port claim
 
-- [ ] **8.1 Port the `schnorr` module** (old `schnorr.compact` — Jubjub
+- [x] **8.1 Port the `schnorr` module** (old `schnorr.compact` — Jubjub
       Schnorr verify polyfill, temporary until CompactStandardLibrary ships
-      `jubjubSchnorrVerify`) into signet-midnight as a second shared module,
-      plus its TS helpers (derive/sign/challenge from
-      `contract-cli/src/signet/schnorr.ts` + response-server copy) for the
-      simulator MPC. Export via `circuits.compact` where pure. Unit-test
-      sign→verify through compiled circuits.
+      `jubjubSchnorrVerify`) into signet-midnight as a second shared module
+      (`Schnorr.compact`), plus the TS signer (`schnorrSign`, challenge
+      INJECTED from the compiled `pureCircuits.schnorrChallenge` — never a TS
+      re-implementation; see the AGENTS.md circuit-mimicry rule). Exported
+      via `circuits.compact` where pure (`schnorrChallenge`,
+      `signetAttestationMessage`). Sign→verify unit-tested through the
+      compiled circuits (the signet contract's `postRemoteExecutionResponse`
+      exercises the real verify). Landed with Phase 6.
 - [ ] **8.2 Vault config: add `mpcPubKeyHash`** (sealed, constructor arg —
       completes the MVP constructor: `persistentHash<JubjubPoint>(mpcPk)`).
-      Update deploy tooling + manifest + tests.
+      The SIGNET contract already pins it (6.2) — this item is the VAULT's
+      own copy for claimDeposit's re-check. Update deploy tooling + manifest
+      + tests.
 - [ ] **8.3 Port `claim` as `claimDeposit`** (D13; MVP ~L387-480): pk-hash
       check, ERC20 return-value check, Schnorr verify over (requestId,
       hash(outputData)) as 16-byte field limbs, caller identity vs the stored

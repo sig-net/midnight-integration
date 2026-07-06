@@ -13,7 +13,7 @@ here too. Member-specific rules:
   must serve any future Midnight×sig-net example, not just the ERC20 vault.
   Vault-specific glue belongs in the vault-contract package or the (future)
   integration tests.
-- **Responses are polled from the signature-responses contract** via
+- **Responses are polled from the signet contract** via
   `response-poller.ts` / `state-reader.ts`. The old websocket subscription is
   purged repo-wide — do not reintroduce it here of all places.
 - **Port source:** the old repo's `boilerplate/contract-cli/src/signet/`

@@ -22,7 +22,7 @@ Read the root `/AGENTS.md` first; everything there applies. Local rules:
   hand-assembled transactions. The vault-specific pieces (compiled contract,
   providers, witnesses, private-state id) are vault-contract exports — the
   contract package IS the SDK; this package just drives it.
-- All MPC hand-offs are POLLED from the signature-responses contract. No
+- All MPC hand-offs are POLLED from the signet contract. No
   websockets, no push channels.
 - Unit tests here are pure (config parsing and the like); anything needing a
   running stack belongs in `packages/integration-tests`.

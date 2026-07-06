@@ -1,10 +1,11 @@
 // `withdraw-e2e` — the full withdraw orchestration a UI would run, composed
 // from the granular commands. Every MPC hand-off is polled from the
-// signature-responses contract.
+// signet contract.
 
 import type { CliContext } from "../context.ts";
 import { broadcastEvm } from "./broadcast-evm.ts";
-import { pollResponse } from "./poll-response.ts";
+import { pollRemoteExecutionResponse } from "./poll-remote-execution-response.ts";
+import { pollSignatureResponse } from "./poll-signature-response.ts";
 import { refundWithdraw } from "./refund-withdraw.ts";
 import { requestWithdraw } from "./request-withdraw.ts";
 
@@ -25,7 +26,7 @@ export interface WithdrawE2EOptions {
  * 1. `requestWithdraw` escrows the shielded coin and records the signature
  *    request (`path = "vault"`).
  * 2. The MPC signs the vault→destination EVM transfer and posts the signed
- *    transaction to the signature-responses contract; poll for it.
+ *    transaction to the signet contract; poll for it.
  * 3. Broadcast the signed transaction to the EVM chain.
  * 4. The MPC observes the receipt and posts the Schnorr-signed
  *    `(requestId, outputData)` attestation; poll for it.
@@ -43,10 +44,10 @@ export async function withdrawE2E(context: CliContext, options: WithdrawE2EOptio
 
   const requestId = await requestWithdraw(context, { amount, destEvmAddress });
 
-  const signedTransaction = await pollResponse(context, { requestId, intervalMs, timeoutMs });
+  const signedTransaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs });
   await broadcastEvm(context, { signedTransaction });
 
-  await pollResponse(context, { requestId, intervalMs, timeoutMs });
+  await pollRemoteExecutionResponse(context, { requestId, intervalMs, timeoutMs });
   await refundWithdraw(context, { requestId });
 
   console.log(`withdraw ${requestId} settled`);

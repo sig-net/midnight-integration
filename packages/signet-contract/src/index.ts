@@ -4,4 +4,4 @@
 export * from "./managed/contract/index.js";
 export * from "./witnesses.ts";
 export * from "./providers.ts";
-export * from "./deploy-signature-responses.ts";
+export * from "./deploy-signet-contract.ts";

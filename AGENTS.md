@@ -6,7 +6,7 @@ This repository is a single **npm workspace**. Its members live under `packages/
   logging). The ONLY copy of these files.
 - **`packages/signet-midnight`** — the Midnight-side sig-net integration; the point
   of the repo. Seed of a future signet.js Midnight adapter.
-- **`packages/vault-contract`** / **`packages/signature-responses-contract`** — one
+- **`packages/vault-contract`** / **`packages/signet-contract`** — one
   package per Compact contract, no contract/sdk split. See "Contract packages" below.
 
 Run `npm install` from the repo root — never from inside a member.
@@ -79,7 +79,7 @@ exception for that specific case.
   - Prefer slightly verbose but self-contained over terse but indirect —
     verbosity costs lines; indirection costs comprehension.
 - **The websocket response path is dead. NEVER reintroduce it.** All signature
-  responses flow through the signature-responses contract and are polled. No ws
+  responses flow through the signet contract and are polled. No ws
   subscription, not even "temporarily as a fallback".
 - **ALWAYS type.** Every function parameter, return value, variable, and prop must
   have a precise type. Never use `unknown` (and never `any`) as a substitute for
@@ -102,9 +102,16 @@ exception for that specific case.
 - **NEVER duplicate an enum (or const-enum-like object) an SDK already exports.**
   Import and use the SDK's own. Only define an app-local enum when the SDK
   genuinely has none — check its `.d.ts` first.
+- **NEVER write a TS function that mimics the behavior of a pure circuit that
+  could be exported.** Export the circuit through the shared module's compiled
+  surface (signet-midnight's `circuits.compact`) and call the compiled artifact
+  (`pureCircuits.<name>`). TS may only implement what circuits cannot:
+  secret-key signing, witness computations (e.g. `getSchnorrReduction`), and
+  byte plumbing. A TS twin of provable logic WILL drift from the circuit and
+  break agreement with the proofs silently.
 - **Root scripts that target one member are named `<task>:<package-dir>` — the
   member's directory name in full, never a shorthand.** `compile:vault-contract`,
-  `deploy:signature-responses-contract`, `test:integration-tests` — never
+  `deploy:signet-contract`, `test:integration-tests` — never
   `compile:vault` or `deploy:responses`: abbreviations save keystrokes once and
   cost a which-package-was-that lookup forever. (A script named exactly after its
   package, like `cli`, is fine; aggregate scripts like `compile` / `build` /

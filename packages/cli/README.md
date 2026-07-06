@@ -28,7 +28,7 @@ Two ways to consume it:
 | `read-state` | Read the vault's public ledger via the typed `ledger()` decode: config + pending signature requests | wired |
 | `initialize` | Deployer-only one-off: seal the vault's EVM address into the contract config (`callTx.initialize`) | wired |
 | `request-deposit` | Record a deposit signature request on the vault's ledger; prints the request id | stubbed (routing constants) |
-| `poll-response` | Poll the signature-responses contract for a request's MPC response | stubbed (placeholder record) |
+| `poll-signature-response` | Poll the signet contract for a request's MPC response | stubbed (placeholder record) |
 | `broadcast-evm` | Broadcast an MPC-signed EVM transaction; prints the tx hash | stubbed (ethers pending) |
 | `claim-deposit` | Verify the MPC attestation in-circuit and mint shielded vault tokens | stubbed (circuit not ported) |
 | `deposit-e2e` | Full deposit orchestration (see below) | partial |
@@ -45,7 +45,7 @@ below.
 
 Deposit moves ERC20 into the vault on the EVM chain and mints shielded vault
 tokens on Midnight. Every MPC hand-off is **polled from the
-signature-responses contract** — there is no push channel.
+signet contract** — there is no push channel.
 
 1. **`request-deposit`** calls the vault's `requestDeposit` circuit (ZK proof
    via the proof server). The circuit binds the request to the caller's
@@ -57,12 +57,12 @@ signature-responses contract** — there is no push channel.
    assembles the EVM sweep transaction (ERC20 `transfer` from the USER's
    derived EVM address into the vault's EVM address), signs it with the key
    derived from `(contract address, path)`, and posts the **signed
-   transaction** to the signature-responses contract.
-3. **`poll-response`** picks the signed transaction up;
+   transaction** to the signet contract.
+3. **`poll-signature-response`** picks the signed transaction up;
    **`broadcast-evm`** sends it to the EVM chain.
 4. The MPC observes the EVM receipt and posts a **Schnorr-signed
    `(requestId, outputData)` attestation** of the result to the
-   signature-responses contract; `poll-response` picks it up.
+   signet contract; `poll-signature-response` picks it up.
 5. **`claim-deposit`** calls the vault's `claimDeposit` circuit, which
    verifies the MPC public key hash, the Schnorr signature, the EVM success
    flag, and the caller's identity against the stored request — then mints
@@ -82,7 +82,7 @@ the vault's EVM address. Optimistic with escrow + refund:
    signature request is recorded with `path = "vault"` — so the MPC signs
    from the VAULT's derived EVM address, not the user's.
 2. The MPC signs the vault→destination ERC20 `transfer` and posts it to the
-   signature-responses contract; `poll-response` + `broadcast-evm` as above.
+   signet contract; `poll-signature-response` + `broadcast-evm` as above.
 3. The MPC posts the Schnorr-signed attestation of the EVM result.
 4. **`refund-withdraw`** settles the request in either direction: on EVM
    success the withdrawal is final; on failure the escrowed value is
@@ -102,7 +102,7 @@ the rest is CLI-specific.
 | `USER_SEED` | Wallet seed (hex or mnemonic) paying for Midnight transactions | local-stack genesis mint wallet |
 | `VAULT_USER_SECRET_KEY` | 32-byte hex vault identity secret (answers the `callerSecretKey` witness) | the seed bytes |
 | `MIDNIGHT_VAULT_CONTRACT_ADDRESS` | Deployed ERC20 vault contract on Midnight | — |
-| `RESPONSES_CONTRACT_ADDRESS` | Deployed signature-responses contract on Midnight | — |
+| `SIGNET_CONTRACT_ADDRESS` | Deployed signet contract on Midnight | — |
 | `EVM_RPC_URL` | JSON-RPC endpoint of the EVM chain | — |
 | `EVM_CHAIN_ID` | EVM chain id (also yields the CAIP-2 routing id `eip155:<id>`) | — |
 | `ERC20_ADDRESS` | The ERC20 token the vault holds | — |
@@ -122,7 +122,7 @@ npm run cli -- deposit-e2e --amount 1 --evm-nonce 0 --interval-ms 5000 --timeout
 
 Prerequisites once the commands are wired: `npm run compile:zk` output for the
 vault (proving keys), a running Midnight stack (node, indexer, proof server),
-deployed vault + signature-responses contracts, and a funded wallet.
+deployed vault + signet contracts, and a funded wallet.
 
 ## Status
 
@@ -134,9 +134,9 @@ missing, in dependency order:
    gas defaults) ported from the MVP — needed by `request-deposit` to
    construct the signet request arguments; the circuit call itself is one
    `context.vault.callTx.requestDeposit(...)` away.
-2. **The real response record in the signature-responses contract** — the
+2. **The real response record in the signet contract** — the
    current placeholder stores 32 bytes per request, which cannot carry a
-   signed EVM transaction or a Schnorr attestation. Blocks `poll-response`
+   signed EVM transaction or a Schnorr attestation. Blocks `poll-signature-response`
    (and joining the responses contract into the context).
 3. **Vault circuits `claimDeposit`, `requestWithdraw`, `refundWithdraw`** —
    not yet ported from the MVP.

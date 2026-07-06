@@ -37,7 +37,7 @@ at the first failing step):
 9. **initialize** *[erc-vault contract method call]* — drives the cli's `initialize` + `readState`; skips the circuit call (but still asserts) when the vault is already initialized.
 10. **deposit funding preflight** — `EVM_USER_ADDRESS` must hold ≥ 0.01 ETH and ≥ 0.1 of the ERC20 (`ERC20_ADDRESS`, default Sepolia USDC). The deposit flow itself lands with the cli's `request-deposit` wiring.
 11. **requestDeposit** *[erc-vault contract method call]* — drives the cli's `requestDeposit` to post a signature request for a sweep transaction for the asset being deposited from the `EVM_USER_ADDRESS` to the `EVM_VAULT_ADDRESS` for the MPC to sign.
-12. **pollSignatureResponse** - drive the cli's `pollResponse` to watch for the signature of the deposit sweep transaction posted by the MPC to the signature responses contract.
+12. **pollSignatureResponse** - drive the cli's `pollSignatureResponse` to watch for the signature of the deposit sweep transaction posted by the MPC to the signature responses contract.
 
 Plain `npm run test` (root) skips the whole suite — it only runs when
 `RUN_INTEGRATION_TESTS` is set, which `test:integration-tests` does for you.

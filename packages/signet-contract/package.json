@@ -1,16 +1,16 @@
 {
-  "name": "@midnight-erc20-vault/signature-responses-contract",
+  "name": "@midnight-erc20-vault/signet-contract",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Compact contract the MPC posts (requestId -> response) entries to; watchers poll it instead of the old websocket. src/index.ts is the curated export surface.",
+  "description": "The central signet Compact contract on Midnight: the MPC posts signature responses (unauthenticated counted log, verified off-chain) and remote execution responses (Schnorr attestations, verified in-circuit at post time) here; clients poll it. src/index.ts is the curated export surface.",
   "exports": {
     ".": "./src/index.ts",
     "./managed/*": "./src/managed/*"
   },
   "scripts": {
-    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signature-responses.compact src/managed",
-    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/signature-responses.compact src/managed",
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signet-contract.compact src/managed",
+    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/signet-contract.compact src/managed",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "deploy": "tsx deploy.ts"
