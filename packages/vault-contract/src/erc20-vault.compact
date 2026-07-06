@@ -2,10 +2,10 @@ pragma language_version >= 0.22;
 
 import CompactStandardLibrary;
 
-// Shared signet request library: request/param structs, request-id hashing,
+// Shared signet library: request/response structs, request-id hashing,
 // path<->identity binding, and request construction. See the module header in
-// SignetRequests.compact and https://docs.sig.network/ for the protocol.
-import "@midnight-erc20-vault/signet-midnight/src/SignetRequests";
+// Signet.compact and https://docs.sig.network/ for the protocol.
+import "@midnight-erc20-vault/signet-midnight/src/Signet";
 
 // ---- Signet ledger layout ----------------------------------------------------
 // The request index MUST be ledger field 0 and the nonce counter field 1: the
@@ -45,7 +45,7 @@ struct DepositRequest {
 // ---- Identity -------------------------------------------------------------------
 // Users prove identity with a secret-key witness; only a commitment (hash) of
 // the key ever reaches the ledger. The commitment doubles as the MPC
-// key-derivation path (see assertPathCommitment in SignetRequests).
+// key-derivation path (see assertPathCommitment in Signet).
 
 witness callerSecretKey(): Bytes<32>;
 

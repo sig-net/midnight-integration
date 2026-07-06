@@ -1,34 +1,22 @@
-// Handwritten witnesses live beside the contract they serve. The responses
-// contract's identity model: localSecretKey supplies the owner's secret from
-// private state; only its commitment (ownerCommittment in the contract) ever
-// reaches the ledger, and it gates postResponse.
+// The signature-responses contract declares NO witnesses: posting is
+// unauthenticated by design (the MPC cannot yet produce Midnight proofs), so
+// circuits carry no private state and prove nothing about the caller.
 
 import type { Witnesses } from "./managed/contract/index.js";
 
-/** Private state carried through signature-responses circuit calls. */
-export interface ResponsesPrivateState {
-  /** The owner's 32-byte secret; never disclosed on-chain. */
-  readonly secretKey: Uint8Array;
-}
+/** Private state carried through signature-responses circuit calls: none. */
+export type SignatureResponsesPrivateState = Record<string, never>;
 
 /**
- * Build the responses contract's private state.
+ * Build the contract's (empty) private state.
  *
- * @param secretKey - The owner's 32-byte secret.
- * @returns A fresh private state holding `secretKey`.
+ * @returns A fresh, empty private state.
  */
-export const createResponsesPrivateState = (
-  secretKey: Uint8Array,
-): ResponsesPrivateState => ({ secretKey });
+export const createSignatureResponsesPrivateState =
+  (): SignatureResponsesPrivateState => ({});
 
 /**
- * Witness implementations, typed against the generated `Witnesses` shape.
- * `localSecretKey` feeds the contract's owner gate (initialise/postResponse)
- * from private state.
+ * Witness implementations, typed against the generated `Witnesses` shape —
+ * which is empty: see the header note on why this contract has no witnesses.
  */
-export const witnesses: Witnesses<ResponsesPrivateState> = {
-  localSecretKey: ({ privateState }): [ResponsesPrivateState, Uint8Array] => [
-    privateState,
-    privateState.secretKey,
-  ],
-};
+export const witnesses: Witnesses<SignatureResponsesPrivateState> = {};

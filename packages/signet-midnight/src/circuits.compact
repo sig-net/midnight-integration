@@ -1,8 +1,8 @@
 pragma language_version >= 0.22;
 
-// Compiled export surface of the SignetRequests module.
+// Compiled export surface of the Signet module.
 //
-// SignetRequests.compact must stay a module-only file (that is what lets
+// Signet.compact must stay a module-only file (that is what lets
 // contracts import it), but a bare module compiles to nothing. This
 // contract-less program re-exports the module's pure circuits so the compiler
 // emits them as pureCircuits in managed/contract/index.js — giving the
@@ -13,7 +13,7 @@ pragma language_version >= 0.22;
 // Compile with --skip-zk only: pure circuits run in TS without proving keys.
 
 import CompactStandardLibrary;
-import "./SignetRequests";
+import "./Signet";
 
 export {
   signetEVMSignatureRequestId,

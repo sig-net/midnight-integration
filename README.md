@@ -81,4 +81,4 @@ npm run compile:zk
 - extend deploy scripts to allow rejoining and upgrading of existing contract deployments
 - remove all the unnecessary padding from the signet signing request to reduce circuit size and proving time
 - move generic types into signet.js
-- why is initialise needed??... something about that is how the vault EVM address is derived??
+- use a compound counter for nonce? or build in counter reset or something? 16 bit is a little small.

@@ -2,41 +2,43 @@ pragma language_version >= 0.20;
 
 import CompactStandardLibrary;
 
-// signatureResponseIndex is an index of signature responses, indexed by a hash of requestId.
-// FIXME: pick a different data type to allow multiple publishes to remove need for authentication
-export ledger signatureResponseIndex: Map<Bytes<32>, Bytes<32>>;
+// Shared signet library: request/response structs, request-id hashing,
+// path<->identity binding, and request construction. See the module header in
+// Signet.compact and https://docs.sig.network/ for the protocol.
+import "@midnight-erc20-vault/signet-midnight/src/Signet";
 
-// only the owner may post reponse data
-export ledger owner: Maybe<Bytes<32>>;
+// Signet response ledger layout (see "Response Ledger Layout" in
+// Signet.compact): counter index FIRST, response log SECOND, so pollers need
+// only this contract's address.
+export ledger signatureResponseCounterIndex: SignatureResponseCounterIndex;
 
-// localSecretKey used for caller to prove they are the owner
-witness localSecretKey(): Bytes<32>;
+export ledger signatureResponseIndex: SignatureResponseIndex;
 
-export circuit initialise(): [] {
-    assert(!owner.is_some, "Contract has already been intialised");
-    owner = disclose(some<Bytes<32>>(ownerCommittment(localSecretKey())));
-}
+// postSignatureResponse appends a signature response for requestId.
+// Unauthenticated by design (the MPC cannot yet produce Midnight proofs):
+// anyone may post, and nothing is ever overwritten — each post lands under
+// the next (requestId, count) key. Callers verify the posted signatures
+// off-chain to pick out the genuine one.
+export circuit postSignatureResponse(requestId: SignetRequestId, signatureResponse: SignetEVMSignatureResponse): [] {
+    // Everything stored here is public by construction.
+    const disclosedRequestId = disclose(requestId);
 
-// postResponse posts the given requestId and response to the signature response index on the ledger.
-export circuit postResponse(requestId: Bytes<32>, signatureResponse: Bytes<32>): [] {
-    assert(owner.is_some, "Contract not yet intialised");
-    assert(owner.value == disclose(ownerCommittment(localSecretKey())), "Only the owner may post responses");
-
-    // Check if response data for this request already present.
-    // Return early without error (unless given value is different to what is already stored).
-    if (signatureResponseIndex.member(disclose(requestId))) {
-        assert(
-            signatureResponseIndex.lookup(disclose(requestId)) == disclose(signatureResponse),
-            "signature response already stored differs from given value"
-        );
-        return [];
+    // Ensure the request's counter exists (a fresh Counter reads 0).
+    if (!signatureResponseCounterIndex.member(disclosedRequestId)) {
+        signatureResponseCounterIndex.insertDefault(disclosedRequestId);
     }
 
-    // post response data
-    signatureResponseIndex.insert(disclose(requestId), disclose(signatureResponse));
-}
+    // Posts so far == this post's 0-based count. Read ONCE into a local so
+    // the stored key and the counter update cannot disagree.
+    const count = signatureResponseCounterIndex.lookup(disclosedRequestId).read();
+    signatureResponseCounterIndex.lookup(disclosedRequestId).increment(1);
 
-// ownerCommittment generates an owner committment given a secret key
-export pure circuit ownerCommittment(sk: Bytes<32>): Bytes<32> {
-    return persistentHash<Vector<2, Bytes<32>>>([pad(32, "owner:sk:"), sk]);
+    // Store the response under (requestId, count).
+    signatureResponseIndex.insert(
+        SignatureResponseKey{
+            requestId: disclosedRequestId,
+            count: count,
+        },
+        disclose(signatureResponse),
+    );
 }

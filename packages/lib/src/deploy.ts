@@ -77,6 +77,28 @@ export function makeCompiledContract<C extends Contract.Contract<PS>, PS>(
   return CompiledContract.withCompiledFileAssets(withWitnesses, managedDirPath);
 }
 
+/**
+ * Bind a generated Compact contract that declares NO witnesses to its
+ * compiled assets. Counterpart to {@link makeCompiledContract}: compact-js
+ * types `Contract.Witnesses<C>` as `never` when the generated witness shape
+ * is empty, so witness-less contracts must bind via `withVacantWitnesses`
+ * rather than passing an empty object.
+ *
+ * @param tag - Identifier for the binding (not the on-chain address), e.g. the contract name.
+ * @param ctor - The `Contract` class exported by the generated `managed/contract` module.
+ * @param managedDirPath - Absolute path to the compiler output dir (`contract/`, `zkir/`, `keys/`, `compiler/`).
+ * @returns The fully-bound {@link CompiledContract.CompiledContract}, ready for {@link buildDeployTransaction}.
+ */
+export function makeVacantCompiledContract<C extends Contract.Contract<PS>, PS>(
+  tag: string,
+  ctor: Types.Ctor<C>,
+  managedDirPath: string,
+): CompiledContract.CompiledContract<C, PS> {
+  const base = CompiledContract.make<C, PS>(tag, ctor);
+  const vacant = CompiledContract.withVacantWitnesses(base);
+  return CompiledContract.withCompiledFileAssets(vacant, managedDirPath);
+}
+
 // How long the deploy intent stays valid before it must be re-built.
 const DEPLOY_TTL_MS = 30 * 60 * 1000;
 

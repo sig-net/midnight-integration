@@ -2,7 +2,7 @@
 // derive keys/addresses, MPC hand-off printout) → initialization → deposit.
 // One file ON PURPOSE: vitest runs same-file tests sequentially, and the
 // setup steps feed each other through the env accumulator below. Run with
-// `npm run test:integration` from the repo root (--bail stops the pipeline
+// `npm run test:integration-tests` from the repo root (--bail stops the pipeline
 // at the first failure); without RUN_INTEGRATION_TESTS the whole suite
 // skips so plain `npm run test` stays offline.
 //
@@ -102,10 +102,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     "setup: compile vault contract with proving keys",
     async () => {
       if (env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
-        logSkip("compile:vault:zk", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
+        logSkip("compile:vault-contract:zk", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
         return;
       }
-      await runRootScript("compile:vault:zk", env, 14 * MINUTE);
+      await runRootScript("compile:vault-contract:zk", env, 14 * MINUTE);
     },
     15 * MINUTE,
   );
@@ -114,7 +114,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     "setup: deploy vault contract",
     async () => {
       if (env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
-        logSkip("deploy:vault", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
+        logSkip("deploy:vault-contract", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
         return;
       }
       const { contractAddress } = await deployVault(env);

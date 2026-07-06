@@ -1,4 +1,4 @@
-// Unit tests for the compiled SignetRequests pure circuits (see
+// Unit tests for the compiled Signet pure circuits (see
 // src/circuits.compact). These exercise the REAL compiled circuit logic
 // in-process via pureCircuits — no ledger, no network, no proving.
 //
@@ -98,7 +98,7 @@ const ASSERT_HEX_OF_CASES: AssertHexOfCase[] = [
   },
 ];
 
-describe("SignetRequests compiled circuits", () => {
+describe("Signet compiled circuits", () => {
   it.each(ASSERT_HEX_OF_CASES)(
     "assertHexOf $name",
     ({ commitment, hex, throws }) => {

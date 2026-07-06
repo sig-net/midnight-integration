@@ -1,5 +1,5 @@
 // MPC routing constants + the padded-ASCII codec for the signet request
-// structs. Field widths mirror SignetRequests.compact (the wire format —
+// structs. Field widths mirror Signet.compact (the wire format —
 // keep in lockstep); the string constants are the values the MPC network
 // routes on. Ported from the MVP's contract-cli signet/constants.ts, adapted
 // to the refactor's zero-padded convention (Compact `pad(N, "text")`) — the

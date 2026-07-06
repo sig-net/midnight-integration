@@ -20,14 +20,14 @@ repo's e2e Sepolia runbook.
 ## Running
 
 ```sh
-npm run test:integration        # from the repo root
+npm run test:integration-tests  # from the repo root
 ```
 
 The suite is one ordered pipeline in `tests/e2e.test.ts` (`--bail 1` stops it
 at the first failing step):
 
 1. **env check** — stack reachable, compiler present, `SEPOLIA_RPC_URL` set.
-2. **compile** (`compile:vault:zk`) — skipped when
+2. **compile** (`compile:vault-contract:zk`) — skipped when
    `MIDNIGHT_VAULT_CONTRACT_ADDRESS` is set.
 3. **deploy** (in-process `deployVault`) — skipped when the address is set;
    otherwise prints the address to save.
@@ -45,7 +45,7 @@ at the first failing step):
     deposit flow itself lands with the cli's `request-deposit` wiring.
 
 Plain `npm run test` (root) skips the whole suite — it only runs when
-`RUN_INTEGRATION_TESTS` is set, which `test:integration` does for you.
+`RUN_INTEGRATION_TESTS` is set, which `test:integration-tests` does for you.
 
 ## The two-phase workflow
 
@@ -68,7 +68,7 @@ does); values already present in the real environment win over the file.
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `RUN_INTEGRATION_TESTS` | Opt-in gate; real env only (not read from `.env`), `test:integration` sets it | unset (suite skips) |
+| `RUN_INTEGRATION_TESTS` | Opt-in gate; real env only (not read from `.env`), `test:integration-tests` sets it | unset (suite skips) |
 | `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (lib config) | local stack defaults |
 | `DEPLOYER_SEED` / `VAULT_DEPLOYER_SECRET_KEY` | Deployer wallet / identity | genesis seed `00…01` |
 | `USER_SEED` / `VAULT_USER_SECRET_KEY` | User wallet / identity (cli) | genesis seed `00…01` |

@@ -10,16 +10,16 @@
   "scripts": {
     "compile": "npm run compile --workspaces --if-present",
     "compile:zk": "npm run compile:zk --workspaces --if-present",
-    "compile:vault": "npm run compile -w @midnight-erc20-vault/vault-contract",
-    "compile:vault:zk": "npm run compile:zk -w @midnight-erc20-vault/vault-contract",
-    "compile:responses": "npm run compile -w @midnight-erc20-vault/signature-responses-contract",
-    "compile:responses:zk": "npm run compile:zk -w @midnight-erc20-vault/signature-responses-contract",
-    "compile:signet": "npm run compile -w @midnight-erc20-vault/signet-midnight",
+    "compile:vault-contract": "npm run compile -w @midnight-erc20-vault/vault-contract",
+    "compile:vault-contract:zk": "npm run compile:zk -w @midnight-erc20-vault/vault-contract",
+    "compile:signature-responses-contract": "npm run compile -w @midnight-erc20-vault/signature-responses-contract",
+    "compile:signature-responses-contract:zk": "npm run compile:zk -w @midnight-erc20-vault/signature-responses-contract",
+    "compile:signet-midnight": "npm run compile -w @midnight-erc20-vault/signet-midnight",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "test:integration": "npm run test:integration -w @midnight-erc20-vault/integration-tests",
-    "deploy:vault": "npm run deploy -w @midnight-erc20-vault/vault-contract",
-    "deploy:responses": "npm run deploy -w @midnight-erc20-vault/signature-responses-contract",
+    "test:integration-tests": "npm run test:integration -w @midnight-erc20-vault/integration-tests",
+    "deploy:vault-contract": "npm run deploy -w @midnight-erc20-vault/vault-contract",
+    "deploy:signature-responses-contract": "npm run deploy -w @midnight-erc20-vault/signature-responses-contract",
     "cli": "npm run cli -w @midnight-erc20-vault/cli --"
   }
 }

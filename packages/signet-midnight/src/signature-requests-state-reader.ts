@@ -31,7 +31,7 @@ export const SIGNET_REQUESTS_INDEX_FIELD = 0;
 /** Signet layout convention: the request counter (`SignetNonce`) is ledger field 1. */
 export const SIGNET_NONCE_FIELD = 1;
 
-// ---- Type descriptors (must mirror SignetRequests.compact field-for-field) ----
+// ---- Type descriptors (must mirror Signet.compact field-for-field) ----
 // Field order and widths MUST match the Compact structs: fromValue consumes
 // the aligned value sequentially, so a reorder or width change here is silent
 // data corruption, not an error.

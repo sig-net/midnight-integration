@@ -107,8 +107,8 @@ lockstep — field order and widths are the wire format:
 ```
 npm install                      # repo root ONLY, never inside a member
 npm run compile                  # all packages with a compile script (--skip-zk)
-npm run compile:vault            # one package (also :responses, :signet)
-npm run compile:vault:zk         # with proving keys (slow; prints k/rows)
+npm run compile:vault-contract   # one package (also :signature-responses-contract, :signet-midnight)
+npm run compile:vault-contract:zk  # with proving keys (slow; prints k/rows)
 npm run build                    # tsc --noEmit everywhere; REQUIRES compile first
 npm run test                     # vitest everywhere (simulator-only)
 ```
@@ -369,7 +369,7 @@ E2E flows.
       network access in unit tests, this package is the sanctioned home).
       Tests import the CLI's exported command functions.
       ✅ `4a8d7dc` (see D15–D17): one ordered `tests/e2e.test.ts` pipeline gated on
-      `RUN_INTEGRATION_TESTS` (root `npm run test:integration` sets it,
+      `RUN_INTEGRATION_TESTS` (root `npm run test:integration-tests` sets it,
       `--bail 1`); env accumulator seeded from repo-root `.env` +
       process.env; setup steps skip-if-set so a populated `.env` reuses the
       first run's deployment (a manual precursor of 4.5). Pulled forward
@@ -745,7 +745,7 @@ explicitly to `getCliConfig(env)`/`getDeployConfig(env)`/subprocesses). Each
 derived value lives under its canonical env-var name: presence = the step's
 skip signal, and the printed hand-off block is exactly those keys. Gating:
 `describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)` (flag read from the
-real env only) + `--bail 1` in `test:integration` for abort-on-first-failure.
+real env only) + `--bail 1` in `test:integration-tests` for abort-on-first-failure.
 Vault deploys run in-process via the new `deployVault(env)` export
 (vault-contract `src/deploy-vault.ts`); only the compact compiler is shelled
 out to. The suite loads the repo-root `.env` itself via a minimal parser

@@ -102,6 +102,16 @@ exception for that specific case.
 - **NEVER duplicate an enum (or const-enum-like object) an SDK already exports.**
   Import and use the SDK's own. Only define an app-local enum when the SDK
   genuinely has none — check its `.d.ts` first.
+- **Root scripts that target one member are named `<task>:<package-dir>` — the
+  member's directory name in full, never a shorthand.** `compile:vault-contract`,
+  `deploy:signature-responses-contract`, `test:integration-tests` — never
+  `compile:vault` or `deploy:responses`: abbreviations save keystrokes once and
+  cost a which-package-was-that lookup forever. (A script named exactly after its
+  package, like `cli`, is fine; aggregate scripts like `compile` / `build` /
+  `test` take no suffix.) When adding or renaming a root script, grep the WHOLE
+  repo for the old name before finishing — script names are load-bearing outside
+  package.json: integration tests shell out to root scripts by name (see
+  `runRootScript`), and task.md/READMEs quote them.
 
 # Contract packages (`packages/*-contract`)
 

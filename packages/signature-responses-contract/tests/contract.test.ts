@@ -7,16 +7,14 @@ import {
   createCircuitContext,
   createConstructorContext,
   sampleContractAddress,
-  type CircuitContext,
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
   Contract,
-  createResponsesPrivateState,
+  createSignatureResponsesPrivateState,
   ledger,
-  pureCircuits,
   witnesses,
-  type ResponsesPrivateState,
+  type SignatureResponsesPrivateState,
 } from "../src/index.ts";
 
 // ---- Fixtures ----
@@ -24,26 +22,21 @@ import {
 // Dummy coin public key (32-byte hex). Required by the API, unused here.
 const CPK = "0".repeat(64);
 
-const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) =>
+  new Uint8Array(length).fill(fill);
 
-// Identity secrets for the simulated owner and for a stranger.
-const SECRET_KEY = bytes(32, 7);
-const OTHER_SECRET_KEY = bytes(32, 8);
-
-// Commitments computed via the COMPILED circuit
-const OWNER_COMMITMENT = pureCircuits.ownerCommittment(SECRET_KEY);
-const OTHER_COMMITMENT = pureCircuits.ownerCommittment(OTHER_SECRET_KEY);
-
-const REQUEST_ID = bytes(32, 0xaa);
-const RESPONSE = bytes(32, 0xbb);
-const OTHER_RESPONSE = bytes(32, 0xcc);
+// Request ids the posts below answer, and 65-byte r||s||v signatures.
+const REQUEST_A = bytes(32, 0xaa);
+const REQUEST_B = bytes(32, 0xbb);
+const SIG_1 = bytes(65, 0x01);
+const SIG_2 = bytes(65, 0x02);
 
 // ---- Harness ----
 
-const deployContract = (secretKey: Uint8Array = SECRET_KEY) => {
-  const contract = new Contract<ResponsesPrivateState>(witnesses);
+const deployContract = () => {
+  const contract = new Contract<SignatureResponsesPrivateState>(witnesses);
   const { currentContractState, currentPrivateState } = contract.initialState(
-    createConstructorContext<ResponsesPrivateState>(createResponsesPrivateState(secretKey), CPK),
+    createConstructorContext(createSignatureResponsesPrivateState(), CPK),
   );
   const ctx = createCircuitContext(
     sampleContractAddress(),
@@ -54,96 +47,121 @@ const deployContract = (secretKey: Uint8Array = SECRET_KEY) => {
   return { contract, ctx };
 };
 
-/** Deploy + initialise() as the owner; returns the ready context. */
-const deployInitialised = () => {
-  const { contract, ctx } = deployContract();
-  const next = contract.circuits.initialise(ctx).context;
-  return { contract, ctx: next };
-};
-
-/** The same contract state, but the caller's private state holds a stranger's secret. */
-const asStranger = (ctx: CircuitContext<ResponsesPrivateState>): CircuitContext<ResponsesPrivateState> => ({
-  ...ctx,
-  currentPrivateState: createResponsesPrivateState(OTHER_SECRET_KEY),
-});
-
 // ---- Tests ----
 
-describe("ownerCommittment", () => {
-  it("check 32-byte commitments computed off-chain via the compiled circuit", () => {
-    expect(OWNER_COMMITMENT).toHaveLength(32);
-    expect(OWNER_COMMITMENT).not.toEqual(new Uint8Array(32));
-    expect(OWNER_COMMITMENT).not.toEqual(OTHER_COMMITMENT);
-  });
-});
+/** One posted (requestId, signature) pair, applied in row order. */
+interface Post {
+  requestId: Uint8Array;
+  signature: Uint8Array;
+}
 
-describe("initialise", () => {
-  it("starts unowned with an empty index", () => {
+/** One row of the post table: a post sequence → the exact expected ledger. */
+interface PostCase {
+  /** Test name, completing the sentence "stores <name>". */
+  name: string;
+  /** Posts applied in order, each through postSignatureResponse. */
+  posts: Post[];
+  /** The FULL expected counter index: total posts per request id. */
+  expectedCounters: { requestId: Uint8Array; total: bigint }[];
+  /** The FULL expected response log: (requestId, count) → signature. */
+  expectedEntries: {
+    requestId: Uint8Array;
+    count: bigint;
+    signature: Uint8Array;
+  }[];
+}
+
+const POST_CASES: PostCase[] = [
+  {
+    name: "a single post at count 0, its counter reading 1",
+    posts: [{ requestId: REQUEST_A, signature: SIG_1 }],
+    expectedCounters: [{ requestId: REQUEST_A, total: 1n }],
+    expectedEntries: [{ requestId: REQUEST_A, count: 0n, signature: SIG_1 }],
+  },
+  {
+    name: "a second post for the same request APPENDED, the first untouched",
+    posts: [
+      { requestId: REQUEST_A, signature: SIG_1 },
+      { requestId: REQUEST_A, signature: SIG_2 },
+    ],
+    expectedCounters: [{ requestId: REQUEST_A, total: 2n }],
+    expectedEntries: [
+      { requestId: REQUEST_A, count: 0n, signature: SIG_1 },
+      { requestId: REQUEST_A, count: 1n, signature: SIG_2 },
+    ],
+  },
+  {
+    name: "an identical re-post as its own entry (no dedup, no error)",
+    posts: [
+      { requestId: REQUEST_A, signature: SIG_1 },
+      { requestId: REQUEST_A, signature: SIG_1 },
+    ],
+    expectedCounters: [{ requestId: REQUEST_A, total: 2n }],
+    expectedEntries: [
+      { requestId: REQUEST_A, count: 0n, signature: SIG_1 },
+      { requestId: REQUEST_A, count: 1n, signature: SIG_1 },
+    ],
+  },
+  {
+    name: "independent per-request counts for interleaved posts",
+    posts: [
+      { requestId: REQUEST_A, signature: SIG_1 },
+      { requestId: REQUEST_B, signature: SIG_2 },
+      { requestId: REQUEST_A, signature: SIG_2 },
+    ],
+    expectedCounters: [
+      { requestId: REQUEST_A, total: 2n },
+      { requestId: REQUEST_B, total: 1n },
+    ],
+    expectedEntries: [
+      { requestId: REQUEST_A, count: 0n, signature: SIG_1 },
+      { requestId: REQUEST_A, count: 1n, signature: SIG_2 },
+      { requestId: REQUEST_B, count: 0n, signature: SIG_2 },
+    ],
+  },
+];
+
+describe("postSignatureResponse", () => {
+  it("deploys with both indexes empty", () => {
     const { ctx } = deployContract();
-
-    const l = ledger(ctx.currentQueryContext.state);
-    expect(l.owner.is_some).toBe(false);
-    expect(l.signatureResponseIndex.isEmpty()).toBe(true);
+    const state = ledger(ctx.currentQueryContext.state);
+    expect(state.signatureResponseCounterIndex.isEmpty()).toBe(true);
+    expect(state.signatureResponseIndex.isEmpty()).toBe(true);
   });
 
-  it("seals the caller's commitment as owner", () => {
-    const { ctx } = deployInitialised();
+  it.each(POST_CASES)(
+    "stores $name",
+    ({ posts, expectedCounters, expectedEntries }) => {
+      const { contract, ctx } = deployContract();
 
-    const l = ledger(ctx.currentQueryContext.state);
-    expect(l.owner.is_some).toBe(true);
-    expect(l.owner.value).toEqual(OWNER_COMMITMENT);
-  });
+      const finalCtx = posts.reduce(
+        (acc, { requestId, signature }) =>
+          contract.circuits.postSignatureResponse(acc, requestId, signature)
+            .context,
+        ctx,
+      );
+      const state = ledger(finalCtx.currentQueryContext.state);
 
-  it("is one-shot", () => {
-    const { contract, ctx } = deployInitialised();
-    expect(() => contract.circuits.initialise(ctx)).toThrow(/already been intialised/);
-  });
-});
+      // The counter index holds EXACTLY the expected requests, each counter
+      // reading that request's total number of posts.
+      expect(state.signatureResponseCounterIndex.size()).toBe(
+        BigInt(expectedCounters.length),
+      );
+      for (const { requestId, total } of expectedCounters) {
+        expect(
+          state.signatureResponseCounterIndex.lookup(requestId).read(),
+        ).toBe(total);
+      }
 
-describe("postResponse", () => {
-  it("rejects before initialise", () => {
-    const { contract, ctx } = deployContract();
-    expect(() => contract.circuits.postResponse(ctx, REQUEST_ID, RESPONSE)).toThrow(
-      /not yet intialised/,
-    );
-  });
-
-  it("rejects a caller whose secret does not match the owner commitment", () => {
-    const { contract, ctx } = deployInitialised();
-    expect(() => contract.circuits.postResponse(asStranger(ctx), REQUEST_ID, RESPONSE)).toThrow(
-      /Only the owner/,
-    );
-  });
-
-  it("stores the response under the request id", () => {
-    const { contract, ctx } = deployInitialised();
-
-    const next = contract.circuits.postResponse(ctx, REQUEST_ID, RESPONSE).context;
-
-    const index = ledger(next.currentQueryContext.state).signatureResponseIndex;
-    expect(index.size()).toBe(1n);
-    expect(index.member(REQUEST_ID)).toBe(true);
-    expect(index.lookup(REQUEST_ID)).toEqual(RESPONSE);
-  });
-
-  it("re-posting the same value is a no-op, not an error", () => {
-    const { contract, ctx } = deployInitialised();
-
-    let next = contract.circuits.postResponse(ctx, REQUEST_ID, RESPONSE).context;
-    next = contract.circuits.postResponse(next, REQUEST_ID, RESPONSE).context;
-
-    const index = ledger(next.currentQueryContext.state).signatureResponseIndex;
-    expect(index.size()).toBe(1n);
-    expect(index.lookup(REQUEST_ID)).toEqual(RESPONSE);
-  });
-
-  it("re-posting a DIFFERENT value for a stored request id is rejected", () => {
-    const { contract, ctx } = deployInitialised();
-
-    const next = contract.circuits.postResponse(ctx, REQUEST_ID, RESPONSE).context;
-
-    expect(() => contract.circuits.postResponse(next, REQUEST_ID, OTHER_RESPONSE)).toThrow(
-      /differs from given value/,
-    );
-  });
+      // The response log holds EXACTLY the expected (requestId, count) keys.
+      expect(state.signatureResponseIndex.size()).toBe(
+        BigInt(expectedEntries.length),
+      );
+      for (const { requestId, count, signature } of expectedEntries) {
+        expect(
+          state.signatureResponseIndex.lookup({ count, requestId }),
+        ).toEqual(signature);
+      }
+    },
+  );
 });

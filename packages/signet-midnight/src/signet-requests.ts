@@ -1,5 +1,5 @@
-// TypeScript twins of the Compact library `SignetRequests.compact` (same
-// directory). The shapes MUST stay in lockstep with the Compact structs: the
+// TypeScript twins of the request-side structs in the Compact library
+// `Signet.compact` (same directory). The shapes MUST stay in lockstep with the Compact structs: the
 // compiler inlines struct types anonymously into each contract's generated
 // managed/contract/index.d.ts, and these named types match them structurally,
 // so ledger reads assign to them without casts.
@@ -12,13 +12,13 @@
 // and these twins fails that package's `npm run build` / `npm run test`.
 //
 // Read more: https://docs.sig.network/ (signet protocol) and the module
-// header in SignetRequests.compact (layout convention, path binding).
+// header in Signet.compact (layout convention, path binding).
 
 /**
  * 32-byte signet request id (Compact: `new type SignetRequestId = Bytes<32>`).
  * Chain-agnostic: downstream consumers treat it as an opaque key. Each request
  * kind mints ids via its own domain-separated hash — for EVM requests,
- * `signetEVMSignatureRequestId` in SignetRequests.compact hashes the full
+ * `signetEVMSignatureRequestId` in Signet.compact hashes the full
  * {@link SignetEVMSignatureRequest} record under the "signet:evm:request:" tag.
  */
 export type SignetRequestId = Uint8Array;

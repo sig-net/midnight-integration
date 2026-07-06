@@ -1,12 +1,14 @@
 // ============================================================================
-// SignetRequests — shared Compact library for sig-net (signet) MPC signature
-// requests from Midnight contracts.
+// Signet — shared Compact library for sig-net (signet) MPC signature
+// requests and responses on Midnight.
 // ============================================================================
-// A signet contract records "please sign this EVM transaction" requests in its
-// public ledger. The sig-net MPC network needs only the contract address: it
-// reads the request index from ledger field 0 (the signet layout convention),
+// A signet compliant contract records "please sign this EVM transaction" requests
+// in its public ledger. The sig-net MPC network needs only the contract address:
+// it reads the request index from ledger field 0 (the signet layout convention),
 // re-assembles and signs the EVM transaction with the caller's derived key,
-// and posts the response for on-chain verification.
+// and posts the response to the signature-responses contract for polling.
+// Request and response are counterparts and are defined side by side here;
+// the pure circuits that operate on them follow below.
 //
 // Read more:
 //   - sig-net docs (chain signatures, key derivation): https://docs.sig.network/
@@ -17,12 +19,9 @@
 //
 // Import from a contract (resolved through node_modules via COMPACT_PATH —
 // see the consuming package's compile script):
-//   import "@midnight-erc20-vault/signet-midnight/src/SignetRequests";
-//
-// This file must contain ONLY this module (plus comments) so the compiler
-// accepts it as an external module import.
+//   import "@midnight-erc20-vault/signet-midnight/src/Signet";
 
-module SignetRequests {
+module Signet {
   import CompactStandardLibrary;
 
   // ---- Identifiers ---------------------------------------------------------
@@ -56,10 +55,11 @@ module SignetRequests {
   // slots (Compact has no dynamic arrays; argCount says how many of the slots
   // are used). Each arg is one left-padded 32-byte ABI word.
   // https://docs.soliditylang.org/en/latest/abi-spec.html
+  // TODO: use a generic argument to allow clients to configure arg count.
   export struct EVMCalldata {
     funcSig: Bytes<256>;        // zero-padded ASCII, e.g. "transfer(address,uint256)"
     argCount: Uint<32>;         // how many leading slots of `args` are used
-    args: Vector<4, Bytes<32>>; // ABI words; unused slots must be zero
+    args: Vector<4, Bytes<32>>; // ABI words; unused slots must be zero (see TODO)
   }
 
   // MPC routing: which key signs, for which chain, and how the response comes
@@ -89,13 +89,12 @@ module SignetRequests {
     mpcRouting: SignetMPCRoutingParams;
   }
 
-  // ---- The canonical request record ----------------------------------------
+  // ---- The canonical request/response pair ----------------------------------
 
   // One signature request, stored per SignetRequestId in the request index.
   // This is the minimum the MPC needs to build, sign, and route one EVM
-  // transaction. Response-side data (the MPC's output) is deliberately NOT
-  // here — it is written after signing and belongs in its own ledger state
-  // (see the signature-responses contract).
+  // transaction.
+  // See 'Requester Ledger Layout' for how to make a contract 'signature requests compliant'.
   export struct SignetEVMSignatureRequest {
     requestNonce: Uint<64>;             // contract-local nonce at creation time
     evmTransaction: EVMTransactionParams;
@@ -103,17 +102,51 @@ module SignetRequests {
     mpcRouting: SignetMPCRoutingParams;
   }
 
+  // The counterpart to SignetEVMSignatureRequest: the raw 65-byte r||s||v
+  // signature over the requested EVM transaction, produced by the MPC and
+  // posted to the signature-responses contract. The request id it answers
+  // lives in the response index key (see SignatureResponseKey), not here.
+  export new type SignetEVMSignatureResponse = Bytes<65>;
+
+  // ---- Requester Ledger Layout -----------------------------------------------
+
   // The on-ledger request index. Signet layout convention: a conforming
   // contract declares this as its FIRST ledger field, so the MPC can find and
   // deserialize it knowing only the contract address.
-  export type SignetEVMSignatureRequestIndex =
-    Map<SignetRequestId, SignetEVMSignatureRequest>;
+  export new type SignetEVMSignatureRequestIndex = Map<SignetRequestId, SignetEVMSignatureRequest>;
 
   // The contract-local request counter. Signet layout convention: declared as
   // the SECOND ledger field (directly after the index). It sources each
   // request's requestNonce and doubles as the MPC's cheap change-detection
   // signal — an unchanged counter means no new requests since the last poll.
-  export type SignetNonce = Counter;
+  export new type SignetNonce = Counter;
+
+  // ---- Response Ledger Layout -----------------------------------------------
+  // Posting to the signature-responses contract is UNAUTHENTICATED: the MPC
+  // cannot yet produce Midnight proofs, so posts cannot be attributed to it.
+  // The ledger is therefore append-only — each post lands under a fresh
+  // (requestId, count) key, so a rogue poster can add noise but can never
+  // overwrite or block the genuine response. Clients enumerate a request's
+  // entries and verify each signature off-chain, which guarantees at least
+  // one valid response stays retrievable (signet.js wraps this in a helper).
+
+  // Per-request post counter. Signet layout convention: the signature-responses
+  // contract declares this as its FIRST ledger field, so pollers can find it
+  // knowing only the contract address. The counter reads the number of posts
+  // made for that request; entries exist for counts 0..counter-1.
+  export new type SignatureResponseCounterIndex = Map<SignetRequestId, Counter>;
+
+  // Composite key of one posted response: the request id it answers plus this
+  // post's 0-based count, sourced from SignatureResponseCounterIndex.
+  export struct SignatureResponseKey {
+    count: Uint<64>;
+    requestId: SignetRequestId;
+  };
+
+  // The on-ledger response log, keyed by (requestId, count). Signet layout
+  // convention: declared as the SECOND ledger field, directly after the
+  // counter index.
+  export new type SignatureResponseIndex = Map<SignatureResponseKey, SignetEVMSignatureResponse>;
 
   // ---- Request id -----------------------------------------------------------
 
