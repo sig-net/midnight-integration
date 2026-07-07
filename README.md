@@ -2,6 +2,16 @@
 
 An end to end demo showing how Sig Network chain signature technology can be used to deposit ERC20 assets on Ethereum for use as shielded UTXOs on the Midnight Blockchain.
 
+<!-- TEMPORARY — remove before merge to main -->
+> **⚠️ Porting context (temporary — remove before merge to `main`).**
+>
+> This repo is a **bit-by-bit rewrite** of the old
+> `~/Projects/github.com/sig-net/midnight-erc20-vault` checkout (its `repo-layout.md`
+> is the design doc). Code is *ported*, not bulk-copied: each ported piece lands with
+> its tests, and stale parts (dead env vars, websocket code, counter-scaffold
+> leftovers) are stripped in the process, never carried along.
+<!-- END TEMPORARY -->
+
 ## Quick Start
 Start by running an end to end integration test driving a CLI application.
 

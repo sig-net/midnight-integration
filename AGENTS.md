@@ -5,7 +5,7 @@ This repository is a single **npm workspace**. Its members live under `packages/
 - **`packages/lib`** — shared runtime plumbing (config, network, providers, wallet,
   logging). The ONLY copy of these files.
 - **`packages/signet-midnight`** — the Midnight-side sig-net integration; the point
-  of the repo. Seed of a future signet.js Midnight adapter.
+  of the repo, and the basis for a signet.js Midnight adapter.
 - **`packages/vault-contract`** / **`packages/signet-contract`** — one
   package per Compact contract, no contract/sdk split. See "Contract packages" below.
 
@@ -15,12 +15,6 @@ Run `npm run compile` once before `build`/`test`: the contract packages AND
 output (signet-midnight compiles its Compact module's pure circuits via
 `src/circuits.compact` — skip-zk only, no `compile:zk` script on purpose).
 
-This repo is a **bit-by-bit rewrite** of the old
-`~/Projects/github.com/sig-net/midnight-erc20-vault` checkout (its `repo-layout.md`
-is the design doc). Code is *ported*, not bulk-copied: each ported piece lands with
-its tests, and stale parts (dead env vars, websocket code, counter-scaffold
-leftovers) are stripped in the process, never carried along.
-
 Member-specific rules live in that member's own `AGENTS.md`.
 
 # NEVER BREAK rules
@@ -28,9 +22,30 @@ Member-specific rules live in that member's own `AGENTS.md`.
 These are non-negotiable. Do not violate them unless the user explicitly grants an
 exception for that specific case.
 
-- **ALWAYS install dependencies at latest; NEVER pin.** Add deps with
-  `npm install <pkg>@latest -w <workspace>` so package.json carries a caret range at
-  the current version. The compact toolchain is likewise unpinned: `compact update`
+- **Rules here are timeless and standalone — write them in the present tense.** This
+  governs every rule in this file, including future additions. State what to do and
+  why it is right *now*, never how the codebase got here. NO references to a prior
+  repo, an earlier branch, a migration or port in progress, a "future" package that
+  may already exist, or anything else that goes stale the moment this branch merges.
+  A rule must read correctly to someone who arrives at `main` with no memory of how
+  it was built. Concrete rationale and bad-vs-good examples are encouraged ("copying
+  config between packages → drift"); historical narrative is not ("this was tried and
+  dropped", "the sin of the old repo"). Keep the lesson, drop the story.
+- **NEVER carry dead code.** Unused env vars, disabled or unreachable code paths,
+  scaffold leftovers, commented-out blocks — delete them, never leave them for
+  "later". Code that isn't reached is a lie about what the system does.
+- **ALWAYS install dependencies at the latest STABLE version; NEVER pin.** First
+  resolve the version — `npm view <pkg> dist-tags version deprecated` — then add it
+  explicitly: `npm install <pkg>@<version> -w <workspace>`, where `<version>` is that
+  latest stable release. Naming the version is NOT a pin: `npm install` still writes
+  a caret range (`^<version>`) into package.json; spelling it out just forces you to
+  look at what you're pulling in. If the resolved latest is a prerelease (an
+  `-rc`/`-beta`/`-alpha`/`-next`/`-canary` in the version string), STOP and ask the
+  user — never adopt a prerelease unprompted; let them opt in. Before you install,
+  confirm the release is sound: it is not deprecated (from the `npm view` above),
+  and after install `npm audit signatures` verifies its registry
+  signature/provenance and `npm audit` reports no new advisory. The compact toolchain
+  is likewise unpinned: `compact update`
   installs it and compile scripts carry **no `+version` pin**. Corollary: a
   dependency shared by two members MUST resolve to the same version in every member
   — bump it everywhere in the same change and `npm install` from the root. A single
@@ -40,8 +55,8 @@ exception for that specific case.
 - **NEVER emit JavaScript.** Packages export TypeScript source
   (`"." : "./src/index.ts"`); `build` means `tsc` under the base config's `noEmit`.
   No `dist/`, no `tsc --outDir`, no ts-node loaders, no copy steps. Tests run under
-  vitest; entrypoints run under `tsx`. If you think you need a build step, you are
-  reintroducing the mess this repo was rebuilt to escape — stop and ask.
+  vitest; entrypoints run under `tsx`. If you think you need a build step, stop and
+  ask — a build step is a defect in this workspace, not a missing feature.
 - **ALWAYS finish a change with `npm run build && npm run test`** in the member you
   touched (or from the root). `tsx` and vitest execute without typechecking — "it
   runs" is NOT verification. If you add a new top-level TS directory to a member,
@@ -53,11 +68,11 @@ exception for that specific case.
   `compile:zk` only when proving keys are actually needed (real deploys).
 - **Shared plumbing lives ONCE, in `packages/lib`.** The moment a second package
   needs a helper, it moves to lib and both import it. Never copy
-  config/wallet/provider/logging code between packages — per-package copies are the
-  core sin of the old repo.
+  config/wallet/provider/logging code between packages — per-package copies drift
+  apart and are a defect, not a shortcut.
 - **Unit tests are simulator-only.** A contract package's `tests/` run entirely
   in-process via `@midnight-ntwrk/compact-runtime` — no network, no docker, no
-  proof server. Anything that needs a running stack belongs in the (future)
+  proof server. Anything that needs a running stack belongs in
   `packages/integration-tests`, nowhere else.
 - **Tests must read at a glance — table-driven over helper-driven.** A reader must
   see a test's inputs and expected outcome in the test itself (or its table row)
@@ -86,6 +101,17 @@ exception for that specific case.
   finding the real type — dig for it in the SDK's type definitions
   (`node_modules/<pkg>/**/*.d.ts`) or the project's own packages, and use or
   re-export that.
+- **Keep domain values in their richest type; serialize ONLY at the edges.** A
+  transaction stays an ethers `Transaction`, an id stays its branded type, an
+  amount stays `bigint` — pass the typed object between internal functions, and
+  collapse it to a string (`.serialized`, hex, `.toString()`) only where it truly
+  leaves the program: stdout/logging, a CLI arg parser, an RPC/`fetch` body, an
+  on-ledger write. Re-parsing a value you already had typed (e.g.
+  `Transaction.from(tx.serialized)`) is the smell this bans — it discards a
+  precise type, invites drift, and can fail on data your own code just produced.
+  A producer returns the typed object; the single caller that hits the edge does
+  the conversion. Logging a hash mid-flow is fine — that reads a field, it
+  doesn't degrade the value everything downstream uses.
 - **ALWAYS write JSDoc on everything exported.** Every exported function,
   const, type, interface, and interface method carries a JSDoc block stating its
   purpose, one `@param <name> - <purpose>` per parameter, `@returns` when it
@@ -123,7 +149,7 @@ exception for that specific case.
 # Contract packages (`packages/*-contract`)
 
 The two contract packages are deliberately identical in shape; these rules apply to
-both (and to any future contract package):
+both (and to any additional contract package):
 
 - **Compile before you check.** `npm run compile` regenerates `src/managed/`;
   typecheck and tests read its emitted `contract/index.d.ts`.
@@ -143,6 +169,7 @@ both (and to any future contract package):
   (`buildDeployTransaction`, `makeCompiledContract`, `submitUnprovenTransaction`,
   …) know no contract; the deploy script owns the constructor args, witnesses,
   private state and post-deploy circuit calls, statically importing its own
-  generated module so all of it stays fully typed. There is no generic deployer
-  package — that inversion (dynamic module loading, witness stubs) was tried and
-  dropped when constructors grew args.
+  generated module so all of it stays fully typed. There is NO generic deployer
+  package: a generic deployer forces dynamic module loading and witness stubs, which
+  break the moment a constructor takes real args — keep deploy logic static and
+  fully typed in the contract's own package.
