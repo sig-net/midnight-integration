@@ -5,6 +5,7 @@
 // tests import the command functions directly.
 
 import { Command, InvalidArgumentError } from "commander";
+import { Transaction } from "ethers";
 
 import { deriveAccountKeys, withSyncedWalletFacade } from "@midnight-erc20-vault/lib";
 import { parseSignetRequestIdHex, type SignetRequestIdHex } from "@midnight-erc20-vault/signet-midnight";
@@ -42,6 +43,16 @@ const parseRequestIdArg = (value: string): SignetRequestIdHex => {
     return parseSignetRequestIdHex(value);
   } catch {
     throw new InvalidArgumentError("must be a 32-byte request id in hex");
+  }
+};
+
+// Edge: parse the serialized-hex CLI arg into a typed transaction here so the
+// command works with a Transaction, not a string.
+const parseSignedTransactionArg = (value: string): Transaction => {
+  try {
+    return Transaction.from(value);
+  } catch {
+    throw new InvalidArgumentError("must be a signed, RLP-encoded EVM transaction (0x hex)");
   }
 };
 
@@ -92,7 +103,8 @@ withPollingOptions(
     .requiredOption("--request-id <hex>", "the request id to poll for", parseRequestIdArg),
 ).action((options: { requestId: SignetRequestIdHex; intervalMs: number; timeoutMs: number }) => {
   work = async (context) => {
-    console.log(await pollSignatureResponse(context, options));
+    // Edge: a standalone command emits the tx as serialized hex for stdout.
+    console.log((await pollSignatureResponse(context, options)).serialized);
   };
 });
 
@@ -110,10 +122,14 @@ withPollingOptions(
 program
   .command("broadcast-evm")
   .description("broadcast an MPC-signed EVM transaction; prints the transaction hash")
-  .requiredOption("--signed-transaction <hex>", "the signed, RLP-encoded EVM transaction (0x hex)")
-  .action((options: { signedTransaction: string }) => {
+  .requiredOption(
+    "--signed-transaction <hex>",
+    "the signed, RLP-encoded EVM transaction (0x hex)",
+    parseSignedTransactionArg,
+  )
+  .action((options: { signedTransaction: Transaction }) => {
     work = async (context) => {
-      console.log(await broadcastEvm(context, options));
+      console.log(await broadcastEvm(context, { transaction: options.signedTransaction }));
     };
   });
 

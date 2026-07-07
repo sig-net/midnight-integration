@@ -44,8 +44,8 @@ export async function depositE2E(context: CliContext, options: DepositE2EOptions
 
   const requestId = await requestDeposit(context, { amount, evmNonce });
 
-  const signedTransaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs });
-  await broadcastEvm(context, { signedTransaction });
+  const transaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs });
+  await broadcastEvm(context, { transaction });
 
   await pollRemoteExecutionResponse(context, { requestId, intervalMs, timeoutMs });
   await claimDeposit(context, { requestId });

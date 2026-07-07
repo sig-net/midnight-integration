@@ -44,8 +44,8 @@ export async function withdrawE2E(context: CliContext, options: WithdrawE2EOptio
 
   const requestId = await requestWithdraw(context, { amount, destEvmAddress });
 
-  const signedTransaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs });
-  await broadcastEvm(context, { signedTransaction });
+  const transaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs });
+  await broadcastEvm(context, { transaction });
 
   await pollRemoteExecutionResponse(context, { requestId, intervalMs, timeoutMs });
   await refundWithdraw(context, { requestId });

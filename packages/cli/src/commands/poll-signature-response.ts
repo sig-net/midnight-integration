@@ -3,6 +3,8 @@
 // signature over a request's EVM transaction. There is deliberately no
 // push/websocket alternative.
 
+import type { Transaction } from "ethers";
+
 import {
   signetEVMSignatureRequestToSignedEVMTransaction,
   SignetRequestResponseReader,
@@ -29,8 +31,9 @@ const sleep = (ms: number): Promise<void> =>
 /**
  * Poll the signet contract at `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` until a VALID
  * signature response for `requestId` appears, then reconstruct and return the
- * fully signed EVM transaction — `0x`-prefixed serialized hex, ready to hand
- * straight to `broadcast-evm` / `eth_sendRawTransaction`.
+ * fully signed EVM transaction as a typed ethers {@link Transaction}, ready to
+ * hand straight to `broadcast-evm`. Serialize it (`.serialized`) only at the
+ * edge — for stdout or `eth_sendRawTransaction`.
  *
  * Fetching, enumerating, and verifying the posts is delegated to
  * signet-midnight's {@link SignetRequestResponseReader}: the signature
@@ -46,13 +49,12 @@ const sleep = (ms: number): Promise<void> =>
  *
  * @param context - The CLI context.
  * @param options - What to poll for and how patiently.
- * @returns The broadcast-ready signed EVM transaction as `0x`-prefixed
- *   serialized hex.
+ * @returns The broadcast-ready signed EVM transaction.
  * @throws Error when a contract has no state on-chain, the request is not on
  *   the vault's ledger, the responses ledger is inconsistent, or `timeoutMs`
  *   elapses with no valid response posted.
  */
-export async function pollSignatureResponse(context: CliContext, options: PollSignatureResponseOptions): Promise<string> {
+export async function pollSignatureResponse(context: CliContext, options: PollSignatureResponseOptions): Promise<Transaction> {
   const signetContractAddress = requireConfigValue(
     context.config.signetContractAddress,
     "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
@@ -95,11 +97,7 @@ export async function pollSignatureResponse(context: CliContext, options: PollSi
       // record and this response. getSignatureRequest is cached (the verify
       // call above already fetched it), so this adds no extra query.
       const request = await reader.getSignatureRequest(options.requestId);
-      const signedTransaction = signetEVMSignatureRequestToSignedEVMTransaction(
-        request,
-        valid.response,
-      );
-      return signedTransaction.serialized;
+      return signetEVMSignatureRequestToSignedEVMTransaction(request, valid.response);
     }
 
     if (Date.now() >= deadline) {
