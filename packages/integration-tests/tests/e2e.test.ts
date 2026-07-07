@@ -29,7 +29,7 @@ import {
   deriveMpcKeys,
   formatJubjubPublicKey,
   generateMpcRootKey,
-  readSignetRequestsLedgerFromState,
+  SignetRequestResponseReader,
   type SignetRequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
 import { deployVault, ledger as vaultContractLedger } from "@midnight-erc20-vault/vault-contract";
@@ -326,6 +326,28 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     return sharedWallet.context;
   }
 
+  // MPC-style reader over the vault (requester) / signet contract pair, built
+  // lazily on first use once the setup steps have populated the contract
+  // addresses. Backed by a fresh indexerPublicDataProvider so it reads RAW
+  // ledger state exactly as the response server does; it caches fetched request
+  // records, so repeated lookups across tests cost one query each.
+  let sharedReader: SignetRequestResponseReader | undefined;
+
+  function sharedResponseReader(): SignetRequestResponseReader {
+    if (!sharedReader) {
+      const nodeConfig = getMidnightNodeConfig(env);
+      sharedReader = new SignetRequestResponseReader({
+        requesterContractAddress: requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS"),
+        signetContractAddress: requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
+        publicDataProvider: indexerPublicDataProvider(
+          nodeConfig.indexerUrl,
+          nodeConfig.indexerWsUrl,
+        ),
+      });
+    }
+    return sharedReader;
+  }
+
   afterAll(async () => {
     await sharedWallet?.facade.stop().catch(() => { });
   });
@@ -399,7 +421,6 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       }
 
       const context = await sharedCliContext();
-      const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
 
       // The sweep tx sender is the user's derived EVM account; its next nonce
       // comes from the chain, exactly as a wallet would fetch it.
@@ -411,18 +432,13 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
 
       expect(depositTransactionSignatureRequestId).toMatch(/^[0-9a-f]{64}$/);
 
-      // MPC-convention verification: decode the request index from RAW
-      // contract state (field 0, no compiled contract) — the exact read the
-      // response server performs — and find the request under its id.
-      const nodeConfig = getMidnightNodeConfig(env);
-      const publicDataProvider = indexerPublicDataProvider(nodeConfig.indexerUrl, nodeConfig.indexerWsUrl);
-      const contractState = await publicDataProvider.queryContractState(vaultContractAddress);
-      expect(contractState).toBeTruthy();
-      const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(contractState!.data);
-      expect([...requestsIndex.keys()]).toContain(depositTransactionSignatureRequestId);
-      expect(nonce).toBeGreaterThan(0n);
-
-      const record = requestsIndex.get(depositTransactionSignatureRequestId)!;
+      // MPC-convention verification: fetch the request record the way the
+      // response server does — through a SignetRequestResponseReader over RAW
+      // contract state. getSignatureRequest throws when the id is absent, so a
+      // returned record is itself proof the request landed on the vault ledger.
+      const record = await sharedResponseReader().getSignatureRequest(
+        depositTransactionSignatureRequestId,
+      );
       expect(record.evmTransaction.nonce).toBe(evmNonce);
       expect(bytesToBigint(record.calldata.args[1])).toBe(amount);
 
@@ -480,4 +496,26 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     },
     1 * MINUTE,
   );
+
+  it(
+    "pollRemoteExecutionResponse: poll signet contract for sweep transaction signature response",
+    async () => {
+      // confirm request Id set in previous test after successful deplost request
+      expect(depositTransactionSignatureRequestId).toBeDefined();
+
+      const context = await sharedCliContext();
+      signedDepositSweepTransaction = await pollSignatureResponse(context, {
+        requestId: depositTransactionSignatureRequestId,
+        intervalMs: 500,
+        timeoutMs: 10000,
+      });
+
+      banner([
+        `MPC signed Response for request ${depositTransactionSignatureRequestId} found from Signet Contract.`,
+        "",
+        `Signature: ${signedDepositSweepTransaction}`,
+      ]);
+    },
+    1 * MINUTE,
+  );  
 });
