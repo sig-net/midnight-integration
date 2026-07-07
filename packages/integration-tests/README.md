@@ -69,7 +69,7 @@ does); values already present in the real environment win over the file.
 | `USER_SEED` / `VAULT_USER_SECRET_KEY` | User wallet / identity (cli) | genesis seed `00…01` |
 | `MIDNIGHT_VAULT_CONTRACT_ADDRESS` | Deployed vault; set to skip compile+deploy | derived by run 1 |
 | `MPC_ROOT_KEY` | Fakenet signer root key; set to skip generation | derived by run 1 |
-| `MPC_JUBJUB_PK_X/Y`, `MPC_SECP256K1_PUBKEY` | MPC public keys; set all three to skip derivation | derived from root key |
+| `MPC_JUBJUB_PK`, `MPC_SECP256K1_PUBKEY` | MPC public keys; set both to skip derivation | derived from root key |
 | `EVM_VAULT_ADDRESS` / `EVM_USER_ADDRESS` | Derived EVM accounts; set to skip derivation | derived by run 1 |
 | `SEPOLIA_RPC_URL` | EVM JSON-RPC endpoint | — (required) |
 | `ERC20_ADDRESS` | Token for the deposit flow | Sepolia USDC `0x1c7D…7238` |

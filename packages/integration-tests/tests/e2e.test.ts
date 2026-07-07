@@ -203,11 +203,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       }
       const { contractAddress } = await deployVault(env);
       env.MIDNIGHT_VAULT_CONTRACT_ADDRESS = contractAddress;
-      banner([
-        `MIDNIGHT_VAULT_CONTRACT_ADDRESS=${contractAddress}`,
-        "",
-        "Add this to your .env to skip compile + deploy on subsequent runs.",
-      ]);
+      console.log(`deployed a fresh MIDNIGHT_VAULT_CONTRACT_ADDRESS=${contractAddress}`);
+      console.log(` ➜ the vault contract on Midnight — holds deposits and authorizes withdrawals`);
+      console.log(` ➜ 💡 Set as MIDNIGHT_VAULT_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
     },
     10 * MINUTE,
   );
@@ -228,16 +226,14 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     "setup: deploy signet-contract",
     async () => {
       if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
-        logSkip("deploy:vault-contract", `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is set (${env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS})`);
+        logSkip("deploy:signet-contract", `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is set (${env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS})`);
         return;
       }
       const { contractAddress } = await deploySignetContract(env);
       env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS = contractAddress;
-      banner([
-        `MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${contractAddress}`,
-        "",
-        "Add this to your .env to skip compile + deploy on subsequent runs.",
-      ]);
+      console.log(`deployed a fresh MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${contractAddress}`);
+      console.log(` ➜ the central signet contract on Midnight — records signature requests and authenticated MPC responses`);
+      console.log(` ➜ 💡 Set as MIDNIGHT_SIGNET_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
     },
     10 * MINUTE,
   );
@@ -253,12 +249,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       "vault",
     );
     env.EVM_VAULT_ADDRESS = address;
-    banner([
-      `EVM_VAULT_ADDRESS=${address}`,
-      "",
-      "The vault's own EVM account (path \"vault\"). Add to your .env to skip",
-      "this derivation; fund it with ETH for gas before running withdrawals.",
-    ]);
+    console.log(`derived a fresh EVM_VAULT_ADDRESS=${address}`);
+    console.log(` ➜ the vault's own EVM account (path "vault")`);
+    console.log(` ➜ fund it with ETH for gas before running withdrawals`);
+    console.log(` ➜ 💡 Set as EVM_VAULT_ADDRESS in the environment to skip this step on the next run`);
   });
 
   it("setup: derive user EVM address", () => {
@@ -273,13 +267,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       identity.commitmentHex,
     );
     env.EVM_USER_ADDRESS = address;
-    banner([
-      `EVM_USER_ADDRESS=${address}`,
-      "",
-      "The user's derived EVM account (path = identity commitment hex).",
-      "Add to your .env to skip this derivation. FUND IT ON SEPOLIA before",
-      "the deposit test: >= 0.01 ETH (gas) and >= 0.1 USDC (deposit).",
-    ]);
+    console.log(`derived a fresh EVM_USER_ADDRESS=${address}`);
+    console.log(` ➜ the user's derived EVM account (path = identity commitment hex)`);
+    console.log(` ➜ FUND IT ON SEPOLIA before the deposit test: >= 0.01 ETH (gas) and >= 0.1 USDC (deposit)`);
+    console.log(` ➜ 💡 Set as EVM_USER_ADDRESS in the environment to skip this step on the next run`);
   });
 
   it("setup: print MPC server configuration", () => {

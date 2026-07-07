@@ -444,7 +444,7 @@ E2E flows.
       CLI polls through it (`poll-signature-response`,
       `poll-remote-execution-response`). NO websockets.
 - [ ] **6.4 Deploy** via the Phase-2 tool (deploy tooling updated: takes
-      `MPC_JUBJUB_PUBLIC_KEY` as the constructor arg; posting execution
+      `MPC_JUBJUB_PK` as the constructor arg; posting execution
       responses needs `compile:zk` keys); manifest entry; extend the monitor
       to submit responses as Midnight transactions.
 

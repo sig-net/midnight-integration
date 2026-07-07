@@ -31,14 +31,14 @@ export interface SignetContractDeployment {
  * Deploy the signet contract: read config from `env`, build and prove the
  * deploy transaction and submit it through a synced wallet. Progress is
  * logged to the console. The one constructor argument is the MPC attestation
- * key (`MPC_JUBJUB_PUBLIC_KEY`, "x,y" decimal or 0x-hex field coordinates),
+ * key (`MPC_JUBJUB_PK`, "x,y" decimal or 0x-hex field coordinates),
  * whose hash the contract seals — remote execution responses must be signed
  * by it. Any funded wallet can deploy; nothing about the deployer is sealed.
  *
  * @param env - Environment map providing `DEPLOYER_SEED`,
- *   `MPC_JUBJUB_PUBLIC_KEY` and lib's Midnight node configuration.
+ *   `MPC_JUBJUB_PK` and lib's Midnight node configuration.
  * @returns The deployed contract address and deploy transaction id.
- * @throws If `MPC_JUBJUB_PUBLIC_KEY` is missing/malformed, the deployer
+ * @throws If `MPC_JUBJUB_PK` is missing/malformed, the deployer
  *   wallet holds no funds, or submission fails.
  */
 export async function deploySignetContract(
@@ -47,9 +47,9 @@ export async function deploySignetContract(
   const deployConfig = getDeployConfig(env);
   const { networkId } = deployConfig.midnightNodeConfig;
 
-  const mpcPkRaw = env.MPC_JUBJUB_PUBLIC_KEY?.trim();
+  const mpcPkRaw = env.MPC_JUBJUB_PK?.trim();
   if (!mpcPkRaw) {
-    throw new Error("MPC_JUBJUB_PUBLIC_KEY is required (the MPC attestation key, as \"x,y\")");
+    throw new Error("MPC_JUBJUB_PK is required (the MPC attestation key, as \"x,y\")");
   }
   const mpcPk = parseJubjubPublicKey(mpcPkRaw);
 

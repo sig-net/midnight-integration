@@ -173,7 +173,7 @@ export function hashJubjubPoint(point: JubjubPoint): Uint8Array {
 
 /**
  * Parse a Jubjub public key from its `"x,y"` config/env form (decimal or
- * 0x-hex field coordinates) — how deploys receive `MPC_JUBJUB_PUBLIC_KEY`.
+ * 0x-hex field coordinates) — how deploys receive `MPC_JUBJUB_PK`.
  *
  * @param value - The `"x,y"` string.
  * @returns The parsed point.
@@ -194,7 +194,7 @@ export function parseJubjubPublicKey(value: string): JubjubPoint {
 /**
  * Format a Jubjub public key as the `"x,y"` decimal config/env form that
  * {@link parseJubjubPublicKey} accepts — the round-trip inverse, for handing
- * a derived key to deploys as `MPC_JUBJUB_PUBLIC_KEY`.
+ * a derived key to deploys as `MPC_JUBJUB_PK`.
  *
  * @param point - The point to format.
  * @returns The `"x,y"` string with decimal coordinates.
