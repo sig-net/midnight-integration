@@ -11,6 +11,7 @@
 // (AGENTS.md: orchestration lives in the cli, never in tests).
 
 import {
+  type CliContext,
   createCliContext,
   getCliConfig,
   getUserIdentity,
@@ -20,7 +21,7 @@ import {
   requestDeposit,
   requireConfigValue,
 } from "@midnight-erc20-vault/cli";
-import { deriveAccountKeys, getDeployConfig, getMidnightNodeConfig, withSyncedWalletFacade } from "@midnight-erc20-vault/lib";
+import { deriveAccountKeys, getDeployConfig, getMidnightNodeConfig, initialiseWalletFacade, type WalletFacade } from "@midnight-erc20-vault/lib";
 import {
   bytesToBigint,
   deriveEvmAddress,
@@ -34,7 +35,7 @@ import { deployVault, ledger as vaultContractLedger } from "@midnight-erc20-vaul
 import { deploySignetContract } from "@midnight-erc20-vault/signet-contract";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { parseEther, parseUnits } from "ethers";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { loadRepoDotEnv } from "../src/env-file.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../src/preflight.ts";
 import { getErc20Balance, getEthBalance, getTransactionNonce, SEPOLIA_USDC_ADDRESS } from "../src/sepolia.ts";
@@ -53,6 +54,12 @@ const MINUTE = 60_000;
  */
 const env: NodeJS.ProcessEnv = { ...loadRepoDotEnv(), ...process.env };
 
+// The cli needs the EVM-side config; default what the environment hasn't
+// pinned (Sepolia + canonical USDC, matching the funding preflight). Set
+// before any test builds a CliConfig so the shared context sees them.
+env.ERC20_ADDRESS ??= SEPOLIA_USDC_ADDRESS;
+env.EVM_CHAIN_ID ??= "11155111";
+
 /**
  * The env keys the setup steps populate. Used only to build the "Minimal .env
  * block" printout — order here is purely cosmetic (execution order is fixed by
@@ -60,11 +67,11 @@ const env: NodeJS.ProcessEnv = { ...loadRepoDotEnv(), ...process.env };
  * the printed block reads like the flow that produced it.
  */
 const PIPELINE_KEYS = [
-  "MIDNIGHT_VAULT_CONTRACT_ADDRESS",
-  "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
   "MPC_ROOT_KEY",
   "MPC_JUBJUB_PK",
   "MPC_SECP256K1_PUBKEY",
+  "MIDNIGHT_VAULT_CONTRACT_ADDRESS",
+  "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
   "EVM_VAULT_ADDRESS",
   "EVM_USER_ADDRESS",
 ] as const;
@@ -284,52 +291,72 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       "",
       `  MPC_ROOT_KEY=${rootKey}`,
       `  MIDNIGHT_CONTRACT_ADDRESSES=${requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS")}`,
-      "  (comma-separated if more contracts are added later)",
+      `  MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS")}`,
+      "  # 💡 MIDNIGHT_CONTRACT_ADDRESSES is comma-separated if more contracts are added later.",
       "",
       "Set those in the server's .env, then START THE SERVER: `yarn response`",
       "in the solana-signet-program repo. The e2e deposit/withdraw flows need",
       "it running.",
       "",
-      "Minimal .env block for this suite:",
+      "Minimal .env block for THIS suite:",
       "",
       ...PIPELINE_KEYS.map((key) => `  ${key}=${env[key] ?? ""}`),
       `  SEPOLIA_RPC_URL=${env.SEPOLIA_RPC_URL ?? ""}`,
     ]);
   });
 
+  // Wallet facade + cli context shared by every post-setup test. Built lazily
+  // on first use — createCliContext needs the vault contract deployed, so this
+  // can only run after the setup steps have populated env — and stopped once
+  // in afterAll. Each access re-awaits synced state (instant when already
+  // synced) so long tests / STEP_THROUGH pauses can't hand out a stale wallet.
+  let sharedWallet: { facade: WalletFacade; context: CliContext } | undefined;
+
+  async function sharedCliContext(): Promise<CliContext> {
+    if (!sharedWallet) {
+      const config = getCliConfig(env);
+      const keys = deriveAccountKeys(config.userSeed, config.midnightNodeConfig.networkId);
+      const facade = await initialiseWalletFacade(keys, config.midnightNodeConfig);
+      await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
+      await facade.waitForSyncedState();
+      sharedWallet = { facade, context: await createCliContext(config, { facade, keys }) };
+    }
+    await sharedWallet.facade.waitForSyncedState();
+    return sharedWallet.context;
+  }
+
+  afterAll(async () => {
+    await sharedWallet?.facade.stop().catch(() => {});
+  });
+
   it(
     "initialize [erc-vault contract method call]: seal vault EVM address and read back state",
     async () => {
-      const config = getCliConfig(env);
-      const vaultContractAddress = requireConfigValue(config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
       const vaultEvmAddress = requireEnv("EVM_VAULT_ADDRESS");
+      const context = await sharedCliContext();
+      const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
 
-      const keys = deriveAccountKeys(config.userSeed, config.midnightNodeConfig.networkId);
-      await withSyncedWalletFacade(keys, config.midnightNodeConfig, async (facade) => {
-        const context = await createCliContext(config, { facade, keys });
-
-        const readLedger = async () => {
-          const contractState = await context.providers.publicDataProvider.queryContractState(vaultContractAddress);
-          if (!contractState) {
-            throw new Error(`no contract state found at ${vaultContractAddress}`);
-          }
-          return vaultContractLedger(contractState.data);
-        };
-
-        if ((await readLedger()).initialized) {
-          logSkip("initialize", "vault is already initialized (rerun against a kept contract address)");
-        } else {
-          await initialize(context, { vaultEvmAddress });
+      const readLedger = async () => {
+        const contractState = await context.providers.publicDataProvider.queryContractState(vaultContractAddress);
+        if (!contractState) {
+          throw new Error(`no contract state found at ${vaultContractAddress}`);
         }
+        return vaultContractLedger(contractState.data);
+      };
 
-        await readState(context);
+      if ((await readLedger()).initialized) {
+        logSkip("initialize", "vault is already initialized (rerun against a kept contract address)");
+      } else {
+        await initialize(context, { vaultEvmAddress });
+      }
 
-        const state = await readLedger();
-        expect(state.initialized).toBe(1n);
-        expect(`0x${Buffer.from(state.vaultEvmAddress).toString("hex")}`.toLowerCase()).toBe(
-          vaultEvmAddress.toLowerCase(),
-        );
-      });
+      await readState(context);
+
+      const state = await readLedger();
+      expect(state.initialized).toBe(1n);
+      expect(`0x${Buffer.from(state.vaultEvmAddress).toString("hex")}`.toLowerCase()).toBe(
+        vaultEvmAddress.toLowerCase(),
+      );
     },
     15 * MINUTE,
   );
@@ -339,7 +366,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     async () => {
       const rpcUrl = requireEnv("SEPOLIA_RPC_URL");
       const userAddress = requireEnv("EVM_USER_ADDRESS");
-      const erc20Address = env.ERC20_ADDRESS ?? SEPOLIA_USDC_ADDRESS;
+      const erc20Address = requireEnv("ERC20_ADDRESS");
 
       const ethBalance = await getEthBalance(rpcUrl, userAddress);
       console.log(`${userAddress} ETH balance: ${ethBalance} wei`);
@@ -363,26 +390,23 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
   it(
     "requestDeposit [erc-vault contract method call]: request a deposit through the cli and read it back MPC-style",
     async () => {
-      // The cli needs the EVM-side config; default what the pipeline hasn't
-      // pinned (Sepolia + canonical USDC, matching the funding preflight).
-      env.ERC20_ADDRESS ??= SEPOLIA_USDC_ADDRESS;
-      env.EVM_CHAIN_ID ??= "11155111";
+      // check if a request Id was given in then environment (for skipping steps during local development)
+      if (env.DEPOSIT_REQUEST_ID) {
+        requestId = env.DEPOSIT_REQUEST_ID as SignetRequestIdHex;
+        logSkip("requestDeposit", `DEPOSIT_REQUEST_ID present in environment, skipping deposit call '${requestId}'`);
+        return;
+      }
 
-      const config = getCliConfig(env);
-      const vaultContractAddress = requireConfigValue(config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
+      const context = await sharedCliContext();
+      const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
 
       // The sweep tx sender is the user's derived EVM account; its next nonce
       // comes from the chain, exactly as a wallet would fetch it.
       const evmNonce = await getTransactionNonce(requireEnv("SEPOLIA_RPC_URL"), requireEnv("EVM_USER_ADDRESS"));
       const amount = parseUnits("0.1", 6); // 0.1 USDC — the funding preflight's minimum
 
-      const keys = deriveAccountKeys(config.userSeed, config.midnightNodeConfig.networkId);
-      requestId = await withSyncedWalletFacade(keys, config.midnightNodeConfig, async (facade) => {
-        const context = await createCliContext(config, { facade, keys });
-        const id = await requestDeposit(context, { amount, evmNonce });
-        await readState(context);
-        return id;
-      });
+      requestId = await requestDeposit(context, { amount, evmNonce });
+      await readState(context);
 
       expect(requestId).toMatch(/^[0-9a-f]{64}$/);
 
@@ -413,30 +437,26 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     15 * MINUTE,
   );
 
+  // prepare deposit sweep transaction sinature for use in subsequent tests
+  let depositSweepTxnSignature: string;
+  
   it(
     "pollSignatureResponse: poll signet contract for sweep transaction signature response",
     async () => {
       // confirm request Id set in previous test after successful deplost request
       expect(requestId).toBeDefined();
 
-      const config = getCliConfig(env);
-
-      const keys = deriveAccountKeys(config.userSeed, config.midnightNodeConfig.networkId);
-      const signature = await withSyncedWalletFacade(keys, config.midnightNodeConfig, async (facade) => {
-        const context = await createCliContext(config, { facade, keys });
-        const response = await pollSignatureResponse(context, {
-          requestId,
-          intervalMs: 500,
-          timeoutMs: 10000,
-        });
-
-        return response;
+      const context = await sharedCliContext();
+      depositSweepTxnSignature = await pollSignatureResponse(context, {
+        requestId,
+        intervalMs: 500,
+        timeoutMs: 10000,
       });
 
       banner([
-        `MPC has posted back signature!!!`,
+        `MPC signed Response for request ${requestId} found from Signet Contract.`,
         "",
-        `  signature!!: ${signature}`,
+        `Signature: ${depositSweepTxnSignature}`,
       ]);
     },
     1 * MINUTE,
