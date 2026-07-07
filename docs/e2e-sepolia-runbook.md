@@ -102,7 +102,7 @@ yarn response          # fakenet-signer; listens on ws://localhost:3030; logs th
 cd boilerplate/contract-cli
 MIDNIGHT_CONTRACT_ADDRESS=<Step 5> \
 MPC_SECP256K1_PUBKEY=<Step 2> \
-SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/<key> \
+EVM_RPC_URL=https://sepolia.infura.io/v3/<key> \
 MPC_WS_URL=ws://localhost:3030 \
 MIDNIGHT_NETWORK=standalone \
 MIDNIGHT_WALLET_SEED=0000000000000000000000000000000000000000000000000000000000000001 \
@@ -119,7 +119,7 @@ MIDNIGHT_WALLET_SEED_B=000000000000000000000000000000000000000000000000000000000
 | `MPC_SECP256K1_PUBKEY` | deploy + test | no | baked-in default |
 | `MIDNIGHT_CONTRACT_ADDRESS` | test | yes | — (throws) |
 | `MIDNIGHT_CONTRACT_ADDRESSES` | MPC server | yes | — |
-| `SEPOLIA_RPC_URL` / `INFURA_API_KEY` | test + MPC | yes | Infura via key |
+| `EVM_RPC_URL` / `INFURA_API_KEY` | test + MPC | yes | Infura via key |
 | `MPC_WS_URL` | test | no | `ws://localhost:3030` |
 | `MIDNIGHT_WALLET_SEED` | test/deploy/MPC | no | genesis `00…01` |
 | `MIDNIGHT_WALLET_SEED_B` | test | STEP 8 only | — |

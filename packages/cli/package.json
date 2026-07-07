@@ -17,7 +17,8 @@
     "@midnight-erc20-vault/signet-midnight": "*",
     "@midnight-erc20-vault/vault-contract": "*",
     "@midnight-ntwrk/midnight-js": "^4.1.1",
-    "commander": "^15.0.0"
+    "commander": "^15.0.0",
+    "ethers": "^6.17.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",

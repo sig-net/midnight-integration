@@ -5,12 +5,19 @@
 
 import { describe, expect, it } from "vitest";
 
-import { computeAddress, getBytes, Interface, SigningKey } from "ethers";
+import {
+  computeAddress,
+  getBytes,
+  Interface,
+  SigningKey,
+  Transaction,
+} from "ethers";
 
 import {
   asciiPadded,
   bigintToBytes32,
-  buildUnsignedEvmTransaction,
+  signetEVMSignatureRequestToSignedEVMTransaction,
+  signetEVMSignatureRequestToUnsignedEVMTransaction,
   recoverSignetEVMSignatureResponseSigner,
   verifySignetEVMSignatureResponse,
   type SignetEVMSignatureRequest,
@@ -79,7 +86,7 @@ const signResponse = (
   key: SigningKey,
   request: SignetEVMSignatureRequest,
 ): Uint8Array => {
-  const signature = key.sign(buildUnsignedEvmTransaction(request).unsignedHash);
+  const signature = key.sign(signetEVMSignatureRequestToUnsignedEVMTransaction(request).unsignedHash);
   const out = new Uint8Array(65);
   out.set(getBytes(signature.r), 0);
   out.set(getBytes(signature.s), 32);
@@ -96,9 +103,9 @@ VALID_RESPONSE_RECID[64] = VALID_RESPONSE[64] - 27;
 
 // ---- Tests ----
 
-describe("buildUnsignedEvmTransaction", () => {
+describe("signetEVMSignatureRequestToUnsignedEVMTransaction", () => {
   it("rebuilds the exact EIP-1559 transaction the request describes", () => {
-    const tx = buildUnsignedEvmTransaction(REQUEST);
+    const tx = signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST);
 
     expect(tx.type).toBe(2);
     expect(tx.chainId).toBe(11155111n);
@@ -118,7 +125,7 @@ describe("buildUnsignedEvmTransaction", () => {
 
   it("rejects a record whose argCount disagrees with the function signature", () => {
     expect(() =>
-      buildUnsignedEvmTransaction({
+      signetEVMSignatureRequestToUnsignedEVMTransaction({
         ...REQUEST,
         calldata: { ...REQUEST.calldata, argCount: 3n },
       }),
@@ -226,4 +233,41 @@ describe("verifySignetEVMSignatureResponse", () => {
       ).toBe(valid);
     },
   );
+});
+
+describe("signetEVMSignatureRequestToSignedEVMTransaction", () => {
+  it("attaches the response signature to the request's transaction", () => {
+    const signed = signetEVMSignatureRequestToSignedEVMTransaction(
+      REQUEST,
+      VALID_RESPONSE,
+    );
+
+    expect(signed.isSigned()).toBe(true);
+    // Signing is non-destructive: the signed tx carries the same body as the
+    // unsigned one, so its signing hash is unchanged.
+    expect(signed.unsignedHash).toBe(
+      signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
+    );
+    // The attached signature recovers to the MPC signer...
+    expect(signed.from).toBe(MPC_ADDRESS);
+    // ...and the serialized payload round-trips to the same signed tx, i.e.
+    // it is broadcast-ready for eth_sendRawTransaction.
+    const roundTripped = Transaction.from(signed.serialized);
+    expect(roundTripped.from).toBe(MPC_ADDRESS);
+    expect(roundTripped.hash).toBe(signed.hash);
+  });
+
+  it("normalizes a bare 0/1 recovery id in v", () => {
+    const signed = signetEVMSignatureRequestToSignedEVMTransaction(
+      REQUEST,
+      VALID_RESPONSE_RECID,
+    );
+    expect(signed.from).toBe(MPC_ADDRESS);
+  });
+
+  it("rejects a response that is not 65 bytes", () => {
+    expect(() =>
+      signetEVMSignatureRequestToSignedEVMTransaction(REQUEST, bytes(64, 1)),
+    ).toThrow(/65-byte/);
+  });
 });

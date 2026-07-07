@@ -5,6 +5,9 @@ An end to end demo showing how Sig Network chain signature technology can be use
 ## Quick Start
 Start by running an end to end integration test driving a CLI application.
 
+### Criteria
+To run the 
+
 ### Setup For the End to End Tests
 This demo comprises of 3 processes: the Midnight Stack, the MPC Server, and the test.
 
@@ -83,3 +86,4 @@ npm run compile:zk
 - move generic types into signet.js
 - use generics to allows client contracts to specify argument count.
 - switch to yarn
+- replace all usages of SignetEVMSignatureRequest with canonical EVMSignatureRequest type from signet.js (if it exists).

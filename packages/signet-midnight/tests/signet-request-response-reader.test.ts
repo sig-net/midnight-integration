@@ -17,7 +17,8 @@ import { computeAddress, getBytes, SigningKey } from "ethers";
 import {
   asciiPadded,
   bigintToBytes32,
-  buildUnsignedEvmTransaction,
+  signetEVMSignatureRequestToSignedEVMTransaction,
+  signetEVMSignatureRequestToUnsignedEVMTransaction,
   deriveJubjubKeypair,
   requestIdHex,
   requestIdType,
@@ -92,7 +93,7 @@ const IMPOSTER_ADDRESS = computeAddress(IMPOSTER_KEY.publicKey);
 
 /** Sign `REQUEST`'s rebuilt tx hash with `key`, packed as 65-byte r||s||v. */
 const signResponse = (key: SigningKey): Uint8Array => {
-  const signature = key.sign(buildUnsignedEvmTransaction(REQUEST).unsignedHash);
+  const signature = key.sign(signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST).unsignedHash);
   const out = new Uint8Array(65);
   out.set(getBytes(signature.r), 0);
   out.set(getBytes(signature.s), 32);
@@ -373,6 +374,56 @@ describe("getVerifiedSignatureResponse", () => {
       });
     },
   );
+});
+
+describe("getUnsignedEVMTransaction", () => {
+  it("rebuilds the request's unsigned transaction", async () => {
+    const { reader, queries } = makeReader([]);
+    const tx = await reader.getUnsignedEVMTransaction(REQUEST_ID_HEX);
+
+    expect(tx.isSigned()).toBe(false);
+    expect(tx.unsignedHash).toBe(
+      signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
+    );
+    // Unsigned needs only the request record — never touches the signet contract.
+    expect(queries.responses).toBe(0);
+  });
+
+  it("throws for a request id not on the ledger", async () => {
+    const { reader } = makeReader([]);
+    await expect(
+      reader.getUnsignedEVMTransaction(UNKNOWN_ID_HEX),
+    ).rejects.toThrow(/not on the requester contract's ledger/);
+  });
+});
+
+describe("getSignedEVMTransaction", () => {
+  it("attaches the first verified response, ready to broadcast", async () => {
+    const { reader } = makeReader([IMPOSTER_RESPONSE, GENUINE_RESPONSE]);
+    const tx = await reader.getSignedEVMTransaction(REQUEST_ID_HEX, MPC_ADDRESS);
+
+    expect(tx?.isSigned()).toBe(true);
+    expect(tx?.from).toBe(MPC_ADDRESS);
+    // Identical to assembling it directly from the request and genuine post.
+    expect(tx?.serialized).toBe(
+      signetEVMSignatureRequestToSignedEVMTransaction(REQUEST, GENUINE_RESPONSE)
+        .serialized,
+    );
+  });
+
+  it("returns undefined when no posted response verifies", async () => {
+    const { reader } = makeReader([IMPOSTER_RESPONSE, UNDECODABLE_RESPONSE]);
+    expect(
+      await reader.getSignedEVMTransaction(REQUEST_ID_HEX, MPC_ADDRESS),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when nothing is posted yet", async () => {
+    const { reader } = makeReader([]);
+    expect(
+      await reader.getSignedEVMTransaction(REQUEST_ID_HEX, MPC_ADDRESS),
+    ).toBeUndefined();
+  });
 });
 
 describe("getRemoteExecutionResponse", () => {

@@ -12,7 +12,7 @@ repo's e2e Sepolia runbook.
   indexer, proof server — see `docker-compose.yaml`).
 - **compact compiler** on PATH (`compact --version` must work).
 - **`npm install` + `npm run compile`** from the repo root.
-- **`SEPOLIA_RPC_URL`** set (funding preflights and, later, EVM broadcasts).
+- **`EVM_RPC_URL`** set (funding preflights and, later, EVM broadcasts).
 - For the full flow: the fakenet MPC responder from
   github.com/sig-net/solana-signet-program (`yarn response`) — the suite
   prints its exact configuration.
@@ -26,7 +26,7 @@ npm run test:integration-tests  # from the repo root
 The suite is one ordered pipeline in `tests/e2e.test.ts` (`--bail 1` stops it
 at the first failing step):
 
-1. **env check** — stack reachable, compiler present, `SEPOLIA_RPC_URL` set.
+1. **env check** — stack reachable, compiler present, `EVM_RPC_URL` set.
 2. **compile** (`compile:vault-contract:zk`) — skipped when `MIDNIGHT_VAULT_CONTRACT_ADDRESS` is set.
 3. **deploy** (in-process `deployVault`) — skipped when the address is set; otherwise prints the address to save.
 4. **derive `MPC_ROOT_KEY`** — skipped when set.
@@ -71,7 +71,7 @@ does); values already present in the real environment win over the file.
 | `MPC_ROOT_KEY` | Fakenet signer root key; set to skip generation | derived by run 1 |
 | `MPC_JUBJUB_PK`, `MPC_SECP256K1_PUBKEY` | MPC public keys; set both to skip derivation | derived from root key |
 | `EVM_VAULT_ADDRESS` / `EVM_USER_ADDRESS` | Derived EVM accounts; set to skip derivation | derived by run 1 |
-| `SEPOLIA_RPC_URL` | EVM JSON-RPC endpoint | — (required) |
+| `EVM_RPC_URL` | EVM JSON-RPC endpoint | — (required) |
 | `ERC20_ADDRESS` | Token for the deposit flow | Sepolia USDC `0x1c7D…7238` |
 
 Note: the deployer and user identities default to the same genesis seed —

@@ -14,7 +14,7 @@ const ERC20_READ_ABI = [
 /**
  * Read an address's native ETH balance.
  *
- * @param rpcUrl - JSON-RPC endpoint (e.g. `SEPOLIA_RPC_URL`).
+ * @param rpcUrl - JSON-RPC endpoint (e.g. `EVM_RPC_URL`).
  * @param address - The account to query.
  * @returns Balance in wei.
  */
@@ -30,7 +30,7 @@ export async function getEthBalance(rpcUrl: string, address: string): Promise<bi
 /**
  * Read an address's next transaction nonce (pending count).
  *
- * @param rpcUrl - JSON-RPC endpoint (e.g. `SEPOLIA_RPC_URL`).
+ * @param rpcUrl - JSON-RPC endpoint (e.g. `EVM_RPC_URL`).
  * @param address - The account to query.
  * @returns The nonce for the account's next transaction.
  */
@@ -46,7 +46,7 @@ export async function getTransactionNonce(rpcUrl: string, address: string): Prom
 /**
  * Read an address's ERC20 token balance along with the token's decimals.
  *
- * @param rpcUrl - JSON-RPC endpoint (e.g. `SEPOLIA_RPC_URL`).
+ * @param rpcUrl - JSON-RPC endpoint (e.g. `EVM_RPC_URL`).
  * @param token - The ERC20 contract address.
  * @param holder - The account to query.
  * @returns The raw balance and the token's `decimals()`.

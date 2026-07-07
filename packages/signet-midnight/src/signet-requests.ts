@@ -14,6 +14,11 @@
 // Read more: https://docs.sig.network/ (signet protocol) and the module
 // header in Signet.compact (layout convention, path binding).
 
+import { getAddress, Interface, Signature, Transaction } from "ethers";
+
+import { bytesToBigint } from "./schnorr.ts";
+import type { SignetEVMSignatureResponse } from "./signet-contract-state-reader.ts";
+
 /**
  * 32-byte signet request id (Compact: `new type SignetRequestId = Bytes<32>`).
  * Chain-agnostic: downstream consumers treat it as an opaque key. Each request
@@ -106,6 +111,146 @@ export interface SignetEVMSignatureRequest {
   /** Contract-enforced calldata — never caller-chosen wholesale. */
   calldata: EVMCalldata;
   mpcRouting: SignetMPCRoutingParams;
+}
+
+/**
+ * Decode a zero-padded ASCII field (Compact's `pad(N, "text")` convention)
+ * back to its string.
+ *
+ * @param bytes - The zero-padded ASCII bytes.
+ * @returns The text before the first zero byte.
+ */
+function asciiUnpadded(bytes: Uint8Array): string {
+  const end = bytes.indexOf(0);
+  return new TextDecoder().decode(end === -1 ? bytes : bytes.subarray(0, end));
+}
+
+/**
+ * Decode one contract-stored ABI arg slot into the JS value ethers encodes
+ * for that ABI type. Compact stores every slot as `Bytes<32>` via
+ * `as Field as Bytes<32>` — a LITTLE-ENDIAN field embed — so numeric kinds
+ * (and addresses, which travel as `Bytes<20> as Field`) decode via
+ * little-endian bigint, NOT as a big-endian ABI word. Mirrors
+ * `decodeArgForType` in the MPC's calldata builder.
+ *
+ * @param abiType - The ABI type named in the function signature.
+ * @param word - The 32-byte stored arg slot.
+ * @returns The value to hand to `Interface.encodeFunctionData`.
+ */
+function decodeAbiArg(abiType: string, word: Uint8Array): string | bigint {
+  if (abiType === "address") {
+    const value = bytesToBigint(word);
+    return getAddress(`0x${value.toString(16).padStart(40, "0").slice(-40)}`);
+  }
+  if (abiType.startsWith("uint") || abiType.startsWith("int")) {
+    return bytesToBigint(word);
+  }
+  if (abiType === "bool") {
+    return bytesToBigint(word) === 0n ? 0n : 1n;
+  }
+  return `0x${bytesToHex(word)}`;
+}
+
+/**
+ * Rebuild the unsigned EIP-1559 transaction a request record describes,
+ * byte-identical to the one the MPC assembles and signs: ABI calldata from
+ * the stored function signature and arg slots, plus the stored gas and
+ * routing fields. This is the canonical request→transaction transform;
+ * response-side verification (`signature-response-verification.ts`) and the
+ * signed-transaction builder below both go through it, so the transaction a
+ * client broadcasts is provably the one the MPC put its signature over.
+ *
+ * @param signetEVMSignatureRequest - The on-ledger request record.
+ * @returns The unsigned ethers transaction (`unsignedHash` is the digest the
+ *   MPC signs).
+ * @throws Error if the stored function signature cannot be parsed or its
+ *   parameter count disagrees with the stored `argCount`.
+ */
+export function signetEVMSignatureRequestToUnsignedEVMTransaction(
+  signetEVMSignatureRequest: SignetEVMSignatureRequest,
+): Transaction {
+  const { evmTransaction, calldata } = signetEVMSignatureRequest;
+  const funcSig = asciiUnpadded(calldata.funcSig);
+  const iface = new Interface([`function ${funcSig}`]);
+  const fragment = iface.getFunction(funcSig.split("(")[0]);
+  if (fragment === null) {
+    throw new Error(`cannot parse function signature "${funcSig}"`);
+  }
+  if (BigInt(fragment.inputs.length) !== calldata.argCount) {
+    throw new Error(
+      `function signature "${funcSig}" takes ${fragment.inputs.length} args ` +
+        `but the request stores argCount ${calldata.argCount}`,
+    );
+  }
+  const args = fragment.inputs.map((input, i) =>
+    decodeAbiArg(input.type, calldata.args[i]),
+  );
+  return Transaction.from({
+    type: 2,
+    chainId: evmTransaction.chainId,
+    nonce: Number(evmTransaction.nonce),
+    gasLimit: evmTransaction.gasLimit,
+    maxFeePerGas: evmTransaction.maxFeePerGas,
+    maxPriorityFeePerGas: evmTransaction.maxPriorityFeePerGas,
+    to: getAddress(`0x${bytesToHex(evmTransaction.to)}`),
+    value: evmTransaction.value,
+    data: iface.encodeFunctionData(fragment, args),
+  });
+}
+
+/**
+ * Decode a 65-byte `r || s || v` response signature (as posted to the signet
+ * contract's signature response log) into an ethers {@link Signature}. `v`
+ * may be a recovery id (0/1) or the legacy parity (27/28); both normalize to
+ * the same signature.
+ *
+ * @param response - The 65-byte `r || s || v` response signature.
+ * @returns The ethers signature.
+ * @throws Error if the response is not exactly 65 bytes.
+ */
+export function signetEVMSignatureResponseToSignature(
+  response: SignetEVMSignatureResponse,
+): Signature {
+  if (response.length !== 65) {
+    throw new Error(
+      `expected a 65-byte r||s||v signature, got ${response.length} bytes`,
+    );
+  }
+  const v = response[64];
+  return Signature.from({
+    r: `0x${bytesToHex(response.subarray(0, 32))}`,
+    s: `0x${bytesToHex(response.subarray(32, 64))}`,
+    v: v < 27 ? v + 27 : v,
+  });
+}
+
+/**
+ * Assemble the broadcast-ready signed EIP-1559 transaction for a request from
+ * its MPC signature response: rebuild the exact unsigned transaction the MPC
+ * signed (see {@link signetEVMSignatureRequestToUnsignedEVMTransaction}) and
+ * attach the `r || s || v` signature. Does NOT check that the signature
+ * recovers to the requester's derived address — the response log is
+ * unauthenticated, so verify first with
+ * `verifySignetEVMSignatureResponse`.
+ *
+ * @param signetEVMSignatureRequest - The on-ledger request record.
+ * @param response - The 65-byte `r || s || v` response signature answering it.
+ * @returns The signed ethers transaction; `serialized` is the raw payload for
+ *   `eth_sendRawTransaction`, `hash` its on-chain hash, `from` the recovered
+ *   sender.
+ * @throws Error if the request record is malformed (see
+ *   {@link signetEVMSignatureRequestToUnsignedEVMTransaction}) or the response
+ *   is not a decodable 65-byte signature.
+ */
+export function signetEVMSignatureRequestToSignedEVMTransaction(
+  signetEVMSignatureRequest: SignetEVMSignatureRequest,
+  response: SignetEVMSignatureResponse,
+): Transaction {
+  const transaction = signetEVMSignatureRequestToUnsignedEVMTransaction(
+    signetEVMSignatureRequest,
+  );
+  transaction.signature = signetEVMSignatureResponseToSignature(response);
+  return transaction;
 }
 
 /**

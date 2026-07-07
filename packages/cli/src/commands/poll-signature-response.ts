@@ -4,7 +4,7 @@
 // push/websocket alternative.
 
 import {
-  bytesToHex,
+  signetEVMSignatureRequestToSignedEVMTransaction,
   SignetRequestResponseReader,
   type SignetRequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
@@ -28,21 +28,26 @@ const sleep = (ms: number): Promise<void> =>
 
 /**
  * Poll the signet contract at `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` until a VALID
- * signature response for `requestId` appears, and return the 65-byte
- * `r||s||v` signature as hex.
+ * signature response for `requestId` appears, then reconstruct and return the
+ * fully signed EVM transaction — `0x`-prefixed serialized hex, ready to hand
+ * straight to `broadcast-evm` / `eth_sendRawTransaction`.
  *
  * Fetching, enumerating, and verifying the posts is delegated to
  * signet-midnight's {@link SignetRequestResponseReader}: the signature
  * response log is unauthenticated (secp256k1 cannot be verified in-circuit),
  * so each post must recover to the user's MPC-derived address
  * (`EVM_USER_ADDRESS`) over the requested transaction's signing hash, and
- * the first valid post wins. This command owns only the loop and the
- * reporting — each rejected post is warned once, not every tick. For the
- * MPC's attestation of the EVM result, see `poll-remote-execution-response`.
+ * the first valid post wins. The signed transaction is assembled from the
+ * request record and that response via
+ * {@link signetEVMSignatureRequestToSignedEVMTransaction}. This command owns
+ * only the loop and the reporting — each rejected post is warned once, not
+ * every tick. For the MPC's attestation of the EVM result, see
+ * `poll-remote-execution-response`.
  *
  * @param context - The CLI context.
  * @param options - What to poll for and how patiently.
- * @returns The first valid signature as lowercase hex, no `0x` prefix.
+ * @returns The broadcast-ready signed EVM transaction as `0x`-prefixed
+ *   serialized hex.
  * @throws Error when a contract has no state on-chain, the request is not on
  *   the vault's ledger, the responses ledger is inconsistent, or `timeoutMs`
  *   elapses with no valid response posted.
@@ -86,7 +91,15 @@ export async function pollSignatureResponse(context: CliContext, options: PollSi
     const valid = verdicts.find((v) => v.rejectedReason === undefined);
     if (valid !== undefined) {
       console.log(`valid response found (post ${valid.count} of ${verdicts.length})`);
-      return bytesToHex(valid.response);
+      // Reconstruct the broadcast-ready signed transaction from the request
+      // record and this response. getSignatureRequest is cached (the verify
+      // call above already fetched it), so this adds no extra query.
+      const request = await reader.getSignatureRequest(options.requestId);
+      const signedTransaction = signetEVMSignatureRequestToSignedEVMTransaction(
+        request,
+        valid.response,
+      );
+      return signedTransaction.serialized;
     }
 
     if (Date.now() >= deadline) {
