@@ -190,3 +190,15 @@ export function parseJubjubPublicKey(value: string): JubjubPoint {
     throw new Error(`Jubjub public key coordinates must be decimal or 0x-hex integers; got "${value}"`);
   }
 }
+
+/**
+ * Format a Jubjub public key as the `"x,y"` decimal config/env form that
+ * {@link parseJubjubPublicKey} accepts — the round-trip inverse, for handing
+ * a derived key to deploys as `MPC_JUBJUB_PUBLIC_KEY`.
+ *
+ * @param point - The point to format.
+ * @returns The `"x,y"` string with decimal coordinates.
+ */
+export function formatJubjubPublicKey(point: JubjubPoint): string {
+  return `${point.x},${point.y}`;
+}

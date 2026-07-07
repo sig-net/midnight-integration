@@ -10,6 +10,7 @@ import { CompactTypeBytes, persistentHash } from "@midnight-ntwrk/compact-runtim
 
 import {
   deriveJubjubKeypair,
+  formatJubjubPublicKey,
   hashJubjubPoint,
   isRemoteExecutionError,
   JUBJUB_ORDER,
@@ -108,6 +109,16 @@ describe("parseJubjubPublicKey", () => {
     } else {
       expect(parseJubjubPublicKey(value)).toEqual(expected);
     }
+  });
+});
+
+describe("formatJubjubPublicKey", () => {
+  it("round-trips a real derived key through parseJubjubPublicKey", () => {
+    expect(parseJubjubPublicKey(formatJubjubPublicKey(MPC_KEYS.pk))).toEqual(MPC_KEYS.pk);
+  });
+
+  it("formats as decimal \"x,y\"", () => {
+    expect(formatJubjubPublicKey({ x: 12n, y: 34n })).toBe("12,34");
   });
 });
 

@@ -4,7 +4,8 @@
 // setup steps feed each other through the env accumulator below. Run with
 // `npm run test:integration-tests` from the repo root (--bail stops the pipeline
 // at the first failure); without RUN_INTEGRATION_TESTS the whole suite
-// skips so plain `npm run test` stays offline.
+// skips so plain `npm run test` stays offline. Set STEP_THROUGH=1 to pause
+// before each step (after the first) until you hit Enter in the terminal.
 //
 // Tests drive the vault THROUGH the cli's exported command functions
 // (AGENTS.md: orchestration lives in the cli, never in tests).
@@ -24,19 +25,21 @@ import {
   bytesToBigint,
   deriveEvmAddress,
   deriveMpcKeys,
+  formatJubjubPublicKey,
   generateMpcRootKey,
   readSignetRequestsLedgerFromState,
   type SignetRequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
-import { deployVault, ledger } from "@midnight-erc20-vault/vault-contract";
+import { deployVault, ledger as vaultContractLedger } from "@midnight-erc20-vault/vault-contract";
+import { deploySignetContract } from "@midnight-erc20-vault/signet-contract";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { parseEther, parseUnits } from "ethers";
-import { describe, expect, it } from "vitest";
-
+import { beforeEach, describe, expect, it } from "vitest";
 import { loadRepoDotEnv } from "../src/env-file.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../src/preflight.ts";
 import { getErc20Balance, getEthBalance, getTransactionNonce, SEPOLIA_USDC_ADDRESS } from "../src/sepolia.ts";
 import { runRootScript } from "../src/subprocess.ts";
+import { waitForGo } from "../src/waitForGo.ts";
 
 const MINUTE = 60_000;
 
@@ -50,12 +53,17 @@ const MINUTE = 60_000;
  */
 const env: NodeJS.ProcessEnv = { ...loadRepoDotEnv(), ...process.env };
 
-/** The env keys the setup steps populate, in pipeline order. */
+/**
+ * The env keys the setup steps populate. Used only to build the "Minimal .env
+ * block" printout — order here is purely cosmetic (execution order is fixed by
+ * the sequence of `it()` blocks, not this array). Kept in derivation order so
+ * the printed block reads like the flow that produced it.
+ */
 const PIPELINE_KEYS = [
   "MIDNIGHT_VAULT_CONTRACT_ADDRESS",
+  "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
   "MPC_ROOT_KEY",
-  "MPC_JUBJUB_PK_X",
-  "MPC_JUBJUB_PK_Y",
+  "MPC_JUBJUB_PK",
   "MPC_SECP256K1_PUBKEY",
   "EVM_VAULT_ADDRESS",
   "EVM_USER_ADDRESS",
@@ -81,7 +89,32 @@ function banner(lines: string[]): void {
   console.log(`\n${border}\n${lines.join("\n")}\n${border}\n`);
 }
 
+/**
+ * Print a bold header at the start of each test. We run with
+ * `--disable-console-intercept` (so subprocess output streams live), which
+ * means vitest does NOT prefix logs with their test name — this header is what
+ * segments the streaming output and shows which step is currently running.
+ * A heavy rule (`━`) distinguishes step boundaries from value banners (`=`).
+ */
+function testHeader(index: number, total: number, name: string): void {
+  const border = "━".repeat(72);
+  console.log(`\n${border}\n▶  TEST ${index}/${total}  ${name}\n${border}`);
+}
+
 describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
+  // Hook timeout must outlive a human deciding whether to hit Enter — the
+  // 10s vitest default would fail the step mid-pause. The pause comes BEFORE
+  // the header so the header prints on resume, directly above its step's
+  // output.
+  beforeEach(async (ctx) => {
+    const siblings = ctx.task.suite?.tasks ?? [];
+    const index = siblings.indexOf(ctx.task);
+    if (process.env.STEP_THROUGH && index > 0) {
+      await waitForGo(index + 1, siblings.length, ctx.task.name);
+    }
+    testHeader(index + 1, siblings.length, ctx.task.name);
+  }, 60 * MINUTE);
+
   it(
     "environment: midnight stack reachable, compact on PATH, SEPOLIA_RPC_URL set",
     async () => {
@@ -140,18 +173,46 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
   });
 
   it("setup: derive MPC public keys", () => {
-    if (env.MPC_JUBJUB_PK_X && env.MPC_JUBJUB_PK_Y && env.MPC_SECP256K1_PUBKEY) {
-      logSkip("derive MPC public keys", "MPC_JUBJUB_PK_X/Y and MPC_SECP256K1_PUBKEY are set");
+    if (env.MPC_JUBJUB_PK && env.MPC_SECP256K1_PUBKEY) {
+      logSkip("derive MPC public keys", "MPC_JUBJUB_PK/Y and MPC_SECP256K1_PUBKEY are set");
       return;
     }
     const keys = deriveMpcKeys(requireEnv("MPC_ROOT_KEY"));
-    env.MPC_JUBJUB_PK_X = keys.jubjubPkX.toString();
-    env.MPC_JUBJUB_PK_Y = keys.jubjubPkY.toString();
+    env.MPC_JUBJUB_PK = formatJubjubPublicKey(keys.jubjubPoint);
     env.MPC_SECP256K1_PUBKEY = keys.secp256k1CompressedPubkey;
-    console.log(`MPC_JUBJUB_PK_X=${env.MPC_JUBJUB_PK_X}`);
-    console.log(`MPC_JUBJUB_PK_Y=${env.MPC_JUBJUB_PK_Y}`);
+    console.log(`MPC_JUBJUB_PK=${env.MPC_JUBJUB_PK}`);
     console.log(`MPC_SECP256K1_PUBKEY=${env.MPC_SECP256K1_PUBKEY}`);
   });
+
+  it(
+    "setup: compile signet-contract contract with proving keys",
+    async () => {
+      if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
+        logSkip("compile:signet-contract:zk", `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is set (${env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS})`);
+        return;
+      }
+      await runRootScript("compile:signet-contract:zk", env, 14 * MINUTE);
+    },
+    15 * MINUTE,
+  );
+
+    it(
+    "setup: deploy signet-contract",
+    async () => {
+      if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
+        logSkip("deploy:vault-contract", `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is set (${env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS})`);
+        return;
+      }
+      const { contractAddress } = await deploySignetContract(env);
+      env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS = contractAddress;
+      banner([
+        `MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${contractAddress}`,
+        "",
+        "Add this to your .env to skip compile + deploy on subsequent runs.",
+      ]);
+    },
+    10 * MINUTE,
+  );  
 
   it("setup: derive vault EVM address", () => {
     if (env.EVM_VAULT_ADDRESS) {
@@ -229,7 +290,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
           if (!contractState) {
             throw new Error(`no contract state found at ${vaultContractAddress}`);
           }
-          return ledger(contractState.data);
+          return vaultContractLedger(contractState.data);
         };
 
         if ((await readLedger()).initialized) {

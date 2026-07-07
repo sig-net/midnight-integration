@@ -12,9 +12,11 @@ import { deriveJubjubKeypair, deriveMpcKeys, generateMpcRootKey } from "../src/i
 // epsilon-derivation.test.ts's MPC_PUBKEY).
 const ROOT_KEY = "9e3b2f8d1c4a5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f";
 const EXPECTED = {
+  jubjubPoint: {
+    x: 8023031394973346077785315730014542191880709434026907704830900738402590808213n,
+    y: 50101019894250312491238384247378302178175057850557405808701178820769733655529n,
+  },
   jubjubSk: 5081350198549810674173641494209182115841090056686181933241101946253491404819n,
-  jubjubPkX: 8023031394973346077785315730014542191880709434026907704830900738402590808213n,
-  jubjubPkY: 50101019894250312491238384247378302178175057850557405808701178820769733655529n,
   secp256k1CompressedPubkey: "0x0281e037488c6e708c5a28c8bc2e43b7a704f3a869bd129fb6511bcc58e98db243",
 };
 
@@ -32,8 +34,8 @@ describe("deriveMpcKeys", () => {
 
   it.each(VALID_FORMS)("derives the golden public keys from a $name", ({ rootKeyHex }) => {
     const keys = deriveMpcKeys(rootKeyHex);
-    expect(keys.jubjubPkX).toBe(EXPECTED.jubjubPkX);
-    expect(keys.jubjubPkY).toBe(EXPECTED.jubjubPkY);
+    expect(keys.jubjubPoint.x).toBe(EXPECTED.jubjubPoint.x);
+    expect(keys.jubjubPoint.y).toBe(EXPECTED.jubjubPoint.y);
     expect(keys.secp256k1CompressedPubkey).toBe(EXPECTED.secp256k1CompressedPubkey);
   });
 
@@ -54,8 +56,8 @@ describe("deriveJubjubKeypair", () => {
     const seed = Uint8Array.from(Buffer.from(ROOT_KEY, "hex"));
     const { sk, pk } = deriveJubjubKeypair(seed);
     expect(sk).toBe(EXPECTED.jubjubSk);
-    expect(pk.x).toBe(EXPECTED.jubjubPkX);
-    expect(pk.y).toBe(EXPECTED.jubjubPkY);
+    expect(pk.x).toBe(EXPECTED.jubjubPoint.x);
+    expect(pk.y).toBe(EXPECTED.jubjubPoint.y);
     const recomputed = ecMulGenerator(sk);
     expect(recomputed.x).toBe(pk.x);
     expect(recomputed.y).toBe(pk.y);

@@ -12,6 +12,7 @@
   "dependencies": {
     "@midnight-erc20-vault/cli": "*",
     "@midnight-erc20-vault/lib": "*",
+    "@midnight-erc20-vault/signet-contract": "^0.0.0",
     "@midnight-erc20-vault/signet-midnight": "*",
     "@midnight-erc20-vault/vault-contract": "*",
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "^4.1.1",

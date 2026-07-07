@@ -10,6 +10,7 @@ import { randomBytes } from "node:crypto";
 import { SigningKey } from "ethers";
 
 import { deriveJubjubKeypair } from "./schnorr.ts";
+import type { JubjubPoint } from "@midnight-ntwrk/compact-runtime";
 
 /**
  * The public keys the MPC network presents for a given root key: the Jubjub
@@ -17,10 +18,8 @@ import { deriveJubjubKeypair } from "./schnorr.ts";
  * accounts derive from.
  */
 export interface MpcPublicKeys {
-  /** Jubjub public key x coordinate (`MPC_JUBJUB_PK_X`). */
-  jubjubPkX: bigint;
-  /** Jubjub public key y coordinate (`MPC_JUBJUB_PK_Y`). */
-  jubjubPkY: bigint;
+  /** Jubjub Point, the PK for Jubjub verification */
+  jubjubPoint: JubjubPoint;
   /** Compressed secp256k1 public key as 0x-hex (`MPC_SECP256K1_PUBKEY`). */
   secp256k1CompressedPubkey: string;
 }
@@ -43,8 +42,7 @@ export function deriveMpcKeys(rootKeyHex: string): MpcPublicKeys {
   const { pk } = deriveJubjubKeypair(rootBytes);
   const secp = new SigningKey(`0x${root}`);
   return {
-    jubjubPkX: pk.x,
-    jubjubPkY: pk.y,
+    jubjubPoint: pk,
     secp256k1CompressedPubkey: secp.compressedPublicKey,
   };
 }
