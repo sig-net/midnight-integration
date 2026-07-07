@@ -137,9 +137,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     MINUTE,
   );
 
-  it("setup: derive MPC root key", () => {
+  it("setup: check/derive MPC root key", () => {
     if (env.MPC_ROOT_KEY) {
-      logSkip("derive MPC root key", `MPC_ROOT_KEY is set as ${env.MPC_ROOT_KEY}`);
+      logSkip("check/derive MPC root key", `MPC_ROOT_KEY is set as ${env.MPC_ROOT_KEY}`);
       return;
     }
     env.MPC_ROOT_KEY = generateMpcRootKey();
@@ -154,12 +154,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
   // before the root-key step above has a chance to generate MPC_ROOT_KEY.
   const mpcKeys = () => deriveMpcKeys(requireEnv("MPC_ROOT_KEY"));
 
-  it("setup: derive MPC_JUBJUB_PK public key", () => {
+  it("setup: check/derive MPC_JUBJUB_PK public key", () => {
     const expectedMPCJubjubPK = formatJubjubPublicKey(mpcKeys().jubjubPoint);
     if (env.MPC_JUBJUB_PK) {
       console.log(`Found MPC_JUBJUB_PK in the environment as ${env.MPC_JUBJUB_PK}`);
       expect(env.MPC_JUBJUB_PK, "MPC_JUBJUB_PK should be derived from MPC_ROOT_KEY").toBe(expectedMPCJubjubPK);
-      logSkip("derive MPC_JUBJUB_PK public key", `MPC_JUBJUB_PK is set correctly`);
+      logSkip("check/derive MPC_JUBJUB_PK public key", `MPC_JUBJUB_PK is set correctly`);
       return;
     }
     env.MPC_JUBJUB_PK = expectedMPCJubjubPK;
@@ -168,12 +168,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     console.log(` ➜ 💡 Set as MPC_JUBJUB_PK in the environment to skip this step on the next run`);
   });
 
-  it("setup: derive MPC_SECP256K1_PUBKEY public key", () => {
+  it("setup: check/derive MPC_SECP256K1_PUBKEY public key", () => {
     const expectedSECP256k1CompressedPubkey = mpcKeys().secp256k1CompressedPubkey;
     if (env.MPC_SECP256K1_PUBKEY) {
       console.log(`Found MPC_SECP256K1_PUBKEY in the environment as ${env.MPC_SECP256K1_PUBKEY}`);
       expect(env.MPC_SECP256K1_PUBKEY, "MPC_SECP256K1_PUBKEY should be derived from MPC_ROOT_KEY").toBe(expectedSECP256k1CompressedPubkey);
-      logSkip("derive MPC_SECP256K1_PUBKEY public key", `MPC_SECP256K1_PUBKEY is set correctly`);
+      logSkip("check/derive MPC_SECP256K1_PUBKEY public key", `MPC_SECP256K1_PUBKEY is set correctly`);
       return;
     }
     env.MPC_SECP256K1_PUBKEY = expectedSECP256k1CompressedPubkey;
@@ -238,36 +238,40 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     10 * MINUTE,
   );
 
-  it("setup: derive vault EVM address", () => {
-    if (env.EVM_VAULT_ADDRESS) {
-      logSkip("derive vault EVM address", `EVM_VAULT_ADDRESS is set (${env.EVM_VAULT_ADDRESS})`);
-      return;
-    }
-    const address = deriveEvmAddress(
+  it("setup: check/derive vault EVM address", () => {
+    const expectedAddress = deriveEvmAddress(
       requireEnv("MPC_SECP256K1_PUBKEY"),
       requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS"),
       "vault",
     );
-    env.EVM_VAULT_ADDRESS = address;
-    console.log(`derived a fresh EVM_VAULT_ADDRESS=${address}`);
+    if (env.EVM_VAULT_ADDRESS) {
+      console.log(`Found EVM_VAULT_ADDRESS in the environment as ${env.EVM_VAULT_ADDRESS}`);
+      expect(env.EVM_VAULT_ADDRESS, "EVM_VAULT_ADDRESS should be derived from MPC_SECP256K1_PUBKEY + vault contract address").toBe(expectedAddress);
+      logSkip("check/derive vault EVM address", `EVM_VAULT_ADDRESS is set correctly`);
+      return;
+    }
+    env.EVM_VAULT_ADDRESS = expectedAddress;
+    console.log(`derived a fresh EVM_VAULT_ADDRESS=${expectedAddress}`);
     console.log(` ➜ the vault's own EVM account (path "vault")`);
     console.log(` ➜ fund it with ETH for gas before running withdrawals`);
     console.log(` ➜ 💡 Set as EVM_VAULT_ADDRESS in the environment to skip this step on the next run`);
   });
 
-  it("setup: derive user EVM address", () => {
-    if (env.EVM_USER_ADDRESS) {
-      logSkip("derive user EVM address", `EVM_USER_ADDRESS is set (${env.EVM_USER_ADDRESS})`);
-      return;
-    }
+  it("setup: check/derive user EVM address", () => {
     const identity = getUserIdentity(getCliConfig(env));
-    const address = deriveEvmAddress(
+    const expectedAddress = deriveEvmAddress(
       requireEnv("MPC_SECP256K1_PUBKEY"),
       requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS"),
       identity.commitmentHex,
     );
-    env.EVM_USER_ADDRESS = address;
-    console.log(`derived a fresh EVM_USER_ADDRESS=${address}`);
+    if (env.EVM_USER_ADDRESS) {
+      console.log(`Found EVM_USER_ADDRESS in the environment as ${env.EVM_USER_ADDRESS}`);
+      expect(env.EVM_USER_ADDRESS, "EVM_USER_ADDRESS should be derived from MPC_SECP256K1_PUBKEY + vault contract + user identity").toBe(expectedAddress);
+      logSkip("check/derive user EVM address", `EVM_USER_ADDRESS is set correctly`);
+      return;
+    }
+    env.EVM_USER_ADDRESS = expectedAddress;
+    console.log(`derived a fresh EVM_USER_ADDRESS=${expectedAddress}`);
     console.log(` ➜ the user's derived EVM account (path = identity commitment hex)`);
     console.log(` ➜ FUND IT ON SEPOLIA before the deposit test: >= 0.01 ETH (gas) and >= 0.1 USDC (deposit)`);
     console.log(` ➜ 💡 Set as EVM_USER_ADDRESS in the environment to skip this step on the next run`);
