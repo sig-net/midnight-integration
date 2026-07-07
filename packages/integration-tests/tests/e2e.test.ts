@@ -102,10 +102,8 @@ function testHeader(index: number, total: number, name: string): void {
 }
 
 describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
-  // Hook timeout must outlive a human deciding whether to hit Enter — the
-  // 10s vitest default would fail the step mid-pause. The pause comes BEFORE
-  // the header so the header prints on resume, directly above its step's
-  // output.
+  // - Print a header before each test.
+  // - Check for step through mode to pause between each step.
   beforeEach(async (ctx) => {
     const siblings = ctx.task.suite?.tasks ?? [];
     const index = siblings.indexOf(ctx.task);
@@ -129,9 +127,60 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       const cliConfig = getCliConfig(env);
       console.log(`DEPLOYER_SEED in effect: ${deployConfig.deployerSeed}`);
       console.log(`USER_SEED in effect:     ${cliConfig.userSeed}`);
+      console.log();
+      console.log(`DEPLOYER_SEED: derives midnight wallet that pays for contract deploys.`);
+      console.log(` ➜ seeds midnight wallet that pays for contract deploys.`);
+      console.log(`USER_SEED:`);
+      console.log(` ➜ seeds midnight wallet that interacts with deployed contracts.`);
+      console.log(` ➜ seeds EVM_USER_ADDRESS generation`);
     },
     MINUTE,
   );
+
+  it("setup: derive MPC root key", () => {
+    if (env.MPC_ROOT_KEY) {
+      logSkip("derive MPC root key", `MPC_ROOT_KEY is set as ${env.MPC_ROOT_KEY}`);
+      return;
+    }
+    env.MPC_ROOT_KEY = generateMpcRootKey();
+    console.log(`generated a fresh MPC_ROOT_KEY=${env.MPC_ROOT_KEY}`);
+    console.log(` ➜ seeds MPC key generation`);
+    console.log(` ➜ 💡 Set as MPC_ROOT_KEY in the environment to skip this step on the next run`);
+    console.log("(printed again in the MPC server configuration step)");
+  });
+
+  // Derive MPC keys for setting or checking public keys. Must be called
+  // INSIDE the tests below — the describe body runs at collection time,
+  // before the root-key step above has a chance to generate MPC_ROOT_KEY.
+  const mpcKeys = () => deriveMpcKeys(requireEnv("MPC_ROOT_KEY"));
+
+  it("setup: derive MPC_JUBJUB_PK public key", () => {
+    const expectedMPCJubjubPK = formatJubjubPublicKey(mpcKeys().jubjubPoint);
+    if (env.MPC_JUBJUB_PK) {
+      console.log(`Found MPC_JUBJUB_PK in the environment as ${env.MPC_JUBJUB_PK}`);
+      expect(env.MPC_JUBJUB_PK, "MPC_JUBJUB_PK should be derived from MPC_ROOT_KEY").toBe(expectedMPCJubjubPK);
+      logSkip("derive MPC_JUBJUB_PK public key", `MPC_JUBJUB_PK is set correctly`);
+      return;
+    }
+    env.MPC_JUBJUB_PK = expectedMPCJubjubPK;
+    console.log(`generated a fresh MPC_JUBJUB_PK=${env.MPC_JUBJUB_PK}`);
+    console.log(` ➜ used by contracts to validate signatures`);
+    console.log(` ➜ 💡 Set as MPC_JUBJUB_PK in the environment to skip this step on the next run`);
+  });
+
+  it("setup: derive MPC_SECP256K1_PUBKEY public key", () => {
+    const expectedSECP256k1CompressedPubkey = mpcKeys().secp256k1CompressedPubkey;
+    if (env.MPC_SECP256K1_PUBKEY) {
+      console.log(`Found MPC_SECP256K1_PUBKEY in the environment as ${env.MPC_SECP256K1_PUBKEY}`);
+      expect(env.MPC_SECP256K1_PUBKEY, "MPC_SECP256K1_PUBKEY should be derived from MPC_ROOT_KEY").toBe(expectedSECP256k1CompressedPubkey);
+      logSkip("derive MPC_SECP256K1_PUBKEY public key", `MPC_SECP256K1_PUBKEY is set correctly`);
+      return;
+    }
+    env.MPC_SECP256K1_PUBKEY = expectedSECP256k1CompressedPubkey;
+    console.log(`generated a fresh MPC_SECP256K1_PUBKEY=${env.MPC_SECP256K1_PUBKEY}`);
+    console.log(` ➜ used by contracts to validate signatures`);
+    console.log(` ➜ 💡 Set as MPC_SECP256K1_PUBKEY in the environment to skip this step on the next run`);
+  });
 
   it(
     "setup: compile vault contract with proving keys",
@@ -163,27 +212,6 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     10 * MINUTE,
   );
 
-  it("setup: derive MPC root key", () => {
-    if (env.MPC_ROOT_KEY) {
-      logSkip("derive MPC root key", "MPC_ROOT_KEY is set");
-      return;
-    }
-    env.MPC_ROOT_KEY = generateMpcRootKey();
-    console.log("generated a fresh MPC_ROOT_KEY (printed in the MPC server configuration step)");
-  });
-
-  it("setup: derive MPC public keys", () => {
-    if (env.MPC_JUBJUB_PK && env.MPC_SECP256K1_PUBKEY) {
-      logSkip("derive MPC public keys", "MPC_JUBJUB_PK/Y and MPC_SECP256K1_PUBKEY are set");
-      return;
-    }
-    const keys = deriveMpcKeys(requireEnv("MPC_ROOT_KEY"));
-    env.MPC_JUBJUB_PK = formatJubjubPublicKey(keys.jubjubPoint);
-    env.MPC_SECP256K1_PUBKEY = keys.secp256k1CompressedPubkey;
-    console.log(`MPC_JUBJUB_PK=${env.MPC_JUBJUB_PK}`);
-    console.log(`MPC_SECP256K1_PUBKEY=${env.MPC_SECP256K1_PUBKEY}`);
-  });
-
   it(
     "setup: compile signet-contract contract with proving keys",
     async () => {
@@ -196,7 +224,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     15 * MINUTE,
   );
 
-    it(
+  it(
     "setup: deploy signet-contract",
     async () => {
       if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
@@ -212,7 +240,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       ]);
     },
     10 * MINUTE,
-  );  
+  );
 
   it("setup: derive vault EVM address", () => {
     if (env.EVM_VAULT_ADDRESS) {
@@ -417,5 +445,5 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       ]);
     },
     1 * MINUTE,
-  );  
+  );
 });
