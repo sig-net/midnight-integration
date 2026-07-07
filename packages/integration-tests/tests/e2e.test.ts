@@ -12,11 +12,13 @@
 
 import {
   broadcastEvm,
+  claimDeposit,
   type CliContext,
   createCliContext,
   getCliConfig,
   getUserIdentity,
   initialize,
+  pollRemoteExecutionResponse,
   pollSignatureResponse,
   readState,
   requestDeposit,
@@ -29,17 +31,19 @@ import {
   deriveMpcKeys,
   formatJubjubPublicKey,
   generateMpcRootKey,
+  remoteExecutionSucceeded,
   SignetRequestResponseReader,
+  type SignetRemoteExecutionResponse,
   type SignetRequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
 import { deployVault, ledger as vaultContractLedger } from "@midnight-erc20-vault/vault-contract";
 import { deploySignetContract } from "@midnight-erc20-vault/signet-contract";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
-import { parseEther, parseUnits } from "ethers";
+import { parseEther, parseUnits, type Transaction } from "ethers";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { loadRepoDotEnv } from "../src/env-file.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../src/preflight.ts";
-import { getErc20Balance, getEthBalance, getTransactionNonce, SEPOLIA_USDC_ADDRESS } from "../src/sepolia.ts";
+import { getErc20Balance, getEthBalance, getTransactionNonce, SEPOLIA_USDC_ADDRESS } from "../src/evm.ts";
 import { runRootScript } from "../src/subprocess.ts";
 import { waitForGo } from "../src/waitForGo.ts";
 
@@ -56,7 +60,7 @@ const MINUTE = 60_000;
 const env: NodeJS.ProcessEnv = { ...loadRepoDotEnv(), ...process.env };
 
 // The cli needs the EVM-side config; default what the environment hasn't
-// pinned (Sepolia + canonical USDC, matching the funding preflight). Set
+// pinned (EVM + canonical USDC, matching the funding preflight). Set
 // before any test builds a CliConfig so the shared context sees them.
 env.ERC20_ADDRESS ??= SEPOLIA_USDC_ADDRESS;
 env.EVM_CHAIN_ID ??= "11155111";
@@ -281,7 +285,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     env.EVM_USER_ADDRESS = expectedAddress;
     console.log(`derived a fresh EVM_USER_ADDRESS=${expectedAddress}`);
     console.log(` ➜ the user's derived EVM account (path = identity commitment hex)`);
-    console.log(` ➜ FUND IT ON SEPOLIA before the deposit test: >= 0.01 ETH (gas) and >= 0.1 USDC (deposit)`);
+    console.log(` ➜ FUND IT ON EVM before the deposit test: >= 0.01 ETH (gas) and >= 0.1 USDC (deposit)`);
     console.log(` ➜ 💡 Set as EVM_USER_ADDRESS in the environment to skip this step on the next run`);
   });
 
@@ -393,13 +397,13 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
 
       const ethBalance = await getEthBalance(rpcUrl, userAddress);
       console.log(`${userAddress} ETH balance: ${ethBalance} wei`);
-      expect(ethBalance, `fund ${userAddress} with >= 0.01 ETH on Sepolia`).toBeGreaterThanOrEqual(
-        parseEther("0.01"),
+      expect(ethBalance, `fund ${userAddress} with >= 0.009 ETH on EVM`).toBeGreaterThanOrEqual(
+        parseEther("0.009"),
       );
 
       const { balance, decimals } = await getErc20Balance(rpcUrl, erc20Address, userAddress);
       console.log(`${userAddress} balance on ${erc20Address}: ${balance} (decimals ${decimals})`);
-      expect(balance, `fund ${userAddress} with >= 0.1 of ERC20 ${erc20Address} on Sepolia`).toBeGreaterThanOrEqual(
+      expect(balance, `fund ${userAddress} with >= 0.1 of ERC20 ${erc20Address} on EVM`).toBeGreaterThanOrEqual(
         parseUnits("0.1", decimals),
       );
     },
@@ -455,7 +459,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
   );
 
   // prepare deposit sweep transaction sinature for use in subsequent tests
-  let signedDepositSweepTransaction: string;
+  let signedDepositSweepTransaction: Transaction;
 
   it(
     "pollSignatureResponse: poll signet contract for sweep transaction signature response",
@@ -486,7 +490,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       expect(signedDepositSweepTransaction).toBeDefined();
 
       const context = await sharedCliContext();
-      const result = await broadcastEvm(context, {signedTransaction: signedDepositSweepTransaction});
+      const result = await broadcastEvm(context, {transaction: signedDepositSweepTransaction});
 
       banner([
         `Deposit sweep transaction broadcast to EVM.`,
@@ -497,6 +501,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     1 * MINUTE,
   );
 
+  // prepare deposit transaction remote execution response for use in subsequent transactions
+  let depositSweepTransactionRemoteExecutionResponse: SignetRemoteExecutionResponse;  
+
   it(
     "pollRemoteExecutionResponse: poll signet contract for sweep transaction signature response",
     async () => {
@@ -504,18 +511,55 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       expect(depositTransactionSignatureRequestId).toBeDefined();
 
       const context = await sharedCliContext();
-      signedDepositSweepTransaction = await pollSignatureResponse(context, {
+      depositSweepTransactionRemoteExecutionResponse = await pollRemoteExecutionResponse(context, {
         requestId: depositTransactionSignatureRequestId,
         intervalMs: 500,
         timeoutMs: 10000,
       });
 
       banner([
-        `MPC signed Response for request ${depositTransactionSignatureRequestId} found from Signet Contract.`,
+        `Found Deposit transaction remote execution response from signet contract: '${remoteExecutionSucceeded(depositSweepTransactionRemoteExecutionResponse.outputData)}' (${depositSweepTransactionRemoteExecutionResponse.response})`,
         "",
         `Signature: ${signedDepositSweepTransaction}`,
       ]);
     },
     1 * MINUTE,
-  );  
+  );
+
+  it(
+    "claimDeposit [erc-vault contract method call]: claim a deposit, by validating signed remote execution response and minting a shielded coin.",
+    async () => {
+      const context = await sharedCliContext();
+
+      // The sweep tx sender is the user's derived EVM account; its next nonce
+      // comes from the chain, exactly as a wallet would fetch it.
+      const evmNonce = await getTransactionNonce(requireEnv("EVM_RPC_URL"), requireEnv("EVM_USER_ADDRESS"));
+      const amount = parseUnits("0.1", 6); // 0.1 USDC — the funding preflight's minimum
+
+      depositTransactionSignatureRequestId = await claimDeposit(context, { amount, evmNonce });
+      await readState(context);
+
+      expect(depositTransactionSignatureRequestId).toMatch(/^[0-9a-f]{64}$/);
+
+      // MPC-convention verification: fetch the request record the way the
+      // response server does — through a SignetRequestResponseReader over RAW
+      // contract state. getSignatureRequest throws when the id is absent, so a
+      // returned record is itself proof the request landed on the vault ledger.
+      const record = await sharedResponseReader().getSignatureRequest(
+        depositTransactionSignatureRequestId,
+      );
+      expect(record.evmTransaction.nonce).toBe(evmNonce);
+      expect(bytesToBigint(record.calldata.args[1])).toBe(amount);
+
+      banner([
+        `Deposit request recorded on the vault ledger:`,
+        "",
+        `  request id: ${depositTransactionSignatureRequestId}`,
+        "",
+        "The response server (yarn response, MIDNIGHT_CONTRACT_ADDRESSES set to",
+        "this vault) should pick it up on its next poll and sign the EVM tx.",
+      ]);
+    },
+    15 * MINUTE,
+  ); 
 });

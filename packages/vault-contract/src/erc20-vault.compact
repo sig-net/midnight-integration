@@ -7,7 +7,11 @@ import CompactStandardLibrary;
 // Signet.compact and https://docs.sig.network/ for the protocol.
 import "@midnight-erc20-vault/signet-midnight/src/Signet";
 
-// ---- Signet ledger layout ----------------------------------------------------
+// Jubjub Schnorr verification (polyfill until CompactStandardLibrary ships
+// jubjubSchnorrVerify). See the module header in Schnorr.compact.
+import "@midnight-erc20-vault/signet-midnight/src/Schnorr" prefix Schnorr_;
+
+// ---- Signet ledger layout ---------------------------------------------------------
 // The request index MUST be ledger field 0 and the nonce counter field 1: the
 // MPC locates them by position, knowing only this contract's address (signet
 // layout convention). DO NOT DECLARE ANY OTHER LEDGER STATE ABOVE THESE!
@@ -17,7 +21,7 @@ export ledger signetRequestsIndex: SignetEVMSignatureRequestIndex;
 // requestNonce, and lets the MPC cheaply detect new requests.
 export ledger signetNonce: SignetNonce;
 
-// ---- Contract Own Storage (declared AFTER the signet fields) -------------------------
+// ---- Contract state (declared AFTER the signet fields) ----------------------------
 
 // Becomes 1 once initialize() has run.
 export ledger initialized: Counter;
@@ -29,10 +33,14 @@ export ledger initialized: Counter;
 export ledger vaultEvmAddress: Bytes<20>;
 
 // Identity commitment of the deployer; only they may call initialize().
-// Sealed: immutable after the constructor
+// Sealed: immutable after the constructor.
 sealed ledger deployer: Bytes<32>;
 
-// ---- Contract-specific types ---------------------------------------------------
+// The MPC attestation key, pinned at deploy time: postRemoteExecutionResponse
+// accepts only responses signed by this key.
+export sealed ledger mpcPubKeyHash: Bytes<32>;
+
+// ---- Contract-specific types ------------------------------------------------------
 
 // The vault-specific arguments of a deposit — everything here is about THIS
 // application (which token, how much); all signing/routing machinery lives in
@@ -42,7 +50,7 @@ struct DepositRequest {
   amount: Uint<128>;       // token amount to move into the vault
 }
 
-// ---- Identity -------------------------------------------------------------------
+// ---- Identity ---------------------------------------------------------------------
 // Users prove identity with a secret-key witness; only a commitment (hash) of
 // the key ever reaches the ledger. The commitment doubles as the MPC
 // key-derivation path (see assertPathCommitment in Signet).
@@ -55,15 +63,19 @@ export pure circuit userCommitment(sk: Bytes<32>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([pad(32, "vault:user:"), sk]);
 }
 
-// ---- Deployment & initialization -------------------------------------------------
+// ---- Deployment & initialization --------------------------------------------------
 // Two-step config: the constructor pins WHO may configure (the deployer's
 // identity commitment, computed off-chain from their secret key); a separate
 // deployer-gated initialize() pins the vault's EVM address, which can only be
 // derived once the contract address exists. The gate prevents front-running:
 // nobody else can initialize the vault to point at their own address.
 
-constructor(deployerCommitment: Bytes<32>) {
+constructor(
+  deployerCommitment: Bytes<32>,
+  mpcPk: JubjubPoint,
+) {
   deployer = disclose(deployerCommitment);
+  mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
 }
 
 export circuit initialize(vaultEvm: Bytes<20>): [] {
@@ -73,7 +85,7 @@ export circuit initialize(vaultEvm: Bytes<20>): [] {
   vaultEvmAddress = disclose(vaultEvm);
 }
 
-// ---- Deposit -----------------------------------------------------------------------
+// ---- Deposit ----------------------------------------------------------------------
 // Records a signet request for `transfer(vault, amount)` on the ERC20, to be
 // signed by the MPC with the caller's derived key and broadcast off-chain.
 export circuit requestDeposit(
@@ -129,4 +141,68 @@ export circuit requestDeposit(
   assert(!signetRequestsIndex.member(requestId), "Request already exists");
   signetNonce.increment(1);
   signetRequestsIndex.insert(requestId, disclose(request));
+}
+
+// ---- Claim ------------------------------------------------------------------------
+// Completes a deposit: the caller presents the MPC's Schnorr-signed attestation
+// that the requested EVM transfer executed, and the vault mints them shielded
+// tokens for the deposited amount. One claim per request, depositor only.
+export circuit claimDeposit(
+  requestId: SignetRequestId,
+  remoteExecutionResponse: SignetRemoteExecutionResponse,
+): [] {
+  // requestId keys the ledger operations and the mint nonce below, so it is
+  // public; the response is only verified, never written, and stays private.
+  const disclosedRequestId = disclose(requestId);
+
+  // -- attestation key: pk must be the MPC's registered key --
+  assert(
+    persistentHash<JubjubPoint>(remoteExecutionResponse.pk) == mpcPubKeyHash,
+    "Unauthorized: attestation pk is not the MPC key"
+  );
+
+  // -- EVM result: the first 32-byte word of outputData is the ABI-encoded
+  // bool returned by ERC20 transfer() --
+  const returnValue = slice<32>(remoteExecutionResponse.outputData, 0);
+  assert(returnValue as Field == 1, "ERC20 transfer returned false");
+
+  // -- attestation signature: the MPC signed THIS request and THIS output --
+  Schnorr_schnorrVerify<4>(
+    signetAttestationMessage(disclosedRequestId, remoteExecutionResponse.outputData),
+    Schnorr_SchnorrSignature {
+      announcement: remoteExecutionResponse.announcement,
+      response: remoteExecutionResponse.response,
+    },
+    remoteExecutionResponse.pk
+  );
+
+  // -- double-claim protection: the request must exist and is consumed here --
+  assert(signetRequestsIndex.member(disclosedRequestId), "Request not found");
+  const signatureRequest = signetRequestsIndex.lookup(disclosedRequestId);
+  signetRequestsIndex.remove(disclosedRequestId);
+
+  // -- identity: only the original depositor may claim --
+  // Recompute the caller's commitment and check it against the request's
+  // derivation path (the canonical hex of the depositor's commitment).
+  const caller = userCommitment(callerSecretKey());
+  assertHexOf(caller, slice<64>(signatureRequest.mpcRouting.path, 0));
+
+  // -- mint shielded tokens for the deposited amount --
+  // requestDeposit stored the amount in calldata args[1] and the ERC20
+  // address in evmTransaction.to.
+  const amount = signatureRequest.calldata.args[1] as Field as Uint<128>;
+  const erc20Addr = signatureRequest.evmTransaction.to;
+
+  // The domain separator encodes the ERC20 address, so each ERC20 gets its
+  // own token color, bound to this contract via kernel.self() in tokenType().
+  const domainSep = persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "erc20:vault:"),
+    erc20Addr as Field as Bytes<32>
+  ]);
+  const mintNonce = persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "erc20:mint:"),
+    disclosedRequestId as Bytes<32>,
+  ]);
+  const recipient = left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey());
+  mintShieldedToken(domainSep, amount as Uint<64>, mintNonce, recipient);
 }
