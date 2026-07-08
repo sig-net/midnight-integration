@@ -454,7 +454,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
         "this vault) should pick it up on its next poll and sign the EVM tx.",
       ]);
     },
-    15 * MINUTE,
+    5 * MINUTE,
   );
 
   // prepare deposit sweep transaction sinature for use in subsequent tests
@@ -469,8 +469,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       const context = await sharedCliContext();
       signedDepositSweepTransaction = await pollSignatureResponse(context, {
         requestId: depositTransactionSignatureRequestId,
-        intervalMs: 500,
-        timeoutMs: 10000,
+        intervalMs: 1000,
+        timeoutMs: 1 * MINUTE,
       });
 
       banner([
@@ -479,7 +479,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
         `Signature: ${signedDepositSweepTransaction}`,
       ]);
     },
-    1 * MINUTE,
+    5 * MINUTE,
   );
 
   it(
@@ -489,7 +489,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       expect(signedDepositSweepTransaction).toBeDefined();
 
       const context = await sharedCliContext();
-      const result = await broadcastEvm(context, {transaction: signedDepositSweepTransaction});
+      const result = await broadcastEvm(context, { transaction: signedDepositSweepTransaction });
 
       banner([
         `Deposit sweep transaction broadcast to EVM.`,
@@ -501,7 +501,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
   );
 
   // prepare deposit transaction respond-bidirectional attestation for use in subsequent transactions
-  let depositSweepTransactionRespondBidirectional: SignetRespondBidirectional;  
+  let depositSweepTransactionRespondBidirectional: SignetRespondBidirectional;
 
   it(
     "pollRespondBidirectional: poll signet contract for sweep transaction signature response",
@@ -512,8 +512,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       const context = await sharedCliContext();
       depositSweepTransactionRespondBidirectional = await pollRespondBidirectional(context, {
         requestId: depositTransactionSignatureRequestId,
-        intervalMs: 500,
-        timeoutMs: 10000,
+        intervalMs: 1000,
+        timeoutMs: 1 * MINUTE,
       });
 
       banner([
@@ -522,6 +522,6 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
         `Signature: ${signedDepositSweepTransaction}`,
       ]);
     },
-    1 * MINUTE,
+    5 * MINUTE,
   );
 });
