@@ -52,6 +52,8 @@ module Signet {
   // off-chain. (The MPC's chain-agnostic primitive carries an opaque
   // serialized_transaction instead; the decomposition follows its Canton
   // adapter's EvmType2TransactionParams.)
+  // TODO: add all necessary parameters to support full Ethereum type 2 transactions. (ensure any type 2 txn possible - except contract creation).
+  // TODO: consider generic typing to allow different EVM Transaction parmas to be provided
   export struct EVMTransactionParams {
     to: Bytes<20>;                   // call target (e.g. the ERC20 contract)
     chainId: Uint<64>;               // EVM chain id (also expressed in caip2Id)
@@ -68,29 +70,45 @@ module Signet {
   // transfer(address,uint256) uses EVMCalldata<2>). Each arg is one
   // left-padded 32-byte ABI word.
   // https://docs.soliditylang.org/en/latest/abi-spec.html
+  // TODO: use serialised version of the funcSig to reduce EVMCallDataSize
+  // TODO: ensure funcSig is optional and call data (all of it the entire EVMCalldata)
   export struct EVMCalldata<#n> {
     funcSig: Bytes<64>;         // zero-padded ASCII, e.g. "transfer(address,uint256)"
+    // TODO: Word count!!
     argCount: Uint<8>;          // how many leading slots of `args` are used;
                                 // kept on the wire so serialized records stay
                                 // self-describing
     args: Vector<n, Bytes<32>>; // ABI words; slots beyond argCount must be zero
   }
 
+  // TODO: look up this formatting of the arguments to make the EVMCalldata more flexible
+  // func(a: Address, b: []uint) ---> [address, 1, len, ]
+  // func(0x1234324, [1,2,3]) ---> [address, 3, 1, 2, 3]
+
   // MPC routing: which key signs, for which chain, and how the response comes
   // back. These are opaque strings to the MPC's key-derivation — see
   // https://docs.sig.network/ for the derivation scheme.
+  // TODO: optimise field sizes
   export struct SignetMPCRoutingParams {
+    // TODO: confirm sufficient size for CAIP-2 standard.
     caip2Id: Bytes<32>;        // target chain in CAIP-2 form, e.g. "eip155:11155111"
                                // (https://chainagnostic.org/CAIPs/caip-2)
+    // TODO: can be much smaller                           
     keyVersion: Uint<32>;      // MPC root-key version to derive from (>= 1;
                                // version 0 is the unsupported legacy format)
+    // TODO: consider possible optimisation. keep unchanged for now.                           
     path: Bytes<256>;          // key-derivation path; by signet-Midnight
                                // convention the canonical lowercase hex of the
                                // caller's identity commitment, zero-padded
                                // (enforced by assertPathCommitment)
+    
+    // TODO: Possibly ENUMs, these fields are not used so we could make them small now.
     algo: Bytes<32>;           // signature scheme, e.g. "ecdsa"
     dest: Bytes<32>;           // response destination, e.g. "ethereum"
     params: Bytes<64>;         // scheme-specific extras (opaque to contracts)
+    
+    // Look at most popular defi contracts for schematisation of schema types
+    // TODO: dynamically size these 2 schemas to reduce proving type
     outputDeserializationSchema: Bytes<128>; // MPC output_deserialization_schema
                                              // (destination chain -> MPC)
     respondSerializationSchema: Bytes<128>;  // MPC respond_serialization_schema
@@ -115,7 +133,9 @@ module Signet {
   export struct SignetEVMSignatureRequest<#n> {
     requestNonce: Uint<64>;             // contract-local nonce at creation time
     evmTransaction: EVMTransactionParams;
+    // TODO: move EVMCalldata (generic call data) into EVMTransactionParams (which is generic "transaction params");
     calldata: EVMCalldata<n>;           // contract-enforced, never caller-chosen
+    // TODO: flatten MPC routing
     mpcRouting: SignetMPCRoutingParams;
   }
 
@@ -126,7 +146,7 @@ module Signet {
   // bytes). The requesting client attaches it to the rebuilt transaction and
   // broadcasts — the MPC never submits. The request id it answers lives in
   // the response index key (see SignetResponseKey).
-  export struct SignetEVMSignatureResponse {
+  export struct SignetEVMSignatureResponse { // check solana repo for this name
     bigRx: Bytes<32>;    // signature R.x
     bigRy: Bytes<32>;    // signature R.y
     s: Bytes<32>;        // signature s
