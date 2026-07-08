@@ -1,8 +1,9 @@
 // `request-deposit` — record a deposit signature request on the vault's
 // ledger. This is the first half of the deposit flow: it asks the MPC to sign
 // an EVM `transfer(vault, amount)` on the ERC20, sent from the user's derived
-// address. The request id is recomputed off-chain with the compiled library
-// circuit and asserted against the ledger map key before it is returned.
+// address. The request id is recomputed off-chain with the library's TS twin
+// of the request-id circuit and asserted against the ledger map key before it
+// is returned.
 
 import {
   ALGO_BYTES,
@@ -18,12 +19,13 @@ import {
   SIGNET_ALGO_ECDSA,
   SIGNET_DEFAULT_KEY_VERSION,
   SIGNET_DEST_ETHEREUM,
+  signetEVMSignatureRequestId,
   toSignetEVMSignatureRequestIndex,
   type SignetEVMSignatureRequest,
   type SignetEVMSignatureRequestParams,
   type SignetRequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
-import { ledger, vaultSignetCircuits } from "@midnight-erc20-vault/vault-contract";
+import { ledger } from "@midnight-erc20-vault/vault-contract";
 
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
@@ -66,8 +68,8 @@ async function readVaultLedger(context: CliContext, vaultContractAddress: string
  * and the deposit request (`erc20Address`, `amount`) — and submits through
  * `context.vault.callTx`. The expected request record (including the
  * contract-built `transfer(vault, amount)` calldata) is reconstructed
- * off-chain, its id computed with the compiled `signetEVMSignatureRequestId`
- * circuit, and asserted present as a ledger map key after the call.
+ * off-chain, its id computed with the library's `signetEVMSignatureRequestId`
+ * TS twin, and asserted present as a ledger map key after the call.
  *
  * @param context - The CLI context.
  * @param options - The deposit arguments.
@@ -140,7 +142,7 @@ export async function requestDeposit(context: CliContext, options: RequestDeposi
     },
     mpcRouting: signetParams.mpcRouting,
   };
-  const expectedIdHex = requestIdHex(vaultSignetCircuits.signetEVMSignatureRequestId(expectedRecord));
+  const expectedIdHex = requestIdHex(signetEVMSignatureRequestId(expectedRecord));
 
   const result = await context.vault.callTx.requestDeposit(signetParams, {
     erc20Address: evmAddressBytes(erc20Address),

@@ -20,7 +20,8 @@ export * from "./mpc-keys.ts";
  * path<->identity checks, the attestation message, and the Schnorr challenge.
  * Off-chain code MUST use these instead of re-porting the algorithms — they
  * are the same compiled logic the contracts prove. The generic request
- * circuits (request-id hashing, request construction) are monomorphized in
- * each requester package instead (e.g. vault-contract's vaultSignetCircuits).
+ * circuits cannot be compiled here (type-parameterized): request construction
+ * is contract-only, and request-id hashing has a documented-deviation TS twin
+ * (`signetEVMSignatureRequestId` in signet-requests.ts).
  */
 export { pureCircuits, type PureCircuits } from "./managed/contract/index.js";

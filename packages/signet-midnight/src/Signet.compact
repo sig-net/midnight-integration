@@ -230,6 +230,11 @@ module Signet {
   // per request kind: when other target chains land (each with its own
   // request struct and its own signet<Chain>SignatureRequestId circuit under
   // its own tag), ids from different kinds can never collide or be confused.
+  //
+  // Off-chain twin: being type-parameterized, this circuit cannot be exported
+  // through circuits.compact, so signet-requests.ts carries a TS twin
+  // (signetEVMSignatureRequestId) that MUST stay in lockstep — see the
+  // deviation note there before changing anything here.
   export pure circuit signetEVMSignatureRequestId<#n>(
     request: SignetEVMSignatureRequest<n>
   ): SignetRequestId {

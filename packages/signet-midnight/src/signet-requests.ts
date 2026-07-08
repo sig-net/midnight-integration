@@ -14,8 +14,16 @@
 // Read more: https://docs.sig.network/ (signet protocol) and the module
 // header in Signet.compact (layout convention, path binding).
 
+import {
+  CompactTypeBytes,
+  CompactTypeUnsignedInteger,
+  CompactTypeVector,
+  persistentHash,
+  type CompactType,
+} from "@midnight-ntwrk/compact-runtime";
 import { getAddress, getBytes, Interface, Signature, Transaction } from "ethers";
 
+import { asciiPadded } from "./constants.ts";
 import { bytesToBigint } from "./schnorr.ts";
 import type { SignetEVMSignatureResponse } from "./signet-contract-state-reader.ts";
 
@@ -115,6 +123,147 @@ export interface SignetEVMSignatureRequest {
   /** Contract-enforced calldata — never caller-chosen wholesale. */
   calldata: EVMCalldata;
   mpcRouting: SignetMPCRoutingParams;
+}
+
+// ---- Request id (TS twin of the Compact circuit) ---------------------------
+//
+// DEVIATION from the "pure circuits are compiled, never re-written in TS"
+// rule (see circuits.compact): `signetEVMSignatureRequestId` is generic over
+// the calldata slot count, the Compact compiler cannot export
+// type-parameterized circuits from the top level, and a compiled copy would
+// have to be monomorphized at ONE slot count — a client contract's choice
+// that never belongs in this client-agnostic package. So the request-id
+// circuit alone gets a TS twin here.
+//
+// It is NOT a hand-port of the hash algorithm: it calls the very
+// `persistentHash` runtime builtin that compiled circuits call, over runtime
+// type descriptors mirroring the ones the compiler generates (compare
+// `_signetEVMSignatureRequestId_0` in any consuming contract's
+// managed/contract/index.js). What must stay in lockstep with Signet.compact
+// is exactly what this file already keeps in lockstep — the struct shapes,
+// field by field, in declaration order. Enforced by vault-contract's
+// "deposit round-trip" test, which asserts the id computed here equals the
+// ledger map key minted by the REAL compiled contract.
+
+// Runtime descriptors of the Compact base types the request record uses.
+// CompactTypeUnsignedInteger takes (maxValue, byte length) — same literals
+// the compiler emits for Uint<8/32/64/128>.
+const BYTES_20 = new CompactTypeBytes(20);
+const BYTES_32 = new CompactTypeBytes(32);
+const BYTES_64 = new CompactTypeBytes(64);
+const BYTES_128 = new CompactTypeBytes(128);
+const BYTES_256 = new CompactTypeBytes(256);
+const UINT_8 = new CompactTypeUnsignedInteger(2n ** 8n - 1n, 1);
+const UINT_32 = new CompactTypeUnsignedInteger(2n ** 32n - 1n, 4);
+const UINT_64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
+const UINT_128 = new CompactTypeUnsignedInteger(2n ** 128n - 1n, 16);
+
+/**
+ * Build the runtime descriptor of a Compact struct from its per-field
+ * descriptors — the generic form of the struct descriptor classes the
+ * compiler generates (field-by-field concatenation of alignments and values).
+ *
+ * Field ORDER must match the Compact struct declaration order; object
+ * literals preserve insertion order for string keys, so pass fields in
+ * declaration order.
+ *
+ * @param fields - One runtime descriptor per struct field, in declaration order.
+ * @returns The composed struct descriptor.
+ */
+function compactStructDescriptor<T extends object>(fields: {
+  readonly [K in keyof T]-?: CompactType<T[K]>;
+}): CompactType<T> {
+  const entries = Object.entries(fields) as unknown as ReadonlyArray<
+    [keyof T & string, CompactType<T[keyof T & string]>]
+  >;
+  return {
+    alignment: () =>
+      entries.flatMap(([, type]) => type.alignment()),
+    toValue: (value) =>
+      entries.flatMap(([key, type]) => type.toValue(value[key])),
+    fromValue: (value) => {
+      const result = {} as Record<keyof T & string, unknown>;
+      for (const [key, type] of entries) {
+        result[key] = type.fromValue(value);
+      }
+      return result as T;
+    },
+  };
+}
+
+/** Descriptor of {@link EVMTransactionParams} (Compact: `EVMTransactionParams`). */
+const EVM_TRANSACTION_PARAMS_DESCRIPTOR =
+  compactStructDescriptor<EVMTransactionParams>({
+    to: BYTES_20,
+    chainId: UINT_64,
+    nonce: UINT_64,
+    gasLimit: UINT_64,
+    maxFeePerGas: UINT_128,
+    maxPriorityFeePerGas: UINT_128,
+    value: UINT_128,
+  });
+
+/** Descriptor of {@link SignetMPCRoutingParams} (Compact: `SignetMPCRoutingParams`). */
+const MPC_ROUTING_PARAMS_DESCRIPTOR =
+  compactStructDescriptor<SignetMPCRoutingParams>({
+    caip2Id: BYTES_32,
+    keyVersion: UINT_32,
+    path: BYTES_256,
+    algo: BYTES_32,
+    dest: BYTES_32,
+    params: BYTES_64,
+    outputDeserializationSchema: BYTES_128,
+    respondSerializationSchema: BYTES_128,
+  });
+
+/**
+ * Descriptor of {@link SignetEVMSignatureRequest} at one calldata slot count —
+ * the TS analogue of instantiating Compact's `SignetEVMSignatureRequest<#n>`.
+ *
+ * @param slotCount - The contract's `EVMCalldata<#n>` capacity (the vault uses 2).
+ * @returns The request record descriptor.
+ */
+function signetEVMSignatureRequestDescriptor(
+  slotCount: number,
+): CompactType<SignetEVMSignatureRequest> {
+  return compactStructDescriptor<SignetEVMSignatureRequest>({
+    requestNonce: UINT_64,
+    evmTransaction: EVM_TRANSACTION_PARAMS_DESCRIPTOR,
+    calldata: compactStructDescriptor<EVMCalldata>({
+      funcSig: BYTES_64,
+      argCount: UINT_8,
+      args: new CompactTypeVector(slotCount, BYTES_32),
+    }),
+    mpcRouting: MPC_ROUTING_PARAMS_DESCRIPTOR,
+  });
+}
+
+/**
+ * Domain tag partitioning the {@link SignetRequestId} space per request kind
+ * (Compact: `pad(32, "signet:evm:request:")`).
+ */
+const REQUEST_ID_DOMAIN_TAG = asciiPadded("signet:evm:request:", 32);
+
+/**
+ * Canonical id of an EVM signature request: the domain-separated persistent
+ * hash of the entire request record. TS twin of Signet.compact's
+ * `signetEVMSignatureRequestId` circuit (see the deviation note atop this
+ * section), generic over the calldata slot count via `calldata.args.length` —
+ * pass the record exactly as the ledger stores it, unused slots included.
+ *
+ * @param request - The full request record (contract-shaped, all slots).
+ * @returns The 32-byte request id — the record's ledger map key.
+ */
+export function signetEVMSignatureRequestId(
+  request: SignetEVMSignatureRequest,
+): SignetRequestId {
+  return persistentHash(new CompactTypeVector(2, BYTES_32), [
+    REQUEST_ID_DOMAIN_TAG,
+    persistentHash(
+      signetEVMSignatureRequestDescriptor(request.calldata.args.length),
+      request,
+    ),
+  ]);
 }
 
 /**

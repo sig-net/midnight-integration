@@ -14,6 +14,7 @@ import {
   pureCircuits as signetCircuits,
   readSignetRequestsLedgerFromState,
   requestIdHex,
+  signetEVMSignatureRequestId,
   signetFieldNode,
   signetPathOfCommitment,
   toSignetEVMSignatureRequestIndex,
@@ -228,56 +229,56 @@ describe("initialize", () => {
   });
 });
 
-// FIXME: fix test after making arg length generically typed
-// describe("deposit round-trip", () => {
-//   it("stores the request readable identically via ledger(), the shared parser, and the RAW reader", () => {
-//     const { contract, ctx } = deployInitialized();
+describe("deposit round-trip", () => {
+  it("stores the request readable identically via ledger(), the shared parser, and the RAW reader", () => {
+    const { contract, ctx } = deployInitialized();
 
-//     const next = contract.circuits.requestDeposit(ctx, VALID_PARAMS, VALID_ARGS)
-//       .context;
-//     const state = next.currentQueryContext.state;
+    const next = contract.circuits.requestDeposit(ctx, VALID_PARAMS, VALID_ARGS)
+      .context;
+    const state = next.currentQueryContext.state;
 
-//     // Read 1: generated ledger().
-//     const typedIndex = toSignetEVMSignatureRequestIndex(
-//       ledger(state).signetRequestsIndex,
-//     );
-//     // Read 2: MPC-style raw read — no compiled contract involved.
-//     const rawLedger = readSignetRequestsLedgerFromState(state);
+    // Read 1: generated ledger().
+    const typedIndex = toSignetEVMSignatureRequestIndex(
+      ledger(state).signetRequestsIndex,
+    );
+    // Read 2: MPC-style raw read — no compiled contract involved.
+    const rawLedger = readSignetRequestsLedgerFromState(state);
 
-//     expect(typedIndex.size).toBe(1);
-//     expect(rawLedger.requestsIndex).toEqual(typedIndex);
-//     // The raw counter read matches the generated one.
-//     expect(rawLedger.nonce).toBe(ledger(state).signetNonce);
+    expect(typedIndex.size).toBe(1);
+    expect(rawLedger.requestsIndex).toEqual(typedIndex);
+    // The raw counter read matches the generated one.
+    expect(rawLedger.nonce).toBe(ledger(state).signetNonce);
 
-//     const [idHex, record] = [...typedIndex.entries()][0];
+    const [idHex, record] = [...typedIndex.entries()][0];
 
-//     // Caller-supplied parts come back verbatim.
-//     expect(record.evmTransaction).toEqual(VALID_PARAMS.evmTransaction);
-//     expect(record.mpcRouting).toEqual(VALID_PARAMS.mpcRouting);
-//     expect(record.requestNonce).toBe(0n);
+    // Caller-supplied parts come back verbatim.
+    expect(record.evmTransaction).toEqual(VALID_PARAMS.evmTransaction);
+    expect(record.mpcRouting).toEqual(VALID_PARAMS.mpcRouting);
+    expect(record.requestNonce).toBe(0n);
 
-//     // Contract-built calldata: transfer(vaultEvmAddress, amount).
-//     expect(new TextDecoder().decode(record.calldata.funcSig).replace(/\0+$/, "")).toBe(
-//       "transfer(address,uint256)",
-//     );
-//     expect(record.calldata.argCount).toBe(2n);
-//     // EVMCalldata<2>: exactly the two transfer(address,uint256) arg slots.
-//     expect(record.calldata.args).toHaveLength(2);
-//     const expectedArg0 = new Uint8Array(32);
-//     expectedArg0.set(VAULT_EVM); // Bytes<20> as Field as Bytes<32> = LE embed
-//     expect(record.calldata.args[0]).toEqual(expectedArg0);
-//     expect(bytesToBigintLE(record.calldata.args[1])).toBe(AMOUNT);
+    // Contract-built calldata: transfer(vaultEvmAddress, amount).
+    expect(new TextDecoder().decode(record.calldata.funcSig).replace(/\0+$/, "")).toBe(
+      "transfer(address,uint256)",
+    );
+    expect(record.calldata.argCount).toBe(2n);
+    // EVMCalldata<2>: exactly the two transfer(address,uint256) arg slots.
+    expect(record.calldata.args).toHaveLength(2);
+    const expectedArg0 = new Uint8Array(32);
+    expectedArg0.set(VAULT_EVM); // Bytes<20> as Field as Bytes<32> = LE embed
+    expect(record.calldata.args[0]).toEqual(expectedArg0);
+    expect(bytesToBigintLE(record.calldata.args[1])).toBe(AMOUNT);
 
-//     // The map key IS the domain-separated hash of the record — recomputed
-//     // off-chain with the vault's monomorphized compiled circuit.
-//     expect(idHex).toBe(
-//       requestIdHex(vaultSignetCircuits.signetEVMSignatureRequestId(record)),
-//     );
+    // The map key IS the domain-separated hash of the record — recomputed
+    // off-chain with the library's TS twin of the request-id circuit. This
+    // assertion is the lockstep check the twin's deviation note relies on:
+    // the id computed in TS must equal the key the REAL compiled contract
+    // minted in-circuit.
+    expect(idHex).toBe(requestIdHex(signetEVMSignatureRequestId(record)));
 
-//     // Nonce bumped for the next request.
-//     expect(ledger(state).signetNonce).toBe(1n);
-//   });
-// });
+    // Nonce bumped for the next request.
+    expect(ledger(state).signetNonce).toBe(1n);
+  });
+});
 
 // Paths for the rejection table below: one bound to the wrong identity, and
 // one with garbage after the commitment hex (the contract requires the rest

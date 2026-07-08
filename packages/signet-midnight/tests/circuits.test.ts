@@ -2,9 +2,11 @@
 // src/circuits.compact). These exercise the REAL compiled circuit logic
 // in-process via pureCircuits — no ledger, no network, no proving.
 //
-// Only the client-agnostic circuits live here: the generic request circuits
-// (construction, request-id hashing) are monomorphized and tested in each
-// requester package (see vault-contract's vault-circuits.test.ts).
+// Only the compiled-circuit surface is tested here: the generic request
+// circuits cannot be compiled into it — request construction is exercised
+// through each requester contract's simulator tests, and the request-id TS
+// twin is checked against the real compiled contract in vault-contract's
+// deposit round-trip test (see contract.test.ts).
 
 import { describe, expect, it } from "vitest";
 
