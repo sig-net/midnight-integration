@@ -10,17 +10,20 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
+  ABIWordKind,
+  ERC20_TRANSFER_SELECTOR,
+  calculateRequestId,
   deriveJubjubKeypair,
+  evmAddressAbiWord,
   pureCircuits as signetCircuits,
   readSignetRequestsLedgerFromState,
   requestIdHex,
-  signetEVMSignatureRequestId,
   signetFieldNode,
   signetPathOfCommitment,
-  toSignetEVMSignatureRequestIndex,
+  toSignBidirectionalEventIndex,
   SIGNET_REQUESTS_INDEX_FIELD,
-  type SignetEVMSignatureRequestLedgerIndex,
-  type SignetEVMSignatureRequestParams,
+  type EVMType2TxParams,
+  type SignBidirectionalEventLedgerIndex,
 } from "@midnight-erc20-vault/signet-midnight";
 
 import {
@@ -74,31 +77,58 @@ const ZERO_ADDRESS = new Uint8Array(20);
 const AMOUNT = 1_000_000n;
 const UINT64_MAX = 18446744073709551615n;
 
+/** A zeroed calldata word: the value of every unused capacity slot. */
+const ZERO_WORD = { kind: ABIWordKind.staticArg, value: new Uint8Array(32) };
+
 /**
- * Known-good signet params for a deposit — the base every test varies from.
- * Shared across tests: NEVER mutate; build a variation as an explicit spread
- * of this base with the delta inline (see {@link DEPOSIT_REJECTION_CASES}).
+ * Known-good caller-supplied tx envelope for a deposit — the base every test
+ * varies from. The calldata is `none` (the CONTRACT builds it; the Maybe's
+ * default value still carries the <2, 0, 0> capacities the generated arg
+ * check demands). Shared across tests: NEVER mutate; build a variation as an
+ * explicit spread of this base with the delta inline (see
+ * {@link DEPOSIT_REJECTION_CASES}).
  */
-const VALID_PARAMS: SignetEVMSignatureRequestParams = {
-  evmTransaction: {
-    to: ERC20,
-    chainId: 11155111n,
-    nonce: 0n,
-    gasLimit: 100000n,
-    maxFeePerGas: 30000000000n,
-    maxPriorityFeePerGas: 2000000000n,
-    value: 0n,
+const VALID_TX_PARAMS: EVMType2TxParams = {
+  to: ERC20,
+  chainId: 11155111n,
+  nonce: 0n,
+  gasLimit: 100000n,
+  maxFeePerGas: 30000000000n,
+  maxPriorityFeePerGas: 2000000000n,
+  value: 0n,
+  accessListEntryCount: 0n,
+  accessList: [],
+  calldata: {
+    is_some: false,
+    value: { selector: new Uint8Array(4), words: [ZERO_WORD, ZERO_WORD] },
   },
-  mpcRouting: {
-    caip2Id: asciiPadded("eip155:11155111", 32),
-    keyVersion: 1n,
-    path: signetPathOfCommitment(DEPLOYER_COMMITMENT),
-    algo: asciiPadded("ecdsa", 32),
-    dest: asciiPadded("ethereum", 32),
-    params: bytes(64, 0),
-    outputDeserializationSchema: bytes(128, 0x07),
-    respondSerializationSchema: bytes(128, 0x08),
-  },
+};
+
+/** The flat MPC routing arguments of requestDeposit, in circuit order. */
+interface RoutingArgs {
+  caip2Id: Uint8Array;
+  keyVersion: bigint;
+  path: Uint8Array;
+  algo: Uint8Array;
+  dest: Uint8Array;
+  mpcParams: Uint8Array;
+  outputDeserializationSchema: Uint8Array;
+  respondSerializationSchema: Uint8Array;
+}
+
+/**
+ * Known-good routing args — the base every test varies from.
+ * Shared across tests: NEVER mutate; build a variation as an explicit spread.
+ */
+const VALID_ROUTING: RoutingArgs = {
+  caip2Id: asciiPadded("eip155:11155111", 32),
+  keyVersion: 1n,
+  path: signetPathOfCommitment(DEPLOYER_COMMITMENT),
+  algo: asciiPadded("ecdsa", 32),
+  dest: asciiPadded("ethereum", 32),
+  mpcParams: bytes(64, 0),
+  outputDeserializationSchema: bytes(128, 0x07),
+  respondSerializationSchema: bytes(128, 0x08),
 };
 
 /**
@@ -152,6 +182,28 @@ const deployInitialized = async () => {
   return { contract, ctx: next };
 };
 
+/** Call requestDeposit with its flat routing args spread in circuit order. */
+const requestDeposit = (
+  contract: Contract<VaultPrivateState>,
+  ctx: Parameters<Contract<VaultPrivateState>["circuits"]["requestDeposit"]>[0],
+  txParams: EVMType2TxParams,
+  routing: RoutingArgs,
+  args: DepositArgs,
+) =>
+  contract.circuits.requestDeposit(
+    ctx,
+    txParams,
+    routing.caip2Id,
+    routing.keyVersion,
+    routing.path,
+    routing.algo,
+    routing.dest,
+    routing.mpcParams,
+    routing.outputDeserializationSchema,
+    routing.respondSerializationSchema,
+    args,
+  );
+
 // ---- Tests ----
 
 describe("erc20-vault ledger shape", () => {
@@ -160,12 +212,12 @@ describe("erc20-vault ledger shape", () => {
 
     // The assignment is the real assertion: the generated ledger type must
     // stay structurally identical to the shared library's named types.
-    const ledgerIndex: SignetEVMSignatureRequestLedgerIndex = ledger(
+    const ledgerIndex: SignBidirectionalEventLedgerIndex = ledger(
       ctx.callContext.currentQueryContext.state,
     ).signetRequestsIndex;
 
     expect(ledgerIndex.isEmpty()).toBe(true);
-    expect(toSignetEVMSignatureRequestIndex(ledgerIndex).size).toBe(0);
+    expect(toSignBidirectionalEventIndex(ledgerIndex).size).toBe(0);
   });
 
   it("MPC-style: finds the request index in RAW state by position, no ledger()", async () => {
@@ -176,7 +228,7 @@ describe("erc20-vault ledger shape", () => {
     expect(node.type()).toBe("map");
 
     const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(rawState);
-    const typedIndex = toSignetEVMSignatureRequestIndex(
+    const typedIndex = toSignBidirectionalEventIndex(
       ledger(ctx.callContext.currentQueryContext.state).signetRequestsIndex,
     );
     expect(requestsIndex).toEqual(typedIndex);
@@ -204,6 +256,16 @@ describe("userCommitment", () => {
     expect(() =>
       signetCircuits.assertPathCommitment(DEPLOYER_COMMITMENT, path),
     ).not.toThrow();
+  });
+});
+
+describe("evmAddressAbiValue", () => {
+  it("TS mirror matches the compiled circuit's big-endian address value", () => {
+    // The compiled circuit returns the BE numeric value as a Field bigint;
+    // the TS mirror returns its 32-byte LE embed — same number.
+    expect(bytesToBigintLE(evmAddressAbiWord(VAULT_EVM))).toBe(
+      signetCircuits.evmAddressAbiValue(VAULT_EVM),
+    );
   });
 });
 
@@ -236,12 +298,12 @@ describe("deposit round-trip", () => {
     const { contract, ctx } = await deployInitialized();
 
     const next = (
-      await contract.circuits.requestDeposit(ctx, VALID_PARAMS, VALID_ARGS)
+      await requestDeposit(contract, ctx, VALID_TX_PARAMS, VALID_ROUTING, VALID_ARGS)
     ).context;
     const state = next.callContext.currentQueryContext.state;
 
     // Read 1: generated ledger().
-    const typedIndex = toSignetEVMSignatureRequestIndex(
+    const typedIndex = toSignBidirectionalEventIndex(
       ledger(state).signetRequestsIndex,
     );
     // Read 2: MPC-style raw read — no compiled contract involved.
@@ -254,29 +316,43 @@ describe("deposit round-trip", () => {
 
     const [idHex, record] = [...typedIndex.entries()][0];
 
-    // Caller-supplied parts come back verbatim.
-    expect(record.evmTransaction).toEqual(VALID_PARAMS.evmTransaction);
-    expect(record.mpcRouting).toEqual(VALID_PARAMS.mpcRouting);
+    // Caller-supplied parts come back verbatim: the tx envelope (calldata
+    // aside) and the flat routing fields.
+    const { calldata, ...envelope } = record.txParams;
+    const { calldata: _, ...expectedEnvelope } = VALID_TX_PARAMS;
+    expect(envelope).toEqual(expectedEnvelope);
+    expect(record.caip2Id).toEqual(VALID_ROUTING.caip2Id);
+    expect(record.keyVersion).toBe(VALID_ROUTING.keyVersion);
+    expect(record.path).toEqual(VALID_ROUTING.path);
+    expect(record.algo).toEqual(VALID_ROUTING.algo);
+    expect(record.dest).toEqual(VALID_ROUTING.dest);
+    expect(record.params).toEqual(VALID_ROUTING.mpcParams);
+    expect(record.outputDeserializationSchema).toEqual(
+      VALID_ROUTING.outputDeserializationSchema,
+    );
+    expect(record.respondSerializationSchema).toEqual(
+      VALID_ROUTING.respondSerializationSchema,
+    );
     expect(record.requestNonce).toBe(0n);
 
-    // Contract-built calldata: transfer(vaultEvmAddress, amount).
-    expect(new TextDecoder().decode(record.calldata.funcSig).replace(/\0+$/, "")).toBe(
-      "transfer(address,uint256)",
-    );
-    expect(record.calldata.argCount).toBe(2n);
-    // EVMCalldata<2>: exactly the two transfer(address,uint256) arg slots.
-    expect(record.calldata.args).toHaveLength(2);
-    const expectedArg0 = new Uint8Array(32);
-    expectedArg0.set(VAULT_EVM); // Bytes<20> as Field as Bytes<32> = LE embed
-    expect(record.calldata.args[0]).toEqual(expectedArg0);
-    expect(bytesToBigintLE(record.calldata.args[1])).toBe(AMOUNT);
+    // Contract-built calldata: transfer(vaultEvmAddress, amount) as tagged
+    // words — the raw selector, the BE-embedded address, the LE amount.
+    expect(calldata.is_some).toBe(true);
+    expect(calldata.value.selector).toEqual(ERC20_TRANSFER_SELECTOR);
+    expect(calldata.value.words).toHaveLength(2);
+    expect(calldata.value.words[0]).toEqual({
+      kind: ABIWordKind.staticArg,
+      value: evmAddressAbiWord(VAULT_EVM),
+    });
+    expect(calldata.value.words[1].kind).toBe(ABIWordKind.staticArg);
+    expect(bytesToBigintLE(calldata.value.words[1].value)).toBe(AMOUNT);
 
     // The map key IS the domain-separated hash of the record — recomputed
     // off-chain with the library's TS twin of the request-id circuit. This
     // assertion is the lockstep check the twin's deviation note relies on:
     // the id computed in TS must equal the key the REAL compiled contract
     // minted in-circuit.
-    expect(idHex).toBe(requestIdHex(signetEVMSignatureRequestId(record)));
+    expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
 
     // Nonce bumped for the next request.
     expect(ledger(state).signetNonce).toBe(1n);
@@ -294,8 +370,10 @@ DIRTY_PATH[200] = 0x41;
 interface DepositRejectionCase {
   /** Test name, completing the sentence "rejects <name>". */
   name: string;
-  /** Complete signet params passed to the circuit. */
-  params: SignetEVMSignatureRequestParams;
+  /** Complete tx envelope passed to the circuit. */
+  txParams: EVMType2TxParams;
+  /** Complete routing args passed to the circuit. */
+  routing: RoutingArgs;
   /** Complete deposit request args passed to the circuit. */
   args: DepositArgs;
   /** Error the circuit must throw. */
@@ -305,85 +383,71 @@ interface DepositRejectionCase {
 const DEPOSIT_REJECTION_CASES: DepositRejectionCase[] = [
   {
     name: "a zero ERC20 address",
-    params: {
-      ...VALID_PARAMS,
-      evmTransaction: { ...VALID_PARAMS.evmTransaction, to: ZERO_ADDRESS },
-    },
+    txParams: { ...VALID_TX_PARAMS, to: ZERO_ADDRESS },
+    routing: VALID_ROUTING,
     args: { ...VALID_ARGS, erc20Address: ZERO_ADDRESS },
     throws: /ERC20 address cannot be zero/,
   },
   {
     name: "a zero amount",
-    params: VALID_PARAMS,
+    txParams: VALID_TX_PARAMS,
+    routing: VALID_ROUTING,
     args: { ...VALID_ARGS, amount: 0n },
     throws: /Amount must be positive/,
   },
   {
     name: "an amount above Uint<64> max (unclaimable)",
-    params: VALID_PARAMS,
+    txParams: VALID_TX_PARAMS,
+    routing: VALID_ROUTING,
     args: { ...VALID_ARGS, amount: UINT64_MAX + 1n },
     throws: /Amount exceeds Uint<64> max/,
   },
   {
     name: "an EVM 'to' that is not the ERC20 contract",
-    params: {
-      ...VALID_PARAMS,
-      evmTransaction: { ...VALID_PARAMS.evmTransaction, to: bytes(20, 0xbb) },
-    },
+    txParams: { ...VALID_TX_PARAMS, to: bytes(20, 0xbb) },
+    routing: VALID_ROUTING,
     args: VALID_ARGS,
     throws: /EVM 'to' must be the ERC20 contract/,
   },
   {
     name: "a nonzero ETH value",
-    params: {
-      ...VALID_PARAMS,
-      evmTransaction: { ...VALID_PARAMS.evmTransaction, value: 1n },
-    },
+    txParams: { ...VALID_TX_PARAMS, value: 1n },
+    routing: VALID_ROUTING,
     args: VALID_ARGS,
     throws: /No ETH value for ERC20 transfer/,
   },
   {
     name: "a zero chain id",
-    params: {
-      ...VALID_PARAMS,
-      evmTransaction: { ...VALID_PARAMS.evmTransaction, chainId: 0n },
-    },
+    txParams: { ...VALID_TX_PARAMS, chainId: 0n },
+    routing: VALID_ROUTING,
     args: VALID_ARGS,
     throws: /Chain ID must be positive/,
   },
   {
     name: "a zero gas limit",
-    params: {
-      ...VALID_PARAMS,
-      evmTransaction: { ...VALID_PARAMS.evmTransaction, gasLimit: 0n },
-    },
+    txParams: { ...VALID_TX_PARAMS, gasLimit: 0n },
+    routing: VALID_ROUTING,
     args: VALID_ARGS,
     throws: /Gas limit must be positive/,
   },
   {
     name: "a path bound to someone else's identity",
-    params: {
-      ...VALID_PARAMS,
-      mpcRouting: { ...VALID_PARAMS.mpcRouting, path: OTHER_PATH },
-    },
+    txParams: VALID_TX_PARAMS,
+    routing: { ...VALID_ROUTING, path: OTHER_PATH },
     args: VALID_ARGS,
     throws: /path hex does not match commitment/,
   },
   {
     name: "a path with garbage after the hex",
-    params: {
-      ...VALID_PARAMS,
-      mpcRouting: { ...VALID_PARAMS.mpcRouting, path: DIRTY_PATH },
-    },
+    txParams: VALID_TX_PARAMS,
+    routing: { ...VALID_ROUTING, path: DIRTY_PATH },
     args: VALID_ARGS,
     throws: /zero-padded/,
   },
   {
     name: "the legacy key version 0",
-    params: {
-      ...VALID_PARAMS,
-      mpcRouting: { ...VALID_PARAMS.mpcRouting, keyVersion: 0n },
-    },
+    txParams: VALID_TX_PARAMS,
+    routing: { ...VALID_ROUTING, keyVersion: 0n },
     args: VALID_ARGS,
     throws: /keyVersion must be >= 1/,
   },
@@ -392,10 +456,10 @@ const DEPOSIT_REJECTION_CASES: DepositRejectionCase[] = [
 describe("deposit validation", () => {
   it.each(DEPOSIT_REJECTION_CASES)(
     "rejects $name",
-    async ({ params, args, throws }) => {
+    async ({ txParams, routing, args, throws }) => {
       const { contract, ctx } = await deployInitialized();
       await expect(
-        contract.circuits.requestDeposit(ctx, params, args),
+        requestDeposit(contract, ctx, txParams, routing, args),
       ).rejects.toThrow(throws);
     },
   );
@@ -403,7 +467,7 @@ describe("deposit validation", () => {
   it("rejects before initialize", async () => {
     const { contract, ctx } = await deployContract();
     await expect(
-      contract.circuits.requestDeposit(ctx, VALID_PARAMS, VALID_ARGS),
+      requestDeposit(contract, ctx, VALID_TX_PARAMS, VALID_ROUTING, VALID_ARGS),
     ).rejects.toThrow(/Not initialized/);
   });
 
@@ -414,17 +478,19 @@ describe("deposit validation", () => {
     const { contract, ctx } = await deployInitialized();
 
     const afterFirst = (
-      await contract.circuits.requestDeposit(ctx, VALID_PARAMS, VALID_ARGS)
+      await requestDeposit(contract, ctx, VALID_TX_PARAMS, VALID_ROUTING, VALID_ARGS)
     ).context;
     const afterSecond = (
-      await contract.circuits.requestDeposit(
+      await requestDeposit(
+        contract,
         afterFirst,
-        VALID_PARAMS,
+        VALID_TX_PARAMS,
+        VALID_ROUTING,
         VALID_ARGS,
       )
     ).context;
 
-    const index = toSignetEVMSignatureRequestIndex(
+    const index = toSignBidirectionalEventIndex(
       ledger(afterSecond.callContext.currentQueryContext.state)
         .signetRequestsIndex,
     );

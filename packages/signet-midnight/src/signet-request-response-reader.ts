@@ -16,16 +16,16 @@ import { readSignetRequestsLedgerFromState } from "./signature-requests-state-re
 import {
   readSignetContractLedgerFromState,
   signetResponseIndexKey,
-  type SignetEVMSignatureResponse,
-  type SignetRespondBidirectional,
+  type SignatureRespondedEvent,
+  type RespondBidirectional,
 } from "./signet-contract-state-reader.ts";
-import { recoverSignetEVMSignatureResponseSigner } from "./signature-response-verification.ts";
+import { recoverSignatureRespondedEventSigner } from "./signature-response-verification.ts";
 import type { RawContractState } from "./signature-state-reading.ts";
 import {
-  signetEVMSignatureRequestToSignedEVMTransaction,
-  signetEVMSignatureRequestToUnsignedEVMTransaction,
-  type SignetEVMSignatureRequest,
-  type SignetRequestIdHex,
+  signBidirectionalEventToSignedEVMTransaction,
+  signBidirectionalEventToUnsignedEVMTransaction,
+  type SignBidirectionalEvent,
+  type RequestIdHex,
 } from "./signet-requests.ts";
 
 /**
@@ -62,7 +62,7 @@ export interface SignatureResponseVerdict {
   /** 0-based position of the post in the request's response log. */
   count: bigint;
   /** The posted signature record, verbatim. */
-  response: SignetEVMSignatureResponse;
+  response: SignatureRespondedEvent;
   /** Recovered signer address — absent when the signature did not decode. */
   signer?: string;
   /** Why the post was rejected; absent when the post is valid. */
@@ -75,7 +75,7 @@ export interface VerifiedSignatureResponseResult {
    * The first valid response (lowest count), or `undefined` when no valid
    * response has been posted yet — poll again.
    */
-  verified?: SignetEVMSignatureResponse;
+  verified?: SignatureRespondedEvent;
   /**
    * One verdict per post, count order. Pure data: the reader never logs, so
    * callers decide how to surface rejected posts.
@@ -94,8 +94,8 @@ export class SignetRequestResponseReader {
 
   // Request records never change once stored; cache them across calls.
   private readonly requestCache = new Map<
-    SignetRequestIdHex,
-    SignetEVMSignatureRequest
+    RequestIdHex,
+    SignBidirectionalEvent
   >();
 
   /**
@@ -138,8 +138,8 @@ export class SignetRequestResponseReader {
    *   request under `requestId`.
    */
   async getSignatureRequest(
-    requestId: SignetRequestIdHex,
-  ): Promise<SignetEVMSignatureRequest> {
+    requestId: RequestIdHex,
+  ): Promise<SignBidirectionalEvent> {
     const cached = this.requestCache.get(requestId);
     if (cached !== undefined) {
       return cached;
@@ -170,18 +170,18 @@ export class SignetRequestResponseReader {
    *   disagrees with the log (inconsistent ledger).
    */
   async getSignatureResponses(
-    requestId: SignetRequestIdHex,
-  ): Promise<SignetEVMSignatureResponse[]> {
+    requestId: RequestIdHex,
+  ): Promise<SignatureRespondedEvent[]> {
     const raw = await this.queryRawState(
       this.config.signetContractAddress,
       "signet contract",
     );
-    const { signatureResponseCounterIndex, signatureResponseIndex } =
+    const { signatureRespondedEventCounterIndex, signatureRespondedEventIndex } =
       readSignetContractLedgerFromState(raw);
-    const totalPosts = signatureResponseCounterIndex.get(requestId) ?? 0n;
-    const responses: SignetEVMSignatureResponse[] = [];
+    const totalPosts = signatureRespondedEventCounterIndex.get(requestId) ?? 0n;
+    const responses: SignatureRespondedEvent[] = [];
     for (let count = 0n; count < totalPosts; count++) {
-      const response = signatureResponseIndex.get(
+      const response = signatureRespondedEventIndex.get(
         signetResponseIndexKey(requestId, count),
       );
       if (response === undefined) {
@@ -210,7 +210,7 @@ export class SignetRequestResponseReader {
    *   the requester's ledger, or the responses ledger is inconsistent.
    */
   async getVerifiedSignatureResponse(
-    requestId: SignetRequestIdHex,
+    requestId: RequestIdHex,
     expectedSigner: string,
   ): Promise<VerifiedSignatureResponseResult> {
     const request = await this.getSignatureRequest(requestId);
@@ -220,7 +220,7 @@ export class SignetRequestResponseReader {
         const count = BigInt(index);
         let signer: string;
         try {
-          signer = recoverSignetEVMSignatureResponseSigner(request, response);
+          signer = recoverSignatureRespondedEventSigner(request, response);
         } catch (error) {
           return {
             count,
@@ -258,9 +258,9 @@ export class SignetRequestResponseReader {
    *   request under `requestId`.
    */
   async getUnsignedEVMTransaction(
-    requestId: SignetRequestIdHex,
+    requestId: RequestIdHex,
   ): Promise<Transaction> {
-    return signetEVMSignatureRequestToUnsignedEVMTransaction(
+    return signBidirectionalEventToUnsignedEVMTransaction(
       await this.getSignatureRequest(requestId),
     );
   }
@@ -282,7 +282,7 @@ export class SignetRequestResponseReader {
    *   requester's ledger, or the responses ledger is inconsistent.
    */
   async getSignedEVMTransaction(
-    requestId: SignetRequestIdHex,
+    requestId: RequestIdHex,
     expectedSigner: string,
   ): Promise<Transaction | undefined> {
     const { verified } = await this.getVerifiedSignatureResponse(
@@ -295,7 +295,7 @@ export class SignetRequestResponseReader {
     // getSignatureRequest is cached — getVerifiedSignatureResponse already
     // fetched it, so this is a free lookup, not a second query.
     const request = await this.getSignatureRequest(requestId);
-    return signetEVMSignatureRequestToSignedEVMTransaction(request, verified);
+    return signBidirectionalEventToSignedEVMTransaction(request, verified);
   }
 
   /**
@@ -311,8 +311,8 @@ export class SignetRequestResponseReader {
    * @throws Error when the signet contract has no state on-chain.
    */
   async getRespondBidirectional(
-    requestId: SignetRequestIdHex,
-  ): Promise<SignetRespondBidirectional | undefined> {
+    requestId: RequestIdHex,
+  ): Promise<RespondBidirectional | undefined> {
     const raw = await this.queryRawState(
       this.config.signetContractAddress,
       "signet contract",

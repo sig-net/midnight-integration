@@ -11,9 +11,9 @@ import "@midnight-erc20-vault/signet-midnight/src/Signet";
 // clients poll it — there is deliberately no push/websocket channel. Ledger
 // layout per "Signet Contract Ledger Layout" in Signet.compact, so pollers
 // need only this contract's address.
-export ledger signatureResponseCounterIndex: SignatureResponseCounterIndex;
+export ledger signatureRespondedEventCounterIndex: SignatureRespondedEventCounterIndex;
 
-export ledger signatureResponseIndex: SignatureResponseIndex;
+export ledger signatureRespondedEventIndex: SignatureRespondedEventIndex;
 
 export ledger respondBidirectionalIndex: RespondBidirectionalIndex;
 
@@ -30,22 +30,22 @@ constructor(mpcPk: JubjubPoint) {
 // in-circuit): anyone may post, and nothing is ever overwritten — each post
 // lands under the next (requestId, count) key. Callers verify the posted
 // signatures off-chain to pick out the genuine one.
-export circuit postSignatureResponse(requestId: SignetRequestId, signatureResponse: SignetEVMSignatureResponse): [] {
+export circuit postSignatureResponse(requestId: RequestId, signatureResponse: SignatureRespondedEvent): [] {
     // Everything stored here is public by construction.
     const disclosedRequestId = disclose(requestId);
 
     // Ensure the request's counter exists (a fresh Counter reads 0).
-    if (!signatureResponseCounterIndex.member(disclosedRequestId)) {
-        signatureResponseCounterIndex.insertDefault(disclosedRequestId);
+    if (!signatureRespondedEventCounterIndex.member(disclosedRequestId)) {
+        signatureRespondedEventCounterIndex.insertDefault(disclosedRequestId);
     }
 
     // Posts so far == this post's 0-based count. Read ONCE into a local so
     // the stored key and the counter update cannot disagree.
-    const count = signatureResponseCounterIndex.lookup(disclosedRequestId).read();
-    signatureResponseCounterIndex.lookup(disclosedRequestId).increment(1);
+    const count = signatureRespondedEventCounterIndex.lookup(disclosedRequestId).read();
+    signatureRespondedEventCounterIndex.lookup(disclosedRequestId).increment(1);
 
     // Store the response under (requestId, count).
-    signatureResponseIndex.insert(
+    signatureRespondedEventIndex.insert(
         SignetResponseKey{
             requestId: disclosedRequestId,
             count: count,
@@ -61,8 +61,8 @@ export circuit postSignatureResponse(requestId: SignetRequestId, signatureRespon
 // authentic by construction and one slot per request suffices — clients read
 // it without re-verifying.
 export circuit postRespondBidirectional(
-    requestId: SignetRequestId,
-    respondBidirectional: SignetRespondBidirectional
+    requestId: RequestId,
+    respondBidirectional: RespondBidirectional
 ): [] {
     // Everything stored here is public by construction.
     const disclosedRequestId = disclose(requestId);

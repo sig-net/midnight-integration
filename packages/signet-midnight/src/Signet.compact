@@ -39,57 +39,31 @@ module Signet {
   // consumers (the signet contract, response pollers, the MPC)
   // treat it as an opaque 32-byte key, whatever kind of request it identifies.
   // Each request kind mints ids via its own domain-separated hash circuit
-  // (see signetEVMSignatureRequestId). `new type` makes it NOT interchangeable
-  // with any other Bytes<32> — cast explicitly: `someHash as SignetRequestId`.
-  export new type SignetRequestId = Bytes<32>;
+  // (see calculateRequestId). `new type` makes it NOT interchangeable
+  // with any other Bytes<32> — cast explicitly: `someHash as RequestId`.
+  export new type RequestId = Bytes<32>;
 
-  // ---- Request parameter groups --------------------------------------------
+  // ---- The canonical request/response pair ----------------------------------
+  // 1. Client contract emits a SignBidirectionalEvent: requesting a signature from the MPC
+  // 2. MPC observes SignBidirectionalEvent, responding with SignatureRespondedEvent (providing the requested signature back to the client)
+  // 3. Client observes SignatureRespondedEvent, broadcasts txn to destination chain
+  // 4. MPC observes, txn execution on destination chain, responds with RespondBidirectionalEvent
 
-  // The EVM transaction to be signed, decomposed into typed fields
-  // (EIP-1559 / type-2: https://eips.ethereum.org/EIPS/eip-1559).
-  // Decomposed rather than pre-serialized so the requesting contract can
-  // enforce invariants field by field; the MPC re-assembles and RLP-encodes
-  // off-chain. (The MPC's chain-agnostic primitive carries an opaque
-  // serialized_transaction instead; the decomposition follows its Canton
-  // adapter's EvmType2TransactionParams.)
-  // TODO: add all necessary parameters to support full Ethereum type 2 transactions. (ensure any type 2 txn possible - except contract creation).
-  // TODO: consider generic typing to allow different EVM Transaction parmas to be provided
-  export struct EVMTransactionParams {
-    to: Bytes<20>;                   // call target (e.g. the ERC20 contract)
-    chainId: Uint<64>;               // EVM chain id (also expressed in caip2Id)
-    nonce: Uint<64>;                 // account nonce of the derived sender
-    gasLimit: Uint<64>;              // gas ceiling for the call
-    maxFeePerGas: Uint<128>;         // wei
-    maxPriorityFeePerGas: Uint<128>; // wei
-    value: Uint<128>;                // ETH sent with the call, in wei
+  // TxParamType indiciates which transaction-param decomposition a request
+  // contains so an off-chain consumer (e.g. the MPC) knows how to re-assemble it.
+  // In-circuit this is redundant as the type is fixed at compile time (i.e. monomorphized).
+  export enum TxParamType {
+    evmType2, // EVMType2TxParams: an EIP-1559 EVM transaction (envelope + calldata)
   }
 
-  // ABI calldata for the EVM call: function signature + arg slots. The slot
-  // capacity is a generic size parameter — each requesting contract
-  // instantiates exactly the count its call needs (the vault's
-  // transfer(address,uint256) uses EVMCalldata<2>). Each arg is one
-  // left-padded 32-byte ABI word.
-  // https://docs.soliditylang.org/en/latest/abi-spec.html
-  // TODO: use serialised version of the funcSig to reduce EVMCallDataSize
-  // TODO: ensure funcSig is optional and call data (all of it the entire EVMCalldata)
-  export struct EVMCalldata<#n> {
-    funcSig: Bytes<64>;         // zero-padded ASCII, e.g. "transfer(address,uint256)"
-    // TODO: Word count!!
-    argCount: Uint<8>;          // how many leading slots of `args` are used;
-                                // kept on the wire so serialized records stay
-                                // self-describing
-    args: Vector<n, Bytes<32>>; // ABI words; slots beyond argCount must be zero
-  }
+  // SignBidirectionalEvent is emitted by a Client contract to request a signature from the MPC.
+  export struct SignBidirectionalEvent<TxParams> {
+    // sender
+    requestNonce: Uint<64>;   // contract-local nonce at creation time
 
-  // TODO: look up this formatting of the arguments to make the EVMCalldata more flexible
-  // func(a: Address, b: []uint) ---> [address, 1, len, ]
-  // func(0x1234324, [1,2,3]) ---> [address, 3, 1, 2, 3]
+    txParamType: TxParamType; // which decomposition txParams is (off-chain decode tag)
+    txParams: TxParams;       // the generic transaction-param payload
 
-  // MPC routing: which key signs, for which chain, and how the response comes
-  // back. These are opaque strings to the MPC's key-derivation — see
-  // https://docs.sig.network/ for the derivation scheme.
-  // TODO: optimise field sizes
-  export struct SignetMPCRoutingParams {
     // TODO: confirm sufficient size for CAIP-2 standard.
     caip2Id: Bytes<32>;        // target chain in CAIP-2 form, e.g. "eip155:11155111"
                                // (https://chainagnostic.org/CAIPs/caip-2)
@@ -115,54 +89,22 @@ module Signet {
                                              // (MPC -> source chain)
   }
 
-  // The caller-supplied portion of a request: everything the dapp frontend
-  // chooses freely. What it does NOT contain is the calldata — that is
-  // assembled and enforced by the requesting contract, so a malicious client
-  // cannot have the MPC sign an arbitrary call.
-  export struct SignetEVMSignatureRequestParams {
-    evmTransaction: EVMTransactionParams;
-    mpcRouting: SignetMPCRoutingParams;
-  }
-
-  // ---- The canonical request/response pair ----------------------------------
-
-  // One signature request, stored per SignetRequestId in the request index.
-  // This is the minimum the MPC needs to build, sign, and route one EVM
-  // transaction; generic over the contract's calldata slot capacity.
-  // See 'Requester Ledger Layout' for how to make a contract 'signature requests compliant'.
-  export struct SignetEVMSignatureRequest<#n> {
-    requestNonce: Uint<64>;             // contract-local nonce at creation time
-    evmTransaction: EVMTransactionParams;
-    // TODO: move EVMCalldata (generic call data) into EVMTransactionParams (which is generic "transaction params");
-    calldata: EVMCalldata<n>;           // contract-enforced, never caller-chosen
-    // TODO: flatten MPC routing
-    mpcRouting: SignetMPCRoutingParams;
-  }
-
-  // The counterpart to SignetEVMSignatureRequest: the MPC's secp256k1
-  // signature over the requested EVM transaction, posted to the signet
-  // contract. Mirrors the MPC's canonical Signature { big_r, s, recovery_id }
-  // with big_r decomposed into its affine coordinates (big-endian scalar
-  // bytes). The requesting client attaches it to the rebuilt transaction and
-  // broadcasts — the MPC never submits. The request id it answers lives in
-  // the response index key (see SignetResponseKey).
-  export struct SignetEVMSignatureResponse { // check solana repo for this name
+  // The counterpart to SignBidirectionalEvent,
+  // emitted by the MPC after it observes SignBidirectionalEvent.
+  // Contains the MPC's secp256k1 signature over the requested transaction.
+  // The requesting client uses this to rebuild a signed transaction and broadcast.
+  export struct SignatureRespondedEvent {
     bigRx: Bytes<32>;    // signature R.x
     bigRy: Bytes<32>;    // signature R.y
     s: Bytes<32>;        // signature s
     recoveryId: Uint<8>; // parity of R.y for public-key recovery
   }
 
-  // The MPC's respond_bidirectional counterpart: after the client broadcasts,
-  // the MPC watches the destination chain and posts the execution output plus
-  // a Schnorr attestation of it, signed on Jubjub over
-  // (requestId, hash(serializedOutput, outputLen)) — see
-  // signetAttestationMessage. Unlike the ECDSA signature response (secp256k1,
-  // unverifiable in-circuit), this attestation IS verified in-circuit by the
-  // signet contract at post time, so stored records are authentic by
-  // construction. A requester contract (e.g. the vault's claimDeposit)
-  // re-verifies it when the user presents it.
-  export struct SignetRespondBidirectional {
+  // The counterpart to SignatureRespondedEvent, emitted by the MPC after
+  // it observes execution of the signed transaction on the destination chain.
+  // This response contains execution output and an attestation as to its authenticity.
+  // TODO: currently contains a Schnorr attestation --> migrate to ECDSA.
+  export struct RespondBidirectional {
     // ABI-encoded return data of the remote call (canonical
     // serialized_output), zero-padded. First 32-byte word == 1 signals
     // success; a 0xdeadbeef prefix is the MPC's error sentinel for a
@@ -182,6 +124,115 @@ module Signet {
 
     // Schnorr response scalar s.
     response: Field;
+  }  
+
+  // The EVM transaction to be signed, decomposed into typed fields
+  // (EIP-1559 / type-2: https://eips.ethereum.org/EIPS/eip-1559).
+  // Decomposed rather than pre-serialized so the requesting contract can
+  // enforce invariants field by field; the MPC re-assembles and RLP-encodes
+  // off-chain. (The MPC's chain-agnostic primitive carries an opaque
+  // serialized_transaction instead; the decomposition follows its Canton
+  // adapter's EvmType2TransactionParams.)
+  //
+  // Compact has no runtime-dynamic sizes, so every variable-length EVM tx
+  // part follows one scheme: a compile-time CAPACITY (a generic size
+  // parameter each requesting contract fixes as its throttle) plus a runtime
+  // count that says how many leading slots are real. Off-chain consumers use
+  // the counts; unused capacity is hashed as part of the record (zero-fill by
+  // convention) but never reaches the assembled transaction.
+  export struct EVMType2TxParams<#maxCalldataWords, #maxAccessListEntries, #maxStorageKeysPerEntry> {
+    to: Bytes<20>;                   // call target (e.g. the ERC20 contract)
+    chainId: Uint<64>;               // EVM chain id (also expressed in caip2Id)
+    nonce: Uint<64>;                 // account nonce of the derived sender
+    gasLimit: Uint<64>;              // gas ceiling for the call
+    maxFeePerGas: Uint<128>;         // wei
+    maxPriorityFeePerGas: Uint<128>; // wei
+    value: Uint<128>;                // ETH sent with the call, in wei
+    accessListEntryCount: Uint<8>;   // how many leading accessList entries are real
+    accessList: Vector<maxAccessListEntries, EVMAccessListEntry<maxStorageKeysPerEntry>>;
+    calldata: Maybe<EVMCalldata<maxCalldataWords>>; // none = plain ETH transfer ("0x" data)
+  }
+
+  // One EIP-2930 access-list entry (https://eips.ethereum.org/EIPS/eip-2930):
+  // an address plus the storage keys the transaction pre-declares. Keys are
+  // raw 32-byte values, copied verbatim into the RLP encoding.
+  export struct EVMAccessListEntry<#maxStorageKeys> {
+    address: Bytes<20>;
+    storageKeyCount: Uint<8>; // how many leading storageKeys are real
+    storageKeys: Vector<maxStorageKeys, Bytes<32>>;
+  }
+
+  // ABI calldata for the EVM call: 4-byte selector + tagged 32-byte slots
+  // (https://docs.soliditylang.org/en/latest/abi-spec.html).
+  //
+  // The words vector IS the calldata body: the MPC re-assembles
+  //   data = selector || processed words, in vector order
+  // where each word's kind selects the processing (see ABIWordKind). This
+  // supports full head/tail encoding — a dynamic arg's head slot holds the
+  // offset word, its tail the length word and verbatim data chunks — with the
+  // LAYOUT produced by the client (UI or requesting circuit), never by the
+  // MPC. The MPC does not compute or validate offsets: a malformed layout
+  // only breaks the requester's own call on the destination chain.
+  export struct EVMCalldata<#maxWords> {
+    selector: Bytes<4>; // the literal first 4 calldata bytes (big-endian, as broadcast)
+    words: Vector<maxWords, ABIWord>;
+  }
+
+  // One tagged 32-byte ABI slot of the calldata body.
+  export struct ABIWord {
+    kind: ABIWordKind;
+    value: Bytes<32>;
+  }
+
+  // How the MPC must handle one ABIWord.value when re-assembling calldata.
+  //
+  // The numeric kinds (staticArg, dynArgHead, dynArgLength) are LITTLE-ENDIAN
+  // field embeds — the layout Compact's `x as Field as Bytes<32>` cast
+  // produces — and the MPC decodes the LE integer and re-encodes it as a
+  // big-endian 32-byte ABI word. This is what lets requesting circuits build
+  // contract-enforced args in-circuit (Compact has no byte-reversal
+  // primitive, so they could not produce big-endian words directly).
+  // CAUTION: for values that are natively BYTE STRINGS in display order
+  // (addresses!), the embedded integer must be the value's big-endian
+  // numeric reading — see evmAddressAbiValue below.
+  export enum ABIWordKind {
+    staticArg,    // static arg word: LE numeric embed -> BE ABI word
+    dynArgHead,   // head slot of a dynamic arg (byte offset of its tail): same LE handling
+    dynArgLength, // length word opening a dynamic tail: same LE handling
+    dynArgData,   // 32-byte chunk of dynamic tail data: copied VERBATIM
+    unused        // capacity filler beyond the call's real words: dropped
+  }
+
+  // The field value to embed in a staticArg word for an EVM address: the
+  // BIG-ENDIAN numeric reading of its 20 display-order bytes. Embedding the
+  // address directly (`addr as Field`) would be wrong: that cast is
+  // little-endian, so the MPC's LE-decode -> BE-encode step would emit the
+  // address byte-reversed in the calldata. Usage:
+  //   ABIWord { kind: ABIWordKind.staticArg,
+  //             value: evmAddressAbiValue(addr) as Bytes<32> }
+  // (Uint amounts need no helper: `amount as Field` already embeds the
+  // correct numeric value.)
+  export pure circuit evmAddressAbiValue(addr: Bytes<20>): Field {
+    const a0  = slice<1>(addr, 0) as Field;
+    const a1  = a0  * 256 + (slice<1>(addr, 1)  as Field);
+    const a2  = a1  * 256 + (slice<1>(addr, 2)  as Field);
+    const a3  = a2  * 256 + (slice<1>(addr, 3)  as Field);
+    const a4  = a3  * 256 + (slice<1>(addr, 4)  as Field);
+    const a5  = a4  * 256 + (slice<1>(addr, 5)  as Field);
+    const a6  = a5  * 256 + (slice<1>(addr, 6)  as Field);
+    const a7  = a6  * 256 + (slice<1>(addr, 7)  as Field);
+    const a8  = a7  * 256 + (slice<1>(addr, 8)  as Field);
+    const a9  = a8  * 256 + (slice<1>(addr, 9)  as Field);
+    const a10 = a9  * 256 + (slice<1>(addr, 10) as Field);
+    const a11 = a10 * 256 + (slice<1>(addr, 11) as Field);
+    const a12 = a11 * 256 + (slice<1>(addr, 12) as Field);
+    const a13 = a12 * 256 + (slice<1>(addr, 13) as Field);
+    const a14 = a13 * 256 + (slice<1>(addr, 14) as Field);
+    const a15 = a14 * 256 + (slice<1>(addr, 15) as Field);
+    const a16 = a15 * 256 + (slice<1>(addr, 16) as Field);
+    const a17 = a16 * 256 + (slice<1>(addr, 17) as Field);
+    const a18 = a17 * 256 + (slice<1>(addr, 18) as Field);
+    return      a18 * 256 + (slice<1>(addr, 19) as Field);
   }
 
   // ---- Requester Ledger Layout -----------------------------------------------
@@ -190,7 +241,7 @@ module Signet {
   // contract declares this as its FIRST ledger field (instantiated at its own
   // calldata slot capacity), so the MPC can find and deserialize it knowing
   // only the contract address.
-  export new type SignetEVMSignatureRequestIndex<#n> = Map<SignetRequestId, SignetEVMSignatureRequest<n>>;
+  export new type SignBidirectionalEventIndex<TxParams> = Map<RequestId, SignBidirectionalEvent<TxParams>>;
 
   // The contract-local request counter. Signet layout convention: declared as
   // the SECOND ledger field (directly after the index). It sources each
@@ -201,8 +252,8 @@ module Signet {
   // ---- Signet Contract Ledger Layout ------------------------------------------
   // The CENTRAL signet contract on Midnight stores both MPC response kinds.
   // Its layout convention (find everything knowing only the contract address):
-  //   field 0: SignatureResponseCounterIndex
-  //   field 1: SignatureResponseIndex
+  //   field 0: SignatureRespondedEventCounterIndex
+  //   field 1: SignatureRespondedEventIndex
   //   field 2: RespondBidirectionalIndex
   //   field 3: mpcPubKeyHash (sealed Bytes<32>)
   //
@@ -220,24 +271,24 @@ module Signet {
   // Per-request post counter for signature responses (field 0). The counter
   // reads the number of posts made for that request; entries exist for
   // counts 0..counter-1.
-  export new type SignatureResponseCounterIndex = Map<SignetRequestId, Counter>;
+  export new type SignatureRespondedEventCounterIndex = Map<RequestId, Counter>;
 
   // Composite key of one posted signature response: the request id it
   // answers plus this post's 0-based count, sourced from
-  // SignatureResponseCounterIndex. (Respond-bidirectional posts need no key
+  // SignatureRespondedEventCounterIndex. (Respond-bidirectional posts need no key
   // struct — authenticated posts are keyed by request id alone.)
   export struct SignetResponseKey {
     count: Uint<64>;
-    requestId: SignetRequestId;
+    requestId: RequestId;
   };
 
   // The on-ledger signature response log (field 1), keyed by
   // (requestId, count).
-  export new type SignatureResponseIndex = Map<SignetResponseKey, SignetEVMSignatureResponse>;
+  export new type SignatureRespondedEventIndex = Map<SignetResponseKey, SignatureRespondedEvent>;
 
   // The on-ledger respond-bidirectional index (field 2): one
   // contract-verified attestation per request.
-  export new type RespondBidirectionalIndex = Map<SignetRequestId, SignetRespondBidirectional>;
+  export new type RespondBidirectionalIndex = Map<RequestId, RespondBidirectional>;
 
   // ---- Request id -----------------------------------------------------------
 
@@ -246,22 +297,21 @@ module Signet {
   // field — the MPC (or anyone) recomputes it off-chain and refuses records
   // whose stored key does not match.
   //
-  // The "signet:evm:request:" domain tag partitions the SignetRequestId space
-  // per request kind: when other target chains land (each with its own
-  // request struct and its own signet<Chain>SignatureRequestId circuit under
-  // its own tag), ids from different kinds can never collide or be confused.
+  // The "signet:midnight:request" domain tag partitions the RequestId space:
+  // ids minted by this circuit can never collide or be confused with hashes
+  // minted under any other tag.
   //
   // Off-chain twin: being type-parameterized, this circuit cannot be exported
   // through circuits.compact, so signet-requests.ts carries a TS twin
-  // (signetEVMSignatureRequestId) that MUST stay in lockstep — see the
+  // (calculateRequestId) that MUST stay in lockstep — see the
   // deviation note there before changing anything here.
-  export pure circuit signetEVMSignatureRequestId<#n>(
-    request: SignetEVMSignatureRequest<n>
-  ): SignetRequestId {
+  export pure circuit calculateRequestId<TxParams>(
+    request: SignBidirectionalEvent<TxParams>
+  ): RequestId {
     return persistentHash<Vector<2, Bytes<32>>>([
-      pad(32, "signet:evm:request:"),
-      persistentHash<SignetEVMSignatureRequest<n>>(request)
-    ]) as SignetRequestId;
+      pad(32, "signet:midnight:request"),
+      persistentHash<SignBidirectionalEvent<TxParams>>(request)
+    ]) as RequestId;
   }
 
   // ---- Respond-bidirectional attestation message ------------------------------
@@ -276,7 +326,7 @@ module Signet {
   // off-chain signers call the compiled copy (via circuits.compact) — never
   // a TS re-implementation.
   export pure circuit signetAttestationMessage(
-    requestId: SignetRequestId,
+    requestId: RequestId,
     serializedOutput: Bytes<128>,
     outputLen: Uint<8>
   ): Vector<4, Field> {
@@ -323,7 +373,7 @@ module Signet {
     }
   }
 
-  // Assert the full path <-> identity binding: the path is EXACTLY the
+  // // Assert the full path <-> identity binding: the path is EXACTLY the
   // canonical lowercase hex of `commitment`, zero-padded to 256 bytes. This
   // makes identity -> path -> MPC-derived account a forced 1:1 mapping: no one
   // can request signatures under another identity's derived key, and no
@@ -345,24 +395,41 @@ module Signet {
   //   - pathCommitment: the DISCLOSED identity commitment of the caller
   //     (derived from a secret-key witness — see the vault's userCommitment)
   //   - requestNonce:   its contract-local nonce (typically a Counter read)
-  //   - requestParams:  the caller-supplied EVM tx + MPC routing params
-  //   - calldata:       the CONTRACT-built calldata (never caller-supplied)
-  // Store the result under signetEVMSignatureRequestId(request) in the
+  //   - txParams:       the transaction decomposition; the contract MUST
+  //     build (or overwrite) any part it enforces — calldata above all —
+  //     rather than pass caller input through
+  //   - the remaining MPC routing fields, caller-supplied
+  // Store the result under calculateRequestId(request) in the
   // request index.
-  export pure circuit constructSignetEVMSignatureRequest<#n>(
+  export pure circuit constructSignBidirectionalEvent<TxParams>(
     pathCommitment: Bytes<32>,
     requestNonce: Uint<64>,
-    requestParams: SignetEVMSignatureRequestParams,
-    calldata: EVMCalldata<n>
-  ): SignetEVMSignatureRequest<n> {
-    assertPathCommitment(pathCommitment, requestParams.mpcRouting.path);
+    txParamType: TxParamType,
+    txParams: TxParams,
+    caip2Id: Bytes<32>,
+    keyVersion: Uint<32>,
+    path: Bytes<256>,
+    algo: Bytes<32>,
+    dest: Bytes<32>,
+    params: Bytes<64>,
+    outputDeserializationSchema: Bytes<128>,
+    respondSerializationSchema: Bytes<128>
+  ): SignBidirectionalEvent<TxParams> {
+    assertPathCommitment(pathCommitment, path);
     // The MPC rejects requests for the unsupported legacy key version 0.
-    assert(requestParams.mpcRouting.keyVersion >= 1, "keyVersion must be >= 1");
-    return SignetEVMSignatureRequest<n> {
-      requestNonce: requestNonce,
-      evmTransaction: requestParams.evmTransaction,
-      calldata: calldata,
-      mpcRouting: requestParams.mpcRouting
+    assert(keyVersion >= 1, "keyVersion must be >= 1");
+    return SignBidirectionalEvent<TxParams> {
+      requestNonce,
+      txParamType,
+      txParams,
+      caip2Id,
+      keyVersion,
+      path,
+      algo,
+      dest,
+      params,
+      outputDeserializationSchema,
+      respondSerializationSchema
     };
   }
 }

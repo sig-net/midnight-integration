@@ -91,3 +91,40 @@ structs to a generic, `txParamType`-discriminated request that mirrors the MPC's
 `SignBidirectionalEvent` (items 1–3); and (2) **proof-cost reduction** — right-sizing
 or dynamically sizing oversized `Bytes<N>`/`Uint<N>` fields, and possibly turning
 unused opaque strings into enums (item 4).
+
+
+```
+ok, but that wouldn't solve it as there is not dynamic sizes AT ALL in compact. So the UI couldn't send an arbitrary byte length. The compiled contract would have to specify like a "max length" type #n and then the UI could only submit up to that length with some kind of padding. Unless data is stored outside of these structs in a List or something with pop and push functionality then only a pointer to that data is stored in here. But that breaks the SDK and gets out of control, the MPC will struggle. Stuff is all over the place.
+
+Lets just focus on the dynamic args for now.
+
+What I think we should do is come up with an K x m x n type solution where K is a fixed size, m and n are 'variable'. Then the contract can limit those to some maximums to throttle.
+
+imagining something like:
+
+export struct EVMType2TxParams<#maxWords> {
+  // ...other fields...
+  calldata: Maybe<EVMCallData<maxWords>>; 
+  // ...other fields...
+}
+
+export struct EVMCallData<#maxWords> {
+  functionSig: Bytes<4>; // The 4-byte selector (e.g., 0xa9059cbb)
+  words: Vector<maxWords, ABIWord>; 
+}
+
+// Replaces your DynBox
+export struct ABIWord {
+  wordType: ABIWordType; // Enum to tell the MPC how to handle this chunk
+  value: Bytes<32>;      // Every ABI slot is exactly 32 bytes
+}
+
+// Enum defining the word's purpose
+export enum ABIWordType {
+  StaticArg,    // Flat 32-byte values (address, uint256, bool)
+  DynArgHead,   // 32-byte offset pointer
+  DynArgLength, // 32-byte array/bytes length
+  DynArgData,   // 32-byte chunk of the actual dynamic data
+  Unused        // Crucial for filling up the Vector to #maxWords
+}
+```

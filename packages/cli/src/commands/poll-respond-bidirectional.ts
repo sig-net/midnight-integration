@@ -8,8 +8,8 @@ import {
   isExecutionError,
   executionSucceeded,
   SignetRequestResponseReader,
-  type SignetRespondBidirectional,
-  type SignetRequestIdHex,
+  type RespondBidirectional,
+  type RequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
 
 import { requireConfigValue } from "../config.ts";
@@ -18,7 +18,7 @@ import type { CliContext } from "../context.ts";
 /** Options for {@link pollRespondBidirectional}. */
 export interface PollRespondBidirectionalOptions {
   /** The request id to poll for. */
-  readonly requestId: SignetRequestIdHex;
+  readonly requestId: RequestIdHex;
   /** Poll interval in milliseconds. */
   readonly intervalMs: number;
   /** Give-up timeout in milliseconds. */
@@ -49,7 +49,7 @@ const sleep = (ms: number): Promise<void> =>
 export async function pollRespondBidirectional(
   context: CliContext,
   options: PollRespondBidirectionalOptions,
-): Promise<SignetRespondBidirectional> {
+): Promise<RespondBidirectional> {
   const signetContractAddress = requireConfigValue(
     context.config.signetContractAddress,
     "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
@@ -98,7 +98,7 @@ export async function pollRespondBidirectional(
  * @returns The serialized output hex.
  */
 export function formatRespondBidirectional(
-  respondBidirectional: SignetRespondBidirectional,
+  respondBidirectional: RespondBidirectional,
 ): string {
   return bytesToHex(respondBidirectional.serializedOutput);
 }

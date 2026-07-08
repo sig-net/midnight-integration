@@ -32,8 +32,8 @@ import {
   generateMpcRootKey,
   executionSucceeded,
   SignetRequestResponseReader,
-  type SignetRespondBidirectional,
-  type SignetRequestIdHex,
+  type RespondBidirectional,
+  type RequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
 import { deployVault, ledger as vaultContractLedger } from "@midnight-erc20-vault/vault-contract";
 import { deploySignetContract } from "@midnight-erc20-vault/signet-contract";
@@ -411,14 +411,14 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
 
   // prepare request Id for use in subsequent tests
   // It is populated by the requestDeposit test.
-  let depositTransactionSignatureRequestId: SignetRequestIdHex;
+  let depositTransactionSignatureRequestId: RequestIdHex;
 
   it(
     "requestDeposit [erc-vault contract method call]: request a deposit through the cli and read it back MPC-style",
     async () => {
       // check if a request Id was given in then environment (for skipping steps during local development)
       if (env.DEPOSIT_REQUEST_ID) {
-        depositTransactionSignatureRequestId = env.DEPOSIT_REQUEST_ID as SignetRequestIdHex;
+        depositTransactionSignatureRequestId = env.DEPOSIT_REQUEST_ID as RequestIdHex;
         logSkip("requestDeposit", `DEPOSIT_REQUEST_ID present in environment, skipping deposit call '${depositTransactionSignatureRequestId}'`);
         return;
       }
@@ -442,8 +442,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       const record = await sharedResponseReader().getSignatureRequest(
         depositTransactionSignatureRequestId,
       );
-      expect(record.evmTransaction.nonce).toBe(evmNonce);
-      expect(bytesToBigint(record.calldata.args[1])).toBe(amount);
+      expect(record.txParams.nonce).toBe(evmNonce);
+      expect(record.txParams.calldata.is_some).toBe(true);
+      expect(bytesToBigint(record.txParams.calldata.value.words[1].value)).toBe(
+        amount,
+      );
 
       banner([
         `Deposit request recorded on the vault ledger:`,
@@ -501,7 +504,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
   );
 
   // prepare deposit transaction respond-bidirectional attestation for use in subsequent transactions
-  let depositSweepTransactionRespondBidirectional: SignetRespondBidirectional;
+  let depositSweepTransactionRespondBidirectional: RespondBidirectional;
 
   it(
     "pollRespondBidirectional: poll signet contract for sweep transaction signature response",

@@ -18,12 +18,12 @@ import {
   readSignetContractLedgerFromState,
   requestIdHex,
   requestIdType,
-  signetEVMSignatureResponseType,
-  signetRespondBidirectionalType,
+  signatureRespondedEventType,
+  respondBidirectionalType,
   signetResponseIndexKey,
   signetResponseKeyType,
-  type SignetEVMSignatureResponse,
-  type SignetRespondBidirectional,
+  type SignatureRespondedEvent,
+  type RespondBidirectional,
 } from "../src/index.ts";
 
 const bytes = (length: number, fill: number) =>
@@ -36,13 +36,13 @@ const REQUEST_ID = bytes(32, 0x2f);
 // Two signature responses posted for REQUEST_ID: counter reads 2, entries at
 // counts 0..1.
 const POST_COUNT = 2n;
-const RESPONSE_0: SignetEVMSignatureResponse = {
+const RESPONSE_0: SignatureRespondedEvent = {
   bigRx: bytes(32, 0xa0),
   bigRy: bytes(32, 0xa1),
   s: bytes(32, 0xa2),
   recoveryId: 0n,
 };
-const RESPONSE_1: SignetEVMSignatureResponse = {
+const RESPONSE_1: SignatureRespondedEvent = {
   bigRx: bytes(32, 0xb0),
   bigRy: bytes(32, 0xb1),
   s: bytes(32, 0xb2),
@@ -53,7 +53,7 @@ const RESPONSE_1: SignetEVMSignatureResponse = {
 // so the descriptor round-trips genuine coordinates, but a synthetic scalar
 // (the reader decodes, it does not verify).
 const MPC_KEYS = deriveJubjubKeypair(bytes(32, 0x42));
-const RESPOND_BIDIRECTIONAL: SignetRespondBidirectional = {
+const RESPOND_BIDIRECTIONAL: RespondBidirectional = {
   serializedOutput: bytes(128, 0x01),
   outputLen: 32n,
   pk: MPC_KEYS.pk,
@@ -67,10 +67,10 @@ const MPC_PUB_KEY_HASH = bytes(32, 0x99);
 const counterCell = (value: bigint) =>
   StateValue.newCell({ value: u64.toValue(value), alignment: u64.alignment() });
 
-const responseCell = (response: SignetEVMSignatureResponse) =>
+const responseCell = (response: SignatureRespondedEvent) =>
   StateValue.newCell({
-    value: signetEVMSignatureResponseType.toValue(response),
-    alignment: signetEVMSignatureResponseType.alignment(),
+    value: signatureRespondedEventType.toValue(response),
+    alignment: signatureRespondedEventType.alignment(),
   });
 
 const responseKey = (count: bigint) => ({
@@ -98,8 +98,8 @@ const syntheticContractState = () => {
       alignment: requestIdType.alignment(),
     },
     StateValue.newCell({
-      value: signetRespondBidirectionalType.toValue(RESPOND_BIDIRECTIONAL),
-      alignment: signetRespondBidirectionalType.alignment(),
+      value: respondBidirectionalType.toValue(RESPOND_BIDIRECTIONAL),
+      alignment: respondBidirectionalType.alignment(),
     }),
   );
   return StateValue.newArray()
@@ -117,23 +117,23 @@ const syntheticContractState = () => {
 describe("signet-contract-state-reader (MPC-style raw decode)", () => {
   it("round-trips all four ledger fields through raw state by field position", () => {
     const {
-      signatureResponseCounterIndex,
-      signatureResponseIndex,
+      signatureRespondedEventCounterIndex,
+      signatureRespondedEventIndex,
       respondBidirectionalIndex,
       mpcPubKeyHash,
     } = readSignetContractLedgerFromState(syntheticContractState());
 
-    expect(signatureResponseCounterIndex.size).toBe(1);
-    expect(signatureResponseCounterIndex.get(requestIdHex(REQUEST_ID))).toBe(
+    expect(signatureRespondedEventCounterIndex.size).toBe(1);
+    expect(signatureRespondedEventCounterIndex.get(requestIdHex(REQUEST_ID))).toBe(
       POST_COUNT,
     );
 
-    expect(signatureResponseIndex.size).toBe(2);
+    expect(signatureRespondedEventIndex.size).toBe(2);
     expect(
-      signatureResponseIndex.get(signetResponseIndexKey(requestIdHex(REQUEST_ID), 0n)),
+      signatureRespondedEventIndex.get(signetResponseIndexKey(requestIdHex(REQUEST_ID), 0n)),
     ).toEqual(RESPONSE_0);
     expect(
-      signatureResponseIndex.get(signetResponseIndexKey(requestIdHex(REQUEST_ID), 1n)),
+      signatureRespondedEventIndex.get(signetResponseIndexKey(requestIdHex(REQUEST_ID), 1n)),
     ).toEqual(RESPONSE_1);
 
     expect(respondBidirectionalIndex.size).toBe(1);
@@ -156,13 +156,13 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
         }),
       );
     const {
-      signatureResponseCounterIndex,
-      signatureResponseIndex,
+      signatureRespondedEventCounterIndex,
+      signatureRespondedEventIndex,
       respondBidirectionalIndex,
       mpcPubKeyHash,
     } = readSignetContractLedgerFromState(fresh);
-    expect(signatureResponseCounterIndex.size).toBe(0);
-    expect(signatureResponseIndex.size).toBe(0);
+    expect(signatureRespondedEventCounterIndex.size).toBe(0);
+    expect(signatureRespondedEventIndex.size).toBe(0);
     expect(respondBidirectionalIndex.size).toBe(0);
     expect(mpcPubKeyHash).toEqual(MPC_PUB_KEY_HASH);
   });

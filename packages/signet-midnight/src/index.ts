@@ -22,6 +22,6 @@ export * from "./mpc-keys.ts";
  * are the same compiled logic the contracts prove. The generic request
  * circuits cannot be compiled here (type-parameterized): request construction
  * is contract-only, and request-id hashing has a documented-deviation TS twin
- * (`signetEVMSignatureRequestId` in signet-requests.ts).
+ * (`calculateRequestId` in signet-requests.ts).
  */
 export { pureCircuits, type PureCircuits } from "./managed/contract/index.js";

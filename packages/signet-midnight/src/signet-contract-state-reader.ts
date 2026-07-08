@@ -20,8 +20,8 @@ import {
 
 import {
   requestIdHex,
-  type SignetRequestId,
-  type SignetRequestIdHex,
+  type RequestId,
+  type RequestIdHex,
 } from "./signet-requests.ts";
 
 import {
@@ -32,10 +32,10 @@ import {
 } from "./signature-state-reading.ts";
 
 /** Signet contract layout: the signature response counter index is ledger field 0. */
-export const SIGNATURE_RESPONSE_COUNTER_INDEX_FIELD = 0;
+export const SIGNATURE_RESPONDED_EVENT_COUNTER_INDEX_FIELD = 0;
 
 /** Signet contract layout: the signature response log is ledger field 1. */
-export const SIGNATURE_RESPONSE_INDEX_FIELD = 1;
+export const SIGNATURE_RESPONDED_EVENT_INDEX_FIELD = 1;
 
 /** Signet contract layout: the respond-bidirectional index is ledger field 2. */
 export const RESPOND_BIDIRECTIONAL_INDEX_FIELD = 2;
@@ -59,12 +59,12 @@ const u8 = new CompactTypeUnsignedInteger(255n, 1);
 
 /**
  * The MPC's secp256k1 signature over the requested EVM transaction (Compact
- * `SignetEVMSignatureResponse` — the canonical MPC `Signature { big_r, s,
+ * `SignatureRespondedEvent` — the canonical MPC `Signature { big_r, s,
  * recovery_id }` with `big_r` decomposed into affine coordinates, big-endian
  * scalar bytes). The request id it answers lives in the response index key,
  * not here.
  */
-export interface SignetEVMSignatureResponse {
+export interface SignatureRespondedEvent {
   /** Signature R.x, 32 big-endian bytes. */
   bigRx: Uint8Array;
   /** Signature R.y, 32 big-endian bytes. */
@@ -76,10 +76,10 @@ export interface SignetEVMSignatureResponse {
 }
 
 /**
- * Hand-composed descriptor for {@link SignetEVMSignatureResponse}. Field
+ * Hand-composed descriptor for {@link SignatureRespondedEvent}. Field
  * order (bigRx, bigRy, s, recoveryId) must match the Compact struct.
  */
-export const signetEVMSignatureResponseType: CompactType<SignetEVMSignatureResponse> = {
+export const signatureRespondedEventType: CompactType<SignatureRespondedEvent> = {
   /** @returns Compound alignment of the struct's fields in declaration order. */
   alignment() {
     return bytes32
@@ -120,13 +120,13 @@ export const signetEVMSignatureResponseType: CompactType<SignetEVMSignatureRespo
 
 /**
  * The MPC's respond-bidirectional attestation of a request's remote EVM
- * execution (Compact `SignetRespondBidirectional`): the serialized execution
+ * execution (Compact `RespondBidirectional`): the serialized execution
  * output plus the Schnorr signature over
  * `(requestId, hash(serializedOutput, outputLen))`. Stored records were
  * verified IN-CIRCUIT by the signet contract at post time, so readers can
  * trust them without re-verifying.
  */
-export interface SignetRespondBidirectional {
+export interface RespondBidirectional {
   /** ABI-encoded return data (canonical serialized_output), zero-padded to 128 bytes. */
   serializedOutput: Uint8Array;
   /** Meaningful byte count of {@link serializedOutput}. */
@@ -149,7 +149,7 @@ export interface SignetResponseKey {
   /** 0-based position of this post among the responses for {@link requestId}. */
   count: bigint;
   /** 32-byte id of the request this response answers. */
-  requestId: SignetRequestId;
+  requestId: RequestId;
 }
 
 /**
@@ -186,11 +186,11 @@ export const signetResponseKeyType: CompactType<SignetResponseKey> = {
 };
 
 /**
- * Hand-composed descriptor for {@link SignetRespondBidirectional}. Field
+ * Hand-composed descriptor for {@link RespondBidirectional}. Field
  * order (serializedOutput, outputLen, pk, announcement, response) must match
  * the Compact struct.
  */
-export const signetRespondBidirectionalType: CompactType<SignetRespondBidirectional> = {
+export const respondBidirectionalType: CompactType<RespondBidirectional> = {
   /** @returns Compound alignment of the struct's fields in declaration order. */
   alignment() {
     return bytes128
@@ -237,26 +237,26 @@ export const signetRespondBidirectionalType: CompactType<SignetRespondBidirectio
  * request id (see {@link requestIdHex}) to the number of responses posted for
  * that request. Entries in the response log exist for counts `0 .. value - 1`.
  */
-export type SignatureResponseCounterIndex = Map<SignetRequestIdHex, bigint>;
+export type SignatureRespondedEventCounterIndex = Map<RequestIdHex, bigint>;
 
 /**
  * Plain-JS signature response log parsed out of the ledger, keyed by
  * {@link signetResponseIndexKey} (`"<hexRequestId>:<count>"`) so the
  * composite Compact key survives as a usable JS `Map` key.
  */
-export type SignatureResponseIndex = Map<string, SignetEVMSignatureResponse>;
+export type SignatureRespondedEventIndex = Map<string, SignatureRespondedEvent>;
 
 /**
  * Plain-JS respond-bidirectional index parsed out of the ledger: hex
  * request id to the contract-verified attestation. One slot per request.
  */
 export type RespondBidirectionalIndex = Map<
-  SignetRequestIdHex,
-  SignetRespondBidirectional
+  RequestIdHex,
+  RespondBidirectional
 >;
 
 /**
- * Build the {@link SignatureResponseIndex} key for a `(requestId, count)`
+ * Build the {@link SignatureRespondedEventIndex} key for a `(requestId, count)`
  * pair — the composite Compact key flattened to a string so it works as a JS
  * `Map` key.
  *
@@ -265,7 +265,7 @@ export type RespondBidirectionalIndex = Map<
  * @returns `"<hexRequestId>:<count>"`.
  */
 export function signetResponseIndexKey(
-  id: SignetRequestIdHex,
+  id: RequestIdHex,
   count: bigint,
 ): string {
   return `${id}:${count}`;
@@ -280,15 +280,15 @@ export function signetResponseIndexKey(
 export interface SignetContractLedger {
   /**
    * The signature response counter index (ledger field
-   * {@link SIGNATURE_RESPONSE_COUNTER_INDEX_FIELD}), keyed by hex request id.
+   * {@link SIGNATURE_RESPONDED_EVENT_COUNTER_INDEX_FIELD}), keyed by hex request id.
    */
-  signatureResponseCounterIndex: SignatureResponseCounterIndex;
+  signatureRespondedEventCounterIndex: SignatureRespondedEventCounterIndex;
   /**
    * The signature response log (ledger field
-   * {@link SIGNATURE_RESPONSE_INDEX_FIELD}), keyed by
+   * {@link SIGNATURE_RESPONDED_EVENT_INDEX_FIELD}), keyed by
    * {@link signetResponseIndexKey}.
    */
-  signatureResponseIndex: SignatureResponseIndex;
+  signatureRespondedEventIndex: SignatureRespondedEventIndex;
   /**
    * The respond-bidirectional index (ledger field
    * {@link RESPOND_BIDIRECTIONAL_INDEX_FIELD}), keyed by hex request id.
@@ -317,14 +317,14 @@ export function readSignetContractLedgerFromState(
 ): SignetContractLedger {
   const counterMap = signetFieldNode(
     raw,
-    SIGNATURE_RESPONSE_COUNTER_INDEX_FIELD,
+    SIGNATURE_RESPONDED_EVENT_COUNTER_INDEX_FIELD,
   ).asMap();
   if (counterMap === undefined) {
     throw new Error(
-      `Ledger field ${SIGNATURE_RESPONSE_COUNTER_INDEX_FIELD} is not a Map`,
+      `Ledger field ${SIGNATURE_RESPONDED_EVENT_COUNTER_INDEX_FIELD} is not a Map`,
     );
   }
-  const signatureResponseCounterIndex: SignatureResponseCounterIndex =
+  const signatureRespondedEventCounterIndex: SignatureRespondedEventCounterIndex =
     new Map();
   for (const key of counterMap.keys()) {
     // fromValue consumes its input, so hand each descriptor a copy.
@@ -332,7 +332,7 @@ export function readSignetContractLedgerFromState(
     // A Counter is stored as a plain u64 cell.
     const cell = counterMap.get(key)?.asCell();
     if (cell === undefined) continue;
-    signatureResponseCounterIndex.set(
+    signatureRespondedEventCounterIndex.set(
       requestIdHex(requestId),
       u64.fromValue([...cell.value]),
     );
@@ -340,19 +340,19 @@ export function readSignetContractLedgerFromState(
 
   const responseMap = signetFieldNode(
     raw,
-    SIGNATURE_RESPONSE_INDEX_FIELD,
+    SIGNATURE_RESPONDED_EVENT_INDEX_FIELD,
   ).asMap();
   if (responseMap === undefined) {
-    throw new Error(`Ledger field ${SIGNATURE_RESPONSE_INDEX_FIELD} is not a Map`);
+    throw new Error(`Ledger field ${SIGNATURE_RESPONDED_EVENT_INDEX_FIELD} is not a Map`);
   }
-  const signatureResponseIndex: SignatureResponseIndex = new Map();
+  const signatureRespondedEventIndex: SignatureRespondedEventIndex = new Map();
   for (const key of responseMap.keys()) {
     const responseKey = signetResponseKeyType.fromValue([...key.value]);
     const cell = responseMap.get(key)?.asCell();
     if (cell === undefined) continue;
-    signatureResponseIndex.set(
+    signatureRespondedEventIndex.set(
       signetResponseIndexKey(requestIdHex(responseKey.requestId), responseKey.count),
-      signetEVMSignatureResponseType.fromValue([...cell.value]),
+      signatureRespondedEventType.fromValue([...cell.value]),
     );
   }
 
@@ -372,7 +372,7 @@ export function readSignetContractLedgerFromState(
     if (cell === undefined) continue;
     respondBidirectionalIndex.set(
       requestIdHex(requestId),
-      signetRespondBidirectionalType.fromValue([...cell.value]),
+      respondBidirectionalType.fromValue([...cell.value]),
     );
   }
 
@@ -383,8 +383,8 @@ export function readSignetContractLedgerFromState(
   const mpcPubKeyHash = bytes32.fromValue([...hashCell.value]);
 
   return {
-    signatureResponseCounterIndex,
-    signatureResponseIndex,
+    signatureRespondedEventCounterIndex,
+    signatureRespondedEventIndex,
     respondBidirectionalIndex,
     mpcPubKeyHash,
   };

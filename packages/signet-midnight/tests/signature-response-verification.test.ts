@@ -14,15 +14,19 @@ import {
 } from "ethers";
 
 import {
+  ABIWordKind,
+  ERC20_TRANSFER_SELECTOR,
+  TxParamType,
   asciiPadded,
-  bigintToBytes32,
-  signatureToSignetEVMSignatureResponse,
-  signetEVMSignatureRequestToSignedEVMTransaction,
-  signetEVMSignatureRequestToUnsignedEVMTransaction,
-  recoverSignetEVMSignatureResponseSigner,
-  verifySignetEVMSignatureResponse,
-  type SignetEVMSignatureRequest,
-  type SignetEVMSignatureResponse,
+  evmAddressAbiWord,
+  numericAbiWordValue,
+  signatureToSignatureRespondedEvent,
+  signBidirectionalEventToSignedEVMTransaction,
+  signBidirectionalEventToUnsignedEVMTransaction,
+  recoverSignatureRespondedEventSigner,
+  verifySignatureRespondedEvent,
+  type SignBidirectionalEvent,
+  type SignatureRespondedEvent,
 } from "../src/index.ts";
 
 // ---- Fixtures ----
@@ -34,19 +38,15 @@ const ERC20 = bytes(20, 0xaa);
 const VAULT_EVM = bytes(20, 0xee);
 const AMOUNT = 1_000_000n;
 
-// `Bytes<20> as Field as Bytes<32>`: little-endian embed — address bytes
-// first, zero padding after (the convention the vault contract stores).
-const VAULT_ADDRESS_WORD = new Uint8Array(32);
-VAULT_ADDRESS_WORD.set(VAULT_EVM);
-
 /**
  * Known-good request record for a `transfer(vault, amount)` deposit — the
  * base every test varies from. Shared across tests: NEVER mutate; build a
  * variation as an explicit spread with the delta inline.
  */
-const REQUEST: SignetEVMSignatureRequest = {
+const REQUEST: SignBidirectionalEvent = {
   requestNonce: 0n,
-  evmTransaction: {
+  txParamType: TxParamType.evmType2,
+  txParams: {
     to: ERC20,
     chainId: 11155111n,
     nonce: 7n,
@@ -54,22 +54,27 @@ const REQUEST: SignetEVMSignatureRequest = {
     maxFeePerGas: 30_000_000_000n,
     maxPriorityFeePerGas: 1_000_000_000n,
     value: 0n,
+    accessListEntryCount: 0n,
+    accessList: [],
+    calldata: {
+      is_some: true,
+      value: {
+        selector: ERC20_TRANSFER_SELECTOR,
+        words: [
+          { kind: ABIWordKind.staticArg, value: evmAddressAbiWord(VAULT_EVM) },
+          { kind: ABIWordKind.staticArg, value: numericAbiWordValue(AMOUNT) },
+        ],
+      },
+    },
   },
-  calldata: {
-    funcSig: asciiPadded("transfer(address,uint256)", 64),
-    argCount: 2n,
-    args: [VAULT_ADDRESS_WORD, bigintToBytes32(AMOUNT)],
-  },
-  mpcRouting: {
-    caip2Id: asciiPadded("eip155:11155111", 32),
-    keyVersion: 1n,
-    path: new Uint8Array(256),
-    algo: asciiPadded("ecdsa", 32),
-    dest: asciiPadded("ethereum", 32),
-    params: new Uint8Array(64),
-    outputDeserializationSchema: new Uint8Array(128),
-    respondSerializationSchema: new Uint8Array(128),
-  },
+  caip2Id: asciiPadded("eip155:11155111", 32),
+  keyVersion: 1n,
+  path: new Uint8Array(256),
+  algo: asciiPadded("ecdsa", 32),
+  dest: asciiPadded("ethereum", 32),
+  params: new Uint8Array(64),
+  outputDeserializationSchema: new Uint8Array(128),
+  respondSerializationSchema: new Uint8Array(128),
 };
 
 // The "MPC" of these tests: a plain secp256k1 key standing in for the
@@ -81,21 +86,41 @@ const IMPOSTER_KEY = new SigningKey(`0x${"22".repeat(32)}`);
 /** Sign `request`'s rebuilt tx hash with `key`, packed as a response record. */
 const signResponse = (
   key: SigningKey,
-  request: SignetEVMSignatureRequest,
-): SignetEVMSignatureResponse =>
-  signatureToSignetEVMSignatureResponse(
+  request: SignBidirectionalEvent,
+): SignatureRespondedEvent =>
+  signatureToSignatureRespondedEvent(
     key.sign(
-      signetEVMSignatureRequestToUnsignedEVMTransaction(request).unsignedHash,
+      signBidirectionalEventToUnsignedEVMTransaction(request).unsignedHash,
     ),
   );
 
 const VALID_RESPONSE = signResponse(MPC_KEY, REQUEST);
 
+/** REQUEST with one calldata word swapped out. */
+const withWord = (
+  index: number,
+  word: { kind: number; value: Uint8Array },
+): SignBidirectionalEvent => ({
+  ...REQUEST,
+  txParams: {
+    ...REQUEST.txParams,
+    calldata: {
+      is_some: true,
+      value: {
+        ...REQUEST.txParams.calldata.value,
+        words: REQUEST.txParams.calldata.value.words.map((w, i) =>
+          i === index ? word : w,
+        ),
+      },
+    },
+  },
+});
+
 // ---- Tests ----
 
-describe("signetEVMSignatureRequestToUnsignedEVMTransaction", () => {
+describe("signBidirectionalEventToUnsignedEVMTransaction", () => {
   it("rebuilds the exact EIP-1559 transaction the request describes", () => {
-    const tx = signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST);
+    const tx = signBidirectionalEventToUnsignedEVMTransaction(REQUEST);
 
     expect(tx.type).toBe(2);
     expect(tx.chainId).toBe(11155111n);
@@ -105,34 +130,35 @@ describe("signetEVMSignatureRequestToUnsignedEVMTransaction", () => {
     expect(tx.maxPriorityFeePerGas).toBe(1_000_000_000n);
     expect(tx.value).toBe(0n);
     expect(tx.to?.toLowerCase()).toBe(`0x${"aa".repeat(20)}`);
+    expect(tx.accessList).toEqual([]);
 
-    // The calldata decodes back to the stored (LE-embedded) args.
+    // The calldata decodes back to the transfer args — the address in
+    // display order (proving the BE address embed) and the amount.
     const iface = new Interface(["function transfer(address,uint256)"]);
     const [to, amount] = iface.decodeFunctionData("transfer", tx.data);
     expect((to as string).toLowerCase()).toBe(`0x${"ee".repeat(20)}`);
     expect(amount).toBe(AMOUNT);
   });
 
-  it("rejects a record whose argCount disagrees with the function signature", () => {
+  it("rejects a record with an unknown calldata word kind", () => {
     expect(() =>
-      signetEVMSignatureRequestToUnsignedEVMTransaction({
-        ...REQUEST,
-        calldata: { ...REQUEST.calldata, argCount: 3n },
-      }),
-    ).toThrow(/argCount 3/);
+      signBidirectionalEventToUnsignedEVMTransaction(
+        withWord(1, { kind: 99, value: numericAbiWordValue(AMOUNT) }),
+      ),
+    ).toThrow(/unknown ABI word kind 99/);
   });
 });
 
-describe("recoverSignetEVMSignatureResponseSigner", () => {
+describe("recoverSignatureRespondedEventSigner", () => {
   it("recovers the signing address from a genuine response", () => {
-    expect(recoverSignetEVMSignatureResponseSigner(REQUEST, VALID_RESPONSE)).toBe(
+    expect(recoverSignatureRespondedEventSigner(REQUEST, VALID_RESPONSE)).toBe(
       MPC_ADDRESS,
     );
   });
 
   it("rejects a response with an out-of-range recovery id", () => {
     expect(() =>
-      recoverSignetEVMSignatureResponseSigner(REQUEST, {
+      recoverSignatureRespondedEventSigner(REQUEST, {
         ...VALID_RESPONSE,
         recoveryId: 5n,
       }),
@@ -145,9 +171,9 @@ interface VerifyCase {
   /** Test name, completing the sentence "verifies/rejects <name>". */
   name: string;
   /** The request record the response claims to answer. */
-  request: SignetEVMSignatureRequest;
+  request: SignBidirectionalEvent;
   /** The candidate response record. */
-  response: SignetEVMSignatureResponse;
+  response: SignatureRespondedEvent;
   /** The signer the response must recover to. */
   expectedSigner: string;
   /** The expected verdict. */
@@ -178,13 +204,10 @@ const VERIFY_CASES: VerifyCase[] = [
   },
   {
     name: "a genuine signature over a DIFFERENT request (tampered amount)",
-    request: {
-      ...REQUEST,
-      calldata: {
-        ...REQUEST.calldata,
-        args: [VAULT_ADDRESS_WORD, bigintToBytes32(AMOUNT + 1n)],
-      },
-    },
+    request: withWord(1, {
+      kind: ABIWordKind.staticArg,
+      value: numericAbiWordValue(AMOUNT + 1n),
+    }),
     response: VALID_RESPONSE,
     expectedSigner: MPC_ADDRESS,
     valid: false,
@@ -210,20 +233,20 @@ const VERIFY_CASES: VerifyCase[] = [
   },
 ];
 
-describe("verifySignetEVMSignatureResponse", () => {
+describe("verifySignatureRespondedEvent", () => {
   it.each(VERIFY_CASES)(
     "verdict on $name is $valid",
     ({ request, response, expectedSigner, valid }) => {
       expect(
-        verifySignetEVMSignatureResponse(request, response, expectedSigner),
+        verifySignatureRespondedEvent(request, response, expectedSigner),
       ).toBe(valid);
     },
   );
 });
 
-describe("signetEVMSignatureRequestToSignedEVMTransaction", () => {
+describe("signBidirectionalEventToSignedEVMTransaction", () => {
   it("attaches the response signature to the request's transaction", () => {
-    const signed = signetEVMSignatureRequestToSignedEVMTransaction(
+    const signed = signBidirectionalEventToSignedEVMTransaction(
       REQUEST,
       VALID_RESPONSE,
     );
@@ -232,7 +255,7 @@ describe("signetEVMSignatureRequestToSignedEVMTransaction", () => {
     // Signing is non-destructive: the signed tx carries the same body as the
     // unsigned one, so its signing hash is unchanged.
     expect(signed.unsignedHash).toBe(
-      signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
     );
     // The attached signature recovers to the MPC signer...
     expect(signed.from).toBe(MPC_ADDRESS);
@@ -248,19 +271,19 @@ describe("signetEVMSignatureRequestToSignedEVMTransaction", () => {
     // back to a signature with the same recovered signer — exercising the
     // point-decompression path posters use.
     const signature = MPC_KEY.sign(
-      signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
     );
-    const record = signatureToSignetEVMSignatureResponse(
+    const record = signatureToSignatureRespondedEvent(
       Signature.from(signature),
     );
     expect(record.bigRy).toHaveLength(32);
-    const signed = signetEVMSignatureRequestToSignedEVMTransaction(REQUEST, record);
+    const signed = signBidirectionalEventToSignedEVMTransaction(REQUEST, record);
     expect(signed.from).toBe(MPC_ADDRESS);
   });
 
   it("rejects a response with an out-of-range recovery id", () => {
     expect(() =>
-      signetEVMSignatureRequestToSignedEVMTransaction(REQUEST, {
+      signBidirectionalEventToSignedEVMTransaction(REQUEST, {
         ...VALID_RESPONSE,
         recoveryId: 5n,
       }),

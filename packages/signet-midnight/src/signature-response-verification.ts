@@ -10,11 +10,11 @@
 import { getAddress, recoverAddress } from "ethers";
 
 import {
-  signetEVMSignatureRequestToUnsignedEVMTransaction,
-  signetEVMSignatureResponseToSignature,
-  type SignetEVMSignatureRequest,
+  signBidirectionalEventToUnsignedEVMTransaction,
+  signatureRespondedEventToSignature,
+  type SignBidirectionalEvent,
 } from "./signet-requests.ts";
-import type { SignetEVMSignatureResponse } from "./signet-contract-state-reader.ts";
+import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts";
 
 /**
  * Recover the EVM address that produced a response signature, over the
@@ -25,15 +25,15 @@ import type { SignetEVMSignatureResponse } from "./signet-contract-state-reader.
  * @returns The checksummed recovered signer address.
  * @throws Error if the response is not a decodable signature or the request
  *   record is malformed (see
- *   {@link signetEVMSignatureRequestToUnsignedEVMTransaction}).
+ *   {@link signBidirectionalEventToUnsignedEVMTransaction}).
  */
-export function recoverSignetEVMSignatureResponseSigner(
-  request: SignetEVMSignatureRequest,
-  response: SignetEVMSignatureResponse,
+export function recoverSignatureRespondedEventSigner(
+  request: SignBidirectionalEvent,
+  response: SignatureRespondedEvent,
 ): string {
   return recoverAddress(
-    signetEVMSignatureRequestToUnsignedEVMTransaction(request).unsignedHash,
-    signetEVMSignatureResponseToSignature(response),
+    signBidirectionalEventToUnsignedEVMTransaction(request).unsignedHash,
+    signatureRespondedEventToSignature(response),
   );
 }
 
@@ -48,14 +48,14 @@ export function recoverSignetEVMSignatureResponseSigner(
  * @param expectedSigner - The EVM address (any case, 0x hex) that must have signed.
  * @returns `true` iff the response is a valid signature by `expectedSigner`.
  */
-export function verifySignetEVMSignatureResponse(
-  request: SignetEVMSignatureRequest,
-  response: SignetEVMSignatureResponse,
+export function verifySignatureRespondedEvent(
+  request: SignBidirectionalEvent,
+  response: SignatureRespondedEvent,
   expectedSigner: string,
 ): boolean {
   try {
     return (
-      recoverSignetEVMSignatureResponseSigner(request, response) ===
+      recoverSignatureRespondedEventSigner(request, response) ===
       getAddress(expectedSigner)
     );
   } catch {

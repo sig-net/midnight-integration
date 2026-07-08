@@ -12,15 +12,14 @@ pragma language_version >= 0.25;
 // hand-porting the algorithms.
 //
 // ONLY the non-generic circuits are exported here. The request circuits
-// (signetEVMSignatureRequestId, constructSignetEVMSignatureRequest) are
-// generic over the calldata slot count, the compiler cannot export
-// type-parameterized circuits from the top level, and this package is
-// client-agnostic — a slot count is a CLIENT contract's choice and never
-// belongs here. constructSignetEVMSignatureRequest is contract-only, so it
-// needs no off-chain copy; signetEVMSignatureRequestId IS needed off-chain
-// (clients recompute ledger map keys), so it alone has a documented-deviation
-// TS twin in signet-requests.ts, kept honest by vault-contract's deposit
-// round-trip test.
+// (calculateRequestId, constructSignBidirectionalEvent) are generic over the
+// tx-params type, the compiler cannot export type-parameterized circuits from
+// the top level, and this package is client-agnostic — a capacity
+// instantiation is a CLIENT contract's choice and never belongs here.
+// constructSignBidirectionalEvent is contract-only, so it needs no off-chain
+// copy; calculateRequestId IS needed off-chain (clients recompute ledger map
+// keys), so it alone has a documented-deviation TS twin in signet-requests.ts,
+// kept honest by vault-contract's deposit round-trip test.
 //
 // Compile with --skip-zk only: pure circuits run in TS without proving keys.
 
@@ -32,5 +31,6 @@ export {
   signetAttestationMessage,
   assertHexOf,
   assertPathCommitment,
+  evmAddressAbiValue,
   schnorrChallenge
 };

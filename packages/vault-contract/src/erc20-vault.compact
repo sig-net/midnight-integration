@@ -11,9 +11,10 @@ import "@midnight-erc20-vault/signet-midnight/src/Signet";
 // The request index MUST be ledger field 0 and the nonce counter field 1: the
 // MPC locates them by position, knowing only this contract's address (signet
 // layout convention). DO NOT DECLARE ANY OTHER LEDGER STATE ABOVE THESE!
-// Instantiated at 2 calldata arg slots — exactly what transfer(address,uint256)
-// needs (the generic parameter is this contract's slot capacity everywhere).
-export ledger signetRequestsIndex: SignetEVMSignatureRequestIndex<2>;
+// Instantiated at <2 calldata words, 0 access-list entries, 0 storage keys> —
+// exactly what transfer(address,uint256) needs (the capacities are this
+// contract's throttle everywhere).
+export ledger signetRequestsIndex: SignBidirectionalEventIndex<EVMType2TxParams<2, 0, 0>>;
 
 // Contract-local request counter: gives each signet signature request its
 // requestNonce, and lets the MPC cheaply detect new requests.
@@ -86,8 +87,18 @@ export circuit initialize(vaultEvm: Bytes<20>): [] {
 // ---- Deposit ----------------------------------------------------------------------
 // Records a signet request for `transfer(vault, amount)` on the ERC20, to be
 // signed by the MPC with the caller's derived key and broadcast off-chain.
+// The routing params mirror constructSignBidirectionalEvent's parameter list
+// (flat — the library defines no caller-params wrapper struct).
 export circuit requestDeposit(
-  signetParams: SignetEVMSignatureRequestParams,
+  txParams: EVMType2TxParams<2, 0, 0>,
+  caip2Id: Bytes<32>,
+  keyVersion: Uint<32>,
+  path: Bytes<256>,
+  algo: Bytes<32>,
+  dest: Bytes<32>,
+  mpcParams: Bytes<64>,
+  outputDeserializationSchema: Bytes<128>,
+  respondSerializationSchema: Bytes<128>,
   depositRequest: DepositRequest
 ): [] {
   // -- contract-specific validation --
@@ -98,13 +109,13 @@ export circuit requestDeposit(
   assert(depositRequest.amount <= 18446744073709551615 as Uint<128>, "Amount exceeds Uint<64> max");
 
   // -- EVM transaction validation: enforce what the MPC will sign --
-  assert(signetParams.evmTransaction.to == depositRequest.erc20Address, "EVM 'to' must be the ERC20 contract");
-  assert(signetParams.evmTransaction.value == 0 as Uint<128>, "No ETH value for ERC20 transfer");
-  assert(signetParams.evmTransaction.chainId > 0 as Uint<64>, "Chain ID must be positive");
-  assert(signetParams.evmTransaction.gasLimit > 0 as Uint<64>, "Gas limit must be positive");
+  assert(txParams.to == depositRequest.erc20Address, "EVM 'to' must be the ERC20 contract");
+  assert(txParams.value == 0 as Uint<128>, "No ETH value for ERC20 transfer");
+  assert(txParams.chainId > 0 as Uint<64>, "Chain ID must be positive");
+  assert(txParams.gasLimit > 0 as Uint<64>, "Gas limit must be positive");
 
   // -- identity -> derivation-path binding --
-  // constructSignetEVMSignatureRequest asserts the request's path is exactly
+  // constructSignBidirectionalEvent asserts the request's path is exactly
   // the canonical hex of this commitment, so the MPC signs with THIS caller's
   // derived key and no one else's.
   const caller = disclose(userCommitment(callerSecretKey()));
@@ -112,27 +123,52 @@ export circuit requestDeposit(
   // -- contract-enforced calldata: transfer(vault, amount) --
   // Built here, never taken from the caller — recipient comes from sealed-in
   // config, which is what stops a malicious client from having the MPC sign
-  // a transfer to themselves (or any arbitrary call).
+  // a transfer to themselves (or any arbitrary call). The address word embeds
+  // the BE numeric value (see evmAddressAbiValue); the amount's `as Field`
+  // cast already embeds the right number.
   const calldata = EVMCalldata<2> {
-    funcSig: pad(64, "transfer(address,uint256)"),
-    argCount: 2 as Uint<8>,
-    args: [
-      vaultEvmAddress as Field as Bytes<32>,
-      depositRequest.amount as Field as Bytes<32>
+    selector: Bytes [0xa9, 0x05, 0x9c, 0xbb], // transfer(address,uint256)
+    words: [
+      ABIWord { kind: ABIWordKind.staticArg, value: evmAddressAbiValue(vaultEvmAddress) as Bytes<32> },
+      ABIWord { kind: ABIWordKind.staticArg, value: depositRequest.amount as Field as Bytes<32> }
     ]
+  };
+
+  // The full transaction decomposition the MPC will sign: the caller's
+  // envelope with the contract-built calldata swapped in (and, at this
+  // contract's <2, 0, 0> instantiation, a structurally empty access list).
+  const finalTxParams = EVMType2TxParams<2, 0, 0> {
+    to: txParams.to,
+    chainId: txParams.chainId,
+    nonce: txParams.nonce,
+    gasLimit: txParams.gasLimit,
+    maxFeePerGas: txParams.maxFeePerGas,
+    maxPriorityFeePerGas: txParams.maxPriorityFeePerGas,
+    value: txParams.value,
+    accessListEntryCount: 0,
+    accessList: [],
+    calldata: some<EVMCalldata<2>>(calldata)
   };
 
   // -- construct, key, and record the request --
   const requestNonce = signetNonce as Uint<64>;
-  const request = constructSignetEVMSignatureRequest<2>(
+  const request = constructSignBidirectionalEvent<EVMType2TxParams<2, 0, 0>>(
     caller,
     requestNonce,
-    signetParams,
-    calldata
+    TxParamType.evmType2,
+    finalTxParams,
+    caip2Id,
+    keyVersion,
+    path,
+    algo,
+    dest,
+    mpcParams,
+    outputDeserializationSchema,
+    respondSerializationSchema
   );
   // Circuit arguments are private inputs; the request record is public ledger
   // state by design, so disclose it (and its id) explicitly at the write site.
-  const requestId = disclose(signetEVMSignatureRequestId<2>(request));
+  const requestId = disclose(calculateRequestId<EVMType2TxParams<2, 0, 0>>(request));
 
   assert(!signetRequestsIndex.member(requestId), "Request already exists");
   signetNonce.increment(1);
@@ -144,8 +180,8 @@ export circuit requestDeposit(
 // that the requested EVM transfer executed, and the vault mints them shielded
 // tokens for the deposited amount. One claim per request, depositor only.
 export circuit claimDeposit(
-  requestId: SignetRequestId,
-  respondBidirectional: SignetRespondBidirectional,
+  requestId: RequestId,
+  respondBidirectional: RespondBidirectional,
 ): [] {
   // requestId keys the ledger operations and the mint nonce below, so it is
   // public; the response is only verified, never written, and stays private.
@@ -188,13 +224,14 @@ export circuit claimDeposit(
   // Recompute the caller's commitment and check it against the request's
   // derivation path (the canonical hex of the depositor's commitment).
   const caller = userCommitment(callerSecretKey());
-  assertHexOf(caller, slice<64>(signatureRequest.mpcRouting.path, 0));
+  assertHexOf(caller, slice<64>(signatureRequest.path, 0));
 
   // -- mint shielded tokens for the deposited amount --
-  // requestDeposit stored the amount in calldata args[1] and the ERC20
-  // address in evmTransaction.to.
-  const amount = signatureRequest.calldata.args[1] as Field as Uint<128>;
-  const erc20Addr = signatureRequest.evmTransaction.to;
+  // requestDeposit stored the amount as calldata word 1 (an LE field embed)
+  // and the ERC20 address in txParams.to.
+  assert(signatureRequest.txParams.calldata.is_some, "Request has no calldata");
+  const amount = signatureRequest.txParams.calldata.value.words[1].value as Field as Uint<128>;
+  const erc20Addr = signatureRequest.txParams.to;
 
   // The domain separator encodes the ERC20 address, so each ERC20 gets its
   // own token color, bound to this contract via kernel.self() in tokenType().

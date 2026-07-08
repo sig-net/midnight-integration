@@ -8,7 +8,7 @@ import { Command, InvalidArgumentError } from "commander";
 import { Transaction } from "ethers";
 
 import { deriveAccountKeys, withSyncedWalletFacade } from "@midnight-erc20-vault/lib";
-import { parseSignetRequestIdHex, type SignetRequestIdHex } from "@midnight-erc20-vault/signet-midnight";
+import { parseRequestIdHex, type RequestIdHex } from "@midnight-erc20-vault/signet-midnight";
 
 import { broadcastEvm } from "./commands/broadcast-evm.ts";
 import { claimDeposit } from "./commands/claim-deposit.ts";
@@ -38,9 +38,9 @@ const parseMsArg = (value: string): number => {
   return Number(value);
 };
 
-const parseRequestIdArg = (value: string): SignetRequestIdHex => {
+const parseRequestIdArg = (value: string): RequestIdHex => {
   try {
-    return parseSignetRequestIdHex(value);
+    return parseRequestIdHex(value);
   } catch {
     throw new InvalidArgumentError("must be a 32-byte request id in hex");
   }
@@ -101,7 +101,7 @@ withPollingOptions(
     .command("poll-signature-response")
     .description("poll the signet contract for the MPC's signature over a request's EVM transaction")
     .requiredOption("--request-id <hex>", "the request id to poll for", parseRequestIdArg),
-).action((options: { requestId: SignetRequestIdHex; intervalMs: number; timeoutMs: number }) => {
+).action((options: { requestId: RequestIdHex; intervalMs: number; timeoutMs: number }) => {
   work = async (context) => {
     // Edge: a standalone command emits the tx as serialized hex for stdout.
     console.log((await pollSignatureResponse(context, options)).serialized);
@@ -113,7 +113,7 @@ withPollingOptions(
     .command("poll-respond-bidirectional")
     .description("poll the signet contract for the MPC's attestation of a request's remote EVM execution")
     .requiredOption("--request-id <hex>", "the request id to poll for", parseRequestIdArg),
-).action((options: { requestId: SignetRequestIdHex; intervalMs: number; timeoutMs: number }) => {
+).action((options: { requestId: RequestIdHex; intervalMs: number; timeoutMs: number }) => {
   work = async (context) => {
     console.log(formatRespondBidirectional(await pollRespondBidirectional(context, options)));
   };
@@ -137,7 +137,7 @@ program
   .command("claim-deposit")
   .description("claim a completed deposit: verify the MPC attestation in-circuit and mint shielded tokens")
   .requiredOption("--request-id <hex>", "the request id to claim", parseRequestIdArg)
-  .action((options: { requestId: SignetRequestIdHex }) => {
+  .action((options: { requestId: RequestIdHex }) => {
     work = (context) => claimDeposit(context, options);
   });
 
@@ -166,7 +166,7 @@ program
   .command("refund-withdraw")
   .description("settle a withdraw request: success is final, failure re-mints the escrow to the refund recipient")
   .requiredOption("--request-id <hex>", "the request id to settle", parseRequestIdArg)
-  .action((options: { requestId: SignetRequestIdHex }) => {
+  .action((options: { requestId: RequestIdHex }) => {
     work = (context) => refundWithdraw(context, options);
   });
 

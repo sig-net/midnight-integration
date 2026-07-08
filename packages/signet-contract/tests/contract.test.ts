@@ -19,8 +19,8 @@ import {
   schnorrSign,
   pureCircuits as signetCircuits,
   type JubjubKeypair,
-  type SignetEVMSignatureResponse,
-  type SignetRespondBidirectional,
+  type SignatureRespondedEvent,
+  type RespondBidirectional,
 } from "@midnight-erc20-vault/signet-midnight";
 
 import {
@@ -42,13 +42,13 @@ const bytes = (length: number, fill: number) =>
 // Request ids the posts below answer, and signature response records.
 const REQUEST_A = bytes(32, 0xaa);
 const REQUEST_B = bytes(32, 0xbb);
-const SIG_1: SignetEVMSignatureResponse = {
+const SIG_1: SignatureRespondedEvent = {
   bigRx: bytes(32, 0x01),
   bigRy: bytes(32, 0x02),
   s: bytes(32, 0x03),
   recoveryId: 0n,
 };
-const SIG_2: SignetEVMSignatureResponse = {
+const SIG_2: SignatureRespondedEvent = {
   bigRx: bytes(32, 0x04),
   bigRy: bytes(32, 0x05),
   s: bytes(32, 0x06),
@@ -75,7 +75,7 @@ const attest = (
   requestId: Uint8Array,
   serializedOutput: Uint8Array,
   outputLen: bigint = OUTPUT_SUCCESS_LEN,
-): SignetRespondBidirectional => {
+): RespondBidirectional => {
   const msg = signetCircuits.signetAttestationMessage(
     requestId,
     serializedOutput,
@@ -118,8 +118,8 @@ describe("constructor", () => {
   it("deploys with empty indexes and the MPC key hash sealed", async () => {
     const { ctx } = await deployContract("postSignatureResponse");
     const state = ledger(ctx.callContext.currentQueryContext.state);
-    expect(state.signatureResponseCounterIndex.isEmpty()).toBe(true);
-    expect(state.signatureResponseIndex.isEmpty()).toBe(true);
+    expect(state.signatureRespondedEventCounterIndex.isEmpty()).toBe(true);
+    expect(state.signatureRespondedEventIndex.isEmpty()).toBe(true);
     expect(state.respondBidirectionalIndex.isEmpty()).toBe(true);
     expect(state.mpcPubKeyHash).toEqual(hashJubjubPoint(MPC_KEYS.pk));
   });
@@ -128,7 +128,7 @@ describe("constructor", () => {
 /** One posted (requestId, signature) pair, applied in row order. */
 interface Post {
   requestId: Uint8Array;
-  signature: SignetEVMSignatureResponse;
+  signature: SignatureRespondedEvent;
 }
 
 /** One row of the post table: a post sequence → the exact expected ledger. */
@@ -143,7 +143,7 @@ interface PostCase {
   expectedEntries: {
     requestId: Uint8Array;
     count: bigint;
-    signature: SignetEVMSignatureResponse;
+    signature: SignatureRespondedEvent;
   }[];
 }
 
@@ -217,22 +217,22 @@ describe("postSignatureResponse", () => {
 
       // The counter index holds EXACTLY the expected requests, each counter
       // reading that request's total number of posts.
-      expect(state.signatureResponseCounterIndex.size()).toBe(
+      expect(state.signatureRespondedEventCounterIndex.size()).toBe(
         BigInt(expectedCounters.length),
       );
       for (const { requestId, total } of expectedCounters) {
         expect(
-          state.signatureResponseCounterIndex.lookup(requestId).read(),
+          state.signatureRespondedEventCounterIndex.lookup(requestId).read(),
         ).toBe(total);
       }
 
       // The response log holds EXACTLY the expected (requestId, count) keys.
-      expect(state.signatureResponseIndex.size()).toBe(
+      expect(state.signatureRespondedEventIndex.size()).toBe(
         BigInt(expectedEntries.length),
       );
       for (const { requestId, count, signature } of expectedEntries) {
         expect(
-          state.signatureResponseIndex.lookup({ count, requestId }),
+          state.signatureRespondedEventIndex.lookup({ count, requestId }),
         ).toEqual(signature);
       }
     },
@@ -256,7 +256,7 @@ describe("postRespondBidirectional", () => {
     expect(state.respondBidirectionalIndex.size()).toBe(1n);
     // The assignment is the real assertion: the generated ledger type must
     // stay structurally identical to the shared library's named twin.
-    const stored: SignetRespondBidirectional =
+    const stored: RespondBidirectional =
       state.respondBidirectionalIndex.lookup(REQUEST_A);
     expect(stored).toEqual(attestation);
   });

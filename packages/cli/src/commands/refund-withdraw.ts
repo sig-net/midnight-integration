@@ -4,7 +4,7 @@
 // Permissionless: anyone may call it, the refund always goes to the pinned
 // recipient.
 
-import type { SignetRequestIdHex } from "@midnight-erc20-vault/signet-midnight";
+import type { RequestIdHex } from "@midnight-erc20-vault/signet-midnight";
 
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
@@ -13,7 +13,7 @@ import { NotImplementedError } from "../errors.ts";
 /** Options for {@link refundWithdraw}. */
 export interface RefundWithdrawOptions {
   /** The request id being completed. */
-  readonly requestId: SignetRequestIdHex;
+  readonly requestId: RequestIdHex;
 }
 
 /**

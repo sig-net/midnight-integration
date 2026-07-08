@@ -2,7 +2,7 @@
 // Schnorr-signed attestation of the EVM sweep to the vault, which verifies it
 // in-circuit and mints shielded tokens to the caller.
 
-import type { SignetRequestIdHex } from "@midnight-erc20-vault/signet-midnight";
+import type { RequestIdHex } from "@midnight-erc20-vault/signet-midnight";
 
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
@@ -11,7 +11,7 @@ import { NotImplementedError } from "../errors.ts";
 /** Options for {@link claimDeposit}. */
 export interface ClaimDepositOptions {
   /** The request id being claimed. */
-  readonly requestId: SignetRequestIdHex;
+  readonly requestId: RequestIdHex;
 }
 
 /**

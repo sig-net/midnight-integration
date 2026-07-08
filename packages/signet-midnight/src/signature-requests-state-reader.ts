@@ -5,27 +5,23 @@
 // (queryContractState(address).data), and decodes by the signet layout
 // convention: the request index is ledger field 0, the request counter field 1.
 // The compiled contract's generated ledger() does exactly this walk internally;
-// here we hand-compose the same compact-runtime type descriptors. The generic
-// tree walk and shared base descriptors live in signature-state-reading.ts.
+// the record descriptors themselves are the parameterized twins in
+// signet-requests.ts. The generic tree walk and shared base descriptors live
+// in signature-state-reading.ts.
 
-import {
-  CompactTypeBytes,
-  CompactTypeUnsignedInteger,
-  CompactTypeVector,
-  type CompactType,
-} from "@midnight-ntwrk/compact-runtime";
+import type { CompactType } from "@midnight-ntwrk/compact-runtime";
 
 import {
   requestIdHex,
-  type EVMCalldata,
-  type EVMTransactionParams,
-  type SignetEVMSignatureRequest,
-  type SignetEVMSignatureRequestIndex,
-  type SignetMPCRoutingParams,
+  signBidirectionalEventDescriptor,
+  type SignBidirectionalEvent,
+  type SignBidirectionalEventIndex,
 } from "./signet-requests.ts";
 
+/** The aligned-value cursor every descriptor's `fromValue` consumes. */
+type AlignedValue = Parameters<CompactType<unknown>["fromValue"]>[0];
+
 import {
-  bytes32,
   requestIdType,
   signetFieldNode,
   u64,
@@ -38,234 +34,80 @@ export const SIGNET_REQUESTS_INDEX_FIELD = 0;
 /** Signet layout convention: the request counter (`SignetNonce`) is ledger field 1. */
 export const SIGNET_NONCE_FIELD = 1;
 
-// ---- Type descriptors (must mirror Signet.compact field-for-field) ----
-// Field order and widths MUST match the Compact structs: fromValue consumes
-// the aligned value sequentially, so a reorder or width change here is silent
-// data corruption, not an error. The base u64 / bytes32 / requestIdType
-// descriptors are shared and imported from signature-state-reading.ts.
-
-const u8 = new CompactTypeUnsignedInteger(255n, 1);
-const u32 = new CompactTypeUnsignedInteger(4294967295n, 4);
-const u128 = new CompactTypeUnsignedInteger(
-  340282366920938463463374607431768211455n,
-  16,
-);
-const bytes20 = new CompactTypeBytes(20);
-const bytes64 = new CompactTypeBytes(64);
-const bytes128 = new CompactTypeBytes(128);
-const bytes256 = new CompactTypeBytes(256);
-
 /**
- * Descriptor for the decomposed EVM transaction (Compact
- * `EVMTransactionParams`).
+ * Aligned-value entry count of a request record EXCLUDING the capacity-scaled
+ * vectors: requestNonce (1) + txParamType (1, enums are one atom whatever
+ * their byte width) + the EVMType2TxParams fixed fields (to..value = 7,
+ * accessListEntryCount = 1) + the calldata Maybe's is_some (1) and selector
+ * (1) + the routing fields caip2Id..respondSerializationSchema (8). A stored
+ * request cell therefore holds
+ *   `REQUEST_FIXED_VALUE_ATOMS + 2·maxCalldataWords
+ *      + maxAccessListEntries·(2 + maxStorageKeysPerEntry)`
+ * entries (each ABIWord is kind + value = 2 atoms; each access-list entry is
+ * address + storageKeyCount + its keys).
  */
-export const evmTransactionParamsType: CompactType<EVMTransactionParams> = {
-  /** @returns Compound alignment of the struct's fields in declaration order. */
-  alignment() {
-    return bytes20
-      .alignment()
-      .concat(u64.alignment())
-      .concat(u64.alignment())
-      .concat(u64.alignment())
-      .concat(u128.alignment())
-      .concat(u128.alignment())
-      .concat(u128.alignment());
-  },
-  /**
-   * Decode the params from an aligned value, consuming it field by field.
-   *
-   * @param value - Mutable aligned value cursor; pass a copy.
-   * @returns The decoded EVM transaction params.
-   */
-  fromValue(value) {
-    return {
-      to: bytes20.fromValue(value),
-      chainId: u64.fromValue(value),
-      nonce: u64.fromValue(value),
-      gasLimit: u64.fromValue(value),
-      maxFeePerGas: u128.fromValue(value),
-      maxPriorityFeePerGas: u128.fromValue(value),
-      value: u128.fromValue(value),
-    };
-  },
-  /**
-   * Encode the params into their aligned on-ledger representation.
-   *
-   * @param params - The EVM transaction params to encode.
-   * @returns The aligned value, fields concatenated in declaration order.
-   */
-  toValue(params) {
-    return bytes20
-      .toValue(params.to)
-      .concat(u64.toValue(params.chainId))
-      .concat(u64.toValue(params.nonce))
-      .concat(u64.toValue(params.gasLimit))
-      .concat(u128.toValue(params.maxFeePerGas))
-      .concat(u128.toValue(params.maxPriorityFeePerGas))
-      .concat(u128.toValue(params.value));
-  },
-};
+export const REQUEST_FIXED_VALUE_ATOMS = 20;
 
 /**
- * Descriptor for the ABI calldata block (Compact `EVMCalldata<#n>`).
- * Parameterized by the contract's arg slot capacity `n` — the generic size
- * argument of the Compact struct.
+ * Recover a record's capacity instantiation (maxCalldataWords,
+ * maxAccessListEntries, maxStorageKeysPerEntry) from its aligned-value atom
+ * count and decode it. Unlike the old single-vector layout, one atom count no
+ * longer determines the capacities uniquely, so candidates are enumerated —
+ * access-list-free first (today's only producer, the vault, is <2, 0, 0>) —
+ * and validated by the decode itself: the descriptors' Bytes length checks
+ * and the enum range check reject wrong splits, and a decode that leaves
+ * atoms unconsumed is rejected here.
  *
- * @param slotCount - The contract's `EVMCalldata<#n>` instantiation.
- * @returns The descriptor for that instantiation.
+ * @param atoms - The record cell's aligned value (a fresh copy per attempt).
+ * @returns The decoded record.
+ * @throws Error if no capacity split decodes the value cleanly.
  */
-export function evmCalldataType(slotCount: number): CompactType<EVMCalldata> {
-  const argsVector = new CompactTypeVector(slotCount, bytes32);
-  return {
-    /** @returns Compound alignment of the struct's fields in declaration order. */
-    alignment() {
-      return bytes64
-        .alignment()
-        .concat(u8.alignment())
-        .concat(argsVector.alignment());
-    },
-    /**
-     * Decode the calldata from an aligned value, consuming it field by field.
-     *
-     * @param value - Mutable aligned value cursor; pass a copy.
-     * @returns The decoded calldata block.
-     */
-    fromValue(value) {
-      return {
-        funcSig: bytes64.fromValue(value),
-        argCount: u8.fromValue(value),
-        args: argsVector.fromValue(value),
-      };
-    },
-    /**
-     * Encode the calldata into its aligned on-ledger representation.
-     *
-     * @param calldata - The calldata block to encode.
-     * @returns The aligned value, fields concatenated in declaration order.
-     */
-    toValue(calldata) {
-      return bytes64
-        .toValue(calldata.funcSig)
-        .concat(u8.toValue(calldata.argCount))
-        .concat(argsVector.toValue(calldata.args));
-    },
+function decodeSignBidirectionalEvent(
+  atoms: AlignedValue,
+): SignBidirectionalEvent {
+  const variable = atoms.length - REQUEST_FIXED_VALUE_ATOMS;
+  if (variable < 0) {
+    throw new Error(
+      `request record has ${atoms.length} value entries — fewer than the ` +
+        `${REQUEST_FIXED_VALUE_ATOMS} its fixed fields need`,
+    );
+  }
+  const attempt = (
+    maxWords: number,
+    maxEntries: number,
+    maxKeys: number,
+  ): SignBidirectionalEvent | undefined => {
+    const cursor = [...atoms] as AlignedValue;
+    try {
+      const record = signBidirectionalEventDescriptor(
+        maxWords,
+        maxEntries,
+        maxKeys,
+      ).fromValue(cursor);
+      // A clean decode consumes the record exactly.
+      return cursor.length === 0 ? record : undefined;
+    } catch {
+      return undefined;
+    }
   };
-}
-
-/** Descriptor for the MPC routing block (Compact `SignetMPCRoutingParams`). */
-export const signetMPCRoutingParamsType: CompactType<SignetMPCRoutingParams> = {
-  /** @returns Compound alignment of the struct's fields in declaration order. */
-  alignment() {
-    return bytes32
-      .alignment()
-      .concat(u32.alignment())
-      .concat(bytes256.alignment())
-      .concat(bytes32.alignment())
-      .concat(bytes32.alignment())
-      .concat(bytes64.alignment())
-      .concat(bytes128.alignment())
-      .concat(bytes128.alignment());
-  },
-  /**
-   * Decode the routing params from an aligned value, consuming it field by
-   * field.
-   *
-   * @param value - Mutable aligned value cursor; pass a copy.
-   * @returns The decoded routing params.
-   */
-  fromValue(value) {
-    return {
-      caip2Id: bytes32.fromValue(value),
-      keyVersion: u32.fromValue(value),
-      path: bytes256.fromValue(value),
-      algo: bytes32.fromValue(value),
-      dest: bytes32.fromValue(value),
-      params: bytes64.fromValue(value),
-      outputDeserializationSchema: bytes128.fromValue(value),
-      respondSerializationSchema: bytes128.fromValue(value),
-    };
-  },
-  /**
-   * Encode the routing params into their aligned on-ledger representation.
-   *
-   * @param routing - The routing params to encode.
-   * @returns The aligned value, fields concatenated in declaration order.
-   */
-  toValue(routing) {
-    return bytes32
-      .toValue(routing.caip2Id)
-      .concat(u32.toValue(routing.keyVersion))
-      .concat(bytes256.toValue(routing.path))
-      .concat(bytes32.toValue(routing.algo))
-      .concat(bytes32.toValue(routing.dest))
-      .concat(bytes64.toValue(routing.params))
-      .concat(bytes128.toValue(routing.outputDeserializationSchema))
-      .concat(bytes128.toValue(routing.respondSerializationSchema));
-  },
-};
-
-/**
- * Aligned-value entry count of a request record EXCLUDING the args vector:
- * requestNonce (1) + EVMTransactionParams (7) + funcSig (1) + argCount (1)
- * + SignetMPCRoutingParams (8). A stored request cell therefore holds
- * `REQUEST_FIXED_VALUE_ATOMS + n` entries, which is how the reader recovers
- * each contract's arg slot capacity `n` from raw state alone.
- */
-export const REQUEST_FIXED_VALUE_ATOMS = 18;
-
-/**
- * Hand-composed descriptor for {@link SignetEVMSignatureRequest} — identical
- * to the struct class the Compact compiler emits into each consuming
- * contract's managed output. Nested structs encode as plain concatenation, so
- * this composes the three sub-descriptors around the leading nonce.
- * Parameterized by the contract's arg slot capacity `n` (the Compact
- * struct's generic size argument).
- *
- * @param slotCount - The contract's `EVMCalldata<#n>` instantiation.
- * @returns The descriptor for that instantiation.
- */
-export function signetEVMSignatureRequestType(
-  slotCount: number,
-): CompactType<SignetEVMSignatureRequest> {
-  const calldataType = evmCalldataType(slotCount);
-  return {
-    /** @returns Compound alignment of the struct's fields in declaration order. */
-    alignment() {
-      return u64
-        .alignment()
-        .concat(evmTransactionParamsType.alignment())
-        .concat(calldataType.alignment())
-        .concat(signetMPCRoutingParamsType.alignment());
-    },
-    /**
-     * Decode one request from an aligned value, consuming it field by field.
-     *
-     * @param value - Mutable aligned value cursor; each field decode consumes
-     *   its slice, so callers must pass a copy (`[...cell.value]`).
-     * @returns The decoded request record.
-     */
-    fromValue(value) {
-      return {
-        requestNonce: u64.fromValue(value),
-        evmTransaction: evmTransactionParamsType.fromValue(value),
-        calldata: calldataType.fromValue(value),
-        mpcRouting: signetMPCRoutingParamsType.fromValue(value),
-      };
-    },
-    /**
-     * Encode a request into its aligned on-ledger representation.
-     *
-     * @param request - The request record to encode.
-     * @returns The aligned value, fields concatenated in declaration order.
-     */
-    toValue(request) {
-      return u64
-        .toValue(request.requestNonce)
-        .concat(evmTransactionParamsType.toValue(request.evmTransaction))
-        .concat(calldataType.toValue(request.calldata))
-        .concat(signetMPCRoutingParamsType.toValue(request.mpcRouting));
-    },
-  };
+  // No access list: variable atoms are calldata words alone.
+  if (variable % 2 === 0) {
+    const record = attempt(variable / 2, 0, 0);
+    if (record !== undefined) return record;
+  }
+  // With an access list: E entries of (2 + K) atoms, the rest words.
+  for (let entries = 1; entries * 2 <= variable; entries++) {
+    for (let keys = 0; entries * (2 + keys) <= variable; keys++) {
+      const rest = variable - entries * (2 + keys);
+      if (rest % 2 !== 0) continue;
+      const record = attempt(rest / 2, entries, keys);
+      if (record !== undefined) return record;
+    }
+  }
+  throw new Error(
+    `request record with ${atoms.length} value entries matches no ` +
+      `(calldata words, access-list entries, storage keys) capacity split`,
+  );
 }
 
 /**
@@ -281,42 +123,35 @@ export interface SignetRequestsLedger {
    * The request index (ledger field {@link SIGNET_REQUESTS_INDEX_FIELD}),
    * keyed by hex request id.
    */
-  requestsIndex: SignetEVMSignatureRequestIndex;
+  requestsIndex: SignBidirectionalEventIndex;
 }
 
 /**
  * MPC-style read: parse the signet ledger fields out of raw contract state
  * by field position alone — no compiled contract, no generated `ledger()`,
- * only the signet layout convention and the canonical descriptors above.
+ * only the signet layout convention and the canonical descriptors from
+ * signet-requests.ts.
  *
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`
  *   from the indexer or `ctx.currentQueryContext.state` from the simulator.
  * @returns The decoded {@link SignetRequestsLedger}.
- * @throws Error if a field is missing or has the wrong state-value shape.
+ * @throws Error if a field is missing, has the wrong state-value shape, or a
+ *   record matches no capacity split.
  */
 export function readSignetRequestsLedgerFromState(raw: RawContractState): SignetRequestsLedger {
   const map = signetFieldNode(raw, SIGNET_REQUESTS_INDEX_FIELD).asMap();
   if (map === undefined) {
     throw new Error(`Ledger field ${SIGNET_REQUESTS_INDEX_FIELD} is not a Map`);
   }
-  const requestsIndex: SignetEVMSignatureRequestIndex = new Map();
+  const requestsIndex: SignBidirectionalEventIndex = new Map();
   for (const key of map.keys()) {
     // fromValue consumes its input, so hand each descriptor a copy.
     const requestId = requestIdType.fromValue([...key.value]);
     const cell = map.get(key)?.asCell();
     if (cell === undefined) continue;
-    // The record's arg slot capacity (the contract's EVMCalldata<#n>
-    // instantiation) is whatever the fixed fields leave over.
-    const slotCount = cell.value.length - REQUEST_FIXED_VALUE_ATOMS;
-    if (slotCount < 0) {
-      throw new Error(
-        `request ${requestIdHex(requestId)} has ${cell.value.length} value ` +
-          `entries — fewer than the ${REQUEST_FIXED_VALUE_ATOMS} its fixed fields need`,
-      );
-    }
     requestsIndex.set(
       requestIdHex(requestId),
-      signetEVMSignatureRequestType(slotCount).fromValue([...cell.value]),
+      decodeSignBidirectionalEvent(cell.value),
     );
   }
 

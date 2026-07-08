@@ -8,28 +8,31 @@
 // The routing constants belong in github.com/sig-net/signet.js — kept here
 // until upstreamed.
 
-/** Width of `SignetMPCRoutingParams.caip2Id` (`Bytes<32>`). */
+/** Width of `SignBidirectionalEvent.caip2Id` (`Bytes<32>`). */
 export const CAIP2_ID_BYTES = 32;
 
-/** Width of `SignetMPCRoutingParams.algo` (`Bytes<32>`). */
+/** Width of `SignBidirectionalEvent.algo` (`Bytes<32>`). */
 export const ALGO_BYTES = 32;
 
-/** Width of `SignetMPCRoutingParams.dest` (`Bytes<32>`). */
+/** Width of `SignBidirectionalEvent.dest` (`Bytes<32>`). */
 export const DEST_BYTES = 32;
 
-/** Width of `SignetMPCRoutingParams.params` (`Bytes<64>`). */
+/** Width of `SignBidirectionalEvent.params` (`Bytes<64>`). */
 export const MPC_PARAMS_BYTES = 64;
 
-/** Width of `SignetMPCRoutingParams.outputDeserializationSchema` (`Bytes<128>`). */
+/** Width of `SignBidirectionalEvent.outputDeserializationSchema` (`Bytes<128>`). */
 export const OUTPUT_DESERIALIZATION_SCHEMA_BYTES = 128;
 
-/** Width of `SignetMPCRoutingParams.respondSerializationSchema` (`Bytes<128>`). */
+/** Width of `SignBidirectionalEvent.respondSerializationSchema` (`Bytes<128>`). */
 export const RESPOND_SERIALIZATION_SCHEMA_BYTES = 128;
 
-/** Width of `SignetEVMSignatureRequest.calldata.funcSig` (`Bytes<64>`). */
-export const FUNC_SIG_BYTES = 64;
+/** Width of `EVMCalldata.selector` (`Bytes<4>`) — the literal first 4 calldata bytes. */
+export const SELECTOR_BYTES = 4;
 
-/** Width of `SignetRespondBidirectional.serializedOutput` (`Bytes<128>`). */
+/** The ERC20 `transfer(address,uint256)` selector, as broadcast (big-endian). */
+export const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
+
+/** Width of `RespondBidirectional.serializedOutput` (`Bytes<128>`). */
 export const SERIALIZED_OUTPUT_BYTES = 128;
 
 /**
@@ -72,7 +75,7 @@ export const SIGNET_DEST_ETHEREUM = "ethereum";
 /**
  * Default MPC key version (`keyVersion` field value). Version 0 is the
  * unsupported legacy format — the canonical MPC (and
- * `constructSignetEVMSignatureRequest`) requires `keyVersion >= 1`.
+ * `constructSignBidirectionalEvent`) requires `keyVersion >= 1`.
  */
 export const SIGNET_DEFAULT_KEY_VERSION = 1n;
 

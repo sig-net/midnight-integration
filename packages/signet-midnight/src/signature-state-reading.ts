@@ -13,7 +13,7 @@ import {
   type StateValue,
 } from "@midnight-ntwrk/compact-runtime";
 
-import { type SignetRequestId } from "./signet-requests.ts";
+import { type RequestId } from "./signet-requests.ts";
 
 // ---- Shared base type descriptors ----
 // fromValue consumes the aligned value sequentially, so any width change here
@@ -27,11 +27,11 @@ export const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 export const bytes32 = new CompactTypeBytes(32);
 
 /**
- * Descriptor for a request id ledger key (Compact `SignetRequestId`, a
- * nominal `Bytes<32>`). Use it to encode a {@link SignetRequestId} into the
+ * Descriptor for a request id ledger key (Compact `RequestId`, a
+ * nominal `Bytes<32>`). Use it to encode a {@link RequestId} into the
  * aligned form the state tree stores, or decode one back.
  */
-export const requestIdType: CompactType<SignetRequestId> = bytes32;
+export const requestIdType: CompactType<RequestId> = bytes32;
 
 // ---- Raw state walk ----
 

@@ -15,23 +15,27 @@ import {
 import { computeAddress, SigningKey } from "ethers";
 
 import {
+  ABIWordKind,
+  ERC20_TRANSFER_SELECTOR,
+  TxParamType,
   asciiPadded,
-  bigintToBytes32,
-  signatureToSignetEVMSignatureResponse,
-  signetEVMSignatureRequestToSignedEVMTransaction,
-  signetEVMSignatureRequestToUnsignedEVMTransaction,
+  evmAddressAbiWord,
+  numericAbiWordValue,
+  signatureToSignatureRespondedEvent,
+  signBidirectionalEventToSignedEVMTransaction,
+  signBidirectionalEventToUnsignedEVMTransaction,
   deriveJubjubKeypair,
   requestIdHex,
   requestIdType,
-  signetEVMSignatureRequestType,
-  signetEVMSignatureResponseType,
-  signetRespondBidirectionalType,
+  signBidirectionalEventDescriptor,
+  signatureRespondedEventType,
+  respondBidirectionalType,
   signetResponseKeyType,
   SignetRequestResponseReader,
-  type SignetEVMSignatureRequest,
-  type SignetEVMSignatureResponse,
+  type SignBidirectionalEvent,
+  type SignatureRespondedEvent,
   type SignetPublicStateSource,
-  type SignetRespondBidirectional,
+  type RespondBidirectional,
 } from "../src/index.ts";
 
 // ---- Fixtures ----
@@ -42,8 +46,8 @@ const bytes = (length: number, fill: number) =>
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 const bytes32 = new CompactTypeBytes(32);
 
-/** The sample request's arg slot capacity (the vault's EVMCalldata<2>). */
-const SLOT_COUNT = 2;
+/** The sample request's capacities (the vault's EVMType2TxParams<2, 0, 0>). */
+const REQUEST_DESCRIPTOR = signBidirectionalEventDescriptor(2, 0, 0);
 
 const REQUEST_ID = bytes(32, 0x2f);
 const REQUEST_ID_HEX = requestIdHex(REQUEST_ID);
@@ -56,9 +60,10 @@ const SIGNET_CONTRACT_ADDRESS = "signet-contract-address";
  * Known-good request record for a `transfer(vault, amount)` deposit — the
  * base every test uses. Shared across tests: NEVER mutate.
  */
-const REQUEST: SignetEVMSignatureRequest = {
+const REQUEST: SignBidirectionalEvent = {
   requestNonce: 0n,
-  evmTransaction: {
+  txParamType: TxParamType.evmType2,
+  txParams: {
     to: bytes(20, 0xaa),
     chainId: 11155111n,
     nonce: 7n,
@@ -66,22 +71,27 @@ const REQUEST: SignetEVMSignatureRequest = {
     maxFeePerGas: 30_000_000_000n,
     maxPriorityFeePerGas: 1_000_000_000n,
     value: 0n,
+    accessListEntryCount: 0n,
+    accessList: [],
+    calldata: {
+      is_some: true,
+      value: {
+        selector: ERC20_TRANSFER_SELECTOR,
+        words: [
+          { kind: ABIWordKind.staticArg, value: evmAddressAbiWord(bytes(20, 0xee)) },
+          { kind: ABIWordKind.staticArg, value: numericAbiWordValue(1_000_000n) },
+        ],
+      },
+    },
   },
-  calldata: {
-    funcSig: asciiPadded("transfer(address,uint256)", 64),
-    argCount: 2n,
-    args: [bytes(32, 0), bigintToBytes32(1_000_000n)],
-  },
-  mpcRouting: {
-    caip2Id: asciiPadded("eip155:11155111", 32),
-    keyVersion: 1n,
-    path: new Uint8Array(256),
-    algo: asciiPadded("ecdsa", 32),
-    dest: asciiPadded("ethereum", 32),
-    params: new Uint8Array(64),
-    outputDeserializationSchema: new Uint8Array(128),
-    respondSerializationSchema: new Uint8Array(128),
-  },
+  caip2Id: asciiPadded("eip155:11155111", 32),
+  keyVersion: 1n,
+  path: new Uint8Array(256),
+  algo: asciiPadded("ecdsa", 32),
+  dest: asciiPadded("ethereum", 32),
+  params: new Uint8Array(64),
+  outputDeserializationSchema: new Uint8Array(128),
+  respondSerializationSchema: new Uint8Array(128),
 };
 
 // The "MPC" of these tests: a plain secp256k1 key standing in for the user's
@@ -92,17 +102,17 @@ const IMPOSTER_KEY = new SigningKey(`0x${"22".repeat(32)}`);
 const IMPOSTER_ADDRESS = computeAddress(IMPOSTER_KEY.publicKey);
 
 /** Sign `REQUEST`'s rebuilt tx hash with `key`, packed as a response record. */
-const signResponse = (key: SigningKey): SignetEVMSignatureResponse =>
-  signatureToSignetEVMSignatureResponse(
+const signResponse = (key: SigningKey): SignatureRespondedEvent =>
+  signatureToSignatureRespondedEvent(
     key.sign(
-      signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
     ),
   );
 
 const GENUINE_RESPONSE = signResponse(MPC_KEY);
 const IMPOSTER_RESPONSE = signResponse(IMPOSTER_KEY);
 // An all-zero r cannot decode into a signature at all.
-const UNDECODABLE_RESPONSE: SignetEVMSignatureResponse = {
+const UNDECODABLE_RESPONSE: SignatureRespondedEvent = {
   bigRx: bytes(32, 0),
   bigRy: bytes(32, 0),
   s: bytes(32, 0),
@@ -119,8 +129,8 @@ const requesterState = (): StateValue => {
       alignment: requestIdType.alignment(),
     },
     StateValue.newCell({
-      value: signetEVMSignatureRequestType(SLOT_COUNT).toValue(REQUEST),
-      alignment: signetEVMSignatureRequestType(SLOT_COUNT).alignment(),
+      value: REQUEST_DESCRIPTOR.toValue(REQUEST),
+      alignment: REQUEST_DESCRIPTOR.alignment(),
     }),
   );
   return StateValue.newArray()
@@ -133,7 +143,7 @@ const requesterState = (): StateValue => {
 // An attestation record for the respond-bidirectional tests: real Jubjub
 // points, synthetic scalar — the reader decodes, the CONTRACT verified at
 // post time.
-const RESPOND_BIDIRECTIONAL: SignetRespondBidirectional = {
+const RESPOND_BIDIRECTIONAL: RespondBidirectional = {
   serializedOutput: (() => { const out = new Uint8Array(128); out[0] = 1; return out; })(),
   outputLen: 32n,
   pk: deriveJubjubKeypair(bytes(32, 0x42)).pk,
@@ -148,9 +158,9 @@ const RESPOND_BIDIRECTIONAL: SignetRespondBidirectional = {
  * disagrees with the log, for the inconsistency test.
  */
 const signetContractState = (
-  posts: SignetEVMSignatureResponse[],
+  posts: SignatureRespondedEvent[],
   counterOverride?: bigint,
-  respondBidirectional?: SignetRespondBidirectional,
+  respondBidirectional?: RespondBidirectional,
 ): StateValue => {
   const total = counterOverride ?? BigInt(posts.length);
   let counterMap = new StateMap();
@@ -177,8 +187,8 @@ const signetContractState = (
         alignment: signetResponseKeyType.alignment(),
       },
       StateValue.newCell({
-        value: signetEVMSignatureResponseType.toValue(post),
-        alignment: signetEVMSignatureResponseType.alignment(),
+        value: signatureRespondedEventType.toValue(post),
+        alignment: signatureRespondedEventType.alignment(),
       }),
     );
   });
@@ -190,8 +200,8 @@ const signetContractState = (
         alignment: requestIdType.alignment(),
       },
       StateValue.newCell({
-        value: signetRespondBidirectionalType.toValue(respondBidirectional),
-        alignment: signetRespondBidirectionalType.alignment(),
+        value: respondBidirectionalType.toValue(respondBidirectional),
+        alignment: respondBidirectionalType.alignment(),
       }),
     );
   }
@@ -214,9 +224,9 @@ const signetContractState = (
  * request-record caching is observable.
  */
 const makeReader = (
-  posts: SignetEVMSignatureResponse[],
+  posts: SignatureRespondedEvent[],
   counterOverride?: bigint,
-  respondBidirectional?: SignetRespondBidirectional,
+  respondBidirectional?: RespondBidirectional,
 ) => {
   const queries = { requester: 0, responses: 0 };
   const publicDataProvider: SignetPublicStateSource = {
@@ -302,7 +312,7 @@ interface VerdictCase {
   /** Test name, completing the sentence "resolves <name>". */
   name: string;
   /** The posts on the ledger, in count order. */
-  posts: SignetEVMSignatureResponse[];
+  posts: SignatureRespondedEvent[];
   /** The signer verification demands. */
   expectedSigner: string;
   /** Index (count) of the post expected as `verified`; absent = none valid. */
@@ -388,7 +398,7 @@ describe("getUnsignedEVMTransaction", () => {
 
     expect(tx.isSigned()).toBe(false);
     expect(tx.unsignedHash).toBe(
-      signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
     );
     // Unsigned needs only the request record — never touches the signet contract.
     expect(queries.responses).toBe(0);
@@ -411,7 +421,7 @@ describe("getSignedEVMTransaction", () => {
     expect(tx?.from).toBe(MPC_ADDRESS);
     // Identical to assembling it directly from the request and genuine post.
     expect(tx?.serialized).toBe(
-      signetEVMSignatureRequestToSignedEVMTransaction(REQUEST, GENUINE_RESPONSE)
+      signBidirectionalEventToSignedEVMTransaction(REQUEST, GENUINE_RESPONSE)
         .serialized,
     );
   });
