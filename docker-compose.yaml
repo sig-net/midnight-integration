@@ -2,11 +2,19 @@
 # Bring it up with `docker compose up -d`; the integration tests
 # (packages/integration-tests) expect these endpoints on localhost.
 #
-# Mirrors the official reference compose:
-# https://github.com/midnightntwrk/midnight-local-dev (standalone.yml).
-# Image tags are the newest stable releases within the major versions that
-# reference pins — when bumping, cross-check against midnight-local-dev for
-# the blessed compatible set.
+# Ledger-9 / contract-events line, matching the workspace's npm stack
+# (midnight-js 5.0.0-beta.3 / @midnightntwrk/ledger-v9 1.0.0-rc.3 /
+# compact-runtime 0.18.0-rc.0 / compactc 0.33.0-rc.0). The official
+# reference compose (midnightntwrk/midnight-local-dev standalone.yml) is
+# still on the ledger-8 era — until it catches up, the pairing here is
+# derived from the images' own compatibility encoding and release timing:
+#   - the indexer tag embeds its compatible set: `l91r3-n2r3` =
+#     ledger-v9 1.0.0-rc.3 + midnight-node 2.0.0-rc.3;
+#   - proof-server 9.0.0-rc.3 and @midnightntwrk/ledger-v9@1.0.0-rc.3 were
+#     released together (2026-06-22) — later proof-server RCs track ledger
+#     RCs that have no published npm counterpart, so do NOT bump it alone.
+# When bumping, move the whole set together and keep it aligned with the
+# npm ledger-v9 version the workspace resolves.
 #
 # Source repositories for the three images:
 #   - proof-server       -> proof-server crate in https://github.com/midnightntwrk/midnight-ledger
@@ -16,8 +24,11 @@ services:
   proof-server:
     # Zero-knowledge proof generation service. Wallets/dApps offload the
     # expensive ZK proving for shielded (Zswap) transactions to this server.
+    # 9.x is the ledger-9 proving line; rc.3 pairs with the npm
+    # @midnightntwrk/ledger-v9@1.0.0-rc.3 the workspace builds
+    # transactions with.
     container_name: 'midnight-proof-server'
-    image: 'midnightntwrk/proof-server:8.1.0'
+    image: 'midnightntwrk/proof-server:9.0.0-rc.3'
     command: ['midnight-proof-server -v']
     ports:
       - '127.0.0.1:6300:6300'
@@ -27,47 +38,47 @@ services:
   indexer:
     # "Standalone" indexer = Chain Indexer + Indexer API + Wallet Indexer
     # bundled into one executable with an in-process SQLite DB. It reads
-    # blocks from the node and exposes a GraphQL API (port 8088, path
-    # /api/v3/graphql) that wallets/dApps query.
+    # blocks from the node and exposes a GraphQL API on port 8088 that
+    # wallets/dApps query. This 4.4 line serves the API at
+    # /api/v4/graphql (+ /ws) and aliases /api/v3 to v4, so existing v3
+    # client URLs keep working.
+    #
+    # The tag is a pre-alpha from the indexer's contract-events line — the
+    # first PUBLISHED builds that decode MIP-0002 `Misc` events (the fix
+    # tracked as midnight-indexer#1279 closed 2026-06-26; this build is
+    # newer). No stable ledger-9 indexer release exists yet.
     container_name: 'midnight-indexer'
-    image: 'midnightntwrk/indexer-standalone:4.3.3'
-    # Dev-only secrets/passwords for the indexer's internal stores; the file
-    # is committed because these are local-only defaults.
+    image: 'midnightntwrk/indexer-standalone:4.4.0-pre-alpha.16-l91r3-n2r3-bridge-and-events-epics-contract-zswap-16c656df'
+    # Dev-only secrets for the indexer's internal stores; the file is
+    # committed because these are local-only defaults.
     env_file: standalone.env.example
     ports:
       - '127.0.0.1:8088:8088'
     environment:
-      RUST_LOG: 'indexer=info,chain_indexer=info,indexer_api=info,wallet_indexer=info,indexer_common=info,fastrace_opentelemetry=off,info'
-      # Must match the network the node runs; 'undeployed' is the local/dev
-      # chain identifier (same value lib's NETWORK_ID config defaults to).
-      APP__APPLICATION__NETWORK_ID: 'undeployed'
-    healthcheck:
-      test: ['CMD-SHELL', 'cat /var/run/indexer-standalone/running']
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 10s
+      RUST_LOG: 'indexer_standalone=info,chain_indexer=info,indexer_api=info,info'
+    # No healthcheck / service_healthy gate: the 4.4 pre-alpha images ship
+    # neither the 4.3-era /var/run/indexer-standalone/running marker nor a
+    # health endpoint probe-able without extra tooling; the
+    # integration-tests preflight checks the GraphQL endpoint instead.
     depends_on:
       node:
-        condition: service_healthy
+        condition: service_started
 
   node:
     # The Midnight blockchain node (Substrate / Cardano Partner Chains based).
     # Produces blocks and exposes the RPC/WS endpoint on 9944 that the
     # indexer follows and wallets connect to. CFG_PRESET 'dev' = single-node
-    # local chain with instant block production and dev keys.
+    # local chain with instant block production and dev keys. 2.0.0-rc.3 is
+    # the ledger-9 node line (`n2r3` in the indexer tag above).
     container_name: 'midnight-node'
-    image: 'midnightntwrk/midnight-node:0.22.5'
+    image: 'midnightntwrk/midnight-node:2.0.0-rc.3'
     ports:
       - '127.0.0.1:9944:9944'
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:9944/health']
-      interval: 2s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
     environment:
       CFG_PRESET: 'dev'
+      THRESHOLD: '0'
+      SHOW_CONFIG: 'false'
+      RUST_BACKTRACE: '1'
       # Beneficiary of block-production rewards; arbitrary-but-valid hex on a
       # local dev chain.
       SIDECHAIN_BLOCK_BENEFICIARY: '04bcf7ad3be7a5c790460be82a713af570f22e0f801f6659ab8e84a52be6969e'

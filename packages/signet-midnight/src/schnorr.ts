@@ -5,7 +5,8 @@
 // callers (see SchnorrChallengeFn), and the attestation message is the
 // compiled `pureCircuits.signetAttestationMessage` — this file never
 // re-implements either. Verification lives in circuits only
-// (Schnorr.compact's schnorrVerify, run by the signet contract at post time).
+// (CompactStandardLibrary's jubjubSchnorrVerify, run by the signet contract
+// at post time).
 //
 // This belongs in github.com/sig-net/signet.js as its Midnight adapter —
 // kept here until upstreamed. The math is Midnight-specific (Jubjub embedded
@@ -99,10 +100,10 @@ export function deriveJubjubKeypair(seed: Uint8Array): JubjubKeypair {
 
 // ---- Schnorr signing ----
 
-/** 2^248 — challenge truncation modulus (mirrors TWO_248 in Schnorr.compact). */
-export const TWO_248 = 1n << 248n;
-
-/** A Schnorr signature (TS twin of Schnorr.compact's `SchnorrSignature`). */
+/**
+ * A Schnorr signature (TS twin of CompactStandardLibrary's
+ * `JubjubSchnorrSignature`).
+ */
 export interface SchnorrSignature {
   /** Nonce commitment R = k * G. */
   announcement: JubjubPoint;
@@ -111,7 +112,8 @@ export interface SchnorrSignature {
 }
 
 /**
- * Computes the Schnorr challenge (full Poseidon transientHash output).
+ * Computes the Schnorr challenge (the Poseidon transientHash output reduced
+ * into Jubjub's scalar field, exactly as `jubjubSchnorrVerify` computes it).
  * ALWAYS inject the compiled circuit — signet-midnight's own
  * `pureCircuits.schnorrChallenge` — never a TS re-implementation; keeping it
  * injected keeps this signer decoupled from any one compiled artifact.
@@ -125,11 +127,11 @@ export type SchnorrChallengeFn = (
 ) => bigint;
 
 /**
- * Sign a message with Schnorr on Jubjub, matching the shared Schnorr.compact
- * module's verification: `c = challenge mod 2^248`,
- * `s = (k + c * sk) mod JUBJUB_ORDER`. For signet attestations the message
- * is the compiled `pureCircuits.signetAttestationMessage(requestId,
- * outputData)`.
+ * Sign a message with Schnorr on Jubjub, matching CompactStandardLibrary's
+ * `jubjubSchnorrVerify`: `c = challenge` (already reduced into Jubjub's
+ * scalar field by the compiled circuit), `s = (k + c * sk) mod JUBJUB_ORDER`.
+ * For signet attestations the message is the compiled
+ * `pureCircuits.signetAttestationMessage(requestId, outputData)`.
  *
  * @param sk - Jubjub private key scalar.
  * @param msg - Message field limbs.
@@ -151,10 +153,9 @@ export function schnorrSign(
   const k = (bytesToBigint(randomBytes(32)) % JUBJUB_ORDER) || 1n;
   const announcement = ecMulGenerator(k);
 
-  // schnorrChallenge returns the full Poseidon hash; truncate to 248 bits
-  // (mod 2^248) to match the circuit's witness-assisted reduction.
-  const cFull = schnorrChallenge(announcement.x, announcement.y, pk.x, pk.y, msg);
-  const c = cFull % TWO_248;
+  // schnorrChallenge returns the challenge already reduced into Jubjub's
+  // scalar field — use it as-is.
+  const c = schnorrChallenge(announcement.x, announcement.y, pk.x, pk.y, msg);
 
   const response = (((k + c * skReduced) % JUBJUB_ORDER) + JUBJUB_ORDER) % JUBJUB_ORDER;
   return { announcement, response };

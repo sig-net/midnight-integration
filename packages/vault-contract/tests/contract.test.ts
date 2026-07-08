@@ -122,19 +122,21 @@ const VALID_ARGS: DepositArgs = {
 
 // ---- Harness ----
 
-const deployContract = (
+const deployContract = async (
   deployerCommitment: Uint8Array = DEPLOYER_COMMITMENT,
 ) => {
   const contract = new Contract<VaultPrivateState>(witnesses);
-  const { currentContractState, currentPrivateState } = contract.initialState(
-    createConstructorContext<VaultPrivateState>(
-      createVaultPrivateState(SECRET_KEY),
-      CPK,
-    ),
-    deployerCommitment,
-    MPC_KEYS.pk,
-  );
+  const { currentContractState, currentPrivateState } =
+    await contract.initialState(
+      createConstructorContext<VaultPrivateState>(
+        createVaultPrivateState(SECRET_KEY),
+        CPK,
+      ),
+      deployerCommitment,
+      MPC_KEYS.pk,
+    );
   const ctx = createCircuitContext(
+    "requestDeposit",
     sampleContractAddress(),
     CPK,
     currentContractState,
@@ -144,38 +146,38 @@ const deployContract = (
 };
 
 /** Deploy + initialize(VAULT_EVM) as the deployer; returns the ready context. */
-const deployInitialized = () => {
-  const { contract, ctx } = deployContract();
-  const next = contract.circuits.initialize(ctx, VAULT_EVM).context;
+const deployInitialized = async () => {
+  const { contract, ctx } = await deployContract();
+  const next = (await contract.circuits.initialize(ctx, VAULT_EVM)).context;
   return { contract, ctx: next };
 };
 
 // ---- Tests ----
 
 describe("erc20-vault ledger shape", () => {
-  it("signetRequestsIndex parses into the shared signet-midnight types", () => {
-    const { ctx } = deployContract();
+  it("signetRequestsIndex parses into the shared signet-midnight types", async () => {
+    const { ctx } = await deployContract();
 
     // The assignment is the real assertion: the generated ledger type must
     // stay structurally identical to the shared library's named types.
     const ledgerIndex: SignetEVMSignatureRequestLedgerIndex = ledger(
-      ctx.currentQueryContext.state,
+      ctx.callContext.currentQueryContext.state,
     ).signetRequestsIndex;
 
     expect(ledgerIndex.isEmpty()).toBe(true);
     expect(toSignetEVMSignatureRequestIndex(ledgerIndex).size).toBe(0);
   });
 
-  it("MPC-style: finds the request index in RAW state by position, no ledger()", () => {
-    const { ctx } = deployContract();
+  it("MPC-style: finds the request index in RAW state by position, no ledger()", async () => {
+    const { ctx } = await deployContract();
 
-    const rawState = ctx.currentQueryContext.state;
+    const rawState = ctx.callContext.currentQueryContext.state;
     const node = signetFieldNode(rawState, SIGNET_REQUESTS_INDEX_FIELD);
     expect(node.type()).toBe("map");
 
     const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(rawState);
     const typedIndex = toSignetEVMSignatureRequestIndex(
-      ledger(ctx.currentQueryContext.state).signetRequestsIndex,
+      ledger(ctx.callContext.currentQueryContext.state).signetRequestsIndex,
     );
     expect(requestsIndex).toEqual(typedIndex);
     expect(requestsIndex.size).toBe(0);
@@ -206,36 +208,37 @@ describe("userCommitment", () => {
 });
 
 describe("initialize", () => {
-  it("is deployer-gated", () => {
+  it("is deployer-gated", async () => {
     // Deployed with a stranger's commitment; our caller key can't initialize.
-    const { contract, ctx } = deployContract(OTHER_COMMITMENT);
-    expect(() => contract.circuits.initialize(ctx, VAULT_EVM)).toThrow(
+    const { contract, ctx } = await deployContract(OTHER_COMMITMENT);
+    await expect(contract.circuits.initialize(ctx, VAULT_EVM)).rejects.toThrow(
       /Not the deployer/,
     );
   });
 
-  it("is one-shot", () => {
-    const { contract, ctx } = deployInitialized();
-    expect(() => contract.circuits.initialize(ctx, VAULT_EVM)).toThrow(
+  it("is one-shot", async () => {
+    const { contract, ctx } = await deployInitialized();
+    await expect(contract.circuits.initialize(ctx, VAULT_EVM)).rejects.toThrow(
       /Already initialized/,
     );
   });
 
-  it("stores the vault EVM address", () => {
-    const { ctx } = deployInitialized();
-    expect(ledger(ctx.currentQueryContext.state).vaultEvmAddress).toEqual(
-      VAULT_EVM,
-    );
+  it("stores the vault EVM address", async () => {
+    const { ctx } = await deployInitialized();
+    expect(
+      ledger(ctx.callContext.currentQueryContext.state).vaultEvmAddress,
+    ).toEqual(VAULT_EVM);
   });
 });
 
 describe("deposit round-trip", () => {
-  it("stores the request readable identically via ledger(), the shared parser, and the RAW reader", () => {
-    const { contract, ctx } = deployInitialized();
+  it("stores the request readable identically via ledger(), the shared parser, and the RAW reader", async () => {
+    const { contract, ctx } = await deployInitialized();
 
-    const next = contract.circuits.requestDeposit(ctx, VALID_PARAMS, VALID_ARGS)
-      .context;
-    const state = next.currentQueryContext.state;
+    const next = (
+      await contract.circuits.requestDeposit(ctx, VALID_PARAMS, VALID_ARGS)
+    ).context;
+    const state = next.callContext.currentQueryContext.state;
 
     // Read 1: generated ledger().
     const typedIndex = toSignetEVMSignatureRequestIndex(
@@ -389,40 +392,41 @@ const DEPOSIT_REJECTION_CASES: DepositRejectionCase[] = [
 describe("deposit validation", () => {
   it.each(DEPOSIT_REJECTION_CASES)(
     "rejects $name",
-    ({ params, args, throws }) => {
-      const { contract, ctx } = deployInitialized();
-      expect(() => contract.circuits.requestDeposit(ctx, params, args)).toThrow(
-        throws,
-      );
+    async ({ params, args, throws }) => {
+      const { contract, ctx } = await deployInitialized();
+      await expect(
+        contract.circuits.requestDeposit(ctx, params, args),
+      ).rejects.toThrow(throws);
     },
   );
 
-  it("rejects before initialize", () => {
-    const { contract, ctx } = deployContract();
-    expect(() =>
+  it("rejects before initialize", async () => {
+    const { contract, ctx } = await deployContract();
+    await expect(
       contract.circuits.requestDeposit(ctx, VALID_PARAMS, VALID_ARGS),
-    ).toThrow(/Not initialized/);
+    ).rejects.toThrow(/Not initialized/);
   });
 
-  it("identical deposits get DISTINCT ids — requestNonce differentiates them", () => {
+  it("identical deposits get DISTINCT ids — requestNonce differentiates them", async () => {
     // The dedup assert (!member) is a belt-and-braces invariant: it cannot
     // trip in the normal flow because the nonce is part of the hashed record,
     // so an identical resubmission is a NEW request. Document that here.
-    const { contract, ctx } = deployInitialized();
+    const { contract, ctx } = await deployInitialized();
 
-    const afterFirst = contract.circuits.requestDeposit(
-      ctx,
-      VALID_PARAMS,
-      VALID_ARGS,
+    const afterFirst = (
+      await contract.circuits.requestDeposit(ctx, VALID_PARAMS, VALID_ARGS)
     ).context;
-    const afterSecond = contract.circuits.requestDeposit(
-      afterFirst,
-      VALID_PARAMS,
-      VALID_ARGS,
+    const afterSecond = (
+      await contract.circuits.requestDeposit(
+        afterFirst,
+        VALID_PARAMS,
+        VALID_ARGS,
+      )
     ).context;
 
     const index = toSignetEVMSignatureRequestIndex(
-      ledger(afterSecond.currentQueryContext.state).signetRequestsIndex,
+      ledger(afterSecond.callContext.currentQueryContext.state)
+        .signetRequestsIndex,
     );
     expect(index.size).toBe(2);
     const nonces = [...index.values()].map((r) => r.requestNonce).sort();

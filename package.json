@@ -21,5 +21,10 @@
     "compile:signet-contract": "npm run compile -w @midnight-erc20-vault/signet-contract",
     "compile:signet-contract:zk": "npm run compile:zk -w @midnight-erc20-vault/signet-contract",
     "deploy:signet-contract": "npm run deploy -w @midnight-erc20-vault/signet-contract"
+  },
+  "overrides": {
+    "@midnightntwrk/ledger-v9": "1.0.0-rc.3",
+    "@midnightntwrk/onchain-runtime-v4": "4.0.0-rc.2",
+    "@midnightntwrk/wallet-sdk-address-format": "4.0.0-beta.2"
   }
 }

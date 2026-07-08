@@ -16,8 +16,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@midnight-ntwrk/compact-runtime": "^0.16.0",
-    "@midnight-ntwrk/midnight-js-types": "^4.1.1",
+    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.0",
+    "@midnight-ntwrk/midnight-js-types": "5.0.0-beta.3",
     "@noble/curves": "^2.2.0",
     "ethers": "^6.17.0"
   },

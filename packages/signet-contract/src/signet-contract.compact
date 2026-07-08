@@ -1,4 +1,4 @@
-pragma language_version >= 0.22;
+pragma language_version >= 0.25;
 
 import CompactStandardLibrary;
 
@@ -6,10 +6,6 @@ import CompactStandardLibrary;
 // path<->identity binding, and the attestation message. See the module header
 // in Signet.compact and https://docs.sig.network/ for the protocol.
 import "@midnight-erc20-vault/signet-midnight/src/Signet";
-
-// Jubjub Schnorr verification (polyfill until CompactStandardLibrary ships
-// jubjubSchnorrVerify). See the module header in Schnorr.compact.
-import "@midnight-erc20-vault/signet-midnight/src/Schnorr" prefix Schnorr_;
 
 // The CENTRAL signet contract: the MPC delivers all its responses here, and
 // clients poll it — there is deliberately no push/websocket channel. Ledger
@@ -79,17 +75,20 @@ export circuit postRespondBidirectional(
     );
 
     // The attestation must sign THIS request and THIS output.
-    Schnorr_schnorrVerify<4>(
-        signetAttestationMessage(
-            disclosedRequestId,
-            disclosedResponse.serializedOutput,
-            disclosedResponse.outputLen
+    assert(
+        jubjubSchnorrVerify<4>(
+            signetAttestationMessage(
+                disclosedRequestId,
+                disclosedResponse.serializedOutput,
+                disclosedResponse.outputLen
+            ),
+            JubjubSchnorrSignature {
+                announcement: disclosedResponse.announcement,
+                response: disclosedResponse.response,
+            },
+            disclosedResponse.pk
         ),
-        Schnorr_SchnorrSignature {
-            announcement: disclosedResponse.announcement,
-            response: disclosedResponse.response,
-        },
-        disclosedResponse.pk
+        "Invalid attestation signature"
     );
 
     // First valid write wins. A re-post is a no-op, never an overwrite —

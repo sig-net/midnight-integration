@@ -132,7 +132,7 @@ exception for that specific case.
   could be exported.** Export the circuit through the shared module's compiled
   surface (signet-midnight's `circuits.compact`) and call the compiled artifact
   (`pureCircuits.<name>`). TS may only implement what circuits cannot:
-  secret-key signing, witness computations (e.g. `getSchnorrReduction`), and
+  secret-key signing, witness computations (e.g. `callerSecretKey`), and
   byte plumbing. A TS twin of provable logic WILL drift from the circuit and
   break agreement with the proofs silently.
 - **Root scripts that target one member are named `<task>:<package-dir>` — the
@@ -160,10 +160,12 @@ both (and to any additional contract package):
 - **Witnesses live beside the contract they serve**, in `src/witnesses.ts`, typed
   against the generated `Witnesses<PS>` type.
 - **Simulator test pattern** (see `tests/contract.test.ts`):
-  `new Contract(witnesses)` → `contract.initialState(createConstructorContext(ps, CPK))`
-  → `createCircuitContext(sampleContractAddress(), CPK, state, ps)` → call circuits,
-  threading `result.context` forward → decode with `ledger(ctx.currentQueryContext.state)`.
-  Pure circuits are called directly via `pureCircuits.<name>(...)`.
+  `new Contract(witnesses)` → `await contract.initialState(createConstructorContext(ps, CPK))`
+  → `createCircuitContext(circuitId, sampleContractAddress(), CPK, state, ps)` → await
+  circuits (they are async), threading `result.context` forward → decode with
+  `ledger(ctx.callContext.currentQueryContext.state)`. Circuit failures reject the
+  promise (`await expect(...).rejects.toThrow(...)`). Pure circuits are synchronous,
+  called directly via `pureCircuits.<name>(...)`.
 - **The deploy split: generic plumbing in lib, everything contract-specific in
   this package's `deploy.ts`.** `packages/lib`'s deploy/wallet helpers
   (`buildDeployTransaction`, `makeCompiledContract`, `submitUnprovenTransaction`,

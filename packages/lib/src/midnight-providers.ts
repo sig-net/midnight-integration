@@ -8,12 +8,19 @@
 // (indexer / proof server / zk-config / private-state store) lives with each
 // contract package, since it depends on that package's compiled assets.
 
-import type {
-  MidnightProvider,
-  UnboundTransaction,
-  WalletProvider,
+import {
+  createProofProvider,
+  ZKConfigRegistry,
+  zkConfigToProvingKeyMaterial,
+  type MidnightProvider,
+  type ProofProvider,
+  type UnboundTransaction,
+  type WalletProvider,
+  type ZKConfigProvider,
 } from "@midnight-ntwrk/midnight-js/types";
-import type { WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
+import { httpClientProvingProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
+import type { ProvingKeyMaterial, ProvingProvider } from "@midnightntwrk/ledger-v9";
+import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
 
 import type { AccountKeys } from "./wallet.ts";
 
@@ -27,7 +34,7 @@ const BALANCE_TTL_MS = 30 * 60 * 1000;
  * (which proves); `submitTx` relays through the facade.
  *
  * The midnight-js ledger types come from `midnight-js-protocol`; the facade
- * uses `ledger-v8`. They are the same underlying classes, so the values pass
+ * uses `ledger-v9`. They are the same underlying classes, so the values pass
  * straight through — the casts only bridge the two packages' nominal type
  * identities.
  *
@@ -48,9 +55,60 @@ export function createWalletAndMidnightProvider(
         { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
         { ttl: ttl ?? new Date(Date.now() + BALANCE_TTL_MS) },
       );
-      const signed = await facade.signRecipe(recipe, (payload) => keys.unshieldedKeystore.signData(payload));
+      const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
       return (await facade.finalizeRecipe(signed)) as never;
     },
     submitTx: (tx) => facade.submitTransaction(tx as never) as never,
   };
+}
+
+/**
+ * Build the {@link ProofProvider} for a contract's provider set: proving via
+ * the proof server's /check + /prove endpoints, with ZK key material resolved
+ * from the contract's compiled assets through `zkConfigProvider`.
+ *
+ * Exists instead of midnight-js's own `httpClientProofProvider` because that
+ * one (5.0.0-beta.3) builds a circuit-level `ProvingProvider` with only
+ * `check`/`prove` — the ledger-v9 1.0.0-rc.2 shape it was released against —
+ * while the ledger-v9 1.0.0-rc.3 WASM this workspace resolves (the version
+ * the wallet-sdk betas pin) validates that `lookupKey` is also present and
+ * throws "expected proving provider property 'lookupKey' to be a function"
+ * on every circuit-call proof. This wrapper reuses midnight-js's proving
+ * provider and grafts on a `lookupKey` backed by the same key-material
+ * resolution its `check`/`prove` use. Delete in favor of
+ * `httpClientProofProvider` once midnight-js ships a beta aligned with
+ * ledger-v9 1.0.0-rc.3.
+ *
+ * @param proofServerUrl - The proof server's HTTP endpoint.
+ * @param zkConfigProvider - Provider of the contract's compiled ZK artifacts (prover/verifier keys + ZKIR).
+ * @returns The proof provider to place in a contract's midnight-js provider set.
+ */
+export function createProofServerProvider<K extends string>(
+  proofServerUrl: string,
+  zkConfigProvider: ZKConfigProvider<K>,
+): ProofProvider {
+  const base = httpClientProvingProvider(proofServerUrl, zkConfigProvider);
+  const registry = new ZKConfigRegistry([zkConfigProvider]);
+
+  // Same resolution order as midnight-js's internal key-material resolver:
+  // canonical contract key locations through the registry's verifier-key
+  // join; otherwise try the location as a bare circuit name against the flat
+  // provider; protocol builtins ("midnight/...") resolve to undefined and
+  // are supplied by the proof server itself.
+  const lookupKey = async (
+    keyLocation: string,
+  ): Promise<ProvingKeyMaterial | undefined> => {
+    const resolved = await registry.resolveKeyLocation(keyLocation);
+    if (resolved !== undefined) {
+      return zkConfigToProvingKeyMaterial(resolved);
+    }
+    try {
+      return zkConfigToProvingKeyMaterial(await zkConfigProvider.get(keyLocation as K));
+    } catch {
+      return undefined;
+    }
+  };
+
+  const provingProvider: ProvingProvider = { ...base, lookupKey };
+  return createProofProvider(provingProvider);
 }

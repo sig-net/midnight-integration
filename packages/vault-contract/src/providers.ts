@@ -7,14 +7,14 @@
 
 import { fileURLToPath } from "node:url";
 
-import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
 import type { MidnightProviders } from "@midnight-ntwrk/midnight-js/types";
-import type { WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
+import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
 
 import {
+  createProofServerProvider,
   createWalletAndMidnightProvider,
   makeCompiledContract,
   type AccountKeys,
@@ -142,11 +142,7 @@ export function buildVaultProviders(
     // transcript). This is NOT the wallet's proving config: the facade's
     // proof server only proves the wallet's own balancing additions when it
     // finalizes a recipe; the call transcript is proven here first.
-    proofProvider: httpClientProofProvider(
-      // proof server url
-      config.proofServerUrl,
-      zkConfigProvider,
-    ),
+    proofProvider: createProofServerProvider(config.proofServerUrl, zkConfigProvider),
 
     // Creates proven, balanced transactions.
     walletProvider: walletAndMidnightProvider,

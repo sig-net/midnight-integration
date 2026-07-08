@@ -11,22 +11,22 @@
 
 import { fileURLToPath } from "node:url";
 
-import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
 import type { MidnightProviders } from "@midnight-ntwrk/midnight-js/types";
-import type { WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
+import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
 
 import {
+  createProofServerProvider,
   createWalletAndMidnightProvider,
-  makeCompiledContract,
+  makeVacantCompiledContract,
   type AccountKeys,
   type MidnightNodeConfig,
 } from "@midnight-erc20-vault/lib";
 
 import { Contract } from "./managed/contract/index.js";
-import { witnesses, type SignetContractPrivateState } from "./witnesses.ts";
+import { type SignetContractPrivateState } from "./witnesses.ts";
 
 /** The contract's provable circuit ids, straight from the generated contract. */
 export type SignetContractCircuitId = keyof InstanceType<typeof Contract>["provableCircuits"] & string;
@@ -60,17 +60,16 @@ export type SignetContractProviders = MidnightProviders<
 const managedPath = fileURLToPath(new URL("./managed", import.meta.url));
 
 /**
- * The signet-contract compact-js compiled-contract binding: generated module,
- * the `getSchnorrReduction` witness (see witnesses.ts), and this package's
- * compiled assets. Consumed by `findDeployedContract` (and deploy tooling).
+ * The signet-contract compact-js compiled-contract binding: generated module
+ * (the contract declares no witnesses) and this package's compiled assets.
+ * Consumed by `findDeployedContract` (and deploy tooling).
  */
-export const signetContractCompiledContract = makeCompiledContract<
+export const signetContractCompiledContract = makeVacantCompiledContract<
   Contract<SignetContractPrivateState>,
   SignetContractPrivateState
 >(
   "signet-contract",
   Contract,
-  witnesses,
   managedPath,
 );
 
@@ -116,7 +115,7 @@ export function buildSignetContractProviders(
 
     // Creates proven, unbalanced transactions (proves the contract-call
     // transcript). Distinct from the wallet's own balancing proofs.
-    proofProvider: httpClientProofProvider(config.proofServerUrl, zkConfigProvider),
+    proofProvider: createProofServerProvider(config.proofServerUrl, zkConfigProvider),
 
     // Creates proven, balanced transactions.
     walletProvider: walletAndMidnightProvider,

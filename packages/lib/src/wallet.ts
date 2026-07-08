@@ -2,31 +2,31 @@
 // SeedWallet and the integration tests' buildWallet): key derivation, address
 // encoding and WalletFacade wiring. Pure crypto + facade construction — no
 // network I/O happens here (the facade connects only when started).
-import * as ledger from "@midnight-ntwrk/ledger-v8";
-import { HDWallet, Roles } from "@midnight-ntwrk/wallet-sdk-hd";
+import * as ledger from "@midnightntwrk/ledger-v9";
+import { HDWallet, Roles } from "@midnightntwrk/wallet-sdk-hd";
 import {
   mergeWalletEntries,
   WalletEntrySchema,
   WalletFacade,
   type FacadeState,
   type TransactionIdentifier,
-} from "@midnight-ntwrk/wallet-sdk-facade";
-import { ShieldedWallet } from "@midnight-ntwrk/wallet-sdk-shielded";
-import { DustWallet } from "@midnight-ntwrk/wallet-sdk-dust-wallet";
+} from "@midnightntwrk/wallet-sdk-facade";
+import { ShieldedWallet } from "@midnightntwrk/wallet-sdk-shielded";
+import { DustWallet } from "@midnightntwrk/wallet-sdk-dust-wallet";
 import {
   createKeystore,
   PublicKey as UnshieldedPublicKey,
   type UnshieldedKeystore,
   UnshieldedWallet,
-} from "@midnight-ntwrk/wallet-sdk-unshielded-wallet";
-import { InMemoryTransactionHistoryStorage } from "@midnight-ntwrk/wallet-sdk-abstractions";
+} from "@midnightntwrk/wallet-sdk-unshielded-wallet";
+import { InMemoryTransactionHistoryStorage } from "@midnightntwrk/wallet-sdk-abstractions";
 import {
   DustAddress,
   MidnightBech32m,
   ShieldedAddress,
   ShieldedCoinPublicKey,
   ShieldedEncryptionPublicKey,
-} from "@midnight-ntwrk/wallet-sdk-address-format";
+} from "@midnightntwrk/wallet-sdk-address-format";
 
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
 import type { NetworkId } from "./network-id.ts";
@@ -34,7 +34,7 @@ import { parseSeed } from "./seed.ts";
 
 // Consumers hold facades/states we hand them without adding the wallet-sdk
 // packages themselves — re-export the handle types alongside the builders.
-export type { FacadeState, TransactionIdentifier, WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
+export type { FacadeState, TransactionIdentifier, WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
 
 /** The live key material for one account. Reused for signing / balancing. */
 export interface AccountKeys {
@@ -79,7 +79,10 @@ export function deriveAccountKeys(seed: string, networkId: NetworkId): AccountKe
 
   const shieldedSecretKeys = ledger.ZswapSecretKeys.fromSeed(derived.keys[Roles.Zswap]);
   const dustSecretKey = ledger.DustSecretKey.fromSeed(derived.keys[Roles.Dust]);
-  const unshieldedKeystore = createKeystore(derived.keys[Roles.NightExternal], networkId);
+  const unshieldedKeystore = createKeystore(
+    { kind: "schnorr", secret: derived.keys[Roles.NightExternal] },
+    networkId,
+  );
 
   return { shieldedSecretKeys, dustSecretKey, unshieldedKeystore };
 }
@@ -156,7 +159,7 @@ export async function submitUnprovenTransaction(
     { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
     { ttl: new Date(Date.now() + RECIPE_TTL_MS) },
   );
-  const signed = await facade.signRecipe(recipe, (payload) => keys.unshieldedKeystore.signData(payload));
+  const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
   const finalized = await facade.finalizeRecipe(signed);
   return facade.submitTransaction(finalized);
 }

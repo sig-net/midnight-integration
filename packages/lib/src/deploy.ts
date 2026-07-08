@@ -8,10 +8,10 @@
 import { NodeContext } from "@effect/platform-node";
 import { CompiledContract, Contract, ContractExecutable } from "@midnight-ntwrk/compact-js/effect";
 import { ZKFileConfiguration } from "@midnight-ntwrk/compact-js-node/effect";
-import * as ledger from "@midnight-ntwrk/ledger-v8";
+import * as ledger from "@midnightntwrk/ledger-v9";
 import * as Configuration from "@midnight-ntwrk/platform-js/effect/Configuration";
 import * as CoinPublicKey from "@midnight-ntwrk/platform-js/effect/CoinPublicKey";
-import type { FacadeState } from "@midnight-ntwrk/wallet-sdk-facade";
+import type { FacadeState } from "@midnightntwrk/wallet-sdk-facade";
 import { Effect, Layer, Option, type Types } from "effect";
 
 import { getMidnightNodeConfig, type MidnightNodeConfig } from "./midnight-node-config.ts";

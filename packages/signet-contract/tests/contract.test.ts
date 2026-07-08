@@ -95,13 +95,15 @@ const attest = (
 
 // ---- Harness ----
 
-const deployContract = () => {
+const deployContract = async (circuitId: string) => {
   const contract = new Contract<SignetContractPrivateState>(witnesses);
-  const { currentContractState, currentPrivateState } = contract.initialState(
-    createConstructorContext(createSignetContractPrivateState(), CPK),
-    MPC_KEYS.pk,
-  );
+  const { currentContractState, currentPrivateState } =
+    await contract.initialState(
+      createConstructorContext(createSignetContractPrivateState(), CPK),
+      MPC_KEYS.pk,
+    );
   const ctx = createCircuitContext(
+    circuitId,
     sampleContractAddress(),
     CPK,
     currentContractState,
@@ -113,9 +115,9 @@ const deployContract = () => {
 // ---- Tests ----
 
 describe("constructor", () => {
-  it("deploys with empty indexes and the MPC key hash sealed", () => {
-    const { ctx } = deployContract();
-    const state = ledger(ctx.currentQueryContext.state);
+  it("deploys with empty indexes and the MPC key hash sealed", async () => {
+    const { ctx } = await deployContract("postSignatureResponse");
+    const state = ledger(ctx.callContext.currentQueryContext.state);
     expect(state.signatureResponseCounterIndex.isEmpty()).toBe(true);
     expect(state.signatureResponseIndex.isEmpty()).toBe(true);
     expect(state.respondBidirectionalIndex.isEmpty()).toBe(true);
@@ -198,16 +200,20 @@ const POST_CASES: PostCase[] = [
 describe("postSignatureResponse", () => {
   it.each(POST_CASES)(
     "stores $name",
-    ({ posts, expectedCounters, expectedEntries }) => {
-      const { contract, ctx } = deployContract();
+    async ({ posts, expectedCounters, expectedEntries }) => {
+      const { contract, ctx } = await deployContract("postSignatureResponse");
 
-      const finalCtx = posts.reduce(
-        (acc, { requestId, signature }) =>
-          contract.circuits.postSignatureResponse(acc, requestId, signature)
-            .context,
-        ctx,
-      );
-      const state = ledger(finalCtx.currentQueryContext.state);
+      let finalCtx = ctx;
+      for (const { requestId, signature } of posts) {
+        finalCtx = (
+          await contract.circuits.postSignatureResponse(
+            finalCtx,
+            requestId,
+            signature,
+          )
+        ).context;
+      }
+      const state = ledger(finalCtx.callContext.currentQueryContext.state);
 
       // The counter index holds EXACTLY the expected requests, each counter
       // reading that request's total number of posts.
@@ -234,16 +240,18 @@ describe("postSignatureResponse", () => {
 });
 
 describe("postRespondBidirectional", () => {
-  it("stores a genuine attestation — the ledger record parses into the shared twin type", () => {
-    const { contract, ctx } = deployContract();
+  it("stores a genuine attestation — the ledger record parses into the shared twin type", async () => {
+    const { contract, ctx } = await deployContract("postRespondBidirectional");
     const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
 
-    const next = contract.circuits.postRespondBidirectional(
-      ctx,
-      REQUEST_A,
-      attestation,
+    const next = (
+      await contract.circuits.postRespondBidirectional(
+        ctx,
+        REQUEST_A,
+        attestation,
+      )
     ).context;
-    const state = ledger(next.currentQueryContext.state);
+    const state = ledger(next.callContext.currentQueryContext.state);
 
     expect(state.respondBidirectionalIndex.size()).toBe(1n);
     // The assignment is the real assertion: the generated ledger type must
@@ -253,87 +261,79 @@ describe("postRespondBidirectional", () => {
     expect(stored).toEqual(attestation);
   });
 
-  it("rejects an attestation by a key other than the pinned MPC key", () => {
-    const { contract, ctx } = deployContract();
+  it("rejects an attestation by a key other than the pinned MPC key", async () => {
+    const { contract, ctx } = await deployContract("postRespondBidirectional");
     const attestation = attest(IMPOSTER_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    expect(() =>
+    await expect(
       contract.circuits.postRespondBidirectional(ctx, REQUEST_A, attestation),
-    ).toThrow(/attestation pk is not the MPC key/);
+    ).rejects.toThrow(/attestation pk is not the MPC key/);
   });
 
-  it("rejects a tampered attestation (output differs from what was signed)", () => {
-    const { contract, ctx } = deployContract();
+  it("rejects a tampered attestation (output differs from what was signed)", async () => {
+    const { contract, ctx } = await deployContract("postRespondBidirectional");
     const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
     const tamperedOutput = new Uint8Array(OUTPUT_SUCCESS);
     tamperedOutput[100] = 0xff;
-    expect(() =>
+    await expect(
       contract.circuits.postRespondBidirectional(ctx, REQUEST_A, {
         ...attestation,
         serializedOutput: tamperedOutput,
       }),
-    ).toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation signature/);
   });
 
-  it("rejects a tampered attestation (output length differs from what was signed)", () => {
-    const { contract, ctx } = deployContract();
+  it("rejects a tampered attestation (output length differs from what was signed)", async () => {
+    const { contract, ctx } = await deployContract("postRespondBidirectional");
     const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    expect(() =>
+    await expect(
       contract.circuits.postRespondBidirectional(ctx, REQUEST_A, {
         ...attestation,
         outputLen: attestation.outputLen + 1n,
       }),
-    ).toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation signature/);
   });
 
-  it("rejects a genuine attestation replayed under a DIFFERENT request id", () => {
-    const { contract, ctx } = deployContract();
+  it("rejects a genuine attestation replayed under a DIFFERENT request id", async () => {
+    const { contract, ctx } = await deployContract("postRespondBidirectional");
     const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    expect(() =>
+    await expect(
       contract.circuits.postRespondBidirectional(ctx, REQUEST_B, attestation),
-    ).toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation signature/);
   });
 
-  it("first valid write wins: a re-signed duplicate is a no-op, not an overwrite", () => {
-    const { contract, ctx } = deployContract();
+  it("first valid write wins: a re-signed duplicate is a no-op, not an overwrite", async () => {
+    const { contract, ctx } = await deployContract("postRespondBidirectional");
     const first = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
     // Schnorr is randomized: a second signature over the SAME output is a
     // different, equally valid record.
     const second = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
     expect(second.announcement).not.toEqual(first.announcement);
 
-    let next = contract.circuits.postRespondBidirectional(
-      ctx,
-      REQUEST_A,
-      first,
+    let next = (
+      await contract.circuits.postRespondBidirectional(ctx, REQUEST_A, first)
     ).context;
-    next = contract.circuits.postRespondBidirectional(
-      next,
-      REQUEST_A,
-      second,
+    next = (
+      await contract.circuits.postRespondBidirectional(next, REQUEST_A, second)
     ).context;
 
-    const state = ledger(next.currentQueryContext.state);
+    const state = ledger(next.callContext.currentQueryContext.state);
     expect(state.respondBidirectionalIndex.size()).toBe(1n);
     expect(state.respondBidirectionalIndex.lookup(REQUEST_A)).toEqual(first);
   });
 
-  it("tracks attestations per request id", () => {
-    const { contract, ctx } = deployContract();
+  it("tracks attestations per request id", async () => {
+    const { contract, ctx } = await deployContract("postRespondBidirectional");
     const forA = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
     const forB = attest(MPC_KEYS, REQUEST_B, OUTPUT_SUCCESS);
 
-    let next = contract.circuits.postRespondBidirectional(
-      ctx,
-      REQUEST_A,
-      forA,
+    let next = (
+      await contract.circuits.postRespondBidirectional(ctx, REQUEST_A, forA)
     ).context;
-    next = contract.circuits.postRespondBidirectional(
-      next,
-      REQUEST_B,
-      forB,
+    next = (
+      await contract.circuits.postRespondBidirectional(next, REQUEST_B, forB)
     ).context;
 
-    const state = ledger(next.currentQueryContext.state);
+    const state = ledger(next.callContext.currentQueryContext.state);
     expect(state.respondBidirectionalIndex.size()).toBe(2n);
     expect(state.respondBidirectionalIndex.lookup(REQUEST_A)).toEqual(forA);
     expect(state.respondBidirectionalIndex.lookup(REQUEST_B)).toEqual(forB);

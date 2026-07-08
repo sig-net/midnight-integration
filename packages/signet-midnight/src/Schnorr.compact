@@ -1,17 +1,24 @@
 // ============================================================================
-// Schnorr — shared Compact library: Schnorr signature verification on the
-// Jubjub curve embedded in BLS12-381.
+// Schnorr — shared Compact library: the off-chain-callable challenge circuit
+// for Schnorr signatures on the Jubjub curve embedded in BLS12-381.
 // ============================================================================
-// Polyfill: to be replaced by `jubjubSchnorrVerify` when CompactStandardLibrary
-// ships it in a future compiler release. See:
-// https://github.com/LFDT-Minokawa/compact/blob/25b22e3/compiler/standard-library.compact
+// Verification itself is CompactStandardLibrary's `jubjubSchnorrVerify`
+// (contracts call it directly). The standard library keeps its challenge
+// hashing internal, but off-chain SIGNERS need the same challenge value to
+// compute the response scalar, so this module exports it as a pure circuit
+// (compiled via circuits.compact) — never a TS re-implementation.
+//
+// `SchnorrHashInput` mirrors the standard library's internal
+// `JubjubSchnorrHashInput` field-for-field; the signet-midnight sign→verify
+// round-trip test (schnorrSign + contract-side jubjubSchnorrVerify) keeps the
+// two in agreement.
 //
 // The sig-net MPC attests remote EVM execution by Schnorr-signing a message
 // on Jubjub (see signetAttestationMessage in Signet.compact); contracts
 // verify that signature in-circuit — the signet contract at post time, the
 // vault again at claim time. The challenge is Poseidon (transientHash), so
 // off-chain signers MUST compute it through the COMPILED schnorrChallenge
-// pure circuit (re-exported via circuits.compact), never a TS reimplementation.
+// pure circuit (re-exported via circuits.compact).
 //
 // Import from a contract (resolved through node_modules via COMPACT_PATH —
 // see the consuming package's compile script):
@@ -23,16 +30,10 @@
 module Schnorr {
   import CompactStandardLibrary;
 
-  // One Schnorr signature: the nonce commitment R and the response scalar
-  // s = (k + c * sk) mod JUBJUB_ORDER.
-  export struct SchnorrSignature {
-    announcement: JubjubPoint;
-    response: Field;
-  }
-
   // The tuple Poseidon-hashed into the challenge: both points' coordinates
   // then the message limbs, in exactly this order — the wire format the MPC
-  // signs against. Never reorder.
+  // signs against (identical to the standard library's internal
+  // JubjubSchnorrHashInput). Never reorder.
   struct SchnorrHashInput<#n> {
     ann_x: Field;
     ann_y: Field;
@@ -41,45 +42,11 @@ module Schnorr {
     msg: Vector<n, Field>;
   }
 
-  // The witness provides the quotient and remainder of dividing the challenge
-  // hash by 2^248, so we can truncate it to fit in Jubjub's scalar field.
-  witness getSchnorrReduction(challengeHash: Field): [Field, Uint<248>];
-
-  export circuit schnorrVerify<#n>(
-                   msg: Vector<n, Field>,
-                   signature: SchnorrSignature,
-                   pk: JubjubPoint
-                   ): [] {
-    const {announcement, response} = signature;
-    const cFull: Field =
-            transientHash<SchnorrHashInput<n>>(
-              SchnorrHashInput<n> { ann_x: jubjubPointX(announcement),
-                                    ann_y: jubjubPointY(announcement),
-                                    pk_x: jubjubPointX(pk),
-                                    pk_y: jubjubPointY(pk),
-                                    msg: msg }
-              );
-    // Truncate the challenge to 248 bits via witness-assisted division by
-    // 2^248: the witness provides (quotient, remainder) with cFull ==
-    // q * 2^248 + r and r : Uint<248>, guaranteeing r < 2^248 < the Jubjub
-    // subgroup order. Needed because ecMul requires scalars < JUBJUB_ORDER
-    // (~2^252.4) while transientHash outputs BLS12-381 field values (~2^255).
-    const TWO_248: Field =
-            452312848583266388373324160190187140051835877600158453279131187530910662656 as Field;
-    const [q, cTruncated] = getSchnorrReduction(cFull);
-    assert(disclose(q) * TWO_248 + (disclose(cTruncated) as Field) == cFull,
-           "Invalid challenge reduction"
-           );
-    const c: Field = disclose(cTruncated) as Field;
-    const lhs: JubjubPoint = ecMulGenerator(response);
-    const rhs: JubjubPoint = ecAdd(announcement, ecMul(pk, c));
-    assert(jubjubPointX(lhs) == jubjubPointX(rhs) && jubjubPointY(lhs) == jubjubPointY(rhs),
-           "Invalid attestation signature");
-  }
-
-  // The full (untruncated) Poseidon challenge. Off-chain signers call the
-  // compiled copy of this and truncate mod 2^248 to match schnorrVerify's
-  // reduction.
+  // The Schnorr challenge as `jubjubSchnorrVerify` computes it: the Poseidon
+  // transientHash of (R, pk, msg), reduced into Jubjub's scalar field (the
+  // `as JubjubScalar` cast reduces mod the Jubjub subgroup order; the cast
+  // back to Field is exact). Off-chain signers use the returned value
+  // directly: s = (k + c * sk) mod JUBJUB_ORDER.
   export pure circuit schnorrChallenge(
                         ann_x: Field,
                         ann_y: Field,
@@ -91,6 +58,6 @@ module Schnorr {
             transientHash<SchnorrHashInput<4>>(
               SchnorrHashInput<4> { ann_x: ann_x, ann_y: ann_y, pk_x: pk_x, pk_y: pk_y, msg: msg }
               );
-    return cFull;
+    return (cFull as JubjubScalar) as Field;
   }
 }

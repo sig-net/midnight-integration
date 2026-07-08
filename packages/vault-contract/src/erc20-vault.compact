@@ -1,4 +1,4 @@
-pragma language_version >= 0.22;
+pragma language_version >= 0.25;
 
 import CompactStandardLibrary;
 
@@ -6,10 +6,6 @@ import CompactStandardLibrary;
 // path<->identity binding, and request construction. See the module header in
 // Signet.compact and https://docs.sig.network/ for the protocol.
 import "@midnight-erc20-vault/signet-midnight/src/Signet";
-
-// Jubjub Schnorr verification (polyfill until CompactStandardLibrary ships
-// jubjubSchnorrVerify). See the module header in Schnorr.compact.
-import "@midnight-erc20-vault/signet-midnight/src/Schnorr" prefix Schnorr_;
 
 // ---- Signet ledger layout ---------------------------------------------------------
 // The request index MUST be ledger field 0 and the nonce counter field 1: the
@@ -164,20 +160,23 @@ export circuit claimDeposit(
   // -- EVM result: the first 32-byte word of serializedOutput is the
   // ABI-encoded bool returned by ERC20 transfer() --
   const returnValue = slice<32>(respondBidirectional.serializedOutput, 0);
-  assert(returnValue as Field == 1, "ERC20 transfer returned false");
+  assert(returnValue as Field == 1 as Field, "ERC20 transfer returned false");
 
   // -- attestation signature: the MPC signed THIS request and THIS output --
-  Schnorr_schnorrVerify<4>(
-    signetAttestationMessage(
-      disclosedRequestId,
-      respondBidirectional.serializedOutput,
-      respondBidirectional.outputLen
+  assert(
+    jubjubSchnorrVerify<4>(
+      signetAttestationMessage(
+        disclosedRequestId,
+        respondBidirectional.serializedOutput,
+        respondBidirectional.outputLen
+      ),
+      JubjubSchnorrSignature {
+        announcement: respondBidirectional.announcement,
+        response: respondBidirectional.response,
+      },
+      respondBidirectional.pk
     ),
-    Schnorr_SchnorrSignature {
-      announcement: respondBidirectional.announcement,
-      response: respondBidirectional.response,
-    },
-    respondBidirectional.pk
+    "Invalid attestation signature"
   );
 
   // -- double-claim protection: the request must exist and is consumed here --

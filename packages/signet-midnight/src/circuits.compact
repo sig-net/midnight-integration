@@ -1,4 +1,4 @@
-pragma language_version >= 0.22;
+pragma language_version >= 0.25;
 
 // Compiled export surface of the Signet and Schnorr modules.
 //
