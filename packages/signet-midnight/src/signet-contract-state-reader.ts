@@ -5,7 +5,7 @@
 // (queryContractState(address).data), and decodes by the signet contract
 // layout convention (see "Signet Contract Ledger Layout" in Signet.compact):
 // signature response counter index (field 0), signature response log
-// (field 1), remote execution response index (field 2), sealed MPC key hash
+// (field 1), respond-bidirectional index (field 2), sealed MPC key hash
 // (field 3). The generic state-tree walk (RawContractState, signetFieldNode)
 // and the shared base descriptors live in signature-state-reading.ts.
 
@@ -13,6 +13,7 @@ import {
   CompactTypeBytes,
   CompactTypeField,
   CompactTypeJubjubPoint,
+  CompactTypeUnsignedInteger,
   type CompactType,
   type JubjubPoint,
 } from "@midnight-ntwrk/compact-runtime";
@@ -36,8 +37,8 @@ export const SIGNATURE_RESPONSE_COUNTER_INDEX_FIELD = 0;
 /** Signet contract layout: the signature response log is ledger field 1. */
 export const SIGNATURE_RESPONSE_INDEX_FIELD = 1;
 
-/** Signet contract layout: the remote execution response index is ledger field 2. */
-export const REMOTE_EXECUTION_RESPONSE_INDEX_FIELD = 2;
+/** Signet contract layout: the respond-bidirectional index is ledger field 2. */
+export const RESPOND_BIDIRECTIONAL_INDEX_FIELD = 2;
 
 /** Signet contract layout: the sealed MPC attestation key hash is ledger field 3. */
 export const MPC_PUB_KEY_HASH_FIELD = 3;
@@ -47,32 +48,89 @@ export const MPC_PUB_KEY_HASH_FIELD = 3;
 // sequentially, so field order and width here must match the Compact structs
 // exactly — a mismatch is silent data corruption, not an error.
 
-/** Descriptor for one signature response (Compact `SignetEVMSignatureResponse`, a `Bytes<65>`). */
-const bytes65 = new CompactTypeBytes(65);
-
-/** Descriptor for the attestation's output data (`Bytes<4096>`). */
-const bytes4096 = new CompactTypeBytes(4096);
-
-/** Descriptor for the sealed MPC key hash (`Bytes<32>`). */
+/** Descriptor for a signature scalar / MPC key hash (`Bytes<32>`). */
 const bytes32 = new CompactTypeBytes(32);
 
-/**
- * The raw 65-byte `r || s || v` MPC signature over the requested EVM
- * transaction (Compact `SignetEVMSignatureResponse`, a nominal `Bytes<65>`).
- * The request id it answers lives in the response index key, not here.
- */
-export type SignetEVMSignatureResponse = Uint8Array;
+/** Descriptor for the attestation's serialized output (`Bytes<128>`). */
+const bytes128 = new CompactTypeBytes(128);
+
+/** Descriptor for a Compact `Uint<8>` (1-byte unsigned integer). */
+const u8 = new CompactTypeUnsignedInteger(255n, 1);
 
 /**
- * The MPC's attestation of a request's remote EVM execution (Compact
- * `SignetRemoteExecutionResponse`): the full output data plus the Schnorr
- * signature over `(requestId, hash(outputData))`. Stored records were
+ * The MPC's secp256k1 signature over the requested EVM transaction (Compact
+ * `SignetEVMSignatureResponse` — the canonical MPC `Signature { big_r, s,
+ * recovery_id }` with `big_r` decomposed into affine coordinates, big-endian
+ * scalar bytes). The request id it answers lives in the response index key,
+ * not here.
+ */
+export interface SignetEVMSignatureResponse {
+  /** Signature R.x, 32 big-endian bytes. */
+  bigRx: Uint8Array;
+  /** Signature R.y, 32 big-endian bytes. */
+  bigRy: Uint8Array;
+  /** Signature s, 32 big-endian bytes. */
+  s: Uint8Array;
+  /** Parity of R.y for public-key recovery (0 or 1). */
+  recoveryId: bigint;
+}
+
+/**
+ * Hand-composed descriptor for {@link SignetEVMSignatureResponse}. Field
+ * order (bigRx, bigRy, s, recoveryId) must match the Compact struct.
+ */
+export const signetEVMSignatureResponseType: CompactType<SignetEVMSignatureResponse> = {
+  /** @returns Compound alignment of the struct's fields in declaration order. */
+  alignment() {
+    return bytes32
+      .alignment()
+      .concat(bytes32.alignment())
+      .concat(bytes32.alignment())
+      .concat(u8.alignment());
+  },
+  /**
+   * Decode one signature response from an aligned value, consuming it field
+   * by field.
+   *
+   * @param value - Mutable aligned value cursor; pass a copy.
+   * @returns The decoded record.
+   */
+  fromValue(value) {
+    return {
+      bigRx: bytes32.fromValue(value),
+      bigRy: bytes32.fromValue(value),
+      s: bytes32.fromValue(value),
+      recoveryId: u8.fromValue(value),
+    };
+  },
+  /**
+   * Encode a signature response into its aligned on-ledger representation.
+   *
+   * @param record - The record to encode.
+   * @returns The aligned value, fields concatenated in declaration order.
+   */
+  toValue(record) {
+    return bytes32
+      .toValue(record.bigRx)
+      .concat(bytes32.toValue(record.bigRy))
+      .concat(bytes32.toValue(record.s))
+      .concat(u8.toValue(record.recoveryId));
+  },
+};
+
+/**
+ * The MPC's respond-bidirectional attestation of a request's remote EVM
+ * execution (Compact `SignetRespondBidirectional`): the serialized execution
+ * output plus the Schnorr signature over
+ * `(requestId, hash(serializedOutput, outputLen))`. Stored records were
  * verified IN-CIRCUIT by the signet contract at post time, so readers can
  * trust them without re-verifying.
  */
-export interface SignetRemoteExecutionResponse {
-  /** Full ABI-encoded return data, zero-padded to 4096 bytes. */
-  outputData: Uint8Array;
+export interface SignetRespondBidirectional {
+  /** ABI-encoded return data (canonical serialized_output), zero-padded to 128 bytes. */
+  serializedOutput: Uint8Array;
+  /** Meaningful byte count of {@link serializedOutput}. */
+  outputLen: bigint;
   /** The MPC attestation key (hash-checked against the sealed key at post). */
   pk: JubjubPoint;
   /** Schnorr nonce commitment R. */
@@ -128,15 +186,16 @@ export const signetResponseKeyType: CompactType<SignetResponseKey> = {
 };
 
 /**
- * Hand-composed descriptor for {@link SignetRemoteExecutionResponse}. Field
- * order (outputData, pk, announcement, response) must match the Compact
- * struct.
+ * Hand-composed descriptor for {@link SignetRespondBidirectional}. Field
+ * order (serializedOutput, outputLen, pk, announcement, response) must match
+ * the Compact struct.
  */
-export const signetRemoteExecutionResponseType: CompactType<SignetRemoteExecutionResponse> = {
+export const signetRespondBidirectionalType: CompactType<SignetRespondBidirectional> = {
   /** @returns Compound alignment of the struct's fields in declaration order. */
   alignment() {
-    return bytes4096
+    return bytes128
       .alignment()
+      .concat(u8.alignment())
       .concat(CompactTypeJubjubPoint.alignment())
       .concat(CompactTypeJubjubPoint.alignment())
       .concat(CompactTypeField.alignment());
@@ -150,7 +209,8 @@ export const signetRemoteExecutionResponseType: CompactType<SignetRemoteExecutio
    */
   fromValue(value) {
     return {
-      outputData: bytes4096.fromValue(value),
+      serializedOutput: bytes128.fromValue(value),
+      outputLen: u8.fromValue(value),
       pk: CompactTypeJubjubPoint.fromValue(value),
       announcement: CompactTypeJubjubPoint.fromValue(value),
       response: CompactTypeField.fromValue(value),
@@ -163,8 +223,9 @@ export const signetRemoteExecutionResponseType: CompactType<SignetRemoteExecutio
    * @returns The aligned value, fields concatenated in declaration order.
    */
   toValue(record) {
-    return bytes4096
-      .toValue(record.outputData)
+    return bytes128
+      .toValue(record.serializedOutput)
+      .concat(u8.toValue(record.outputLen))
       .concat(CompactTypeJubjubPoint.toValue(record.pk))
       .concat(CompactTypeJubjubPoint.toValue(record.announcement))
       .concat(CompactTypeField.toValue(record.response));
@@ -186,12 +247,12 @@ export type SignatureResponseCounterIndex = Map<SignetRequestIdHex, bigint>;
 export type SignatureResponseIndex = Map<string, SignetEVMSignatureResponse>;
 
 /**
- * Plain-JS remote execution response index parsed out of the ledger: hex
+ * Plain-JS respond-bidirectional index parsed out of the ledger: hex
  * request id to the contract-verified attestation. One slot per request.
  */
-export type RemoteExecutionResponseIndex = Map<
+export type RespondBidirectionalIndex = Map<
   SignetRequestIdHex,
-  SignetRemoteExecutionResponse
+  SignetRespondBidirectional
 >;
 
 /**
@@ -212,7 +273,7 @@ export function signetResponseIndexKey(
 
 /**
  * The decoded ledger fields of the signet contract: the signature response
- * counter (field 0) and log (field 1), the remote execution response index
+ * counter (field 0) and log (field 1), the respond-bidirectional index
  * (field 2), and the sealed MPC attestation key hash (field 3). Together
  * they give a client everything the MPC ever delivers for a request.
  */
@@ -229,10 +290,10 @@ export interface SignetContractLedger {
    */
   signatureResponseIndex: SignatureResponseIndex;
   /**
-   * The remote execution response index (ledger field
-   * {@link REMOTE_EXECUTION_RESPONSE_INDEX_FIELD}), keyed by hex request id.
+   * The respond-bidirectional index (ledger field
+   * {@link RESPOND_BIDIRECTIONAL_INDEX_FIELD}), keyed by hex request id.
    */
-  remoteExecutionResponseIndex: RemoteExecutionResponseIndex;
+  respondBidirectionalIndex: RespondBidirectionalIndex;
   /**
    * The sealed MPC attestation key hash (ledger field
    * {@link MPC_PUB_KEY_HASH_FIELD}) posts are verified against.
@@ -291,27 +352,27 @@ export function readSignetContractLedgerFromState(
     if (cell === undefined) continue;
     signatureResponseIndex.set(
       signetResponseIndexKey(requestIdHex(responseKey.requestId), responseKey.count),
-      bytes65.fromValue([...cell.value]),
+      signetEVMSignatureResponseType.fromValue([...cell.value]),
     );
   }
 
-  const executionMap = signetFieldNode(
+  const respondBidirectionalMap = signetFieldNode(
     raw,
-    REMOTE_EXECUTION_RESPONSE_INDEX_FIELD,
+    RESPOND_BIDIRECTIONAL_INDEX_FIELD,
   ).asMap();
-  if (executionMap === undefined) {
+  if (respondBidirectionalMap === undefined) {
     throw new Error(
-      `Ledger field ${REMOTE_EXECUTION_RESPONSE_INDEX_FIELD} is not a Map`,
+      `Ledger field ${RESPOND_BIDIRECTIONAL_INDEX_FIELD} is not a Map`,
     );
   }
-  const remoteExecutionResponseIndex: RemoteExecutionResponseIndex = new Map();
-  for (const key of executionMap.keys()) {
+  const respondBidirectionalIndex: RespondBidirectionalIndex = new Map();
+  for (const key of respondBidirectionalMap.keys()) {
     const requestId = requestIdType.fromValue([...key.value]);
-    const cell = executionMap.get(key)?.asCell();
+    const cell = respondBidirectionalMap.get(key)?.asCell();
     if (cell === undefined) continue;
-    remoteExecutionResponseIndex.set(
+    respondBidirectionalIndex.set(
       requestIdHex(requestId),
-      signetRemoteExecutionResponseType.fromValue([...cell.value]),
+      signetRespondBidirectionalType.fromValue([...cell.value]),
     );
   }
 
@@ -324,7 +385,7 @@ export function readSignetContractLedgerFromState(
   return {
     signatureResponseCounterIndex,
     signatureResponseIndex,
-    remoteExecutionResponseIndex,
+    respondBidirectionalIndex,
     mpcPubKeyHash,
   };
 }

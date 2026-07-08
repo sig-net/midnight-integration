@@ -15,7 +15,9 @@ import "@midnight-erc20-vault/signet-midnight/src/Schnorr" prefix Schnorr_;
 // The request index MUST be ledger field 0 and the nonce counter field 1: the
 // MPC locates them by position, knowing only this contract's address (signet
 // layout convention). DO NOT DECLARE ANY OTHER LEDGER STATE ABOVE THESE!
-export ledger signetRequestsIndex: SignetEVMSignatureRequestIndex;
+// Instantiated at 2 calldata arg slots — exactly what transfer(address,uint256)
+// needs (the generic parameter is this contract's slot capacity everywhere).
+export ledger signetRequestsIndex: SignetEVMSignatureRequestIndex<2>;
 
 // Contract-local request counter: gives each signet signature request its
 // requestNonce, and lets the MPC cheaply detect new requests.
@@ -36,8 +38,8 @@ export ledger vaultEvmAddress: Bytes<20>;
 // Sealed: immutable after the constructor.
 sealed ledger deployer: Bytes<32>;
 
-// The MPC attestation key, pinned at deploy time: postRemoteExecutionResponse
-// accepts only responses signed by this key.
+// The MPC attestation key, pinned at deploy time: claimDeposit accepts only
+// respond-bidirectional attestations signed by this key.
 export sealed ledger mpcPubKeyHash: Bytes<32>;
 
 // ---- Contract-specific types ------------------------------------------------------
@@ -115,20 +117,18 @@ export circuit requestDeposit(
   // Built here, never taken from the caller — recipient comes from sealed-in
   // config, which is what stops a malicious client from having the MPC sign
   // a transfer to themselves (or any arbitrary call).
-  const calldata = EVMCalldata {
-    funcSig: pad(256, "transfer(address,uint256)"),
-    argCount: 2 as Uint<32>,
+  const calldata = EVMCalldata<2> {
+    funcSig: pad(64, "transfer(address,uint256)"),
+    argCount: 2 as Uint<8>,
     args: [
       vaultEvmAddress as Field as Bytes<32>,
-      depositRequest.amount as Field as Bytes<32>,
-      pad(32, ""),
-      pad(32, "")
+      depositRequest.amount as Field as Bytes<32>
     ]
   };
 
   // -- construct, key, and record the request --
   const requestNonce = signetNonce as Uint<64>;
-  const request = constructSignetEVMSignatureRequest(
+  const request = constructSignetEVMSignatureRequest<2>(
     caller,
     requestNonce,
     signetParams,
@@ -136,7 +136,7 @@ export circuit requestDeposit(
   );
   // Circuit arguments are private inputs; the request record is public ledger
   // state by design, so disclose it (and its id) explicitly at the write site.
-  const requestId = disclose(signetEVMSignatureRequestId(request));
+  const requestId = disclose(signetEVMSignatureRequestId<2>(request));
 
   assert(!signetRequestsIndex.member(requestId), "Request already exists");
   signetNonce.increment(1);
@@ -149,7 +149,7 @@ export circuit requestDeposit(
 // tokens for the deposited amount. One claim per request, depositor only.
 export circuit claimDeposit(
   requestId: SignetRequestId,
-  remoteExecutionResponse: SignetRemoteExecutionResponse,
+  respondBidirectional: SignetRespondBidirectional,
 ): [] {
   // requestId keys the ledger operations and the mint nonce below, so it is
   // public; the response is only verified, never written, and stays private.
@@ -157,23 +157,27 @@ export circuit claimDeposit(
 
   // -- attestation key: pk must be the MPC's registered key --
   assert(
-    persistentHash<JubjubPoint>(remoteExecutionResponse.pk) == mpcPubKeyHash,
+    persistentHash<JubjubPoint>(respondBidirectional.pk) == mpcPubKeyHash,
     "Unauthorized: attestation pk is not the MPC key"
   );
 
-  // -- EVM result: the first 32-byte word of outputData is the ABI-encoded
-  // bool returned by ERC20 transfer() --
-  const returnValue = slice<32>(remoteExecutionResponse.outputData, 0);
+  // -- EVM result: the first 32-byte word of serializedOutput is the
+  // ABI-encoded bool returned by ERC20 transfer() --
+  const returnValue = slice<32>(respondBidirectional.serializedOutput, 0);
   assert(returnValue as Field == 1, "ERC20 transfer returned false");
 
   // -- attestation signature: the MPC signed THIS request and THIS output --
   Schnorr_schnorrVerify<4>(
-    signetAttestationMessage(disclosedRequestId, remoteExecutionResponse.outputData),
+    signetAttestationMessage(
+      disclosedRequestId,
+      respondBidirectional.serializedOutput,
+      respondBidirectional.outputLen
+    ),
     Schnorr_SchnorrSignature {
-      announcement: remoteExecutionResponse.announcement,
-      response: remoteExecutionResponse.response,
+      announcement: respondBidirectional.announcement,
+      response: respondBidirectional.response,
     },
-    remoteExecutionResponse.pk
+    respondBidirectional.pk
   );
 
   // -- double-claim protection: the request must exist and is consumed here --

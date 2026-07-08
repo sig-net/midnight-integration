@@ -5,7 +5,7 @@
 // store id. The generic wallet + adapter come from @midnight-erc20-vault/lib;
 // clients compose the two and call `findDeployedContract(providers, ...)` to
 // obtain a handle whose `callTx.postSignatureResponse(...)` /
-// `callTx.postRemoteExecutionResponse(...)` posts a response.
+// `callTx.postRespondBidirectional(...)` posts a response.
 //
 // Modeled on vault-contract/src/providers.ts.
 

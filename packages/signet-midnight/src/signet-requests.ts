@@ -14,7 +14,7 @@
 // Read more: https://docs.sig.network/ (signet protocol) and the module
 // header in Signet.compact (layout convention, path binding).
 
-import { getAddress, Interface, Signature, Transaction } from "ethers";
+import { getAddress, getBytes, Interface, Signature, Transaction } from "ethers";
 
 import { bytesToBigint } from "./schnorr.ts";
 import type { SignetEVMSignatureResponse } from "./signet-contract-state-reader.ts";
@@ -56,11 +56,15 @@ export interface EVMTransactionParams {
  * (https://docs.soliditylang.org/en/latest/abi-spec.html).
  */
 export interface EVMCalldata {
-  /** Zero-padded ASCII signature, e.g. "transfer(address,uint256)"; 256 bytes. */
+  /** Zero-padded ASCII signature, e.g. "transfer(address,uint256)"; 64 bytes. */
   funcSig: Uint8Array;
   /** How many leading slots of {@link args} are used. */
   argCount: bigint;
-  /** Four 32-byte ABI words; unused slots are zero. */
+  /**
+   * 32-byte ABI words; slots beyond {@link argCount} are zero. The slot
+   * count is each contract's `EVMCalldata<#n>` instantiation (the vault
+   * uses 2).
+   */
   args: Uint8Array[];
 }
 
@@ -69,22 +73,22 @@ export interface EVMCalldata {
  * back. See https://docs.sig.network/ for the key-derivation scheme.
  */
 export interface SignetMPCRoutingParams {
-  /** Target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded; 64 bytes. */
+  /** Target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded; 32 bytes. */
   caip2Id: Uint8Array;
-  /** MPC root-key version to derive from. */
+  /** MPC root-key version to derive from (>= 1; version 0 is the unsupported legacy format). */
   keyVersion: bigint;
   /** Key-derivation path: canonical lowercase hex of the caller's identity commitment, zero-padded; 256 bytes. */
   path: Uint8Array;
   /** Signature scheme, zero-padded ASCII, e.g. "ecdsa"; 32 bytes. */
   algo: Uint8Array;
-  /** Response destination, zero-padded ASCII, e.g. "ethereum"; 64 bytes. */
+  /** Response destination, zero-padded ASCII, e.g. "ethereum"; 32 bytes. */
   dest: Uint8Array;
-  /** Scheme-specific extras, opaque; 512 bytes. */
+  /** Scheme-specific extras, opaque; 64 bytes. */
   params: Uint8Array;
-  /** MPC output_deserialization_schema; 256 bytes. */
-  outputSchema: Uint8Array;
-  /** MPC respond_serialization_schema; 256 bytes. */
-  respondSchema: Uint8Array;
+  /** MPC output_deserialization_schema (destination chain -> MPC); 128 bytes. */
+  outputDeserializationSchema: Uint8Array;
+  /** MPC respond_serialization_schema (MPC -> source chain); 128 bytes. */
+  respondSerializationSchema: Uint8Array;
 }
 
 /**
@@ -199,48 +203,110 @@ export function signetEVMSignatureRequestToUnsignedEVMTransaction(
 }
 
 /**
- * Decode a 65-byte `r || s || v` response signature (as posted to the signet
- * contract's signature response log) into an ethers {@link Signature}. `v`
- * may be a recovery id (0/1) or the legacy parity (27/28); both normalize to
- * the same signature.
+ * Decode a response signature record (as posted to the signet contract's
+ * signature response log — the canonical MPC `Signature { big_r, s,
+ * recovery_id }` shape) into an ethers {@link Signature}: `r` is `bigR`'s x
+ * coordinate, `v` the legacy parity derived from the recovery id.
  *
- * @param response - The 65-byte `r || s || v` response signature.
+ * @param response - The posted signature record.
  * @returns The ethers signature.
- * @throws Error if the response is not exactly 65 bytes.
+ * @throws Error if the recovery id is not 0 or 1.
  */
 export function signetEVMSignatureResponseToSignature(
   response: SignetEVMSignatureResponse,
 ): Signature {
-  if (response.length !== 65) {
-    throw new Error(
-      `expected a 65-byte r||s||v signature, got ${response.length} bytes`,
-    );
+  const recoveryId = Number(response.recoveryId);
+  if (recoveryId !== 0 && recoveryId !== 1) {
+    throw new Error(`expected a recovery id of 0 or 1, got ${recoveryId}`);
   }
-  const v = response[64];
   return Signature.from({
-    r: `0x${bytesToHex(response.subarray(0, 32))}`,
-    s: `0x${bytesToHex(response.subarray(32, 64))}`,
-    v: v < 27 ? v + 27 : v,
+    r: `0x${bytesToHex(response.bigRx)}`,
+    s: `0x${bytesToHex(response.s)}`,
+    v: recoveryId + 27,
   });
+}
+
+/** secp256k1 base field prime (2^256 - 2^32 - 977). */
+const SECP256K1_P = 2n ** 256n - 2n ** 32n - 977n;
+
+/** Modular exponentiation by squaring. */
+function modPow(base: bigint, exponent: bigint, modulus: bigint): bigint {
+  let result = 1n;
+  let b = base % modulus;
+  let e = exponent;
+  while (e > 0n) {
+    if (e & 1n) result = (result * b) % modulus;
+    b = (b * b) % modulus;
+    e >>= 1n;
+  }
+  return result;
+}
+
+/** Encode a bigint as exactly 32 BIG-endian bytes (secp256k1 scalar form). */
+function bigintToBytes32BE(value: bigint): Uint8Array {
+  const out = new Uint8Array(32);
+  let v = value;
+  for (let i = 31; i >= 0; i--) {
+    out[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return out;
+}
+
+/**
+ * Encode an ECDSA signature as the response record posted to the signet
+ * contract — the inverse of {@link signetEVMSignatureResponseToSignature},
+ * for MPC-side posters (the fakenet signer, tests). The canonical record
+ * carries `bigR` as a full affine point but an `r || s || v` signature only
+ * has R.x and the parity of R.y, so R.y is recovered by decompressing the
+ * point on the curve (y² = x³ + 7 over the secp256k1 base field).
+ *
+ * The parameter is structural (the r/s/yParity subset of an ethers
+ * {@link Signature}) so signatures from ANY ethers instance qualify — posters
+ * living in other repos resolve their own ethers install, and nominal class
+ * typing would reject it.
+ *
+ * @param signature - The signature to encode (`r`/`s` as 0x hex, `yParity` 0 or 1).
+ * @returns The response record, ready to post.
+ * @throws Error if `r` is not the x coordinate of a curve point.
+ */
+export function signatureToSignetEVMSignatureResponse(
+  signature: Pick<Signature, "r" | "s" | "yParity">,
+): SignetEVMSignatureResponse {
+  const x = BigInt(signature.r);
+  const ySquared = (modPow(x, 3n, SECP256K1_P) + 7n) % SECP256K1_P;
+  // P ≡ 3 (mod 4), so a square root (when one exists) is c^((P+1)/4).
+  let y = modPow(ySquared, (SECP256K1_P + 1n) / 4n, SECP256K1_P);
+  if ((y * y) % SECP256K1_P !== ySquared) {
+    throw new Error("signature r is not the x coordinate of a secp256k1 point");
+  }
+  if ((y & 1n) !== BigInt(signature.yParity)) {
+    y = SECP256K1_P - y;
+  }
+  return {
+    bigRx: getBytes(signature.r),
+    bigRy: bigintToBytes32BE(y),
+    s: getBytes(signature.s),
+    recoveryId: BigInt(signature.yParity),
+  };
 }
 
 /**
  * Assemble the broadcast-ready signed EIP-1559 transaction for a request from
  * its MPC signature response: rebuild the exact unsigned transaction the MPC
  * signed (see {@link signetEVMSignatureRequestToUnsignedEVMTransaction}) and
- * attach the `r || s || v` signature. Does NOT check that the signature
- * recovers to the requester's derived address — the response log is
- * unauthenticated, so verify first with
- * `verifySignetEVMSignatureResponse`.
+ * attach the signature. Does NOT check that the signature recovers to the
+ * requester's derived address — the response log is unauthenticated, so
+ * verify first with `verifySignetEVMSignatureResponse`.
  *
  * @param signetEVMSignatureRequest - The on-ledger request record.
- * @param response - The 65-byte `r || s || v` response signature answering it.
+ * @param response - The posted signature record answering it.
  * @returns The signed ethers transaction; `serialized` is the raw payload for
  *   `eth_sendRawTransaction`, `hash` its on-chain hash, `from` the recovered
  *   sender.
  * @throws Error if the request record is malformed (see
  *   {@link signetEVMSignatureRequestToUnsignedEVMTransaction}) or the response
- *   is not a decodable 65-byte signature.
+ *   is not a decodable signature.
  */
 export function signetEVMSignatureRequestToSignedEVMTransaction(
   signetEVMSignatureRequest: SignetEVMSignatureRequest,

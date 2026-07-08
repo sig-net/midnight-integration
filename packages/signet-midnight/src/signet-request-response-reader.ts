@@ -17,7 +17,7 @@ import {
   readSignetContractLedgerFromState,
   signetResponseIndexKey,
   type SignetEVMSignatureResponse,
-  type SignetRemoteExecutionResponse,
+  type SignetRespondBidirectional,
 } from "./signet-contract-state-reader.ts";
 import { recoverSignetEVMSignatureResponseSigner } from "./signature-response-verification.ts";
 import type { RawContractState } from "./signature-state-reading.ts";
@@ -61,7 +61,7 @@ export interface SignetRequestResponseReaderConfig {
 export interface SignatureResponseVerdict {
   /** 0-based position of the post in the request's response log. */
   count: bigint;
-  /** The posted 65-byte payload, verbatim. */
+  /** The posted signature record, verbatim. */
   response: SignetEVMSignatureResponse;
   /** Recovered signer address — absent when the signature did not decode. */
   signer?: string;
@@ -197,7 +197,7 @@ export class SignetRequestResponseReader {
 
   /**
    * Fetch and verify the responses posted for `requestId`: each post's
-   * 65-byte `r || s || v` signature must recover to `expectedSigner`
+   * `{ bigR, s, recoveryId }` signature must recover to `expectedSigner`
    * (compared case-insensitively) over the signing hash of the transaction
    * the request record describes. The first valid post wins; every post gets
    * a verdict so callers can report the noise.
@@ -299,24 +299,25 @@ export class SignetRequestResponseReader {
   }
 
   /**
-   * Fetch the MPC's remote execution response (attestation) for `requestId`,
+   * Fetch the MPC's respond-bidirectional attestation for `requestId`,
    * if posted. The signet contract verified it IN-CIRCUIT at post time
-   * (Schnorr over `(requestId, hash(outputData))` against the sealed MPC
-   * key), so it is single-slot and needs no off-chain verification or
-   * verdicts — `undefined` simply means not posted yet, poll again.
+   * (Schnorr over `(requestId, hash(serializedOutput, outputLen))` against
+   * the sealed MPC key), so it is single-slot and needs no off-chain
+   * verification or verdicts — `undefined` simply means not posted yet, poll
+   * again.
    *
    * @param requestId - The request id whose attestation to fetch.
    * @returns The attestation record, or `undefined` when none is posted.
    * @throws Error when the signet contract has no state on-chain.
    */
-  async getRemoteExecutionResponse(
+  async getRespondBidirectional(
     requestId: SignetRequestIdHex,
-  ): Promise<SignetRemoteExecutionResponse | undefined> {
+  ): Promise<SignetRespondBidirectional | undefined> {
     const raw = await this.queryRawState(
       this.config.signetContractAddress,
       "signet contract",
     );
-    return readSignetContractLedgerFromState(raw).remoteExecutionResponseIndex.get(
+    return readSignetContractLedgerFromState(raw).respondBidirectionalIndex.get(
       requestId,
     );
   }

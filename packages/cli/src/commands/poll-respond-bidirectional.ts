@@ -1,22 +1,22 @@
-// `poll-remote-execution-response` — stage 2 of the MPC round trip: poll the
+// `poll-respond-bidirectional` — stage 2 of the MPC round trip: poll the
 // central signet contract for the MPC's Schnorr-signed attestation of a
 // request's remote EVM execution. There is deliberately no push/websocket
 // alternative.
 
 import {
   bytesToHex,
-  isRemoteExecutionError,
-  remoteExecutionSucceeded,
+  isExecutionError,
+  executionSucceeded,
   SignetRequestResponseReader,
-  type SignetRemoteExecutionResponse,
+  type SignetRespondBidirectional,
   type SignetRequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
 
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
 
-/** Options for {@link pollRemoteExecutionResponse}. */
-export interface PollRemoteExecutionResponseOptions {
+/** Options for {@link pollRespondBidirectional}. */
+export interface PollRespondBidirectionalOptions {
   /** The request id to poll for. */
   readonly requestId: SignetRequestIdHex;
   /** Poll interval in milliseconds. */
@@ -31,15 +31,14 @@ const sleep = (ms: number): Promise<void> =>
 
 /**
  * Poll the signet contract at `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` until the MPC's
- * remote execution response (attestation) for `requestId` appears, and
- * return it.
+ * respond-bidirectional attestation for `requestId` appears, and return it.
  *
  * No off-chain verification happens here — none is needed: the signet
  * contract verified the attestation IN-CIRCUIT at post time (Schnorr over
- * `(requestId, hash(outputData))` against its sealed MPC key), so a stored
- * record is authentic by construction. This command decodes and logs the
- * outcome (success flag / MPC error sentinel); acting on it (claiming,
- * refunding) is the caller's job.
+ * `(requestId, hash(serializedOutput, outputLen))` against its sealed MPC
+ * key), so a stored record is authentic by construction. This command decodes
+ * and logs the outcome (success flag / MPC error sentinel); acting on it
+ * (claiming, refunding) is the caller's job.
  *
  * @param context - The CLI context.
  * @param options - What to poll for and how patiently.
@@ -47,10 +46,10 @@ const sleep = (ms: number): Promise<void> =>
  * @throws Error when the contract has no state on-chain or `timeoutMs`
  *   elapses with no attestation posted.
  */
-export async function pollRemoteExecutionResponse(
+export async function pollRespondBidirectional(
   context: CliContext,
-  options: PollRemoteExecutionResponseOptions,
-): Promise<SignetRemoteExecutionResponse> {
+  options: PollRespondBidirectionalOptions,
+): Promise<SignetRespondBidirectional> {
   const signetContractAddress = requireConfigValue(
     context.config.signetContractAddress,
     "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
@@ -71,19 +70,19 @@ export async function pollRemoteExecutionResponse(
 
   const deadline = Date.now() + options.timeoutMs;
   for (;;) {
-    const executionResponse = await reader.getRemoteExecutionResponse(options.requestId);
-    if (executionResponse !== undefined) {
-      if (isRemoteExecutionError(executionResponse.outputData)) {
+    const respondBidirectional = await reader.getRespondBidirectional(options.requestId);
+    if (respondBidirectional !== undefined) {
+      if (isExecutionError(respondBidirectional.serializedOutput)) {
         console.log("remote execution FAILED (MPC error sentinel)");
       } else {
-        console.log(`remote execution ${remoteExecutionSucceeded(executionResponse.outputData) ? "succeeded" : "returned false"}`);
+        console.log(`remote execution ${executionSucceeded(respondBidirectional.serializedOutput) ? "succeeded" : "returned false"}`);
       }
-      return executionResponse;
+      return respondBidirectional;
     }
 
     if (Date.now() >= deadline) {
       throw new Error(
-        `timed out after ${options.timeoutMs}ms waiting for a remote execution response to request ${options.requestId}`,
+        `timed out after ${options.timeoutMs}ms waiting for a respond-bidirectional attestation to request ${options.requestId}`,
       );
     }
     await sleep(options.intervalMs);
@@ -91,14 +90,15 @@ export async function pollRemoteExecutionResponse(
 }
 
 /**
- * Render an attestation for CLI output: the output data as lowercase hex, no
- * `0x` prefix (the Schnorr components are on-ledger plumbing, not payload).
+ * Render an attestation for CLI output: the serialized output as lowercase
+ * hex, no `0x` prefix (the Schnorr components are on-ledger plumbing, not
+ * payload).
  *
- * @param executionResponse - The attestation record to render.
- * @returns The output data hex.
+ * @param respondBidirectional - The attestation record to render.
+ * @returns The serialized output hex.
  */
-export function formatRemoteExecutionResponse(
-  executionResponse: SignetRemoteExecutionResponse,
+export function formatRespondBidirectional(
+  respondBidirectional: SignetRespondBidirectional,
 ): string {
-  return bytesToHex(executionResponse.outputData);
+  return bytesToHex(respondBidirectional.serializedOutput);
 }

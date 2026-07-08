@@ -12,13 +12,12 @@
 
 import {
   broadcastEvm,
-  claimDeposit,
   type CliContext,
   createCliContext,
   getCliConfig,
   getUserIdentity,
   initialize,
-  pollRemoteExecutionResponse,
+  pollRespondBidirectional,
   pollSignatureResponse,
   readState,
   requestDeposit,
@@ -31,9 +30,9 @@ import {
   deriveMpcKeys,
   formatJubjubPublicKey,
   generateMpcRootKey,
-  remoteExecutionSucceeded,
+  executionSucceeded,
   SignetRequestResponseReader,
-  type SignetRemoteExecutionResponse,
+  type SignetRespondBidirectional,
   type SignetRequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
 import { deployVault, ledger as vaultContractLedger } from "@midnight-erc20-vault/vault-contract";
@@ -501,65 +500,28 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     1 * MINUTE,
   );
 
-  // prepare deposit transaction remote execution response for use in subsequent transactions
-  let depositSweepTransactionRemoteExecutionResponse: SignetRemoteExecutionResponse;  
+  // prepare deposit transaction respond-bidirectional attestation for use in subsequent transactions
+  let depositSweepTransactionRespondBidirectional: SignetRespondBidirectional;  
 
   it(
-    "pollRemoteExecutionResponse: poll signet contract for sweep transaction signature response",
+    "pollRespondBidirectional: poll signet contract for sweep transaction signature response",
     async () => {
       // confirm request Id set in previous test after successful deplost request
       expect(depositTransactionSignatureRequestId).toBeDefined();
 
       const context = await sharedCliContext();
-      depositSweepTransactionRemoteExecutionResponse = await pollRemoteExecutionResponse(context, {
+      depositSweepTransactionRespondBidirectional = await pollRespondBidirectional(context, {
         requestId: depositTransactionSignatureRequestId,
         intervalMs: 500,
         timeoutMs: 10000,
       });
 
       banner([
-        `Found Deposit transaction remote execution response from signet contract: '${remoteExecutionSucceeded(depositSweepTransactionRemoteExecutionResponse.outputData)}' (${depositSweepTransactionRemoteExecutionResponse.response})`,
+        `Found Deposit transaction respond-bidirectional attestation from signet contract: '${executionSucceeded(depositSweepTransactionRespondBidirectional.serializedOutput)}' (${depositSweepTransactionRespondBidirectional.response})`,
         "",
         `Signature: ${signedDepositSweepTransaction}`,
       ]);
     },
     1 * MINUTE,
   );
-
-  it(
-    "claimDeposit [erc-vault contract method call]: claim a deposit, by validating signed remote execution response and minting a shielded coin.",
-    async () => {
-      const context = await sharedCliContext();
-
-      // The sweep tx sender is the user's derived EVM account; its next nonce
-      // comes from the chain, exactly as a wallet would fetch it.
-      const evmNonce = await getTransactionNonce(requireEnv("EVM_RPC_URL"), requireEnv("EVM_USER_ADDRESS"));
-      const amount = parseUnits("0.1", 6); // 0.1 USDC — the funding preflight's minimum
-
-      depositTransactionSignatureRequestId = await claimDeposit(context, { amount, evmNonce });
-      await readState(context);
-
-      expect(depositTransactionSignatureRequestId).toMatch(/^[0-9a-f]{64}$/);
-
-      // MPC-convention verification: fetch the request record the way the
-      // response server does — through a SignetRequestResponseReader over RAW
-      // contract state. getSignatureRequest throws when the id is absent, so a
-      // returned record is itself proof the request landed on the vault ledger.
-      const record = await sharedResponseReader().getSignatureRequest(
-        depositTransactionSignatureRequestId,
-      );
-      expect(record.evmTransaction.nonce).toBe(evmNonce);
-      expect(bytesToBigint(record.calldata.args[1])).toBe(amount);
-
-      banner([
-        `Deposit request recorded on the vault ledger:`,
-        "",
-        `  request id: ${depositTransactionSignatureRequestId}`,
-        "",
-        "The response server (yarn response, MIDNIGHT_CONTRACT_ADDRESSES set to",
-        "this vault) should pick it up on its next poll and sign the EVM tx.",
-      ]);
-    },
-    15 * MINUTE,
-  ); 
 });

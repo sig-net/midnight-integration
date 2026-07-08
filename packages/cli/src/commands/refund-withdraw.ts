@@ -19,7 +19,7 @@ export interface RefundWithdrawOptions {
 /**
  * Call the vault's `refundWithdraw` circuit for a completed withdraw request.
  *
- * Wired behavior: fetch the MPC's Schnorr-signed `(requestId, outputData)`
+ * Wired behavior: fetch the MPC's Schnorr-signed `(requestId, serializedOutput)`
  * attestation from the signet contract, then call the circuit,
  * which verifies the MPC public key hash and signature and branches on the
  * EVM result: success finalizes the withdrawal; failure re-mints the

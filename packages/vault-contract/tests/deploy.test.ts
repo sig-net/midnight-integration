@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { buildDeployTransaction, makeCompiledContract } from "@midnight-erc20-vault/lib";
+import { deriveJubjubKeypair } from "@midnight-erc20-vault/signet-midnight";
 
 import {
   Contract,
@@ -25,6 +26,9 @@ const HAS_VERIFIER_KEYS = existsSync(join(MANAGED_DIR, "keys"));
 
 // The deployer's identity secret; its commitment is the constructor arg.
 const SECRET_KEY = new Uint8Array(32).fill(7);
+
+// The MPC attestation key the constructor seals.
+const MPC_KEYS = deriveJubjubKeypair(new Uint8Array(32).fill(0x42));
 
 // Dummy coin public key (32-byte hex) for the constructor context.
 const CPK = "0".repeat(64);
@@ -46,6 +50,7 @@ describe.skipIf(!HAS_VERIFIER_KEYS)(
         CPK,
         createVaultPrivateState(SECRET_KEY),
         pureCircuits.userCommitment(SECRET_KEY),
+        MPC_KEYS.pk,
       );
 
       expect(deployTransaction.contractAddress).not.toHaveLength(0);
@@ -64,6 +69,7 @@ describe.skipIf(!HAS_VERIFIER_KEYS)(
           CPK,
           createVaultPrivateState(SECRET_KEY),
           new Uint8Array(31), // not Bytes<32> — the generated arg validation must trip
+          MPC_KEYS.pk,
         ),
       ).rejects.toThrow(/Failed to initialize contract/);
     });

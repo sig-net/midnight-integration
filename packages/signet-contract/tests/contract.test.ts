@@ -2,7 +2,7 @@
 // @midnight-ntwrk/compact-runtime — no ledger, no network, no proving. The
 // stage-2 suite signs REAL attestations (schnorrSign + the compiled
 // schnorrChallenge/signetAttestationMessage circuits), so
-// postRemoteExecutionResponse's in-circuit Schnorr verification is exercised
+// postRespondBidirectional's in-circuit Schnorr verification is exercised
 // end to end.
 
 import { describe, expect, it } from "vitest";
@@ -19,7 +19,8 @@ import {
   schnorrSign,
   pureCircuits as signetCircuits,
   type JubjubKeypair,
-  type SignetRemoteExecutionResponse,
+  type SignetEVMSignatureResponse,
+  type SignetRespondBidirectional,
 } from "@midnight-erc20-vault/signet-midnight";
 
 import {
@@ -38,36 +39,54 @@ const CPK = "0".repeat(64);
 const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
-// Request ids the posts below answer, and 65-byte r||s||v signatures.
+// Request ids the posts below answer, and signature response records.
 const REQUEST_A = bytes(32, 0xaa);
 const REQUEST_B = bytes(32, 0xbb);
-const SIG_1 = bytes(65, 0x01);
-const SIG_2 = bytes(65, 0x02);
+const SIG_1: SignetEVMSignatureResponse = {
+  bigRx: bytes(32, 0x01),
+  bigRy: bytes(32, 0x02),
+  s: bytes(32, 0x03),
+  recoveryId: 0n,
+};
+const SIG_2: SignetEVMSignatureResponse = {
+  bigRx: bytes(32, 0x04),
+  bigRy: bytes(32, 0x05),
+  s: bytes(32, 0x06),
+  recoveryId: 1n,
+};
 
 // The "MPC" of these tests (its key is pinned at deploy), and an imposter.
 const MPC_KEYS = deriveJubjubKeypair(bytes(32, 0x42));
 const IMPOSTER_KEYS = deriveJubjubKeypair(bytes(32, 0x43));
 
 // A successful remote execution: first byte 1 (the LE encoding the circuits
-// decode as `as Field == 1`), rest zero.
-const OUTPUT_SUCCESS = new Uint8Array(4096);
+// decode as `as Field == 1`), rest zero; 32 meaningful bytes (one ABI word).
+const OUTPUT_SUCCESS = new Uint8Array(128);
 OUTPUT_SUCCESS[0] = 1;
+const OUTPUT_SUCCESS_LEN = 32n;
 
 /**
- * Sign a REAL attestation of (requestId, outputData) with `keys` — message
- * and challenge both come from the compiled circuits, exactly like the MPC.
+ * Sign a REAL attestation of (requestId, serializedOutput, outputLen) with
+ * `keys` — message and challenge both come from the compiled circuits,
+ * exactly like the MPC.
  */
 const attest = (
   keys: JubjubKeypair,
   requestId: Uint8Array,
-  outputData: Uint8Array,
-): SignetRemoteExecutionResponse => {
-  const msg = signetCircuits.signetAttestationMessage(requestId, outputData);
+  serializedOutput: Uint8Array,
+  outputLen: bigint = OUTPUT_SUCCESS_LEN,
+): SignetRespondBidirectional => {
+  const msg = signetCircuits.signetAttestationMessage(
+    requestId,
+    serializedOutput,
+    outputLen,
+  );
   const signature = schnorrSign(keys.sk, msg, (ax, ay, px, py, m) =>
     signetCircuits.schnorrChallenge(ax, ay, px, py, m),
   );
   return {
-    outputData,
+    serializedOutput,
+    outputLen,
     pk: keys.pk,
     announcement: signature.announcement,
     response: signature.response,
@@ -99,7 +118,7 @@ describe("constructor", () => {
     const state = ledger(ctx.currentQueryContext.state);
     expect(state.signatureResponseCounterIndex.isEmpty()).toBe(true);
     expect(state.signatureResponseIndex.isEmpty()).toBe(true);
-    expect(state.remoteExecutionResponseIndex.isEmpty()).toBe(true);
+    expect(state.respondBidirectionalIndex.isEmpty()).toBe(true);
     expect(state.mpcPubKeyHash).toEqual(hashJubjubPoint(MPC_KEYS.pk));
   });
 });
@@ -107,7 +126,7 @@ describe("constructor", () => {
 /** One posted (requestId, signature) pair, applied in row order. */
 interface Post {
   requestId: Uint8Array;
-  signature: Uint8Array;
+  signature: SignetEVMSignatureResponse;
 }
 
 /** One row of the post table: a post sequence → the exact expected ledger. */
@@ -122,7 +141,7 @@ interface PostCase {
   expectedEntries: {
     requestId: Uint8Array;
     count: bigint;
-    signature: Uint8Array;
+    signature: SignetEVMSignatureResponse;
   }[];
 }
 
@@ -214,23 +233,23 @@ describe("postSignatureResponse", () => {
   );
 });
 
-describe("postRemoteExecutionResponse", () => {
+describe("postRespondBidirectional", () => {
   it("stores a genuine attestation — the ledger record parses into the shared twin type", () => {
     const { contract, ctx } = deployContract();
     const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
 
-    const next = contract.circuits.postRemoteExecutionResponse(
+    const next = contract.circuits.postRespondBidirectional(
       ctx,
       REQUEST_A,
       attestation,
     ).context;
     const state = ledger(next.currentQueryContext.state);
 
-    expect(state.remoteExecutionResponseIndex.size()).toBe(1n);
+    expect(state.respondBidirectionalIndex.size()).toBe(1n);
     // The assignment is the real assertion: the generated ledger type must
     // stay structurally identical to the shared library's named twin.
-    const stored: SignetRemoteExecutionResponse =
-      state.remoteExecutionResponseIndex.lookup(REQUEST_A);
+    const stored: SignetRespondBidirectional =
+      state.respondBidirectionalIndex.lookup(REQUEST_A);
     expect(stored).toEqual(attestation);
   });
 
@@ -238,19 +257,30 @@ describe("postRemoteExecutionResponse", () => {
     const { contract, ctx } = deployContract();
     const attestation = attest(IMPOSTER_KEYS, REQUEST_A, OUTPUT_SUCCESS);
     expect(() =>
-      contract.circuits.postRemoteExecutionResponse(ctx, REQUEST_A, attestation),
+      contract.circuits.postRespondBidirectional(ctx, REQUEST_A, attestation),
     ).toThrow(/attestation pk is not the MPC key/);
   });
 
-  it("rejects a tampered attestation (output data differs from what was signed)", () => {
+  it("rejects a tampered attestation (output differs from what was signed)", () => {
     const { contract, ctx } = deployContract();
     const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
     const tamperedOutput = new Uint8Array(OUTPUT_SUCCESS);
     tamperedOutput[100] = 0xff;
     expect(() =>
-      contract.circuits.postRemoteExecutionResponse(ctx, REQUEST_A, {
+      contract.circuits.postRespondBidirectional(ctx, REQUEST_A, {
         ...attestation,
-        outputData: tamperedOutput,
+        serializedOutput: tamperedOutput,
+      }),
+    ).toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects a tampered attestation (output length differs from what was signed)", () => {
+    const { contract, ctx } = deployContract();
+    const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
+    expect(() =>
+      contract.circuits.postRespondBidirectional(ctx, REQUEST_A, {
+        ...attestation,
+        outputLen: attestation.outputLen + 1n,
       }),
     ).toThrow(/Invalid attestation signature/);
   });
@@ -259,7 +289,7 @@ describe("postRemoteExecutionResponse", () => {
     const { contract, ctx } = deployContract();
     const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
     expect(() =>
-      contract.circuits.postRemoteExecutionResponse(ctx, REQUEST_B, attestation),
+      contract.circuits.postRespondBidirectional(ctx, REQUEST_B, attestation),
     ).toThrow(/Invalid attestation signature/);
   });
 
@@ -271,20 +301,20 @@ describe("postRemoteExecutionResponse", () => {
     const second = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
     expect(second.announcement).not.toEqual(first.announcement);
 
-    let next = contract.circuits.postRemoteExecutionResponse(
+    let next = contract.circuits.postRespondBidirectional(
       ctx,
       REQUEST_A,
       first,
     ).context;
-    next = contract.circuits.postRemoteExecutionResponse(
+    next = contract.circuits.postRespondBidirectional(
       next,
       REQUEST_A,
       second,
     ).context;
 
     const state = ledger(next.currentQueryContext.state);
-    expect(state.remoteExecutionResponseIndex.size()).toBe(1n);
-    expect(state.remoteExecutionResponseIndex.lookup(REQUEST_A)).toEqual(first);
+    expect(state.respondBidirectionalIndex.size()).toBe(1n);
+    expect(state.respondBidirectionalIndex.lookup(REQUEST_A)).toEqual(first);
   });
 
   it("tracks attestations per request id", () => {
@@ -292,20 +322,20 @@ describe("postRemoteExecutionResponse", () => {
     const forA = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
     const forB = attest(MPC_KEYS, REQUEST_B, OUTPUT_SUCCESS);
 
-    let next = contract.circuits.postRemoteExecutionResponse(
+    let next = contract.circuits.postRespondBidirectional(
       ctx,
       REQUEST_A,
       forA,
     ).context;
-    next = contract.circuits.postRemoteExecutionResponse(
+    next = contract.circuits.postRespondBidirectional(
       next,
       REQUEST_B,
       forB,
     ).context;
 
     const state = ledger(next.currentQueryContext.state);
-    expect(state.remoteExecutionResponseIndex.size()).toBe(2n);
-    expect(state.remoteExecutionResponseIndex.lookup(REQUEST_A)).toEqual(forA);
-    expect(state.remoteExecutionResponseIndex.lookup(REQUEST_B)).toEqual(forB);
+    expect(state.respondBidirectionalIndex.size()).toBe(2n);
+    expect(state.respondBidirectionalIndex.lookup(REQUEST_A)).toEqual(forA);
+    expect(state.respondBidirectionalIndex.lookup(REQUEST_B)).toEqual(forB);
   });
 });

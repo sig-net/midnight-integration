@@ -12,23 +12,26 @@ import {
   StateValue,
 } from "@midnight-ntwrk/compact-runtime";
 
-import { computeAddress, getBytes, SigningKey } from "ethers";
+import { computeAddress, SigningKey } from "ethers";
 
 import {
   asciiPadded,
   bigintToBytes32,
+  signatureToSignetEVMSignatureResponse,
   signetEVMSignatureRequestToSignedEVMTransaction,
   signetEVMSignatureRequestToUnsignedEVMTransaction,
   deriveJubjubKeypair,
   requestIdHex,
   requestIdType,
   signetEVMSignatureRequestType,
-  signetRemoteExecutionResponseType,
+  signetEVMSignatureResponseType,
+  signetRespondBidirectionalType,
   signetResponseKeyType,
   SignetRequestResponseReader,
   type SignetEVMSignatureRequest,
+  type SignetEVMSignatureResponse,
   type SignetPublicStateSource,
-  type SignetRemoteExecutionResponse,
+  type SignetRespondBidirectional,
 } from "../src/index.ts";
 
 // ---- Fixtures ----
@@ -38,7 +41,9 @@ const bytes = (length: number, fill: number) =>
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 const bytes32 = new CompactTypeBytes(32);
-const bytes65 = new CompactTypeBytes(65);
+
+/** The sample request's arg slot capacity (the vault's EVMCalldata<2>). */
+const SLOT_COUNT = 2;
 
 const REQUEST_ID = bytes(32, 0x2f);
 const REQUEST_ID_HEX = requestIdHex(REQUEST_ID);
@@ -63,24 +68,19 @@ const REQUEST: SignetEVMSignatureRequest = {
     value: 0n,
   },
   calldata: {
-    funcSig: asciiPadded("transfer(address,uint256)", 256),
+    funcSig: asciiPadded("transfer(address,uint256)", 64),
     argCount: 2n,
-    args: [
-      bytes(32, 0),
-      bigintToBytes32(1_000_000n),
-      new Uint8Array(32),
-      new Uint8Array(32),
-    ],
+    args: [bytes(32, 0), bigintToBytes32(1_000_000n)],
   },
   mpcRouting: {
-    caip2Id: asciiPadded("eip155:11155111", 64),
-    keyVersion: 0n,
+    caip2Id: asciiPadded("eip155:11155111", 32),
+    keyVersion: 1n,
     path: new Uint8Array(256),
     algo: asciiPadded("ecdsa", 32),
-    dest: asciiPadded("ethereum", 64),
-    params: new Uint8Array(512),
-    outputSchema: new Uint8Array(256),
-    respondSchema: new Uint8Array(256),
+    dest: asciiPadded("ethereum", 32),
+    params: new Uint8Array(64),
+    outputDeserializationSchema: new Uint8Array(128),
+    respondSerializationSchema: new Uint8Array(128),
   },
 };
 
@@ -91,20 +91,23 @@ const MPC_ADDRESS = computeAddress(MPC_KEY.publicKey);
 const IMPOSTER_KEY = new SigningKey(`0x${"22".repeat(32)}`);
 const IMPOSTER_ADDRESS = computeAddress(IMPOSTER_KEY.publicKey);
 
-/** Sign `REQUEST`'s rebuilt tx hash with `key`, packed as 65-byte r||s||v. */
-const signResponse = (key: SigningKey): Uint8Array => {
-  const signature = key.sign(signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST).unsignedHash);
-  const out = new Uint8Array(65);
-  out.set(getBytes(signature.r), 0);
-  out.set(getBytes(signature.s), 32);
-  out[64] = signature.v;
-  return out;
-};
+/** Sign `REQUEST`'s rebuilt tx hash with `key`, packed as a response record. */
+const signResponse = (key: SigningKey): SignetEVMSignatureResponse =>
+  signatureToSignetEVMSignatureResponse(
+    key.sign(
+      signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
+    ),
+  );
 
 const GENUINE_RESPONSE = signResponse(MPC_KEY);
 const IMPOSTER_RESPONSE = signResponse(IMPOSTER_KEY);
-// All-zero r/s cannot decode into a signature at all.
-const UNDECODABLE_RESPONSE = bytes(65, 0);
+// An all-zero r cannot decode into a signature at all.
+const UNDECODABLE_RESPONSE: SignetEVMSignatureResponse = {
+  bigRx: bytes(32, 0),
+  bigRy: bytes(32, 0),
+  s: bytes(32, 0),
+  recoveryId: 0n,
+};
 
 // ---- Synthetic ledger states (signet layout convention) ----
 
@@ -116,8 +119,8 @@ const requesterState = (): StateValue => {
       alignment: requestIdType.alignment(),
     },
     StateValue.newCell({
-      value: signetEVMSignatureRequestType.toValue(REQUEST),
-      alignment: signetEVMSignatureRequestType.alignment(),
+      value: signetEVMSignatureRequestType(SLOT_COUNT).toValue(REQUEST),
+      alignment: signetEVMSignatureRequestType(SLOT_COUNT).alignment(),
     }),
   );
   return StateValue.newArray()
@@ -127,10 +130,12 @@ const requesterState = (): StateValue => {
     );
 };
 
-// An attestation record for the execution-response tests: real Jubjub points,
-// synthetic scalar — the reader decodes, the CONTRACT verified at post time.
-const EXECUTION_RESPONSE: SignetRemoteExecutionResponse = {
-  outputData: (() => { const out = new Uint8Array(4096); out[0] = 1; return out; })(),
+// An attestation record for the respond-bidirectional tests: real Jubjub
+// points, synthetic scalar — the reader decodes, the CONTRACT verified at
+// post time.
+const RESPOND_BIDIRECTIONAL: SignetRespondBidirectional = {
+  serializedOutput: (() => { const out = new Uint8Array(128); out[0] = 1; return out; })(),
+  outputLen: 32n,
   pk: deriveJubjubKeypair(bytes(32, 0x42)).pk,
   announcement: deriveJubjubKeypair(bytes(32, 0x43)).pk,
   response: 123456789n,
@@ -138,14 +143,14 @@ const EXECUTION_RESPONSE: SignetRemoteExecutionResponse = {
 
 /**
  * Signet contract state: signature counter index (field 0), signature log
- * (field 1), remote execution response index (field 2), sealed MPC key hash
+ * (field 1), respond-bidirectional index (field 2), sealed MPC key hash
  * (field 3) for REQUEST_ID. `counterOverride` forces a counter that
  * disagrees with the log, for the inconsistency test.
  */
 const signetContractState = (
-  posts: Uint8Array[],
+  posts: SignetEVMSignatureResponse[],
   counterOverride?: bigint,
-  executionResponse?: SignetRemoteExecutionResponse,
+  respondBidirectional?: SignetRespondBidirectional,
 ): StateValue => {
   const total = counterOverride ?? BigInt(posts.length);
   let counterMap = new StateMap();
@@ -172,28 +177,28 @@ const signetContractState = (
         alignment: signetResponseKeyType.alignment(),
       },
       StateValue.newCell({
-        value: bytes65.toValue(post),
-        alignment: bytes65.alignment(),
+        value: signetEVMSignatureResponseType.toValue(post),
+        alignment: signetEVMSignatureResponseType.alignment(),
       }),
     );
   });
-  let executionMap = new StateMap();
-  if (executionResponse !== undefined) {
-    executionMap = executionMap.insert(
+  let respondBidirectionalMap = new StateMap();
+  if (respondBidirectional !== undefined) {
+    respondBidirectionalMap = respondBidirectionalMap.insert(
       {
         value: requestIdType.toValue(REQUEST_ID),
         alignment: requestIdType.alignment(),
       },
       StateValue.newCell({
-        value: signetRemoteExecutionResponseType.toValue(executionResponse),
-        alignment: signetRemoteExecutionResponseType.alignment(),
+        value: signetRespondBidirectionalType.toValue(respondBidirectional),
+        alignment: signetRespondBidirectionalType.alignment(),
       }),
     );
   }
   return StateValue.newArray()
     .arrayPush(StateValue.newMap(counterMap))
     .arrayPush(StateValue.newMap(responseMap))
-    .arrayPush(StateValue.newMap(executionMap))
+    .arrayPush(StateValue.newMap(respondBidirectionalMap))
     .arrayPush(
       StateValue.newCell({
         value: bytes32.toValue(bytes(32, 0x99)),
@@ -209,9 +214,9 @@ const signetContractState = (
  * request-record caching is observable.
  */
 const makeReader = (
-  posts: Uint8Array[],
+  posts: SignetEVMSignatureResponse[],
   counterOverride?: bigint,
-  executionResponse?: SignetRemoteExecutionResponse,
+  respondBidirectional?: SignetRespondBidirectional,
 ) => {
   const queries = { requester: 0, responses: 0 };
   const publicDataProvider: SignetPublicStateSource = {
@@ -221,7 +226,7 @@ const makeReader = (
         return { data: requesterState() };
       }
       queries.responses += 1;
-      return { data: signetContractState(posts, counterOverride, executionResponse) };
+      return { data: signetContractState(posts, counterOverride, respondBidirectional) };
     },
   };
   const reader = new SignetRequestResponseReader({
@@ -297,7 +302,7 @@ interface VerdictCase {
   /** Test name, completing the sentence "resolves <name>". */
   name: string;
   /** The posts on the ledger, in count order. */
-  posts: Uint8Array[];
+  posts: SignetEVMSignatureResponse[];
   /** The signer verification demands. */
   expectedSigner: string;
   /** Index (count) of the post expected as `verified`; absent = none valid. */
@@ -426,18 +431,18 @@ describe("getSignedEVMTransaction", () => {
   });
 });
 
-describe("getRemoteExecutionResponse", () => {
+describe("getRespondBidirectional", () => {
   it("returns the posted attestation", async () => {
-    const { reader } = makeReader([], undefined, EXECUTION_RESPONSE);
-    expect(await reader.getRemoteExecutionResponse(REQUEST_ID_HEX)).toEqual(
-      EXECUTION_RESPONSE,
+    const { reader } = makeReader([], undefined, RESPOND_BIDIRECTIONAL);
+    expect(await reader.getRespondBidirectional(REQUEST_ID_HEX)).toEqual(
+      RESPOND_BIDIRECTIONAL,
     );
   });
 
   it("returns undefined when no attestation is posted yet", async () => {
     const { reader } = makeReader([]);
     expect(
-      await reader.getRemoteExecutionResponse(REQUEST_ID_HEX),
+      await reader.getRespondBidirectional(REQUEST_ID_HEX),
     ).toBeUndefined();
   });
 });

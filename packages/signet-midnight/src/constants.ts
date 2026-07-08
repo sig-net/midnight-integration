@@ -8,56 +8,59 @@
 // The routing constants belong in github.com/sig-net/signet.js — kept here
 // until upstreamed.
 
-/** Width of `SignetMPCRoutingParams.caip2Id` (`Bytes<64>`). */
-export const CAIP2_ID_BYTES = 64;
+/** Width of `SignetMPCRoutingParams.caip2Id` (`Bytes<32>`). */
+export const CAIP2_ID_BYTES = 32;
 
 /** Width of `SignetMPCRoutingParams.algo` (`Bytes<32>`). */
 export const ALGO_BYTES = 32;
 
-/** Width of `SignetMPCRoutingParams.dest` (`Bytes<64>`). */
-export const DEST_BYTES = 64;
+/** Width of `SignetMPCRoutingParams.dest` (`Bytes<32>`). */
+export const DEST_BYTES = 32;
 
-/** Width of `SignetMPCRoutingParams.params` (`Bytes<512>`). */
-export const MPC_PARAMS_BYTES = 512;
+/** Width of `SignetMPCRoutingParams.params` (`Bytes<64>`). */
+export const MPC_PARAMS_BYTES = 64;
 
-/** Width of `SignetMPCRoutingParams.outputSchema` (`Bytes<256>`). */
-export const OUTPUT_SCHEMA_BYTES = 256;
+/** Width of `SignetMPCRoutingParams.outputDeserializationSchema` (`Bytes<128>`). */
+export const OUTPUT_DESERIALIZATION_SCHEMA_BYTES = 128;
 
-/** Width of `SignetMPCRoutingParams.respondSchema` (`Bytes<256>`). */
-export const RESPOND_SCHEMA_BYTES = 256;
+/** Width of `SignetMPCRoutingParams.respondSerializationSchema` (`Bytes<128>`). */
+export const RESPOND_SERIALIZATION_SCHEMA_BYTES = 128;
 
-/** Width of `SignetRemoteExecutionResponse.outputData` (`Bytes<4096>`). */
-export const OUTPUT_DATA_SIZE = 4096;
+/** Width of `SignetEVMSignatureRequest.calldata.funcSig` (`Bytes<64>`). */
+export const FUNC_SIG_BYTES = 64;
+
+/** Width of `SignetRespondBidirectional.serializedOutput` (`Bytes<128>`). */
+export const SERIALIZED_OUTPUT_BYTES = 128;
 
 /**
- * The MPC's error sentinel: `outputData` beginning with these four bytes
- * marks a failed/absent remote execution (mirrors the sig-net MPC's
+ * The MPC's error sentinel: `serializedOutput` beginning with these four
+ * bytes marks a failed/absent remote execution (mirrors the sig-net MPC's
  * MAGIC_ERROR_PREFIX).
  */
 export const MPC_ERROR_SENTINEL = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
 
 /**
- * Whether an attestation's output data reports a successful remote
+ * Whether an attestation's serialized output reports a successful remote
  * execution: the first byte is 1 — the little-endian encoding of the
- * ABI-decoded success flag, matching the circuits' `outputData as Field == 1`
- * check.
+ * ABI-decoded success flag, matching the circuits'
+ * `serializedOutput as Field == 1` check.
  *
- * @param outputData - The attestation's output data.
+ * @param serializedOutput - The attestation's serialized output.
  * @returns `true` when the remote call succeeded.
  */
-export function remoteExecutionSucceeded(outputData: Uint8Array): boolean {
-  return outputData[0] === 1;
+export function executionSucceeded(serializedOutput: Uint8Array): boolean {
+  return serializedOutput[0] === 1;
 }
 
 /**
- * Whether an attestation's output data is the MPC's error sentinel (see
- * {@link MPC_ERROR_SENTINEL}) rather than a call result.
+ * Whether an attestation's serialized output is the MPC's error sentinel
+ * (see {@link MPC_ERROR_SENTINEL}) rather than a call result.
  *
- * @param outputData - The attestation's output data.
+ * @param serializedOutput - The attestation's serialized output.
  * @returns `true` when the MPC reported an execution error.
  */
-export function isRemoteExecutionError(outputData: Uint8Array): boolean {
-  return MPC_ERROR_SENTINEL.every((byte, index) => outputData[index] === byte);
+export function isExecutionError(serializedOutput: Uint8Array): boolean {
+  return MPC_ERROR_SENTINEL.every((byte, index) => serializedOutput[index] === byte);
 }
 
 /** Signature algorithm the MPC uses for EVM chains (`algo` field value). */
@@ -66,8 +69,12 @@ export const SIGNET_ALGO_ECDSA = "ecdsa";
 /** Destination chain family for EVM requests (`dest` field value). */
 export const SIGNET_DEST_ETHEREUM = "ethereum";
 
-/** Default MPC key version (`keyVersion` field value). */
-export const SIGNET_DEFAULT_KEY_VERSION = 0n;
+/**
+ * Default MPC key version (`keyVersion` field value). Version 0 is the
+ * unsupported legacy format — the canonical MPC (and
+ * `constructSignetEVMSignatureRequest`) requires `keyVersion >= 1`.
+ */
+export const SIGNET_DEFAULT_KEY_VERSION = 1n;
 
 /**
  * Encode text as zero-padded ASCII bytes — the Compact `pad(N, "text")`

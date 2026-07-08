@@ -15,9 +15,12 @@ export * from "./schnorr.ts";
 export * from "./mpc-keys.ts";
 
 /**
- * Compiled pure circuits of Signet.compact (run `npm run compile`
- * first): the executable reference implementation of request-id hashing and
- * path<->identity checks. Off-chain code MUST use these instead of re-porting
- * the algorithms — they are the same compiled logic the contracts prove.
+ * Compiled pure circuits of Signet.compact (run `npm run compile` first): the
+ * executable reference implementation of the client-agnostic circuits —
+ * path<->identity checks, the attestation message, and the Schnorr challenge.
+ * Off-chain code MUST use these instead of re-porting the algorithms — they
+ * are the same compiled logic the contracts prove. The generic request
+ * circuits (request-id hashing, request construction) are monomorphized in
+ * each requester package instead (e.g. vault-contract's vaultSignetCircuits).
  */
 export { pureCircuits, type PureCircuits } from "./managed/contract/index.js";

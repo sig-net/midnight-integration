@@ -17,6 +17,7 @@ import {
   withSyncedWalletFacade,
   type TransactionIdentifier,
 } from "@midnight-erc20-vault/lib";
+import { parseJubjubPublicKey } from "@midnight-erc20-vault/signet-midnight";
 
 import { Contract, pureCircuits } from "./managed/contract/index.js";
 import { createVaultPrivateState, witnesses, type VaultPrivateState } from "./witnesses.ts";
@@ -37,12 +38,16 @@ export interface VaultDeployment {
  * The deployer identity comes from `VAULT_DEPLOYER_SECRET_KEY` (falling back
  * to the `DEPLOYER_SEED` bytes): its commitment is sealed into the contract
  * as `deployer`, and the same secret must later answer the `callerSecretKey`
- * witness to pass `initialize`'s gate.
+ * witness to pass `initialize`'s gate. The MPC attestation key
+ * (`MPC_JUBJUB_PK`, "x,y" decimal or 0x-hex field coordinates) is sealed as
+ * `mpcPubKeyHash` — claimDeposit accepts only attestations signed by it.
  *
  * @param env - Environment map providing `DEPLOYER_SEED`,
- *   `VAULT_DEPLOYER_SECRET_KEY` and lib's Midnight node configuration.
+ *   `VAULT_DEPLOYER_SECRET_KEY`, `MPC_JUBJUB_PK` and lib's Midnight node
+ *   configuration.
  * @returns The deployed contract address and deploy transaction id.
- * @throws If the deployer wallet holds no funds or submission fails.
+ * @throws If `MPC_JUBJUB_PK` is missing/malformed, the deployer wallet holds
+ *   no funds, or submission fails.
  */
 export async function deployVault(env: Record<string, string | undefined> = process.env): Promise<VaultDeployment> {
   const deployConfig = getDeployConfig(env);
@@ -50,6 +55,12 @@ export async function deployVault(env: Record<string, string | undefined> = proc
 
   const secretKey = parseIdentitySecretKey("VAULT_DEPLOYER_SECRET_KEY", env, deployConfig.deployerSeed);
   const deployerCommitment = pureCircuits.userCommitment(secretKey);
+
+  const mpcPkRaw = env.MPC_JUBJUB_PK?.trim();
+  if (!mpcPkRaw) {
+    throw new Error("MPC_JUBJUB_PK is required (the MPC attestation key, as \"x,y\")");
+  }
+  const mpcPk = parseJubjubPublicKey(mpcPkRaw);
 
   const compiledContract = makeCompiledContract<Contract<VaultPrivateState>, VaultPrivateState>(
     "erc20-vault",
@@ -74,6 +85,7 @@ export async function deployVault(env: Record<string, string | undefined> = proc
         accountKeys.shieldedSecretKeys.coinPublicKey,
         createVaultPrivateState(secretKey),
         deployerCommitment,
+        mpcPk,
       );
       console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
 

@@ -5,7 +5,7 @@
 import type { CliContext } from "../context.ts";
 import { broadcastEvm } from "./broadcast-evm.ts";
 import { claimDeposit } from "./claim-deposit.ts";
-import { pollRemoteExecutionResponse } from "./poll-remote-execution-response.ts";
+import { pollRespondBidirectional } from "./poll-respond-bidirectional.ts";
 import { pollSignatureResponse } from "./poll-signature-response.ts";
 import { requestDeposit } from "./request-deposit.ts";
 
@@ -29,7 +29,7 @@ export interface DepositE2EOptions {
  *    poll for it.
  * 3. Broadcast the signed transaction to the EVM chain.
  * 4. The MPC observes the receipt and posts the Schnorr-signed
- *    `(requestId, outputData)` attestation; poll for it.
+ *    `(requestId, serializedOutput)` attestation; poll for it.
  * 5. `claimDeposit` verifies the attestation in-circuit and mints shielded
  *    vault tokens.
  *
@@ -47,7 +47,7 @@ export async function depositE2E(context: CliContext, options: DepositE2EOptions
   const transaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs });
   await broadcastEvm(context, { transaction });
 
-  await pollRemoteExecutionResponse(context, { requestId, intervalMs, timeoutMs });
+  await pollRespondBidirectional(context, { requestId, intervalMs, timeoutMs });
   await claimDeposit(context, { requestId });
 
   console.log(`deposit ${requestId} claimed`);

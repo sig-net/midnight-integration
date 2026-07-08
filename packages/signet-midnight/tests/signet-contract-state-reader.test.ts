@@ -18,32 +18,44 @@ import {
   readSignetContractLedgerFromState,
   requestIdHex,
   requestIdType,
-  signetRemoteExecutionResponseType,
+  signetEVMSignatureResponseType,
+  signetRespondBidirectionalType,
   signetResponseIndexKey,
   signetResponseKeyType,
-  type SignetRemoteExecutionResponse,
+  type SignetEVMSignatureResponse,
+  type SignetRespondBidirectional,
 } from "../src/index.ts";
 
 const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
-const bytes65 = new CompactTypeBytes(65);
 const bytes32 = new CompactTypeBytes(32);
 
 const REQUEST_ID = bytes(32, 0x2f);
 // Two signature responses posted for REQUEST_ID: counter reads 2, entries at
 // counts 0..1.
 const POST_COUNT = 2n;
-const RESPONSE_0 = bytes(65, 0xa0);
-const RESPONSE_1 = bytes(65, 0xa1);
+const RESPONSE_0: SignetEVMSignatureResponse = {
+  bigRx: bytes(32, 0xa0),
+  bigRy: bytes(32, 0xa1),
+  s: bytes(32, 0xa2),
+  recoveryId: 0n,
+};
+const RESPONSE_1: SignetEVMSignatureResponse = {
+  bigRx: bytes(32, 0xb0),
+  bigRy: bytes(32, 0xb1),
+  s: bytes(32, 0xb2),
+  recoveryId: 1n,
+};
 
-// One remote execution response for REQUEST_ID — real Jubjub points so the
-// descriptor round-trips genuine coordinates, but a synthetic scalar (the
-// reader decodes, it does not verify).
+// One respond-bidirectional attestation for REQUEST_ID — real Jubjub points
+// so the descriptor round-trips genuine coordinates, but a synthetic scalar
+// (the reader decodes, it does not verify).
 const MPC_KEYS = deriveJubjubKeypair(bytes(32, 0x42));
-const EXECUTION_RESPONSE: SignetRemoteExecutionResponse = {
-  outputData: bytes(4096, 0x01),
+const RESPOND_BIDIRECTIONAL: SignetRespondBidirectional = {
+  serializedOutput: bytes(128, 0x01),
+  outputLen: 32n,
   pk: MPC_KEYS.pk,
   announcement: deriveJubjubKeypair(bytes(32, 0x43)).pk,
   response: 123456789n,
@@ -55,10 +67,10 @@ const MPC_PUB_KEY_HASH = bytes(32, 0x99);
 const counterCell = (value: bigint) =>
   StateValue.newCell({ value: u64.toValue(value), alignment: u64.alignment() });
 
-const responseCell = (response: Uint8Array) =>
+const responseCell = (response: SignetEVMSignatureResponse) =>
   StateValue.newCell({
-    value: bytes65.toValue(response),
-    alignment: bytes65.alignment(),
+    value: signetEVMSignatureResponseType.toValue(response),
+    alignment: signetEVMSignatureResponseType.alignment(),
   });
 
 const responseKey = (count: bigint) => ({
@@ -67,8 +79,8 @@ const responseKey = (count: bigint) => ({
 });
 
 // Contract root state: an array of ledger fields per the signet contract
-// layout convention — signature counter index (0), signature log (1), remote
-// execution response index (2), sealed MPC key hash (3).
+// layout convention — signature counter index (0), signature log (1),
+// respond-bidirectional index (2), sealed MPC key hash (3).
 const syntheticContractState = () => {
   const counterMap = new StateMap().insert(
     {
@@ -80,20 +92,20 @@ const syntheticContractState = () => {
   const responseMap = new StateMap()
     .insert(responseKey(0n), responseCell(RESPONSE_0))
     .insert(responseKey(1n), responseCell(RESPONSE_1));
-  const executionMap = new StateMap().insert(
+  const respondBidirectionalMap = new StateMap().insert(
     {
       value: requestIdType.toValue(REQUEST_ID),
       alignment: requestIdType.alignment(),
     },
     StateValue.newCell({
-      value: signetRemoteExecutionResponseType.toValue(EXECUTION_RESPONSE),
-      alignment: signetRemoteExecutionResponseType.alignment(),
+      value: signetRespondBidirectionalType.toValue(RESPOND_BIDIRECTIONAL),
+      alignment: signetRespondBidirectionalType.alignment(),
     }),
   );
   return StateValue.newArray()
     .arrayPush(StateValue.newMap(counterMap))
     .arrayPush(StateValue.newMap(responseMap))
-    .arrayPush(StateValue.newMap(executionMap))
+    .arrayPush(StateValue.newMap(respondBidirectionalMap))
     .arrayPush(
       StateValue.newCell({
         value: bytes32.toValue(MPC_PUB_KEY_HASH),
@@ -107,7 +119,7 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
     const {
       signatureResponseCounterIndex,
       signatureResponseIndex,
-      remoteExecutionResponseIndex,
+      respondBidirectionalIndex,
       mpcPubKeyHash,
     } = readSignetContractLedgerFromState(syntheticContractState());
 
@@ -124,9 +136,9 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
       signatureResponseIndex.get(signetResponseIndexKey(requestIdHex(REQUEST_ID), 1n)),
     ).toEqual(RESPONSE_1);
 
-    expect(remoteExecutionResponseIndex.size).toBe(1);
-    expect(remoteExecutionResponseIndex.get(requestIdHex(REQUEST_ID))).toEqual(
-      EXECUTION_RESPONSE,
+    expect(respondBidirectionalIndex.size).toBe(1);
+    expect(respondBidirectionalIndex.get(requestIdHex(REQUEST_ID))).toEqual(
+      RESPOND_BIDIRECTIONAL,
     );
 
     expect(mpcPubKeyHash).toEqual(MPC_PUB_KEY_HASH);
@@ -146,12 +158,12 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
     const {
       signatureResponseCounterIndex,
       signatureResponseIndex,
-      remoteExecutionResponseIndex,
+      respondBidirectionalIndex,
       mpcPubKeyHash,
     } = readSignetContractLedgerFromState(fresh);
     expect(signatureResponseCounterIndex.size).toBe(0);
     expect(signatureResponseIndex.size).toBe(0);
-    expect(remoteExecutionResponseIndex.size).toBe(0);
+    expect(respondBidirectionalIndex.size).toBe(0);
     expect(mpcPubKeyHash).toEqual(MPC_PUB_KEY_HASH);
   });
 });

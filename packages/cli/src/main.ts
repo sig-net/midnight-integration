@@ -14,7 +14,7 @@ import { broadcastEvm } from "./commands/broadcast-evm.ts";
 import { claimDeposit } from "./commands/claim-deposit.ts";
 import { depositE2E } from "./commands/deposit-e2e.ts";
 import { initialize } from "./commands/initialize.ts";
-import { formatRemoteExecutionResponse, pollRemoteExecutionResponse } from "./commands/poll-remote-execution-response.ts";
+import { formatRespondBidirectional, pollRespondBidirectional } from "./commands/poll-respond-bidirectional.ts";
 import { pollSignatureResponse } from "./commands/poll-signature-response.ts";
 import { readState } from "./commands/read-state.ts";
 import { refundWithdraw } from "./commands/refund-withdraw.ts";
@@ -110,12 +110,12 @@ withPollingOptions(
 
 withPollingOptions(
   program
-    .command("poll-remote-execution-response")
+    .command("poll-respond-bidirectional")
     .description("poll the signet contract for the MPC's attestation of a request's remote EVM execution")
     .requiredOption("--request-id <hex>", "the request id to poll for", parseRequestIdArg),
 ).action((options: { requestId: SignetRequestIdHex; intervalMs: number; timeoutMs: number }) => {
   work = async (context) => {
-    console.log(formatRemoteExecutionResponse(await pollRemoteExecutionResponse(context, options)));
+    console.log(formatRespondBidirectional(await pollRespondBidirectional(context, options)));
   };
 });
 

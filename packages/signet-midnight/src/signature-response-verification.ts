@@ -4,7 +4,7 @@
 // before trusting it: rebuild the unsigned EVM transaction from the on-ledger
 // request record — assembled exactly as the MPC assembles it (sig-net/mpc
 // response server, managed/erc20-vault/signet/calldata-builder.ts) — and
-// check that the 65-byte `r || s || v` response signature recovers to the
+// check that the posted `{ bigR, s, recoveryId }` signature recovers to the
 // requester's derived EVM address over that transaction's signing hash.
 
 import { getAddress, recoverAddress } from "ethers";
@@ -21,11 +21,10 @@ import type { SignetEVMSignatureResponse } from "./signet-contract-state-reader.
  * signing hash of the transaction the request describes.
  *
  * @param request - The on-ledger request record the response answers.
- * @param response - The 65-byte `r || s || v` response signature (`v` may be
- *   a recovery id 0/1 or the legacy 27/28).
+ * @param response - The posted signature record answering it.
  * @returns The checksummed recovered signer address.
- * @throws Error if the response is not 65 bytes, is not a decodable
- *   signature, or the request record is malformed (see
+ * @throws Error if the response is not a decodable signature or the request
+ *   record is malformed (see
  *   {@link signetEVMSignatureRequestToUnsignedEVMTransaction}).
  */
 export function recoverSignetEVMSignatureResponseSigner(
@@ -45,7 +44,7 @@ export function recoverSignetEVMSignatureResponseSigner(
  * on an unauthenticated log.
  *
  * @param request - The on-ledger request record the response answers.
- * @param response - The 65-byte `r || s || v` response signature.
+ * @param response - The posted signature record answering it.
  * @param expectedSigner - The EVM address (any case, 0x hex) that must have signed.
  * @returns `true` iff the response is a valid signature by `expectedSigner`.
  */

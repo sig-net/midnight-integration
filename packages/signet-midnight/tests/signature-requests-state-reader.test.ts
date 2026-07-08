@@ -31,21 +31,24 @@ const SAMPLE_REQUEST: SignetEVMSignatureRequest = {
     value: 0n,
   },
   calldata: {
-    funcSig: bytes(256, 0x01),
+    funcSig: bytes(64, 0x01),
     argCount: 2n,
-    args: [bytes(32, 1), bytes(32, 2), bytes(32, 0), bytes(32, 0)],
+    args: [bytes(32, 1), bytes(32, 2)],
   },
   mpcRouting: {
-    caip2Id: bytes(64, 0x02),
-    keyVersion: 0n,
+    caip2Id: bytes(32, 0x02),
+    keyVersion: 1n,
     path: bytes(256, 0x03),
     algo: bytes(32, 0x04),
-    dest: bytes(64, 0x05),
-    params: bytes(512, 0x06),
-    outputSchema: bytes(256, 0x07),
-    respondSchema: bytes(256, 0x08),
+    dest: bytes(32, 0x05),
+    params: bytes(64, 0x06),
+    outputDeserializationSchema: bytes(128, 0x07),
+    respondSerializationSchema: bytes(128, 0x08),
   },
 };
+
+/** The sample request's arg slot capacity (the vault's EVMCalldata<2>). */
+const SLOT_COUNT = 2;
 
 const REQUEST_ID = bytes(32, 0x2f);
 const NONCE = 8n;
@@ -66,8 +69,8 @@ const syntheticContractState = () => {
       alignment: requestIdType.alignment(),
     },
     StateValue.newCell({
-      value: signetEVMSignatureRequestType.toValue(SAMPLE_REQUEST),
-      alignment: signetEVMSignatureRequestType.alignment(),
+      value: signetEVMSignatureRequestType(SLOT_COUNT).toValue(SAMPLE_REQUEST),
+      alignment: signetEVMSignatureRequestType(SLOT_COUNT).alignment(),
     }),
   );
   return StateValue.newArray()

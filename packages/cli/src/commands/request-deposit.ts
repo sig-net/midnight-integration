@@ -10,10 +10,10 @@ import {
   bigintToBytes32,
   CAIP2_ID_BYTES,
   DEST_BYTES,
+  FUNC_SIG_BYTES,
   MPC_PARAMS_BYTES,
-  OUTPUT_SCHEMA_BYTES,
-  pureCircuits as signetCircuits,
-  RESPOND_SCHEMA_BYTES,
+  OUTPUT_DESERIALIZATION_SCHEMA_BYTES,
+  RESPOND_SERIALIZATION_SCHEMA_BYTES,
   requestIdHex,
   SIGNET_ALGO_ECDSA,
   SIGNET_DEFAULT_KEY_VERSION,
@@ -23,7 +23,7 @@ import {
   type SignetEVMSignatureRequestParams,
   type SignetRequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
-import { ledger } from "@midnight-erc20-vault/vault-contract";
+import { ledger, vaultSignetCircuits } from "@midnight-erc20-vault/vault-contract";
 
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
@@ -119,8 +119,8 @@ export async function requestDeposit(context: CliContext, options: RequestDeposi
       algo: asciiPadded(SIGNET_ALGO_ECDSA, ALGO_BYTES),
       dest: asciiPadded(SIGNET_DEST_ETHEREUM, DEST_BYTES),
       params: new Uint8Array(MPC_PARAMS_BYTES),
-      outputSchema: asciiPadded(RESULT_SCHEMA, OUTPUT_SCHEMA_BYTES),
-      respondSchema: asciiPadded(RESULT_SCHEMA, RESPOND_SCHEMA_BYTES),
+      outputDeserializationSchema: asciiPadded(RESULT_SCHEMA, OUTPUT_DESERIALIZATION_SCHEMA_BYTES),
+      respondSerializationSchema: asciiPadded(RESULT_SCHEMA, RESPOND_SERIALIZATION_SCHEMA_BYTES),
     },
   };
 
@@ -134,13 +134,13 @@ export async function requestDeposit(context: CliContext, options: RequestDeposi
     requestNonce,
     evmTransaction: signetParams.evmTransaction,
     calldata: {
-      funcSig: asciiPadded("transfer(address,uint256)", 256),
+      funcSig: asciiPadded("transfer(address,uint256)", FUNC_SIG_BYTES),
       argCount: 2n,
-      args: [vaultAddressWord, bigintToBytes32(options.amount), new Uint8Array(32), new Uint8Array(32)],
+      args: [vaultAddressWord, bigintToBytes32(options.amount)],
     },
     mpcRouting: signetParams.mpcRouting,
   };
-  const expectedIdHex = requestIdHex(signetCircuits.signetEVMSignatureRequestId(expectedRecord));
+  const expectedIdHex = requestIdHex(vaultSignetCircuits.signetEVMSignatureRequestId(expectedRecord));
 
   const result = await context.vault.callTx.requestDeposit(signetParams, {
     erc20Address: evmAddressBytes(erc20Address),

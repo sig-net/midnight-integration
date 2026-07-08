@@ -1,22 +1,27 @@
 // Schnorr signing helpers + the compiled attestation-message circuit. The
 // REAL verification round trip (schnorrSign → in-circuit schnorrVerify) is
-// exercised by signet-contract's postRemoteExecutionResponse tests; here we
+// exercised by signet-contract's postRespondBidirectional tests; here we
 // pin the message construction against an independent oracle and the
 // signing/parsing/decoding helpers' contracts.
 
 import { describe, expect, it } from "vitest";
 
-import { CompactTypeBytes, persistentHash } from "@midnight-ntwrk/compact-runtime";
+import {
+  CompactTypeBytes,
+  CompactTypeVector,
+  persistentHash,
+} from "@midnight-ntwrk/compact-runtime";
 
 import {
+  bigintToBytes32,
   deriveJubjubKeypair,
+  executionSucceeded,
   formatJubjubPublicKey,
   hashJubjubPoint,
-  isRemoteExecutionError,
+  isExecutionError,
   JUBJUB_ORDER,
   MPC_ERROR_SENTINEL,
   parseJubjubPublicKey,
-  remoteExecutionSucceeded,
   schnorrSign,
   pureCircuits as signetCircuits,
 } from "../src/index.ts";
@@ -36,12 +41,23 @@ const leLimb16 = (data: Uint8Array, offset: number): bigint => {
 };
 
 describe("signetAttestationMessage (compiled circuit)", () => {
-  it("encodes (requestId, hash(outputData)) as four 16-byte LE field limbs", () => {
+  it("encodes (requestId, hash(serializedOutput, outputLen)) as four 16-byte LE field limbs", () => {
     const requestId = bytes(32, 0x2f);
-    const outputData = bytes(4096, 0x01);
-    const outHash = persistentHash(new CompactTypeBytes(4096), outputData);
+    const serializedOutput = bytes(128, 0x01);
+    const outputLen = 32n;
+    // Oracle for the circuit's nested hash: hash the output bytes, then hash
+    // that alongside the length's 32-byte LE field embed.
+    const outHash = persistentHash(
+      new CompactTypeVector(2, new CompactTypeBytes(32)),
+      [
+        persistentHash(new CompactTypeBytes(128), serializedOutput),
+        bigintToBytes32(outputLen),
+      ],
+    );
 
-    expect(signetCircuits.signetAttestationMessage(requestId, outputData)).toEqual([
+    expect(
+      signetCircuits.signetAttestationMessage(requestId, serializedOutput, outputLen),
+    ).toEqual([
       leLimb16(requestId, 0),
       leLimb16(requestId, 16),
       leLimb16(outHash, 0),
@@ -122,35 +138,35 @@ describe("formatJubjubPublicKey", () => {
   });
 });
 
-/** One row of the outputData decode table: bytes → expected verdicts. */
+/** One row of the serializedOutput decode table: bytes → expected verdicts. */
 interface DecodeCase {
   /** Test name, completing the sentence "decodes <name>". */
   name: string;
-  /** The attestation output data (may be shorter than 4096 for brevity). */
-  outputData: Uint8Array;
-  /** Expected {@link remoteExecutionSucceeded} verdict. */
+  /** The attestation's serialized output. */
+  serializedOutput: Uint8Array;
+  /** Expected {@link executionSucceeded} verdict. */
   succeeded: boolean;
-  /** Expected {@link isRemoteExecutionError} verdict. */
+  /** Expected {@link isExecutionError} verdict. */
   error: boolean;
 }
 
 const DECODE_CASES: DecodeCase[] = [
   {
     name: "a success flag (first byte 1)",
-    outputData: (() => { const out = new Uint8Array(4096); out[0] = 1; return out; })(),
+    serializedOutput: (() => { const out = new Uint8Array(128); out[0] = 1; return out; })(),
     succeeded: true,
     error: false,
   },
   {
     name: "a false return (all zero)",
-    outputData: new Uint8Array(4096),
+    serializedOutput: new Uint8Array(128),
     succeeded: false,
     error: false,
   },
   {
     name: "the MPC error sentinel (0xdeadbeef prefix)",
-    outputData: (() => {
-      const out = new Uint8Array(4096);
+    serializedOutput: (() => {
+      const out = new Uint8Array(128);
       out.set(MPC_ERROR_SENTINEL);
       return out;
     })(),
@@ -159,9 +175,9 @@ const DECODE_CASES: DecodeCase[] = [
   },
 ];
 
-describe("remote execution outputData decoding", () => {
-  it.each(DECODE_CASES)("decodes $name", ({ outputData, succeeded, error }) => {
-    expect(remoteExecutionSucceeded(outputData)).toBe(succeeded);
-    expect(isRemoteExecutionError(outputData)).toBe(error);
+describe("serializedOutput decoding", () => {
+  it.each(DECODE_CASES)("decodes $name", ({ serializedOutput, succeeded, error }) => {
+    expect(executionSucceeded(serializedOutput)).toBe(succeeded);
+    expect(isExecutionError(serializedOutput)).toBe(error);
   });
 });

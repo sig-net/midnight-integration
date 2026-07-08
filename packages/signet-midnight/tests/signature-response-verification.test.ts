@@ -1,14 +1,14 @@
 // Verification of MPC signature responses against their request record: the
 // unsigned EIP-1559 transaction is rebuilt exactly as the MPC assembles it,
-// and the 65-byte r||s||v response must recover to the expected signer over
-// its signing hash.
+// and the posted { bigR, s, recoveryId } record must recover to the expected
+// signer over its signing hash.
 
 import { describe, expect, it } from "vitest";
 
 import {
   computeAddress,
-  getBytes,
   Interface,
+  Signature,
   SigningKey,
   Transaction,
 } from "ethers";
@@ -16,11 +16,13 @@ import {
 import {
   asciiPadded,
   bigintToBytes32,
+  signatureToSignetEVMSignatureResponse,
   signetEVMSignatureRequestToSignedEVMTransaction,
   signetEVMSignatureRequestToUnsignedEVMTransaction,
   recoverSignetEVMSignatureResponseSigner,
   verifySignetEVMSignatureResponse,
   type SignetEVMSignatureRequest,
+  type SignetEVMSignatureResponse,
 } from "../src/index.ts";
 
 // ---- Fixtures ----
@@ -54,24 +56,19 @@ const REQUEST: SignetEVMSignatureRequest = {
     value: 0n,
   },
   calldata: {
-    funcSig: asciiPadded("transfer(address,uint256)", 256),
+    funcSig: asciiPadded("transfer(address,uint256)", 64),
     argCount: 2n,
-    args: [
-      VAULT_ADDRESS_WORD,
-      bigintToBytes32(AMOUNT),
-      new Uint8Array(32),
-      new Uint8Array(32),
-    ],
+    args: [VAULT_ADDRESS_WORD, bigintToBytes32(AMOUNT)],
   },
   mpcRouting: {
-    caip2Id: asciiPadded("eip155:11155111", 64),
-    keyVersion: 0n,
+    caip2Id: asciiPadded("eip155:11155111", 32),
+    keyVersion: 1n,
     path: new Uint8Array(256),
     algo: asciiPadded("ecdsa", 32),
-    dest: asciiPadded("ethereum", 64),
-    params: new Uint8Array(512),
-    outputSchema: new Uint8Array(256),
-    respondSchema: new Uint8Array(256),
+    dest: asciiPadded("ethereum", 32),
+    params: new Uint8Array(64),
+    outputDeserializationSchema: new Uint8Array(128),
+    respondSerializationSchema: new Uint8Array(128),
   },
 };
 
@@ -81,25 +78,18 @@ const MPC_KEY = new SigningKey(`0x${"11".repeat(32)}`);
 const MPC_ADDRESS = computeAddress(MPC_KEY.publicKey);
 const IMPOSTER_KEY = new SigningKey(`0x${"22".repeat(32)}`);
 
-/** Sign `request`'s rebuilt tx hash with `key`, packed as 65-byte r||s||v. */
+/** Sign `request`'s rebuilt tx hash with `key`, packed as a response record. */
 const signResponse = (
   key: SigningKey,
   request: SignetEVMSignatureRequest,
-): Uint8Array => {
-  const signature = key.sign(signetEVMSignatureRequestToUnsignedEVMTransaction(request).unsignedHash);
-  const out = new Uint8Array(65);
-  out.set(getBytes(signature.r), 0);
-  out.set(getBytes(signature.s), 32);
-  out[64] = signature.v; // 27/28
-  return out;
-};
+): SignetEVMSignatureResponse =>
+  signatureToSignetEVMSignatureResponse(
+    key.sign(
+      signetEVMSignatureRequestToUnsignedEVMTransaction(request).unsignedHash,
+    ),
+  );
 
 const VALID_RESPONSE = signResponse(MPC_KEY, REQUEST);
-
-// The same signature with v carried as a bare 0/1 recovery id instead of the
-// legacy 27/28 — both forms appear in the wild and both must verify.
-const VALID_RESPONSE_RECID = new Uint8Array(VALID_RESPONSE);
-VALID_RESPONSE_RECID[64] = VALID_RESPONSE[64] - 27;
 
 // ---- Tests ----
 
@@ -140,10 +130,13 @@ describe("recoverSignetEVMSignatureResponseSigner", () => {
     );
   });
 
-  it("rejects a response that is not 65 bytes", () => {
+  it("rejects a response with an out-of-range recovery id", () => {
     expect(() =>
-      recoverSignetEVMSignatureResponseSigner(REQUEST, bytes(64, 1)),
-    ).toThrow(/65-byte/);
+      recoverSignetEVMSignatureResponseSigner(REQUEST, {
+        ...VALID_RESPONSE,
+        recoveryId: 5n,
+      }),
+    ).toThrow(/recovery id/);
   });
 });
 
@@ -153,8 +146,8 @@ interface VerifyCase {
   name: string;
   /** The request record the response claims to answer. */
   request: SignetEVMSignatureRequest;
-  /** The candidate 65-byte response. */
-  response: Uint8Array;
+  /** The candidate response record. */
+  response: SignetEVMSignatureResponse;
   /** The signer the response must recover to. */
   expectedSigner: string;
   /** The expected verdict. */
@@ -163,16 +156,9 @@ interface VerifyCase {
 
 const VERIFY_CASES: VerifyCase[] = [
   {
-    name: "a genuine response (v as 27/28)",
+    name: "a genuine response",
     request: REQUEST,
     response: VALID_RESPONSE,
-    expectedSigner: MPC_ADDRESS,
-    valid: true,
-  },
-  {
-    name: "a genuine response (v as bare 0/1 recovery id)",
-    request: REQUEST,
-    response: VALID_RESPONSE_RECID,
     expectedSigner: MPC_ADDRESS,
     valid: true,
   },
@@ -196,12 +182,7 @@ const VERIFY_CASES: VerifyCase[] = [
       ...REQUEST,
       calldata: {
         ...REQUEST.calldata,
-        args: [
-          VAULT_ADDRESS_WORD,
-          bigintToBytes32(AMOUNT + 1n),
-          new Uint8Array(32),
-          new Uint8Array(32),
-        ],
+        args: [VAULT_ADDRESS_WORD, bigintToBytes32(AMOUNT + 1n)],
       },
     },
     response: VALID_RESPONSE,
@@ -209,16 +190,21 @@ const VERIFY_CASES: VerifyCase[] = [
     valid: false,
   },
   {
-    name: "garbage bytes",
+    name: "garbage scalars",
     request: REQUEST,
-    response: bytes(65, 0x5a),
+    response: {
+      bigRx: bytes(32, 0x5a),
+      bigRy: bytes(32, 0x5a),
+      s: bytes(32, 0x5a),
+      recoveryId: 0n,
+    },
     expectedSigner: MPC_ADDRESS,
     valid: false,
   },
   {
-    name: "a wrong-width response",
+    name: "an out-of-range recovery id",
     request: REQUEST,
-    response: bytes(64, 1),
+    response: { ...VALID_RESPONSE, recoveryId: 5n },
     expectedSigner: MPC_ADDRESS,
     valid: false,
   },
@@ -257,17 +243,27 @@ describe("signetEVMSignatureRequestToSignedEVMTransaction", () => {
     expect(roundTripped.hash).toBe(signed.hash);
   });
 
-  it("normalizes a bare 0/1 recovery id in v", () => {
-    const signed = signetEVMSignatureRequestToSignedEVMTransaction(
-      REQUEST,
-      VALID_RESPONSE_RECID,
+  it("round-trips through the record encoder (R.y recovered on-curve)", () => {
+    // Encode from a plain ethers signature and confirm the record decodes
+    // back to a signature with the same recovered signer — exercising the
+    // point-decompression path posters use.
+    const signature = MPC_KEY.sign(
+      signetEVMSignatureRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
     );
+    const record = signatureToSignetEVMSignatureResponse(
+      Signature.from(signature),
+    );
+    expect(record.bigRy).toHaveLength(32);
+    const signed = signetEVMSignatureRequestToSignedEVMTransaction(REQUEST, record);
     expect(signed.from).toBe(MPC_ADDRESS);
   });
 
-  it("rejects a response that is not 65 bytes", () => {
+  it("rejects a response with an out-of-range recovery id", () => {
     expect(() =>
-      signetEVMSignatureRequestToSignedEVMTransaction(REQUEST, bytes(64, 1)),
-    ).toThrow(/65-byte/);
+      signetEVMSignatureRequestToSignedEVMTransaction(REQUEST, {
+        ...VALID_RESPONSE,
+        recoveryId: 5n,
+      }),
+    ).toThrow(/recovery id/);
   });
 });

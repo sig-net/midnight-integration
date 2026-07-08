@@ -4,7 +4,7 @@
 
 import type { CliContext } from "../context.ts";
 import { broadcastEvm } from "./broadcast-evm.ts";
-import { pollRemoteExecutionResponse } from "./poll-remote-execution-response.ts";
+import { pollRespondBidirectional } from "./poll-respond-bidirectional.ts";
 import { pollSignatureResponse } from "./poll-signature-response.ts";
 import { refundWithdraw } from "./refund-withdraw.ts";
 import { requestWithdraw } from "./request-withdraw.ts";
@@ -29,7 +29,7 @@ export interface WithdrawE2EOptions {
  *    transaction to the signet contract; poll for it.
  * 3. Broadcast the signed transaction to the EVM chain.
  * 4. The MPC observes the receipt and posts the Schnorr-signed
- *    `(requestId, outputData)` attestation; poll for it.
+ *    `(requestId, serializedOutput)` attestation; poll for it.
  * 5. `refundWithdraw` settles the request: success is final, failure
  *    re-mints the escrow to the pinned refund recipient.
  *
@@ -47,7 +47,7 @@ export async function withdrawE2E(context: CliContext, options: WithdrawE2EOptio
   const transaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs });
   await broadcastEvm(context, { transaction });
 
-  await pollRemoteExecutionResponse(context, { requestId, intervalMs, timeoutMs });
+  await pollRespondBidirectional(context, { requestId, intervalMs, timeoutMs });
   await refundWithdraw(context, { requestId });
 
   console.log(`withdraw ${requestId} settled`);

@@ -44,6 +44,7 @@ export const SIGNET_NONCE_FIELD = 1;
 // data corruption, not an error. The base u64 / bytes32 / requestIdType
 // descriptors are shared and imported from signature-state-reading.ts.
 
+const u8 = new CompactTypeUnsignedInteger(255n, 1);
 const u32 = new CompactTypeUnsignedInteger(4294967295n, 4);
 const u128 = new CompactTypeUnsignedInteger(
   340282366920938463463374607431768211455n,
@@ -51,9 +52,8 @@ const u128 = new CompactTypeUnsignedInteger(
 );
 const bytes20 = new CompactTypeBytes(20);
 const bytes64 = new CompactTypeBytes(64);
+const bytes128 = new CompactTypeBytes(128);
 const bytes256 = new CompactTypeBytes(256);
-const bytes512 = new CompactTypeBytes(512);
-const argsVector = new CompactTypeVector(4, bytes32);
 
 /**
  * Descriptor for the decomposed EVM transaction (Compact
@@ -106,55 +106,65 @@ export const evmTransactionParamsType: CompactType<EVMTransactionParams> = {
   },
 };
 
-/** Descriptor for the ABI calldata block (Compact `EVMCalldata`). */
-export const evmCalldataType: CompactType<EVMCalldata> = {
-  /** @returns Compound alignment of the struct's fields in declaration order. */
-  alignment() {
-    return bytes256
-      .alignment()
-      .concat(u32.alignment())
-      .concat(argsVector.alignment());
-  },
-  /**
-   * Decode the calldata from an aligned value, consuming it field by field.
-   *
-   * @param value - Mutable aligned value cursor; pass a copy.
-   * @returns The decoded calldata block.
-   */
-  fromValue(value) {
-    return {
-      funcSig: bytes256.fromValue(value),
-      argCount: u32.fromValue(value),
-      args: argsVector.fromValue(value),
-    };
-  },
-  /**
-   * Encode the calldata into its aligned on-ledger representation.
-   *
-   * @param calldata - The calldata block to encode.
-   * @returns The aligned value, fields concatenated in declaration order.
-   */
-  toValue(calldata) {
-    return bytes256
-      .toValue(calldata.funcSig)
-      .concat(u32.toValue(calldata.argCount))
-      .concat(argsVector.toValue(calldata.args));
-  },
-};
+/**
+ * Descriptor for the ABI calldata block (Compact `EVMCalldata<#n>`).
+ * Parameterized by the contract's arg slot capacity `n` — the generic size
+ * argument of the Compact struct.
+ *
+ * @param slotCount - The contract's `EVMCalldata<#n>` instantiation.
+ * @returns The descriptor for that instantiation.
+ */
+export function evmCalldataType(slotCount: number): CompactType<EVMCalldata> {
+  const argsVector = new CompactTypeVector(slotCount, bytes32);
+  return {
+    /** @returns Compound alignment of the struct's fields in declaration order. */
+    alignment() {
+      return bytes64
+        .alignment()
+        .concat(u8.alignment())
+        .concat(argsVector.alignment());
+    },
+    /**
+     * Decode the calldata from an aligned value, consuming it field by field.
+     *
+     * @param value - Mutable aligned value cursor; pass a copy.
+     * @returns The decoded calldata block.
+     */
+    fromValue(value) {
+      return {
+        funcSig: bytes64.fromValue(value),
+        argCount: u8.fromValue(value),
+        args: argsVector.fromValue(value),
+      };
+    },
+    /**
+     * Encode the calldata into its aligned on-ledger representation.
+     *
+     * @param calldata - The calldata block to encode.
+     * @returns The aligned value, fields concatenated in declaration order.
+     */
+    toValue(calldata) {
+      return bytes64
+        .toValue(calldata.funcSig)
+        .concat(u8.toValue(calldata.argCount))
+        .concat(argsVector.toValue(calldata.args));
+    },
+  };
+}
 
 /** Descriptor for the MPC routing block (Compact `SignetMPCRoutingParams`). */
 export const signetMPCRoutingParamsType: CompactType<SignetMPCRoutingParams> = {
   /** @returns Compound alignment of the struct's fields in declaration order. */
   alignment() {
-    return bytes64
+    return bytes32
       .alignment()
       .concat(u32.alignment())
       .concat(bytes256.alignment())
       .concat(bytes32.alignment())
+      .concat(bytes32.alignment())
       .concat(bytes64.alignment())
-      .concat(bytes512.alignment())
-      .concat(bytes256.alignment())
-      .concat(bytes256.alignment());
+      .concat(bytes128.alignment())
+      .concat(bytes128.alignment());
   },
   /**
    * Decode the routing params from an aligned value, consuming it field by
@@ -165,14 +175,14 @@ export const signetMPCRoutingParamsType: CompactType<SignetMPCRoutingParams> = {
    */
   fromValue(value) {
     return {
-      caip2Id: bytes64.fromValue(value),
+      caip2Id: bytes32.fromValue(value),
       keyVersion: u32.fromValue(value),
       path: bytes256.fromValue(value),
       algo: bytes32.fromValue(value),
-      dest: bytes64.fromValue(value),
-      params: bytes512.fromValue(value),
-      outputSchema: bytes256.fromValue(value),
-      respondSchema: bytes256.fromValue(value),
+      dest: bytes32.fromValue(value),
+      params: bytes64.fromValue(value),
+      outputDeserializationSchema: bytes128.fromValue(value),
+      respondSerializationSchema: bytes128.fromValue(value),
     };
   },
   /**
@@ -182,32 +192,49 @@ export const signetMPCRoutingParamsType: CompactType<SignetMPCRoutingParams> = {
    * @returns The aligned value, fields concatenated in declaration order.
    */
   toValue(routing) {
-    return bytes64
+    return bytes32
       .toValue(routing.caip2Id)
       .concat(u32.toValue(routing.keyVersion))
       .concat(bytes256.toValue(routing.path))
       .concat(bytes32.toValue(routing.algo))
-      .concat(bytes64.toValue(routing.dest))
-      .concat(bytes512.toValue(routing.params))
-      .concat(bytes256.toValue(routing.outputSchema))
-      .concat(bytes256.toValue(routing.respondSchema));
+      .concat(bytes32.toValue(routing.dest))
+      .concat(bytes64.toValue(routing.params))
+      .concat(bytes128.toValue(routing.outputDeserializationSchema))
+      .concat(bytes128.toValue(routing.respondSerializationSchema));
   },
 };
+
+/**
+ * Aligned-value entry count of a request record EXCLUDING the args vector:
+ * requestNonce (1) + EVMTransactionParams (7) + funcSig (1) + argCount (1)
+ * + SignetMPCRoutingParams (8). A stored request cell therefore holds
+ * `REQUEST_FIXED_VALUE_ATOMS + n` entries, which is how the reader recovers
+ * each contract's arg slot capacity `n` from raw state alone.
+ */
+export const REQUEST_FIXED_VALUE_ATOMS = 18;
 
 /**
  * Hand-composed descriptor for {@link SignetEVMSignatureRequest} — identical
  * to the struct class the Compact compiler emits into each consuming
  * contract's managed output. Nested structs encode as plain concatenation, so
  * this composes the three sub-descriptors around the leading nonce.
+ * Parameterized by the contract's arg slot capacity `n` (the Compact
+ * struct's generic size argument).
+ *
+ * @param slotCount - The contract's `EVMCalldata<#n>` instantiation.
+ * @returns The descriptor for that instantiation.
  */
-export const signetEVMSignatureRequestType: CompactType<SignetEVMSignatureRequest> =
-  {
+export function signetEVMSignatureRequestType(
+  slotCount: number,
+): CompactType<SignetEVMSignatureRequest> {
+  const calldataType = evmCalldataType(slotCount);
+  return {
     /** @returns Compound alignment of the struct's fields in declaration order. */
     alignment() {
       return u64
         .alignment()
         .concat(evmTransactionParamsType.alignment())
-        .concat(evmCalldataType.alignment())
+        .concat(calldataType.alignment())
         .concat(signetMPCRoutingParamsType.alignment());
     },
     /**
@@ -221,7 +248,7 @@ export const signetEVMSignatureRequestType: CompactType<SignetEVMSignatureReques
       return {
         requestNonce: u64.fromValue(value),
         evmTransaction: evmTransactionParamsType.fromValue(value),
-        calldata: evmCalldataType.fromValue(value),
+        calldata: calldataType.fromValue(value),
         mpcRouting: signetMPCRoutingParamsType.fromValue(value),
       };
     },
@@ -235,10 +262,11 @@ export const signetEVMSignatureRequestType: CompactType<SignetEVMSignatureReques
       return u64
         .toValue(request.requestNonce)
         .concat(evmTransactionParamsType.toValue(request.evmTransaction))
-        .concat(evmCalldataType.toValue(request.calldata))
+        .concat(calldataType.toValue(request.calldata))
         .concat(signetMPCRoutingParamsType.toValue(request.mpcRouting));
     },
   };
+}
 
 /**
  * The decoded signet ledger fields of a conforming contract — the complete
@@ -277,9 +305,18 @@ export function readSignetRequestsLedgerFromState(raw: RawContractState): Signet
     const requestId = requestIdType.fromValue([...key.value]);
     const cell = map.get(key)?.asCell();
     if (cell === undefined) continue;
+    // The record's arg slot capacity (the contract's EVMCalldata<#n>
+    // instantiation) is whatever the fixed fields leave over.
+    const slotCount = cell.value.length - REQUEST_FIXED_VALUE_ATOMS;
+    if (slotCount < 0) {
+      throw new Error(
+        `request ${requestIdHex(requestId)} has ${cell.value.length} value ` +
+          `entries — fewer than the ${REQUEST_FIXED_VALUE_ATOMS} its fixed fields need`,
+      );
+    }
     requestsIndex.set(
       requestIdHex(requestId),
-      signetEVMSignatureRequestType.fromValue([...cell.value]),
+      signetEVMSignatureRequestType(slotCount).fromValue([...cell.value]),
     );
   }
 
