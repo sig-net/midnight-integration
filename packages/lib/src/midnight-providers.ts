@@ -87,14 +87,54 @@ export function createProofServerProvider<K extends string>(
   proofServerUrl: string,
   zkConfigProvider: ZKConfigProvider<K>,
 ): ProofProvider {
-  const base = httpClientProvingProvider(proofServerUrl, zkConfigProvider);
-  const registry = new ZKConfigRegistry([zkConfigProvider]);
+  return createCrossContractProofServerProvider(proofServerUrl, [zkConfigProvider]);
+}
+
+/**
+ * Like {@link createProofServerProvider}, but resolves proving/verifier keys
+ * across a *set* of compiled-contract sources — what a **cross-contract call**
+ * needs: one transaction whose call tree spans several deployed contracts, each
+ * carrying its own proof, so proving must find artifacts for every contract in
+ * the tree (the root and each callee).
+ *
+ * The `ZKConfigRegistry` joins each call's canonical key location
+ * (`contract:<addr>/<circuitId>?vk=<sha-256 of the deployed verifier key>`) to
+ * the source whose local verifier key matches — immune to redeploys and to
+ * circuit-name collisions across contracts. Pass one `ZKConfigProvider` per
+ * compiled contract the call can reach (the caller plus every callee).
+ *
+ * @param proofServerUrl - The proof server's HTTP endpoint.
+ * @param zkConfigProviders - One provider per compiled contract in the call tree; must be non-empty.
+ * @returns The proof provider to place in a contract's midnight-js provider set.
+ * @throws If `zkConfigProviders` is empty.
+ */
+export function createCrossContractProofServerProvider(
+  proofServerUrl: string,
+  zkConfigProviders: readonly ZKConfigProvider<string>[],
+): ProofProvider {
+  if (zkConfigProviders.length === 0) {
+    throw new Error("createCrossContractProofServerProvider: at least one zkConfigProvider is required");
+  }
+
+  const registry = new ZKConfigRegistry([...zkConfigProviders]);
+
+  // Pass the REGISTRY (not a single provider) to the base: its /check and
+  // /prove key resolution (`makeKeyMaterialResolver`) special-cases a
+  // ZKConfigRegistry and resolves every contract in the call tree through it.
+  // Passing one provider would leave /check unable to find a *callee* circuit's
+  // key (its verifier-key join has only the caller), which fails a
+  // cross-contract call at the check step. The `as` bridges the nominal type:
+  // the base only ever calls `.resolveKeyLocation` on a registry argument.
+  const base = httpClientProvingProvider(
+    proofServerUrl,
+    registry as unknown as ZKConfigProvider<string>,
+  );
 
   // Same resolution order as midnight-js's internal key-material resolver:
   // canonical contract key locations through the registry's verifier-key
-  // join; otherwise try the location as a bare circuit name against the flat
-  // provider; protocol builtins ("midnight/...") resolve to undefined and
-  // are supplied by the proof server itself.
+  // join; otherwise try the location as a bare circuit name against each flat
+  // provider in turn; protocol builtins ("midnight/...") resolve to undefined
+  // and are supplied by the proof server itself.
   const lookupKey = async (
     keyLocation: string,
   ): Promise<ProvingKeyMaterial | undefined> => {
@@ -102,11 +142,14 @@ export function createProofServerProvider<K extends string>(
     if (resolved !== undefined) {
       return zkConfigToProvingKeyMaterial(resolved);
     }
-    try {
-      return zkConfigToProvingKeyMaterial(await zkConfigProvider.get(keyLocation as K));
-    } catch {
-      return undefined;
+    for (const provider of zkConfigProviders) {
+      try {
+        return zkConfigToProvingKeyMaterial(await provider.get(keyLocation));
+      } catch {
+        // try the next provider
+      }
     }
+    return undefined;
   };
 
   const provingProvider: ProvingProvider = { ...base, lookupKey };

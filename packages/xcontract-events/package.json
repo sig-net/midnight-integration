@@ -1,0 +1,39 @@
+{
+  "name": "@midnight-erc20-vault/xcontract-events",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway spike: proves compactc 0.33 (this repo's toolchain) supports cross-contract calls and MIP-0002 events. token.compact (B) emits a custom event; vault.compact (A) calls it cross-contract. Unit tests run offline; the integration test deploys both + calls A→B against a live Midnight stack (gated by RUN_INTEGRATION_TESTS). Run `npm run compile:zk` before deploying.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "compile": "npm run compile:token && npm run compile:vault",
+    "compile:token": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/token.compact src/managed/token",
+    "compile:vault": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/vault.compact src/managed/vault",
+    "compile:zk": "npm run compile:token:zk && npm run compile:vault:zk",
+    "compile:token:zk": "COMPACT_PATH=../../node_modules compact compile src/token.compact src/managed/token",
+    "compile:vault:zk": "COMPACT_PATH=../../node_modules compact compile src/vault.compact src/managed/vault",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run --bail 1 --disable-console-intercept tests/integrationTest.test.ts",
+    "deploy:token": "tsx deploy-token.ts",
+    "deploy:vault": "tsx deploy-vault.ts"
+  },
+  "dependencies": {
+    "@midnight-erc20-vault/lib": "*",
+    "@midnight-ntwrk/midnight-js": "5.0.0-beta.3",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "5.0.0-beta.3",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.3",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "5.0.0-beta.3",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "5.0.0-beta.3",
+    "@midnightntwrk/ledger-v9": "1.0.0-rc.3"
+  },
+  "devDependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.0",
+    "@types/node": "^26.1.0",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

@@ -1,0 +1,73 @@
+pragma language_version >= 0.25;
+
+// Contract B — the CALLEE. Emits a custom deposit event AND makes that event
+// PROVABLY ATTRIBUTABLE to the vault (contract A) that called it.
+//
+// Authenticity model (no signatures — see knowledge-base/authenticity-and-signing.md):
+//   • Events are part of the ZK-proven transcript, so an emitted event can't be
+//     forged by a node. But that alone doesn't prove WHO caused it.
+//   • Midnight contracts cannot see their caller in-circuit (`kernel.self()`
+//     gives OWN address; there is no `caller()`). So B cannot itself enforce
+//     "only the vault may call me". Attribution is therefore established on the
+//     CALLER side, bound by the cross-contract communication commitment:
+//       1. B records a hash of every event it emits into `emittedDeposits`
+//          (authenticated ledger state) and RETURNS that hash to its caller.
+//       2. The vault records the SAME returned hash in its own authenticated
+//          state (`vaultDeposits`). The communication commitment guarantees the
+//          hash the vault stored is exactly what B returned in a real
+//          cross-contract call, in one atomic transaction.
+//   • A verifier then proves a DepositEvent is valid AND vault-submitted by
+//     checking its hash is a member of BOTH sets (see the integration test).
+//
+// The `caller` field in the event is self-description (bound into the hash);
+// the UNFORGEABLE attribution is the vault-side membership check, because a
+// malicious caller can populate B's set but never the specific vault's set.
+
+import CompactStandardLibrary;
+
+export ledger depositCount: Counter;
+export ledger lastAmount: Uint<128>;
+
+// Authenticated on-chain log of emitted deposit-event hashes. Ledger writes are
+// part of the proven transcript, so membership here proves B genuinely emitted
+// the event — verifiable from public state without trusting the indexer.
+export ledger emittedDeposits: Set<Bytes<32>>;
+
+// The custom event. `caller` is the address the vault passes as its identity
+// (its own `kernel.self()`), carried in the event and bound into the hash.
+struct DepositEvent {
+  amount: Uint<128>;       // 16 bytes — the deposited amount (came through the call)
+  sequence: Uint<64>;      //  8 bytes — 0-based index of this deposit
+  caller: ContractAddress; // 32 bytes — the calling contract's own address
+}
+
+// Deterministic event id = persistentHash of the serialized event. Exported as
+// a PURE circuit so an off-chain verifier recomputes the exact same hash from
+// an event's fields, then checks set membership.
+export pure circuit depositEventHash(
+  amount: Uint<128>,
+  sequence: Uint<64>,
+  caller: ContractAddress,
+): Bytes<32> {
+  return persistentHash<Bytes<256>>(
+    serialize<DepositEvent, 256>(DepositEvent { amount: amount, sequence: sequence, caller: caller })
+  );
+}
+
+// Called cross-contract by the vault. Emits the event, records its hash in the
+// authenticated ledger, and RETURNS the hash so the caller can bind to it.
+export circuit deposit(amount: Uint<128>, caller: ContractAddress): Bytes<32> {
+  const a = disclose(amount);
+  const c = disclose(caller);
+  const sequence = depositCount as Uint<64>;   // read BEFORE increment → 0-based
+  depositCount.increment(1);
+  lastAmount = a;
+
+  const payload = serialize<DepositEvent, 256>(DepositEvent { amount: a, sequence: sequence, caller: c });
+  const eventHash = persistentHash<Bytes<256>>(payload);
+
+  emittedDeposits.insert(eventHash);                          // authenticated emission record
+  emit (Misc { name: pad(32, "deposit"), payload: payload }); // MIP-0002 event
+
+  return eventHash;                                           // returned to the caller (bound by comm commitment)
+}

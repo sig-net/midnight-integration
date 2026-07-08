@@ -1,0 +1,43 @@
+pragma language_version >= 0.25;
+
+// Contract A — the CALLER. Calls token.deposit cross-contract and records the
+// returned event hash in its own authenticated state, establishing PROVABLE
+// attribution: "this vault caused that deposit event".
+//
+// Why the vault-side record is the source of truth for attribution: the token
+// (B) cannot see its caller in-circuit, so B's event alone can't prove who
+// triggered it. But the vault CAN prove it triggered the call — the cross-contract
+// communication commitment binds the token's return value into the vault's
+// proof, so the hash stored below is provably exactly what the token returned
+// in a real call within this transaction. A malicious contract could make the
+// token emit an event, but could never get that hash into THIS vault's
+// `vaultDeposits` set. See knowledge-base/authenticity-and-signing.md § 3.
+
+import CompactStandardLibrary;
+
+// External declaration of the callee's surface. Note the return type and the
+// `caller: ContractAddress` param — the vault passes its own identity.
+contract Token {
+  circuit deposit(amount: Uint<128>, caller: ContractAddress): Bytes<32>;
+}
+
+export sealed ledger token: Token;
+export ledger vaultCallCount: Counter;
+
+// Authenticated attribution log: the event hashes this vault caused the token
+// to emit. Membership here proves THIS vault submitted the deposit.
+export ledger vaultDeposits: Set<Bytes<32>>;
+
+constructor(t: Token) {
+  token = disclose(t);
+}
+
+// Cross-contract call: forwards `amount` and the vault's own address to
+// token.deposit, captures the returned event hash, and records it.
+export circuit depositViaVault(amount: Uint<128>): Bytes<32> {
+  vaultCallCount.increment(1);
+  const me = kernel.self();                              // the vault's own ContractAddress
+  const eventHash = token.deposit(disclose(amount), me); // return bound by the communication commitment
+  vaultDeposits.insert(eventHash);                       // authenticated attribution
+  return eventHash;
+}
