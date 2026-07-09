@@ -1,85 +1,77 @@
 # ERC20 Vault Integration Tests
 
 Everything that needs a **running stack** lives here — nowhere else in the
-repo touches a network from tests. The suite drives the vault through
-`@midnight-erc20-vault/cli`'s exported command functions (the cli owns the
-orchestration; tests only sequence and assert), inspired directly by the old
-repo's e2e Sepolia runbook.
+repo touches a network from tests. One ordered pipeline
+(`tests/e2e.test.ts`, 17 steps, `--bail 1`) drives the full deposit flow:
+compile → deploy → initialize → `requestDeposit` → the MPC signs → the sweep
+transaction broadcasts on Sepolia → the attestation lands back on Midnight.
+The cli owns the orchestration; tests only sequence and assert.
 
 ## Prerequisites
 
-- **Local Midnight stack**: `docker compose up -d` at the repo root (node,
-  indexer, proof server — see `docker-compose.yaml`).
-- **compact compiler** on PATH (`compact --version` must work).
-- **`npm install` + `npm run compile`** from the repo root.
-- **`EVM_RPC_URL`** set (funding preflights and, later, EVM broadcasts).
-- For the full flow: the fakenet MPC responder from
-  github.com/sig-net/solana-signet-program (`yarn response`) — the suite
-  prints its exact configuration.
+- **Local Midnight stack**: `docker compose up -d` at the repo root
+  (node :9944, indexer :8088, proof server :6300).
+- **compact compiler** on PATH, then `npm install` + `npm run compile` from
+  the root.
+- **`EVM_RPC_URL`** set (repo-root `.env` — the suite loads it itself; real
+  environment variables win over the file).
+- For the last three steps: the fakenet MPC responder from
+  [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)
+  (`yarn response`) — the suite prints the exact config it needs.
 
 ## Running
 
 ```sh
-npm run test:integration-tests  # from the repo root
+npm run test:integration-tests   # from the repo root
 ```
 
-The suite is one ordered pipeline in `tests/e2e.test.ts` (`--bail 1` stops it
-at the first failing step):
+Every setup step is **skippable via `.env`**: when its variable is set, the
+step verifies it and logs `SKIPPED`, so a populated `.env` goes straight to
+the contract calls (~2–3 min total). Unset, the step does the work and
+prints the value to save. A fresh deployment is therefore **two runs by
+design** — the MPC responder can only be configured after run 1 prints the
+contract addresses:
 
-1. **env check** — stack reachable, compiler present, `EVM_RPC_URL` set.
-2. **compile** (`compile:vault-contract:zk`) — skipped when `MIDNIGHT_VAULT_CONTRACT_ADDRESS` is set.
-3. **deploy** (in-process `deployVault`) — skipped when the address is set; otherwise prints the address to save.
-4. **derive `MPC_ROOT_KEY`** — skipped when set.
-5. **derive MPC public keys** — skipped when all three are set.
-6. **derive `EVM_VAULT_ADDRESS`** (path `"vault"`) — skipped when set.
-7. **derive `EVM_USER_ADDRESS`** (path = user commitment hex) — skipped when set; this is the address you fund on Sepolia.
-8. **print MPC server configuration** — always runs; also prints the full minimal `.env` block for subsequent runs.
-9. **initialize** *[erc-vault contract method call]* — drives the cli's `initialize` + `readState`; skips the circuit call (but still asserts) when the vault is already initialized.
-10. **deposit funding preflight** — `EVM_USER_ADDRESS` must hold ≥ 0.01 ETH and ≥ 0.1 of the ERC20 (`ERC20_ADDRESS`, default Sepolia USDC). The deposit flow itself lands with the cli's `request-deposit` wiring.
-11. **requestDeposit** *[erc-vault contract method call]* — drives the cli's `requestDeposit` to post a signature request for a sweep transaction for the asset being deposited from the `EVM_USER_ADDRESS` to the `EVM_VAULT_ADDRESS` for the MPC to sign.
-12. **pollSignatureResponse** - drive the cli's `pollSignatureResponse` to watch for the signature of the deposit sweep transaction posted by the MPC to the signature responses contract.
+1. **Run 1** — compiles with proving keys (~10 min: background it), deploys
+   both contracts, derives keys and EVM addresses, initializes the vault,
+   prints the complete `.env` block + responder config, then stops at the
+   funding preflight. That stop is the hand-off, not a bug.
+2. **Between runs** — paste the printed block into `.env`, fund
+   `EVM_USER_ADDRESS` on Sepolia (≥ 0.009 ETH, ≥ 0.1 USDC), configure and
+   start the responder.
+3. **Run 2** — every setup step skips; the deposit flow runs to 17/17.
 
-Plain `npm run test` (root) skips the whole suite — it only runs when
-`RUN_INTEGRATION_TESTS` is set, which `test:integration-tests` does for you.
-
-## The two-phase workflow
-
-A fresh run necessarily stops at the human hand-off: the MPC server can only
-be configured with the contract address **after** the first run prints it.
-
-- **Run 1** (fresh): compiles, deploys, derives everything, prints the
-  MPC server config + the minimal `.env` block, initializes the vault, and
-  fails the funding preflight until you fund the user address.
-- **Between runs**: paste the printed block into `.env`, fund
-  `EVM_USER_ADDRESS` (and `EVM_VAULT_ADDRESS` with gas ETH for withdrawals),
-  configure + start the responder (`yarn response`).
-- **Run 2+**: every setup step logs `SKIPPED: …` and the pipeline goes
-  straight to the tests against the kept deployment.
+**Redeploying after a circuit change?** The derived EVM accounts move with
+the vault contract address, and funds on the old ones do not follow. Follow
+the runbook in
+[`../../.claude/skills/e2e/SKILL.md`](../../.claude/skills/e2e/SKILL.md) —
+it includes the fund-sweep script.
 
 ## Environment variables
 
-The suite loads the **repo-root `.env`** itself (nothing else in the repo
-does); values already present in the real environment win over the file.
-
 | Variable | Purpose | Default |
 |---|---|---|
-| `RUN_INTEGRATION_TESTS` | Opt-in gate; real env only (not read from `.env`), `test:integration-tests` sets it | unset (suite skips) |
+| `RUN_INTEGRATION_TESTS` | Opt-in gate (real env only, not `.env`); `test:integration-tests` sets it | unset (suite skips) |
+| `EVM_RPC_URL` | EVM JSON-RPC endpoint | — (required) |
 | `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (lib config) | local stack defaults |
 | `DEPLOYER_SEED` / `VAULT_DEPLOYER_SECRET_KEY` | Deployer wallet / identity | genesis seed `00…01` |
 | `USER_SEED` / `VAULT_USER_SECRET_KEY` | User wallet / identity (cli) | genesis seed `00…01` |
-| `MIDNIGHT_VAULT_CONTRACT_ADDRESS` | Deployed vault; set to skip compile+deploy | derived by run 1 |
-| `MPC_ROOT_KEY` | Fakenet signer root key; set to skip generation | derived by run 1 |
-| `MPC_JUBJUB_PK`, `MPC_SECP256K1_PUBKEY` | MPC public keys; set both to skip derivation | derived from root key |
-| `EVM_VAULT_ADDRESS` / `EVM_USER_ADDRESS` | Derived EVM accounts; set to skip derivation | derived by run 1 |
-| `EVM_RPC_URL` | EVM JSON-RPC endpoint | — (required) |
+| `MIDNIGHT_VAULT_CONTRACT_ADDRESS`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | printed by run 1 |
+| `MPC_ROOT_KEY` | Fakenet signer root key | derived by run 1 |
+| `MPC_JUBJUB_PK`, `MPC_SECP256K1_PUBKEY` | MPC public keys | derived from root key |
+| `EVM_VAULT_ADDRESS` / `EVM_USER_ADDRESS` | Epsilon-derived EVM accounts | derived by run 1 |
 | `ERC20_ADDRESS` | Token for the deposit flow | Sepolia USDC `0x1c7D…7238` |
+| `DEPOSIT_REQUEST_ID` | Reuse an existing request id, skipping the `requestDeposit` call | unset |
+| `STEP_THROUGH` | `1` pauses before each test (hit enter) — interactive debugging only, never unattended | unset |
 
-Note: the deployer and user identities default to the same genesis seed —
-`initialize` is deployer-gated, so if you change one, change both (or expect
-step 9 to be rejected in-circuit).
+## Gotchas
 
-## Resetting local identity state
-
-midnight-js persists private state in `midnight-level-db/` keyed by seed. If
-you change `VAULT_USER_SECRET_KEY` while keeping the same `USER_SEED`, the
-stale private state wins — `rm -rf midnight-level-db` to reset.
+- Deployer and user identities default to the **same** genesis seed;
+  `initialize` is deployer-gated — change both or neither.
+- midnight-js persists private state in `midnight-level-db/` keyed by seed.
+  If you change `VAULT_USER_SECRET_KEY` under the same `USER_SEED`, the stale
+  state wins — `rm -rf midnight-level-db` to reset.
+- The last three steps timing out while everything else passes means the MPC
+  responder is down or watching stale contract addresses.
+- Proof failures surface as `Failed Proof Server response … 400`; the real
+  error is in `docker logs midnight-proof-server`.
