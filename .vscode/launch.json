@@ -1,0 +1,47 @@
+{
+  // Debug configs for the integration suite. Both launch the real root
+  // command (npm run test:integration-tests) from the repo root; the
+  // debugger auto-attaches to the vitest processes npm spawns, so
+  // breakpoints in packages/integration-tests bind as usual.
+  //
+  // The test itself loads the repo-root .env (loadRepoDotEnv) and overlays
+  // process.env on top, so the "env" blocks below only need the
+  // process-level toggles — anything set here overrides the same key in
+  // .env. RUN_INTEGRATION_TESTS is set by the npm script itself.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Equivalent of: npm run test:integration-tests
+      "name": "Debug e2e.test.ts",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "test:integration-tests"],
+      // integratedTerminal so stdin works (STEP_THROUGH's waitForGo prompt)
+      "console": "integratedTerminal",
+      "env": {
+        // Optional toggles — uncomment / fill in as needed:
+        // "STEP_THROUGH": "1",
+        // "DEPOSIT_REQUEST_ID": "0x<request-id-hex>",
+        // Anything from .env can be overridden per-session too, e.g.:
+        // "MIDNIGHT_VAULT_CONTRACT_ADDRESS": "0200...",
+        // "EVM_RPC_URL": "https://sepolia.infura.io/v3/<key>"
+      }
+    },
+    {
+      // Equivalent of: STEP_THROUGH=1 npm run test:integration-tests
+      // Pauses before each step; press Enter in the terminal to continue.
+      "name": "Debug e2e.test.ts (step-through)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "test:integration-tests"],
+      "console": "integratedTerminal",
+      "env": {
+        "STEP_THROUGH": "1"
+      }
+    }
+  ]
+}
