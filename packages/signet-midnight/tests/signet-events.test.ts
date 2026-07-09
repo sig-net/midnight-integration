@@ -1,16 +1,18 @@
-// Codec test for the SignBidirectionalEvent notification. Per gotcha #5, an
-// emitted event is NOT observable in the in-process simulator, so this decodes
-// a CONSTRUCTED payload byte fixture laid out exactly as
-// `serialize<SignBidirectionalEvent, 256>` documents (declaration order, each
-// field its natural width, packed at the front, right-zero-padded to 256). The
-// live golden e2e test pins the same layout against a real indexer and captures
-// a real payload to replace this fixture if the layout ever drifts.
+// Codec tests for the signet event notifications. Per gotcha #5, an emitted
+// event is NOT observable in the in-process simulator, so these decode
+// CONSTRUCTED payload byte fixtures laid out exactly as `serialize<T, 256>`
+// documents (declaration order, each field its natural width — Uints
+// little-endian — packed at the front, right-zero-padded to 256). The live
+// golden e2e tests pin the same layouts against a real indexer and capture
+// real payloads to replace these fixtures if a layout ever drifts.
 
 import { describe, expect, it } from "vitest";
 
 import {
   SIGN_BIDIRECTIONAL_EVENT_TAG,
+  SIGNATURE_RESPONDED_EVENT_TAG,
   decodeSignBidirectionalEvent,
+  decodeSignatureRespondedEvent,
   eventNameTag,
   hexToBytes,
   requestIdHex,
@@ -70,6 +72,57 @@ describe("decodeSignBidirectionalEvent", () => {
     expect(() => decodeSignBidirectionalEvent(new Uint8Array(64))).toThrow(
       /fewer than/,
     );
+  });
+});
+
+/** Build a `serialize<SignatureRespondedEvent, 256>` payload from its parts. */
+const buildRespondedPayload = (
+  requestId: Uint8Array,
+  count: bigint,
+): Uint8Array => {
+  const payload = new Uint8Array(256);
+  payload.set(requestId, 0);
+  let value = count;
+  for (let i = 0; i < 8; i++) {
+    payload[32 + i] = Number(value & 0xffn);
+    value >>= 8n;
+  }
+  return payload;
+};
+
+describe("decodeSignatureRespondedEvent", () => {
+  it("recovers requestId and count exactly", () => {
+    const decoded = decodeSignatureRespondedEvent(
+      buildRespondedPayload(REQUEST_ID_BYTES, 7n),
+    );
+    expect(decoded.requestId).toBe(REQUEST_ID_HEX);
+    expect(decoded.count).toBe(7n);
+  });
+
+  it("decodes a multi-byte count as LITTLE-endian", () => {
+    // 0x0102 LE = bytes [0x02, 0x01, 0, …]; a big-endian misread would give
+    // 0x0201000000000000 instead.
+    const decoded = decodeSignatureRespondedEvent(
+      buildRespondedPayload(REQUEST_ID_BYTES, 0x0102n),
+    );
+    expect(decoded.count).toBe(258n);
+  });
+
+  it("decodes count 0 (the first post for a request)", () => {
+    const decoded = decodeSignatureRespondedEvent(
+      buildRespondedPayload(REQUEST_ID_BYTES, 0n),
+    );
+    expect(decoded.count).toBe(0n);
+  });
+
+  it("rejects a payload shorter than the fixed fields", () => {
+    expect(() => decodeSignatureRespondedEvent(new Uint8Array(39))).toThrow(
+      /fewer than/,
+    );
+  });
+
+  it("carries a tag distinct from the request-side event", () => {
+    expect(SIGNATURE_RESPONDED_EVENT_TAG).not.toBe(SIGN_BIDIRECTIONAL_EVENT_TAG);
   });
 });
 

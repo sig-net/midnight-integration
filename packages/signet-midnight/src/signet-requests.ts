@@ -27,7 +27,7 @@ import { getAddress, getBytes, Signature, Transaction } from "ethers";
 
 import { asciiPadded } from "./constants.ts";
 import { bigintToBytes32, bytesToBigint } from "./schnorr.ts";
-import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts";
+import type { SignatureResponse } from "./signet-contract-state-reader.ts";
 
 /**
  * 32-byte signet request id (Compact: `new type RequestId = Bytes<32>`).
@@ -494,8 +494,8 @@ export function signBidirectionalRequestToUnsignedEVMTransaction(
  * @returns The ethers signature.
  * @throws Error if the recovery id is not 0 or 1.
  */
-export function signatureRespondedEventToSignature(
-  response: SignatureRespondedEvent,
+export function signatureResponseToSignature(
+  response: SignatureResponse,
 ): Signature {
   const recoveryId = Number(response.recoveryId);
   if (recoveryId !== 0 && recoveryId !== 1) {
@@ -537,7 +537,7 @@ function bigintToBytes32BE(value: bigint): Uint8Array {
 
 /**
  * Encode an ECDSA signature as the response record posted to the signet
- * contract — the inverse of {@link signatureRespondedEventToSignature},
+ * contract — the inverse of {@link signatureResponseToSignature},
  * for MPC-side posters (the fakenet signer, tests). The canonical record
  * carries `bigR` as a full affine point but an `r || s || v` signature only
  * has R.x and the parity of R.y, so R.y is recovered by decompressing the
@@ -552,9 +552,9 @@ function bigintToBytes32BE(value: bigint): Uint8Array {
  * @returns The response record, ready to post.
  * @throws Error if `r` is not the x coordinate of a curve point.
  */
-export function signatureToSignatureRespondedEvent(
+export function signatureToSignatureResponse(
   signature: Pick<Signature, "r" | "s" | "yParity">,
-): SignatureRespondedEvent {
+): SignatureResponse {
   const x = BigInt(signature.r);
   const ySquared = (modPow(x, 3n, SECP256K1_P) + 7n) % SECP256K1_P;
   // P ≡ 3 (mod 4), so a square root (when one exists) is c^((P+1)/4).
@@ -579,7 +579,7 @@ export function signatureToSignatureRespondedEvent(
  * signed (see {@link signBidirectionalRequestToUnsignedEVMTransaction}) and
  * attach the signature. Does NOT check that the signature recovers to the
  * requester's derived address — the response log is unauthenticated, so
- * verify first with `verifySignatureRespondedEvent`.
+ * verify first with `verifySignatureResponse`.
  *
  * @param event - The on-ledger request record.
  * @param response - The posted signature record answering it.
@@ -592,10 +592,10 @@ export function signatureToSignatureRespondedEvent(
  */
 export function signBidirectionalRequestToSignedEVMTransaction(
   event: SignBidirectionalRequest,
-  response: SignatureRespondedEvent,
+  response: SignatureResponse,
 ): Transaction {
   const transaction = signBidirectionalRequestToUnsignedEVMTransaction(event);
-  transaction.signature = signatureRespondedEventToSignature(response);
+  transaction.signature = signatureResponseToSignature(response);
   return transaction;
 }
 

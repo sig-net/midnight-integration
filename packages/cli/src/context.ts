@@ -88,10 +88,10 @@ export async function createCliContext(config: CliConfig, wallet: CliWallet): Pr
   return {
     config,
     midnightProviders: {
-      indexerPublicDataProvider: indexerPublicDataProvider(
-        config.midnightNodeConfig.indexerUrl,
-        config.midnightNodeConfig.indexerWsUrl,
-      ),
+      indexerPublicDataProvider: indexerPublicDataProvider({
+        queryURL: config.midnightNodeConfig.indexerUrl,
+        subscriptionURL: config.midnightNodeConfig.indexerWsUrl,
+      }),
     },
     providers,
     vault,

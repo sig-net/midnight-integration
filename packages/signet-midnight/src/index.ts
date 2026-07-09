@@ -13,6 +13,7 @@ export * from "./signet-events.ts";
 export * from "./signet-event-observer.ts";
 export * from "./signet-request-resolver.ts";
 export * from "./signet-request-feed.ts";
+export * from "./signet-response-feed.ts";
 export * from "./constants.ts";
 export * from "./epsilon-derivation.ts";
 export * from "./schnorr.ts";

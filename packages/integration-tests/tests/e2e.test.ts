@@ -34,7 +34,9 @@ import {
   executionSucceeded,
   SignetRequestResponseReader,
   SIGN_BIDIRECTIONAL_EVENT_TAG,
+  SIGNATURE_RESPONDED_EVENT_TAG,
   decodeSignBidirectionalEvent,
+  decodeSignatureRespondedEvent,
   eventNameTag,
   hexToBytes,
   requestIdBytes,
@@ -352,10 +354,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       sharedReader = new SignetRequestResponseReader({
         requesterContractAddress: requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS"),
         signetContractAddress: requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
-        publicDataProvider: indexerPublicDataProvider(
-          nodeConfig.indexerUrl,
-          nodeConfig.indexerWsUrl,
-        ),
+        publicDataProvider: indexerPublicDataProvider({
+          queryURL: nodeConfig.indexerUrl,
+          subscriptionURL: nodeConfig.indexerWsUrl,
+        }),
       });
     }
     return sharedReader;
@@ -483,10 +485,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       const vaultAddress = requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS");
       const signetAddress = requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
       const nodeConfig = getMidnightNodeConfig(env);
-      const pdp = indexerPublicDataProvider(
-        nodeConfig.indexerUrl,
-        nodeConfig.indexerWsUrl,
-      );
+      const pdp = indexerPublicDataProvider({
+        queryURL: nodeConfig.indexerUrl,
+        subscriptionURL: nodeConfig.indexerWsUrl,
+      });
 
       const deadline = Date.now() + 60_000;
       let decoded: ReturnType<typeof decodeSignBidirectionalEvent> | undefined;
@@ -559,6 +561,69 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       ]);
     },
     5 * MINUTE,
+  );
+
+  it(
+    "golden event: signet contract emitted a decodable SignatureRespondedEvent for the posted response",
+    async () => {
+      // Pins the SignatureRespondedEvent byte layout against a LIVE indexer —
+      // the codec offsets (§signet-events.ts) depend on it, and gotcha #5 means
+      // this cannot be exercised in the in-process simulator. The MPC's
+      // postSignatureResponse emitted this; pollSignatureResponse already
+      // consumed it through the SignetResponseFeed, so it must be indexed —
+      // still poll briefly to be robust against indexer lag (gotcha #15).
+      expect(depositTransactionSignatureRequestId).toBeDefined();
+      const signetAddress = requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
+      const nodeConfig = getMidnightNodeConfig(env);
+      const pdp = indexerPublicDataProvider({
+        queryURL: nodeConfig.indexerUrl,
+        subscriptionURL: nodeConfig.indexerWsUrl,
+      });
+
+      const deadline = Date.now() + 60_000;
+      let decoded: ReturnType<typeof decodeSignatureRespondedEvent> | undefined;
+      let rawPayloadHex: string | undefined;
+      while (Date.now() < deadline && decoded === undefined) {
+        const events = await pdp.queryContractEvents({
+          contractAddress: signetAddress,
+          types: ["Misc"],
+        });
+        for (const event of events) {
+          if (event.eventType !== "Misc") continue;
+          if (eventNameTag(event.name) !== SIGNATURE_RESPONDED_EVENT_TAG) continue;
+          const candidate = decodeSignatureRespondedEvent(hexToBytes(event.payload));
+          // Take the request's FIRST post (count 0) so the assertion is stable
+          // on reruns even if noise posts were added later.
+          if (candidate.requestId === depositTransactionSignatureRequestId && candidate.count === 0n) {
+            decoded = candidate;
+            rawPayloadHex = event.payload;
+            break;
+          }
+        }
+        if (decoded === undefined) await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      if (decoded === undefined) {
+        throw new Error(
+          `no Misc "${SIGNATURE_RESPONDED_EVENT_TAG}" event for request ` +
+            `${depositTransactionSignatureRequestId} (count 0) indexed on ${signetAddress} within 60s`,
+        );
+      }
+
+      expect(decoded.requestId).toBe(depositTransactionSignatureRequestId);
+      expect(decoded.count).toBe(0n);
+
+      banner([
+        "Golden SignatureRespondedEvent decoded from the live indexer:",
+        "",
+        `  requestId: ${decoded.requestId}`,
+        `  count:     ${decoded.count}`,
+        "",
+        `  raw payload (capture as the unit fixture if the layout ever drifts):`,
+        `  ${rawPayloadHex}`,
+      ]);
+    },
+    2 * MINUTE,
   );
 
   it(

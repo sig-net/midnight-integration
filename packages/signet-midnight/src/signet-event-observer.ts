@@ -1,9 +1,12 @@
-// Watch the CENTRAL signet contract's `Misc` events to discover signature
-// requests as they are stored — the event-observation replacement for polling
-// each requester contract's ledger. The observer only DISCOVERS (decodes the
-// SignBidirectionalEvent notifications in id order); authentication of the
-// request it points at is the resolver's job (signet-request-resolver.ts). The
-// event is a ping, never the source of truth — see
+// Watch the CENTRAL signet contract's `Misc` events and surface ONE kind of
+// signet notification (selected by the codec) as typed events in id order —
+// the event-observation replacement for polling ledgers blind. Instantiated
+// with `signBidirectionalEventCodec` it discovers signature requests for the
+// MPC (see signet-request-feed.ts); with `signatureRespondedEventCodec` it
+// discovers posted signature responses for the requesting client (see
+// signet-response-feed.ts). The observer only DISCOVERS; authenticating /
+// verifying what an event points at is its consumer's job. The event is a
+// ping, never the source of truth — see
 // knowledge-base/caller-attribution.md.
 
 import type {
@@ -13,11 +16,9 @@ import type {
 } from "@midnight-ntwrk/midnight-js-types";
 
 import {
-  SIGN_BIDIRECTIONAL_EVENT_TAG,
-  decodeSignBidirectionalEvent,
   eventNameTag,
   hexToBytes,
-  type SignBidirectionalEvent,
+  type SignetMiscEventCodec,
 } from "./signet-events.ts";
 
 /** Default gap between polls of the indexer's event stream. */
@@ -47,11 +48,17 @@ export interface SignetEventSource {
 }
 
 /** Everything a {@link SignetEventObserver} needs. */
-export interface SignetEventObserverConfig {
+export interface SignetEventObserverConfig<T> {
   /** Address of the central signet contract whose events to watch. */
   readonly signetContractAddress: string;
   /** Source of contract events, e.g. midnight-js's `indexerPublicDataProvider`. */
   readonly source: SignetEventSource;
+  /**
+   * Which signet event kind to surface: the `Misc.name` tag to filter on and
+   * the payload decoder, e.g. `signBidirectionalEventCodec` or
+   * `signatureRespondedEventCodec` (signet-events.ts).
+   */
+  readonly codec: SignetMiscEventCodec<T>;
   /**
    * Durable resume floor: only events with `id >= fromEventId` are considered
    * (the in-memory cursor of a prior run, persisted across restarts so nothing
@@ -82,24 +89,25 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * Watches one signet contract's `Misc` events and surfaces the
- * {@link SignBidirectionalEvent} notifications among them (name tag
- * {@link SIGN_BIDIRECTIONAL_EVENT_TAG}), decoded and in ascending indexer-id
- * order. A single decode failure is logged and skipped — one malformed event
- * never stalls the stream.
+ * Watches one signet contract's `Misc` events and surfaces the notifications
+ * of ONE kind among them (the codec's name tag), decoded and in ascending
+ * indexer-id order. A single decode failure is logged and skipped — one
+ * malformed event never stalls the stream.
  */
-export class SignetEventObserver {
+export class SignetEventObserver<T> {
   private readonly signetContractAddress: string;
   private readonly source: SignetEventSource;
+  private readonly codec: SignetMiscEventCodec<T>;
   private readonly fromEventId: number;
   private readonly pollIntervalMs: number;
 
   /**
-   * @param config - The signet contract, event source, and resume floor.
+   * @param config - The signet contract, event source, codec, and resume floor.
    */
-  constructor(config: SignetEventObserverConfig) {
+  constructor(config: SignetEventObserverConfig<T>) {
     this.signetContractAddress = config.signetContractAddress;
     this.source = config.source;
+    this.codec = config.codec;
     this.fromEventId = config.fromEventId ?? 0;
     this.pollIntervalMs = config.pollIntervalMs ?? DEFAULT_EVENT_POLL_INTERVAL_MS;
   }
@@ -110,26 +118,24 @@ export class SignetEventObserver {
   }
 
   /**
-   * Every currently-visible {@link SignBidirectionalEvent} notification at or
-   * after the resume floor, each paired with its indexer cursor id, ascending
-   * by id. Non-`Misc` events, other name tags, and decode failures are
-   * dropped (failures logged).
+   * Every currently-visible notification of the codec's kind at or after the
+   * resume floor, each paired with its indexer cursor id, ascending by id.
+   * Non-`Misc` events, other name tags, and decode failures are dropped
+   * (failures logged).
    */
-  private async scan(): Promise<
-    Array<{ id: number; event: SignBidirectionalEvent }>
-  > {
+  private async scan(): Promise<Array<{ id: number; event: T }>> {
     const events = await this.source.queryContractEvents(this.filter());
-    const out: Array<{ id: number; event: SignBidirectionalEvent }> = [];
+    const out: Array<{ id: number; event: T }> = [];
     for (const event of events) {
       if (event.eventType !== "Misc") continue;
       if (event.id < this.fromEventId) continue;
-      if (eventNameTag(event.name) !== SIGN_BIDIRECTIONAL_EVENT_TAG) continue;
-      let decoded: SignBidirectionalEvent;
+      if (eventNameTag(event.name) !== this.codec.tag) continue;
+      let decoded: T;
       try {
-        decoded = decodeSignBidirectionalEvent(hexToBytes(event.payload));
+        decoded = this.codec.decode(hexToBytes(event.payload));
       } catch (error) {
         console.warn(
-          `SignetEventObserver: dropping undecodable ${SIGN_BIDIRECTIONAL_EVENT_TAG} ` +
+          `SignetEventObserver: dropping undecodable ${this.codec.tag} ` +
             `event id=${event.id}: ${String(error)}`,
         );
         continue;
@@ -141,15 +147,15 @@ export class SignetEventObserver {
   }
 
   /**
-   * One-shot: every {@link SignBidirectionalEvent} notification currently
-   * visible at or after the resume floor, in id order. The polling primitive
-   * {@link SignetRequestFeed} re-scans through each cycle (so a not-yet-indexed
-   * request is retried); it does NOT advance a cursor, deduping by request id
-   * instead.
+   * One-shot: every notification of the codec's kind currently visible at or
+   * after the resume floor, in id order. The polling feeds
+   * ({@link SignetRequestFeed}, `SignetResponseFeed`) re-scan through this
+   * each cycle (so a not-yet-indexed write is retried); it does NOT advance a
+   * cursor — the feeds dedupe by content instead.
    *
    * @returns The decoded notifications, ascending by indexer id.
    */
-  async currentEvents(): Promise<SignBidirectionalEvent[]> {
+  async currentEvents(): Promise<T[]> {
     return (await this.scan()).map((entry) => entry.event);
   }
 
@@ -162,9 +168,7 @@ export class SignetEventObserver {
    * @param opts.signal - Abort to stop the stream (between polls or on the next yield).
    * @yields Each decoded notification once, ascending by indexer id.
    */
-  async *watch(opts?: {
-    signal?: AbortSignal;
-  }): AsyncIterableIterator<SignBidirectionalEvent> {
+  async *watch(opts?: { signal?: AbortSignal }): AsyncIterableIterator<T> {
     let cursor = this.fromEventId;
     while (!opts?.signal?.aborted) {
       const batch = await this.scan();

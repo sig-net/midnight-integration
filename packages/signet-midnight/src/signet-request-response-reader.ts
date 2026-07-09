@@ -16,10 +16,10 @@ import { readSignetRequestsLedgerFromState } from "./signature-requests-state-re
 import {
   readSignetContractLedgerFromState,
   signetResponseIndexKey,
-  type SignatureRespondedEvent,
+  type SignatureResponse,
   type RespondBidirectional,
 } from "./signet-contract-state-reader.ts";
-import { recoverSignatureRespondedEventSigner } from "./signature-response-verification.ts";
+import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
 import type { RawContractState } from "./signature-state-reading.ts";
 import {
   signBidirectionalRequestToSignedEVMTransaction,
@@ -62,7 +62,7 @@ export interface SignatureResponseVerdict {
   /** 0-based position of the post in the request's response log. */
   count: bigint;
   /** The posted signature record, verbatim. */
-  response: SignatureRespondedEvent;
+  response: SignatureResponse;
   /** Recovered signer address — absent when the signature did not decode. */
   signer?: string;
   /** Why the post was rejected; absent when the post is valid. */
@@ -75,7 +75,7 @@ export interface VerifiedSignatureResponseResult {
    * The first valid response (lowest count), or `undefined` when no valid
    * response has been posted yet — poll again.
    */
-  verified?: SignatureRespondedEvent;
+  verified?: SignatureResponse;
   /**
    * One verdict per post, count order. Pure data: the reader never logs, so
    * callers decide how to surface rejected posts.
@@ -171,17 +171,17 @@ export class SignetRequestResponseReader {
    */
   async getSignatureResponses(
     requestId: RequestIdHex,
-  ): Promise<SignatureRespondedEvent[]> {
+  ): Promise<SignatureResponse[]> {
     const raw = await this.queryRawState(
       this.config.signetContractAddress,
       "signet contract",
     );
-    const { signatureRespondedEventCounterIndex, signatureRespondedEventIndex } =
+    const { signatureResponseCounterIndex, signatureResponseIndex } =
       readSignetContractLedgerFromState(raw);
-    const totalPosts = signatureRespondedEventCounterIndex.get(requestId) ?? 0n;
-    const responses: SignatureRespondedEvent[] = [];
+    const totalPosts = signatureResponseCounterIndex.get(requestId) ?? 0n;
+    const responses: SignatureResponse[] = [];
     for (let count = 0n; count < totalPosts; count++) {
-      const response = signatureRespondedEventIndex.get(
+      const response = signatureResponseIndex.get(
         signetResponseIndexKey(requestId, count),
       );
       if (response === undefined) {
@@ -220,7 +220,7 @@ export class SignetRequestResponseReader {
         const count = BigInt(index);
         let signer: string;
         try {
-          signer = recoverSignatureRespondedEventSigner(request, response);
+          signer = recoverSignatureResponseSigner(request, response);
         } catch (error) {
           return {
             count,

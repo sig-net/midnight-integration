@@ -17,9 +17,10 @@
 // chain-signatures/primitives): the SignBidirectionalRequest record mirrors
 // the MPC's SignBidirectionalEvent (with the EVM transaction decomposed — the
 // Canton-adapter precedent) and a client emits a SignBidirectionalEvent to
-// notify the MPC one was stored; the signature response mirrors
-// Signature { big_r, s, recovery_id }, and the execution attestation mirrors
-// RespondBidirectionalEvent / serialized_output.
+// notify the MPC one was stored; the SignatureResponse record mirrors
+// Signature { big_r, s, recovery_id } and the signet contract emits a
+// SignatureRespondedEvent to notify the client one was posted; the execution
+// attestation mirrors RespondBidirectionalEvent / serialized_output.
 //
 // Read more:
 //   - sig-net docs (chain signatures, key derivation): https://docs.sig.network/
@@ -47,8 +48,8 @@ module Signet {
 
   // ---- The canonical request/response pair ----------------------------------
   // 1. Client contract stores a SignBidirectionalRequest and emits a SignBidirectionalEvent, requesting a signature from the MPC
-  // 2. MPC reads the request, responding with SignatureRespondedEvent (providing the requested signature back to the client)
-  // 3. Client observes SignatureRespondedEvent, broadcasts txn to destination chain
+  // 2. MPC reads the request and posts a SignatureResponse (the requested signature) to the central signet contract, which emits a SignatureRespondedEvent
+  // 3. Client observes SignatureRespondedEvent, verifies the posted SignatureResponse, broadcasts txn to destination chain
   // 4. MPC observes txn execution on destination chain, responds with RespondBidirectionalEvent
 
   // TxParamType indiciates which transaction-param decomposition a request
@@ -118,18 +119,36 @@ module Signet {
       signBidirectionalRequestsIndexField: Uint<8>,
   }
 
-  // The counterpart to SignBidirectionalRequest, emitted by the MPC after it
-  // observes the request.
+  // The counterpart to SignBidirectionalRequest: the record the MPC posts to
+  // the central signet contract's response log after it observes the request
+  // (mirrors the MPC's canonical Signature { big_r, s, recovery_id }).
   // Contains the MPC's secp256k1 signature over the requested transaction.
   // The requesting client uses this to rebuild a signed transaction and broadcast.
-  export struct SignatureRespondedEvent {
+  export struct SignatureResponse {
     bigRx: Bytes<32>;    // signature R.x
     bigRy: Bytes<32>;    // signature R.y
     s: Bytes<32>;        // signature s
     recoveryId: Uint<8>; // parity of R.y for public-key recovery
   }
 
-  // The counterpart to SignatureRespondedEvent, emitted by the MPC after
+  // SignatureRespondedEvent notifies the requesting client that a
+  // SignatureResponse has been posted to the central signet contract's
+  // response log — the response-direction counterpart of
+  // SignBidirectionalEvent. A ping, never the source of truth: the client
+  // reads the post back from the log at (requestId, count) and verifies the
+  // signature off-chain — the log is unauthenticated, so verification, not
+  // the event, confers trust.
+  export struct SignatureRespondedEvent {
+      // Representation type (Bytes<32>), NOT the RequestId new type: a `new type`
+      // field crashes the serialize<> event encoder (compiler self-diagnosed bug).
+      requestId: Bytes<32>,
+
+      // 0-based position of the post in the request's response log — the
+      // `count` half of the SignetResponseKey it is stored under.
+      count: Uint<64>,
+  }
+
+  // The counterpart to SignatureResponse, emitted by the MPC after
   // it observes execution of the signed transaction on the destination chain.
   // This response contains execution output and an attestation as to its authenticity.
   // TODO: currently contains a Schnorr attestation --> migrate to ECDSA.
@@ -247,15 +266,16 @@ module Signet {
   // ---- Signet Contract Ledger Layout ------------------------------------------
   // The CENTRAL signet contract on Midnight stores both MPC response kinds.
   // Its layout convention (find everything knowing only the contract address):
-  //   field 0: SignatureRespondedEventCounterIndex
-  //   field 1: SignatureRespondedEventIndex
+  //   field 0: SignatureResponseCounterIndex
+  //   field 1: SignatureResponseIndex
   //   field 2: RespondBidirectionalIndex
   //   field 3: mpcPubKeyHash (sealed Bytes<32>)
   //
   // The two kinds get different defenses:
   //   - Signature responses are secp256k1 ECDSA — unverifiable in-circuit —
   //     so their log is UNAUTHENTICATED and append-only: each post lands
-  //     under a fresh (requestId, count) key; a rogue poster can add noise
+  //     under a fresh (requestId, count) key (announced by a
+  //     SignatureRespondedEvent); a rogue poster can add noise
   //     but never overwrite or block the genuine response. Clients enumerate
   //     a request's entries and verify each signature off-chain.
   //   - Respond-bidirectional attestations are Schnorr on Jubjub — the
@@ -266,11 +286,11 @@ module Signet {
   // Per-request post counter for signature responses (field 0). The counter
   // reads the number of posts made for that request; entries exist for
   // counts 0..counter-1.
-  export new type SignatureRespondedEventCounterIndex = Map<RequestId, Counter>;
+  export new type SignatureResponseCounterIndex = Map<RequestId, Counter>;
 
   // Composite key of one posted signature response: the request id it
   // answers plus this post's 0-based count, sourced from
-  // SignatureRespondedEventCounterIndex. (Respond-bidirectional posts need no key
+  // SignatureResponseCounterIndex. (Respond-bidirectional posts need no key
   // struct — authenticated posts are keyed by request id alone.)
   export struct SignetResponseKey {
     count: Uint<64>;
@@ -279,7 +299,7 @@ module Signet {
 
   // The on-ledger signature response log (field 1), keyed by
   // (requestId, count).
-  export new type SignatureRespondedEventIndex = Map<SignetResponseKey, SignatureRespondedEvent>;
+  export new type SignatureResponseIndex = Map<SignetResponseKey, SignatureResponse>;
 
   // The on-ledger respond-bidirectional index (field 2): one
   // contract-verified attestation per request.

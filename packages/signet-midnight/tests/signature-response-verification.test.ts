@@ -19,13 +19,13 @@ import {
   asciiPadded,
   evmAddressAbiWord,
   numericAbiWordValue,
-  signatureToSignatureRespondedEvent,
+  signatureToSignatureResponse,
   signBidirectionalRequestToSignedEVMTransaction,
   signBidirectionalRequestToUnsignedEVMTransaction,
-  recoverSignatureRespondedEventSigner,
-  verifySignatureRespondedEvent,
+  recoverSignatureResponseSigner,
+  verifySignatureResponse,
   type SignBidirectionalRequest,
-  type SignatureRespondedEvent,
+  type SignatureResponse,
 } from "../src/index.ts";
 
 // ---- Fixtures ----
@@ -84,8 +84,8 @@ const IMPOSTER_KEY = new SigningKey(`0x${"22".repeat(32)}`);
 const signResponse = (
   key: SigningKey,
   request: SignBidirectionalRequest,
-): SignatureRespondedEvent =>
-  signatureToSignatureRespondedEvent(
+): SignatureResponse =>
+  signatureToSignatureResponse(
     key.sign(
       signBidirectionalRequestToUnsignedEVMTransaction(request).unsignedHash,
     ),
@@ -138,16 +138,16 @@ describe("signBidirectionalRequestToUnsignedEVMTransaction", () => {
   });
 });
 
-describe("recoverSignatureRespondedEventSigner", () => {
+describe("recoverSignatureResponseSigner", () => {
   it("recovers the signing address from a genuine response", () => {
-    expect(recoverSignatureRespondedEventSigner(REQUEST, VALID_RESPONSE)).toBe(
+    expect(recoverSignatureResponseSigner(REQUEST, VALID_RESPONSE)).toBe(
       MPC_ADDRESS,
     );
   });
 
   it("rejects a response with an out-of-range recovery id", () => {
     expect(() =>
-      recoverSignatureRespondedEventSigner(REQUEST, {
+      recoverSignatureResponseSigner(REQUEST, {
         ...VALID_RESPONSE,
         recoveryId: 5n,
       }),
@@ -162,7 +162,7 @@ interface VerifyCase {
   /** The request record the response claims to answer. */
   request: SignBidirectionalRequest;
   /** The candidate response record. */
-  response: SignatureRespondedEvent;
+  response: SignatureResponse;
   /** The signer the response must recover to. */
   expectedSigner: string;
   /** The expected verdict. */
@@ -219,12 +219,12 @@ const VERIFY_CASES: VerifyCase[] = [
   },
 ];
 
-describe("verifySignatureRespondedEvent", () => {
+describe("verifySignatureResponse", () => {
   it.each(VERIFY_CASES)(
     "verdict on $name is $valid",
     ({ request, response, expectedSigner, valid }) => {
       expect(
-        verifySignatureRespondedEvent(request, response, expectedSigner),
+        verifySignatureResponse(request, response, expectedSigner),
       ).toBe(valid);
     },
   );
@@ -259,7 +259,7 @@ describe("signBidirectionalRequestToSignedEVMTransaction", () => {
     const signature = MPC_KEY.sign(
       signBidirectionalRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
     );
-    const record = signatureToSignatureRespondedEvent(
+    const record = signatureToSignatureResponse(
       Signature.from(signature),
     );
     expect(record.bigRy).toHaveLength(32);

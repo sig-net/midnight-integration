@@ -109,7 +109,10 @@ export function buildSignetContractProviders(
     }),
 
     // Retrieves public data from the blockchain.
-    publicDataProvider: indexerPublicDataProvider(config.indexerUrl, config.indexerWsUrl),
+    publicDataProvider: indexerPublicDataProvider({
+      queryURL: config.indexerUrl,
+      subscriptionURL: config.indexerWsUrl,
+    }),
 
     zkConfigProvider,
 

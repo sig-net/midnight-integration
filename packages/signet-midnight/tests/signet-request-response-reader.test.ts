@@ -20,19 +20,19 @@ import {
   asciiPadded,
   evmAddressAbiWord,
   numericAbiWordValue,
-  signatureToSignatureRespondedEvent,
+  signatureToSignatureResponse,
   signBidirectionalRequestToSignedEVMTransaction,
   signBidirectionalRequestToUnsignedEVMTransaction,
   deriveJubjubKeypair,
   requestIdHex,
   requestIdType,
   signBidirectionalRequestDescriptor,
-  signatureRespondedEventType,
+  signatureResponseType,
   respondBidirectionalType,
   signetResponseKeyType,
   SignetRequestResponseReader,
   type SignBidirectionalRequest,
-  type SignatureRespondedEvent,
+  type SignatureResponse,
   type SignetPublicStateSource,
   type RespondBidirectional,
 } from "../src/index.ts";
@@ -99,8 +99,8 @@ const IMPOSTER_KEY = new SigningKey(`0x${"22".repeat(32)}`);
 const IMPOSTER_ADDRESS = computeAddress(IMPOSTER_KEY.publicKey);
 
 /** Sign `REQUEST`'s rebuilt tx hash with `key`, packed as a response record. */
-const signResponse = (key: SigningKey): SignatureRespondedEvent =>
-  signatureToSignatureRespondedEvent(
+const signResponse = (key: SigningKey): SignatureResponse =>
+  signatureToSignatureResponse(
     key.sign(
       signBidirectionalRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
     ),
@@ -109,7 +109,7 @@ const signResponse = (key: SigningKey): SignatureRespondedEvent =>
 const GENUINE_RESPONSE = signResponse(MPC_KEY);
 const IMPOSTER_RESPONSE = signResponse(IMPOSTER_KEY);
 // An all-zero r cannot decode into a signature at all.
-const UNDECODABLE_RESPONSE: SignatureRespondedEvent = {
+const UNDECODABLE_RESPONSE: SignatureResponse = {
   bigRx: bytes(32, 0),
   bigRy: bytes(32, 0),
   s: bytes(32, 0),
@@ -155,7 +155,7 @@ const RESPOND_BIDIRECTIONAL: RespondBidirectional = {
  * disagrees with the log, for the inconsistency test.
  */
 const signetContractState = (
-  posts: SignatureRespondedEvent[],
+  posts: SignatureResponse[],
   counterOverride?: bigint,
   respondBidirectional?: RespondBidirectional,
 ): StateValue => {
@@ -184,8 +184,8 @@ const signetContractState = (
         alignment: signetResponseKeyType.alignment(),
       },
       StateValue.newCell({
-        value: signatureRespondedEventType.toValue(post),
-        alignment: signatureRespondedEventType.alignment(),
+        value: signatureResponseType.toValue(post),
+        alignment: signatureResponseType.alignment(),
       }),
     );
   });
@@ -221,7 +221,7 @@ const signetContractState = (
  * request-record caching is observable.
  */
 const makeReader = (
-  posts: SignatureRespondedEvent[],
+  posts: SignatureResponse[],
   counterOverride?: bigint,
   respondBidirectional?: RespondBidirectional,
 ) => {
@@ -309,7 +309,7 @@ interface VerdictCase {
   /** Test name, completing the sentence "resolves <name>". */
   name: string;
   /** The posts on the ledger, in count order. */
-  posts: SignatureRespondedEvent[];
+  posts: SignatureResponse[];
   /** The signer verification demands. */
   expectedSigner: string;
   /** Index (count) of the post expected as `verified`; absent = none valid. */

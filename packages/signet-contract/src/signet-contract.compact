@@ -11,9 +11,9 @@ import "@midnight-erc20-vault/signet-midnight/src/Signet";
 // clients poll it — there is deliberately no push/websocket channel. Ledger
 // layout per "Signet Contract Ledger Layout" in Signet.compact, so pollers
 // need only this contract's address.
-export ledger signatureRespondedEventCounterIndex: SignatureRespondedEventCounterIndex;
+export ledger signatureResponseCounterIndex: SignatureResponseCounterIndex;
 
-export ledger signatureRespondedEventIndex: SignatureRespondedEventIndex;
+export ledger signatureResponseIndex: SignatureResponseIndex;
 
 export ledger respondBidirectionalIndex: RespondBidirectionalIndex;
 
@@ -35,33 +35,45 @@ export circuit emitSignBidirectionalEvent(signBidirectionalEvent: SignBidirectio
     });
 }
 
-// postSignatureResponse appends a signature response for requestId.
-// Unauthenticated by NECESSITY (secp256k1 ECDSA cannot be verified
+// postSignatureResponse appends a signature response for requestId and
+// emits a SignatureRespondedEvent so the requesting client learns a post
+// landed. Unauthenticated by NECESSITY (secp256k1 ECDSA cannot be verified
 // in-circuit): anyone may post, and nothing is ever overwritten — each post
 // lands under the next (requestId, count) key. Callers verify the posted
 // signatures off-chain to pick out the genuine one.
-export circuit postSignatureResponse(requestId: RequestId, signatureResponse: SignatureRespondedEvent): [] {
+export circuit postSignatureResponse(requestId: RequestId, signatureResponse: SignatureResponse): [] {
     // Everything stored here is public by construction.
     const disclosedRequestId = disclose(requestId);
 
     // Ensure the request's counter exists (a fresh Counter reads 0).
-    if (!signatureRespondedEventCounterIndex.member(disclosedRequestId)) {
-        signatureRespondedEventCounterIndex.insertDefault(disclosedRequestId);
+    if (!signatureResponseCounterIndex.member(disclosedRequestId)) {
+        signatureResponseCounterIndex.insertDefault(disclosedRequestId);
     }
 
     // Posts so far == this post's 0-based count. Read ONCE into a local so
-    // the stored key and the counter update cannot disagree.
-    const count = signatureRespondedEventCounterIndex.lookup(disclosedRequestId).read();
-    signatureRespondedEventCounterIndex.lookup(disclosedRequestId).increment(1);
+    // the stored key, the counter update, and the emitted event cannot
+    // disagree.
+    const count = signatureResponseCounterIndex.lookup(disclosedRequestId).read();
+    signatureResponseCounterIndex.lookup(disclosedRequestId).increment(1);
 
     // Store the response under (requestId, count).
-    signatureRespondedEventIndex.insert(
+    signatureResponseIndex.insert(
         SignetResponseKey{
             requestId: disclosedRequestId,
             count: count,
         },
         disclose(signatureResponse),
     );
+
+    // Notify the requesting client which post just landed. A ping only —
+    // clients read the post back from the log and verify it off-chain.
+    emit(Misc {
+        name: pad(32, "SignatureRespondedEvent"),
+        payload: serialize<SignatureRespondedEvent, 256>(SignatureRespondedEvent {
+            requestId: disclosedRequestId as Bytes<32>,
+            count: count,
+        }),
+    });
 }
 
 // postRespondBidirectional records the MPC's attestation of requestId's

@@ -137,12 +137,10 @@ export function buildVaultProviders(
     // Retrieves public data from the blockchain.
     // Key methods: queryContractState(addr), watchForContractState,
     // contractStateObservable(addr).
-    publicDataProvider: indexerPublicDataProvider(
-      // query url
-      config.indexerUrl,
-      // subscription url
-      config.indexerWsUrl,
-    ),
+    publicDataProvider: indexerPublicDataProvider({
+      queryURL: config.indexerUrl,
+      subscriptionURL: config.indexerWsUrl,
+    }),
 
     zkConfigProvider,
 

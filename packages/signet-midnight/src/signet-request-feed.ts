@@ -16,7 +16,11 @@ import {
   sleepUnlessAborted,
   type SignetEventSource,
 } from "./signet-event-observer.ts";
-import { stripHexPrefix } from "./signet-events.ts";
+import {
+  signBidirectionalEventCodec,
+  stripHexPrefix,
+  type SignBidirectionalEvent,
+} from "./signet-events.ts";
 import {
   SignetRequestResolver,
   type ResolvedSignetRequest,
@@ -61,7 +65,7 @@ function normalizeAddress(address: string): string {
  * {@link forget} to re-arm a request whose downstream processing failed.
  */
 export class SignetRequestFeed {
-  private readonly observer: SignetEventObserver;
+  private readonly observer: SignetEventObserver<SignBidirectionalEvent>;
   private readonly resolver: SignetRequestResolver;
   private readonly allowContracts?: Set<string>;
   private readonly pollIntervalMs: number;
@@ -78,6 +82,7 @@ export class SignetRequestFeed {
     this.observer = new SignetEventObserver({
       signetContractAddress: config.signetContractAddress,
       source: config.source,
+      codec: signBidirectionalEventCodec,
       fromEventId: config.fromEventId,
       pollIntervalMs: config.pollIntervalMs,
     });

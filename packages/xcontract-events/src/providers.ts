@@ -97,7 +97,10 @@ export function buildVaultProviders(
       privateStoragePasswordProvider: () => "&*(BHJqwe419-xcontractEvents",
     }),
 
-    publicDataProvider: indexerPublicDataProvider(config.indexerUrl, config.indexerWsUrl),
+    publicDataProvider: indexerPublicDataProvider({
+      queryURL: config.indexerUrl,
+      subscriptionURL: config.indexerWsUrl,
+    }),
 
     // The vault's own circuits resolve here; the cross-contract proof
     // provider (below) resolves the token's.

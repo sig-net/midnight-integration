@@ -19,7 +19,7 @@ import {
   schnorrSign,
   pureCircuits as signetCircuits,
   type JubjubKeypair,
-  type SignatureRespondedEvent,
+  type SignatureResponse,
   type RespondBidirectional,
 } from "@midnight-erc20-vault/signet-midnight";
 
@@ -42,13 +42,13 @@ const bytes = (length: number, fill: number) =>
 // Request ids the posts below answer, and signature response records.
 const REQUEST_A = bytes(32, 0xaa);
 const REQUEST_B = bytes(32, 0xbb);
-const SIG_1: SignatureRespondedEvent = {
+const SIG_1: SignatureResponse = {
   bigRx: bytes(32, 0x01),
   bigRy: bytes(32, 0x02),
   s: bytes(32, 0x03),
   recoveryId: 0n,
 };
-const SIG_2: SignatureRespondedEvent = {
+const SIG_2: SignatureResponse = {
   bigRx: bytes(32, 0x04),
   bigRy: bytes(32, 0x05),
   s: bytes(32, 0x06),
@@ -118,8 +118,8 @@ describe("constructor", () => {
   it("deploys with empty indexes and the MPC key hash sealed", async () => {
     const { ctx } = await deployContract("postSignatureResponse");
     const state = ledger(ctx.callContext.currentQueryContext.state);
-    expect(state.signatureRespondedEventCounterIndex.isEmpty()).toBe(true);
-    expect(state.signatureRespondedEventIndex.isEmpty()).toBe(true);
+    expect(state.signatureResponseCounterIndex.isEmpty()).toBe(true);
+    expect(state.signatureResponseIndex.isEmpty()).toBe(true);
     expect(state.respondBidirectionalIndex.isEmpty()).toBe(true);
     expect(state.mpcPubKeyHash).toEqual(hashJubjubPoint(MPC_KEYS.pk));
   });
@@ -128,7 +128,7 @@ describe("constructor", () => {
 /** One posted (requestId, signature) pair, applied in row order. */
 interface Post {
   requestId: Uint8Array;
-  signature: SignatureRespondedEvent;
+  signature: SignatureResponse;
 }
 
 /** One row of the post table: a post sequence → the exact expected ledger. */
@@ -143,7 +143,7 @@ interface PostCase {
   expectedEntries: {
     requestId: Uint8Array;
     count: bigint;
-    signature: SignatureRespondedEvent;
+    signature: SignatureResponse;
   }[];
 }
 
@@ -217,22 +217,22 @@ describe("postSignatureResponse", () => {
 
       // The counter index holds EXACTLY the expected requests, each counter
       // reading that request's total number of posts.
-      expect(state.signatureRespondedEventCounterIndex.size()).toBe(
+      expect(state.signatureResponseCounterIndex.size()).toBe(
         BigInt(expectedCounters.length),
       );
       for (const { requestId, total } of expectedCounters) {
         expect(
-          state.signatureRespondedEventCounterIndex.lookup(requestId).read(),
+          state.signatureResponseCounterIndex.lookup(requestId).read(),
         ).toBe(total);
       }
 
       // The response log holds EXACTLY the expected (requestId, count) keys.
-      expect(state.signatureRespondedEventIndex.size()).toBe(
+      expect(state.signatureResponseIndex.size()).toBe(
         BigInt(expectedEntries.length),
       );
       for (const { requestId, count, signature } of expectedEntries) {
         expect(
-          state.signatureRespondedEventIndex.lookup({ count, requestId }),
+          state.signatureResponseIndex.lookup({ count, requestId }),
         ).toEqual(signature);
       }
     },

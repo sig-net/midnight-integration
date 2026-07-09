@@ -11,10 +11,10 @@ import { getAddress, recoverAddress } from "ethers";
 
 import {
   signBidirectionalRequestToUnsignedEVMTransaction,
-  signatureRespondedEventToSignature,
+  signatureResponseToSignature,
   type SignBidirectionalRequest,
 } from "./signet-requests.ts";
-import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts";
+import type { SignatureResponse } from "./signet-contract-state-reader.ts";
 
 /**
  * Recover the EVM address that produced a response signature, over the
@@ -27,13 +27,13 @@ import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts"
  *   record is malformed (see
  *   {@link signBidirectionalRequestToUnsignedEVMTransaction}).
  */
-export function recoverSignatureRespondedEventSigner(
+export function recoverSignatureResponseSigner(
   request: SignBidirectionalRequest,
-  response: SignatureRespondedEvent,
+  response: SignatureResponse,
 ): string {
   return recoverAddress(
     signBidirectionalRequestToUnsignedEVMTransaction(request).unsignedHash,
-    signatureRespondedEventToSignature(response),
+    signatureResponseToSignature(response),
   );
 }
 
@@ -48,14 +48,14 @@ export function recoverSignatureRespondedEventSigner(
  * @param expectedSigner - The EVM address (any case, 0x hex) that must have signed.
  * @returns `true` iff the response is a valid signature by `expectedSigner`.
  */
-export function verifySignatureRespondedEvent(
+export function verifySignatureResponse(
   request: SignBidirectionalRequest,
-  response: SignatureRespondedEvent,
+  response: SignatureResponse,
   expectedSigner: string,
 ): boolean {
   try {
     return (
-      recoverSignatureRespondedEventSigner(request, response) ===
+      recoverSignatureResponseSigner(request, response) ===
       getAddress(expectedSigner)
     );
   } catch {

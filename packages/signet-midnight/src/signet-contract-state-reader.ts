@@ -32,10 +32,10 @@ import {
 } from "./signature-state-reading.ts";
 
 /** Signet contract layout: the signature response counter index is ledger field 0. */
-export const SIGNATURE_RESPONDED_EVENT_COUNTER_INDEX_FIELD = 0;
+export const SIGNATURE_RESPONSE_COUNTER_INDEX_FIELD = 0;
 
 /** Signet contract layout: the signature response log is ledger field 1. */
-export const SIGNATURE_RESPONDED_EVENT_INDEX_FIELD = 1;
+export const SIGNATURE_RESPONSE_INDEX_FIELD = 1;
 
 /** Signet contract layout: the respond-bidirectional index is ledger field 2. */
 export const RESPOND_BIDIRECTIONAL_INDEX_FIELD = 2;
@@ -59,12 +59,12 @@ const u8 = new CompactTypeUnsignedInteger(255n, 1);
 
 /**
  * The MPC's secp256k1 signature over the requested EVM transaction (Compact
- * `SignatureRespondedEvent` — the canonical MPC `Signature { big_r, s,
+ * `SignatureResponse` — the canonical MPC `Signature { big_r, s,
  * recovery_id }` with `big_r` decomposed into affine coordinates, big-endian
  * scalar bytes). The request id it answers lives in the response index key,
  * not here.
  */
-export interface SignatureRespondedEvent {
+export interface SignatureResponse {
   /** Signature R.x, 32 big-endian bytes. */
   bigRx: Uint8Array;
   /** Signature R.y, 32 big-endian bytes. */
@@ -76,10 +76,10 @@ export interface SignatureRespondedEvent {
 }
 
 /**
- * Hand-composed descriptor for {@link SignatureRespondedEvent}. Field
+ * Hand-composed descriptor for {@link SignatureResponse}. Field
  * order (bigRx, bigRy, s, recoveryId) must match the Compact struct.
  */
-export const signatureRespondedEventType: CompactType<SignatureRespondedEvent> = {
+export const signatureResponseType: CompactType<SignatureResponse> = {
   /** @returns Compound alignment of the struct's fields in declaration order. */
   alignment() {
     return bytes32
@@ -237,14 +237,14 @@ export const respondBidirectionalType: CompactType<RespondBidirectional> = {
  * request id (see {@link requestIdHex}) to the number of responses posted for
  * that request. Entries in the response log exist for counts `0 .. value - 1`.
  */
-export type SignatureRespondedEventCounterIndex = Map<RequestIdHex, bigint>;
+export type SignatureResponseCounterIndex = Map<RequestIdHex, bigint>;
 
 /**
  * Plain-JS signature response log parsed out of the ledger, keyed by
  * {@link signetResponseIndexKey} (`"<hexRequestId>:<count>"`) so the
  * composite Compact key survives as a usable JS `Map` key.
  */
-export type SignatureRespondedEventIndex = Map<string, SignatureRespondedEvent>;
+export type SignatureResponseIndex = Map<string, SignatureResponse>;
 
 /**
  * Plain-JS respond-bidirectional index parsed out of the ledger: hex
@@ -256,7 +256,7 @@ export type RespondBidirectionalIndex = Map<
 >;
 
 /**
- * Build the {@link SignatureRespondedEventIndex} key for a `(requestId, count)`
+ * Build the {@link SignatureResponseIndex} key for a `(requestId, count)`
  * pair — the composite Compact key flattened to a string so it works as a JS
  * `Map` key.
  *
@@ -280,15 +280,15 @@ export function signetResponseIndexKey(
 export interface SignetContractLedger {
   /**
    * The signature response counter index (ledger field
-   * {@link SIGNATURE_RESPONDED_EVENT_COUNTER_INDEX_FIELD}), keyed by hex request id.
+   * {@link SIGNATURE_RESPONSE_COUNTER_INDEX_FIELD}), keyed by hex request id.
    */
-  signatureRespondedEventCounterIndex: SignatureRespondedEventCounterIndex;
+  signatureResponseCounterIndex: SignatureResponseCounterIndex;
   /**
    * The signature response log (ledger field
-   * {@link SIGNATURE_RESPONDED_EVENT_INDEX_FIELD}), keyed by
+   * {@link SIGNATURE_RESPONSE_INDEX_FIELD}), keyed by
    * {@link signetResponseIndexKey}.
    */
-  signatureRespondedEventIndex: SignatureRespondedEventIndex;
+  signatureResponseIndex: SignatureResponseIndex;
   /**
    * The respond-bidirectional index (ledger field
    * {@link RESPOND_BIDIRECTIONAL_INDEX_FIELD}), keyed by hex request id.
@@ -317,14 +317,14 @@ export function readSignetContractLedgerFromState(
 ): SignetContractLedger {
   const counterMap = signetFieldNode(
     raw,
-    SIGNATURE_RESPONDED_EVENT_COUNTER_INDEX_FIELD,
+    SIGNATURE_RESPONSE_COUNTER_INDEX_FIELD,
   ).asMap();
   if (counterMap === undefined) {
     throw new Error(
-      `Ledger field ${SIGNATURE_RESPONDED_EVENT_COUNTER_INDEX_FIELD} is not a Map`,
+      `Ledger field ${SIGNATURE_RESPONSE_COUNTER_INDEX_FIELD} is not a Map`,
     );
   }
-  const signatureRespondedEventCounterIndex: SignatureRespondedEventCounterIndex =
+  const signatureResponseCounterIndex: SignatureResponseCounterIndex =
     new Map();
   for (const key of counterMap.keys()) {
     // fromValue consumes its input, so hand each descriptor a copy.
@@ -332,7 +332,7 @@ export function readSignetContractLedgerFromState(
     // A Counter is stored as a plain u64 cell.
     const cell = counterMap.get(key)?.asCell();
     if (cell === undefined) continue;
-    signatureRespondedEventCounterIndex.set(
+    signatureResponseCounterIndex.set(
       requestIdHex(requestId),
       u64.fromValue([...cell.value]),
     );
@@ -340,19 +340,19 @@ export function readSignetContractLedgerFromState(
 
   const responseMap = signetFieldNode(
     raw,
-    SIGNATURE_RESPONDED_EVENT_INDEX_FIELD,
+    SIGNATURE_RESPONSE_INDEX_FIELD,
   ).asMap();
   if (responseMap === undefined) {
-    throw new Error(`Ledger field ${SIGNATURE_RESPONDED_EVENT_INDEX_FIELD} is not a Map`);
+    throw new Error(`Ledger field ${SIGNATURE_RESPONSE_INDEX_FIELD} is not a Map`);
   }
-  const signatureRespondedEventIndex: SignatureRespondedEventIndex = new Map();
+  const signatureResponseIndex: SignatureResponseIndex = new Map();
   for (const key of responseMap.keys()) {
     const responseKey = signetResponseKeyType.fromValue([...key.value]);
     const cell = responseMap.get(key)?.asCell();
     if (cell === undefined) continue;
-    signatureRespondedEventIndex.set(
+    signatureResponseIndex.set(
       signetResponseIndexKey(requestIdHex(responseKey.requestId), responseKey.count),
-      signatureRespondedEventType.fromValue([...cell.value]),
+      signatureResponseType.fromValue([...cell.value]),
     );
   }
 
@@ -383,8 +383,8 @@ export function readSignetContractLedgerFromState(
   const mpcPubKeyHash = bytes32.fromValue([...hashCell.value]);
 
   return {
-    signatureRespondedEventCounterIndex,
-    signatureRespondedEventIndex,
+    signatureResponseCounterIndex,
+    signatureResponseIndex,
     respondBidirectionalIndex,
     mpcPubKeyHash,
   };

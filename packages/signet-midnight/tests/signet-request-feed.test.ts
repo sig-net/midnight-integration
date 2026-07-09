@@ -28,6 +28,7 @@ import {
   numericAbiWordValue,
   requestIdHex,
   requestIdType,
+  signBidirectionalEventCodec,
   signBidirectionalRequestDescriptor,
   type SignBidirectionalRequest,
   type SignetEventSource,
@@ -180,6 +181,7 @@ describe("SignetEventObserver", () => {
     const observer = new SignetEventObserver({
       signetContractAddress: SIGNET_ADDRESS,
       source,
+      codec: signBidirectionalEventCodec,
     });
     const events = await observer.currentEvents();
     expect(events.map((e) => e.callerAddress)).toEqual([CALLER_A, CALLER_B]);
@@ -193,6 +195,7 @@ describe("SignetEventObserver", () => {
     const observer = new SignetEventObserver({
       signetContractAddress: SIGNET_ADDRESS,
       source,
+      codec: signBidirectionalEventCodec,
     });
     const events = await observer.currentEvents();
     expect(events).toHaveLength(1);
@@ -204,6 +207,7 @@ describe("SignetEventObserver", () => {
     const observer = new SignetEventObserver({
       signetContractAddress: SIGNET_ADDRESS,
       source,
+      codec: signBidirectionalEventCodec,
     });
     await observer.currentEvents();
     expect(source.queryContractEvents).toHaveBeenCalledWith({
@@ -220,6 +224,7 @@ describe("SignetEventObserver", () => {
     const observer = new SignetEventObserver({
       signetContractAddress: SIGNET_ADDRESS,
       source,
+      codec: signBidirectionalEventCodec,
       pollIntervalMs: 1,
     });
     const seen = await collect(observer.watch(), 2);
@@ -234,6 +239,7 @@ describe("SignetEventObserver", () => {
     const observer = new SignetEventObserver({
       signetContractAddress: SIGNET_ADDRESS,
       source,
+      codec: signBidirectionalEventCodec,
       fromEventId: 3,
       pollIntervalMs: 1,
     });
