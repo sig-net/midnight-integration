@@ -14,6 +14,7 @@ import {
   ERC20_TRANSFER_SELECTOR,
   TxParamType,
   evmAddressAbiWord,
+  lookupSignetRequestAt,
   numericAbiWordValue,
   readSignetRequestsLedgerFromState,
   requestIdHex,
@@ -151,5 +152,111 @@ describe("state-reader (MPC-style raw decode)", () => {
     const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(fresh);
     expect(requestsIndex.size).toBe(0);
     expect(nonce).toBe(0n);
+  });
+});
+
+// A second request index living at a NON-ZERO ledger field — so the field
+// argument of lookupSignetRequestAt is genuinely exercised, not incidentally
+// always 0. Its member is SAMPLE_REQUEST under a distinct id.
+const FIELD2_REQUEST_ID = bytes(32, 0x5a);
+
+/** Contract state: index (field 0), nonce (field 1), a SECOND index (field 2). */
+const stateWithSecondIndex = () => {
+  const field0 = new StateMap()
+    .insert(
+      {
+        value: requestIdType.toValue(SAMPLE_REQUEST_ID),
+        alignment: requestIdType.alignment(),
+      },
+      requestCell(SAMPLE_REQUEST, CAPACITIES.sample),
+    )
+    .insert(
+      {
+        value: requestIdType.toValue(ACCESS_LIST_REQUEST_ID),
+        alignment: requestIdType.alignment(),
+      },
+      requestCell(ACCESS_LIST_REQUEST, CAPACITIES.accessList),
+    );
+  const field2 = new StateMap().insert(
+    {
+      value: requestIdType.toValue(FIELD2_REQUEST_ID),
+      alignment: requestIdType.alignment(),
+    },
+    requestCell(SAMPLE_REQUEST, CAPACITIES.sample),
+  );
+  return StateValue.newArray()
+    .arrayPush(StateValue.newMap(field0))
+    .arrayPush(counterCell(NONCE))
+    .arrayPush(StateValue.newMap(field2));
+};
+
+describe("lookupSignetRequestAt", () => {
+  it("returns the record for a member id at the right field", () => {
+    const request = lookupSignetRequestAt(
+      stateWithSecondIndex(),
+      0,
+      requestIdHex(SAMPLE_REQUEST_ID),
+    );
+    expect(request).toEqual(SAMPLE_REQUEST);
+  });
+
+  it("resolves a member of the index at a non-zero field", () => {
+    const request = lookupSignetRequestAt(
+      stateWithSecondIndex(),
+      2,
+      requestIdHex(FIELD2_REQUEST_ID),
+    );
+    expect(request).toEqual(SAMPLE_REQUEST);
+  });
+
+  it("returns undefined for a non-member id", () => {
+    expect(
+      lookupSignetRequestAt(
+        stateWithSecondIndex(),
+        0,
+        requestIdHex(bytes(32, 0x99)),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for a member looked up at the wrong field", () => {
+    // SAMPLE_REQUEST_ID lives at field 0, not field 2.
+    expect(
+      lookupSignetRequestAt(
+        stateWithSecondIndex(),
+        2,
+        requestIdHex(SAMPLE_REQUEST_ID),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when the field is not a Map (e.g. the nonce cell)", () => {
+    expect(
+      lookupSignetRequestAt(
+        stateWithSecondIndex(),
+        1,
+        requestIdHex(SAMPLE_REQUEST_ID),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when the field index is out of range", () => {
+    expect(
+      lookupSignetRequestAt(
+        stateWithSecondIndex(),
+        9,
+        requestIdHex(SAMPLE_REQUEST_ID),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("agrees byte-for-byte with readSignetRequestsLedgerFromState (reader parity)", () => {
+    const raw = stateWithSecondIndex();
+    const viaReader = readSignetRequestsLedgerFromState(raw).requestsIndex.get(
+      requestIdHex(SAMPLE_REQUEST_ID),
+    );
+    expect(lookupSignetRequestAt(raw, 0, requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
+      viaReader,
+    );
   });
 });

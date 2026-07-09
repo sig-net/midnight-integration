@@ -32,6 +32,11 @@ import {
   generateMpcRootKey,
   executionSucceeded,
   SignetRequestResponseReader,
+  SIGN_BIDIRECTIONAL_EVENT_TAG,
+  decodeSignBidirectionalEvent,
+  eventNameTag,
+  hexToBytes,
+  stripHexPrefix,
   type RespondBidirectional,
   type RequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
@@ -297,9 +302,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       "MPC (fakenet) server configuration — github.com/sig-net/solana-signet-program:",
       "",
       `  MPC_ROOT_KEY=${rootKey}`,
-      `  MIDNIGHT_CONTRACT_ADDRESSES=${requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS")}`,
       `  MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS")}`,
-      "  # 💡 MIDNIGHT_CONTRACT_ADDRESSES is comma-separated if more contracts are added later.",
+      "  # 💡 The responder now DISCOVERS requesters by watching this signet",
+      "  #    contract's events — no MIDNIGHT_CONTRACT_ADDRESSES list. Set the",
+      "  #    optional MIDNIGHT_ALLOW_CONTRACTS (comma-separated) only to restrict",
+      "  #    which requesters it serves; omit to serve all authenticated ones.",
       "",
       "Set those in the server's .env, then START THE SERVER: `yarn response`",
       "in the solana-signet-program repo. The e2e deposit/withdraw flows need",
@@ -456,11 +463,77 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
         "",
         `  request id: ${depositTransactionSignatureRequestId}`,
         "",
-        "The response server (yarn response, MIDNIGHT_CONTRACT_ADDRESSES set to",
-        "this vault) should pick it up on its next poll and sign the EVM tx.",
+        "The response server (yarn response, MIDNIGHT_SIGNET_CONTRACT_ADDRESS set)",
+        "watches the signet contract's events and should pick it up on its next",
+        "poll — resolving it from THIS vault's ledger — and sign the EVM tx.",
       ]);
     },
     5 * MINUTE,
+  );
+
+  it(
+    "golden event: signet contract emitted a decodable SignBidirectionalEvent pointing at the vault",
+    async () => {
+      // Pins the SignBidirectionalEvent byte layout against a LIVE indexer —
+      // the codec offsets (§signet-events.ts) depend on it, and gotcha #5 means
+      // this cannot be exercised in the in-process simulator. The vault's
+      // requestDeposit cross-contract-called the signet contract to emit this;
+      // event indexing lags finalization, so poll (gotcha #15).
+      expect(depositTransactionSignatureRequestId).toBeDefined();
+      const vaultAddress = requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS");
+      const signetAddress = requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
+      const nodeConfig = getMidnightNodeConfig(env);
+      const pdp = indexerPublicDataProvider(
+        nodeConfig.indexerUrl,
+        nodeConfig.indexerWsUrl,
+      );
+
+      const deadline = Date.now() + 60_000;
+      let decoded: ReturnType<typeof decodeSignBidirectionalEvent> | undefined;
+      let rawPayloadHex: string | undefined;
+      while (Date.now() < deadline && decoded === undefined) {
+        const events = await pdp.queryContractEvents({
+          contractAddress: signetAddress,
+          types: ["Misc"],
+        });
+        for (const event of events) {
+          if (event.eventType !== "Misc") continue;
+          if (eventNameTag(event.name) !== SIGN_BIDIRECTIONAL_EVENT_TAG) continue;
+          const candidate = decodeSignBidirectionalEvent(hexToBytes(event.payload));
+          if (candidate.requestId === depositTransactionSignatureRequestId) {
+            decoded = candidate;
+            rawPayloadHex = event.payload;
+            break;
+          }
+        }
+        if (decoded === undefined) await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      if (decoded === undefined) {
+        throw new Error(
+          `no Misc "${SIGN_BIDIRECTIONAL_EVENT_TAG}" event for request ` +
+            `${depositTransactionSignatureRequestId} indexed on ${signetAddress} within 60s`,
+        );
+      }
+
+      // callerAddress points at the vault (the contract whose authenticated
+      // ledger holds the request); requestId matches; the index is at field 0.
+      expect(decoded.callerAddress).toBe(stripHexPrefix(vaultAddress).toLowerCase());
+      expect(decoded.requestId).toBe(depositTransactionSignatureRequestId);
+      expect(decoded.requestsIndexField).toBe(0);
+
+      banner([
+        "Golden SignBidirectionalEvent decoded from the live indexer:",
+        "",
+        `  callerAddress:      ${decoded.callerAddress}`,
+        `  requestId:          ${decoded.requestId}`,
+        `  requestsIndexField: ${decoded.requestsIndexField}`,
+        "",
+        `  raw payload (capture as the unit fixture if the layout ever drifts):`,
+        `  ${rawPayloadHex}`,
+      ]);
+    },
+    2 * MINUTE,
   );
 
   // prepare deposit sweep transaction sinature for use in subsequent tests

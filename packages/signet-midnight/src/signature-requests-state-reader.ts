@@ -14,6 +14,7 @@ import type { CompactType } from "@midnight-ntwrk/compact-runtime";
 import {
   requestIdHex,
   signBidirectionalRequestDescriptor,
+  type RequestIdHex,
   type SignBidirectionalRequest,
   type SignBidirectionalRequestIndex,
 } from "./signet-requests.ts";
@@ -161,4 +162,62 @@ export function readSignetRequestsLedgerFromState(raw: RawContractState): Signet
   const nonce = u64.fromValue([...nonceCell.value]);
 
   return { nonce, requestsIndex };
+}
+
+/**
+ * Look up ONE request by id in a contract's request index at an arbitrary
+ * ledger field — the generalization of {@link readSignetRequestsLedgerFromState}
+ * the event path needs: a `SignBidirectionalEvent` names both the requester
+ * contract AND which field holds its index, so the field is no longer assumed
+ * to be {@link SIGNET_REQUESTS_INDEX_FIELD}.
+ *
+ * This is the mandatory membership check of the event flow (see
+ * signet-request-resolver.ts): `undefined` means the id is NOT a member of the
+ * index at `fieldIndex` — the notification is forged, stale, points at the
+ * wrong field, or the request is not yet indexed — and the caller MUST drop it.
+ * Every non-membership case (field out of range, field is not a Map, id absent,
+ * a cell that fails to decode) returns `undefined` rather than throwing, so a
+ * malformed or adversarial event can never crash the reader.
+ *
+ * Only the matched record is decoded (not the whole index), and it is decoded
+ * by the same {@link decodeSignBidirectionalRequest} the full reader uses, so
+ * the result is `toEqual` to `readSignetRequestsLedgerFromState(raw)
+ * .requestsIndex.get(requestId)` when `fieldIndex` is the index field.
+ *
+ * @param raw - Raw contract state, e.g. `queryContractState(address).data`.
+ * @param fieldIndex - Ledger field position of the request index in `raw`.
+ * @param requestId - The request id to look up.
+ * @returns The stored request record, or `undefined` when it is not a member.
+ */
+export function lookupSignetRequestAt(
+  raw: RawContractState,
+  fieldIndex: number,
+  requestId: RequestIdHex,
+): SignBidirectionalRequest | undefined {
+  let node;
+  try {
+    node = signetFieldNode(raw, fieldIndex);
+  } catch {
+    return undefined; // field position out of range for this contract
+  }
+  const map = node.asMap();
+  if (map === undefined) {
+    return undefined; // the named field is not a request index
+  }
+  for (const key of map.keys()) {
+    // fromValue consumes its input, so hand each descriptor a copy.
+    if (requestIdHex(requestIdType.fromValue([...key.value])) !== requestId) {
+      continue;
+    }
+    const cell = map.get(key)?.asCell();
+    if (cell === undefined) {
+      return undefined;
+    }
+    try {
+      return decodeSignBidirectionalRequest(cell.value);
+    } catch {
+      return undefined; // a cell that is not a decodable request record
+    }
+  }
+  return undefined; // id absent from the index
 }
