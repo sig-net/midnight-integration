@@ -12,6 +12,7 @@
 
 import {
   broadcastEvm,
+  claimDeposit,
   type CliContext,
   createCliContext,
   getCliConfig,
@@ -36,6 +37,7 @@ import {
   decodeSignBidirectionalEvent,
   eventNameTag,
   hexToBytes,
+  requestIdBytes,
   stripHexPrefix,
   type RespondBidirectional,
   type RequestIdHex,
@@ -600,5 +602,57 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       ]);
     },
     5 * MINUTE,
+  );
+
+  it(
+    "claimDeposit [erc-vault contract method call]: verify the MPC attestation in-circuit and consume the request",
+    async () => {
+      // Final leg of the deposit round trip: the request is on the vault ledger
+      // and the MPC's respond-bidirectional attestation is posted (previous
+      // steps). Claiming re-verifies the attestation IN-CIRCUIT (pk hash,
+      // Schnorr signature, EVM success flag) and the caller identity, then mints
+      // shielded vault tokens and CONSUMES the request (double-claim
+      // protection). The mint is shielded so it isn't publicly observable; the
+      // request's removal from RAW ledger state is — present before, absent
+      // after — and it only happens if every in-circuit check passed.
+      expect(depositTransactionSignatureRequestId).toBeDefined();
+      expect(depositSweepTransactionRespondBidirectional).toBeDefined();
+
+      const context = await sharedCliContext();
+      const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
+      const requestKey = requestIdBytes(depositTransactionSignatureRequestId);
+
+      const isRequestOnLedger = async () => {
+        const contractState = await context.providers.publicDataProvider.queryContractState(vaultContractAddress);
+        if (!contractState) {
+          throw new Error(`no contract state found at ${vaultContractAddress}`);
+        }
+        return vaultContractLedger(contractState.data).signetRequestsIndex.member(requestKey);
+      };
+
+      // Rerun against a kept contract address: if a prior run already claimed
+      // this request the entry is gone and claimDeposit would reject with
+      // "Request not found" — skip cleanly instead.
+      if (!(await isRequestOnLedger())) {
+        logSkip("claimDeposit", `request ${depositTransactionSignatureRequestId} already claimed (not on the ledger)`);
+        return;
+      }
+
+      await claimDeposit(context, { requestId: depositTransactionSignatureRequestId });
+      await readState(context);
+
+      expect(
+        await isRequestOnLedger(),
+        "claimDeposit must consume the request from the ledger",
+      ).toBe(false);
+
+      banner([
+        `Deposit ${depositTransactionSignatureRequestId} claimed.`,
+        "",
+        "The vault verified the MPC attestation in-circuit, minted shielded",
+        "vault tokens to the caller, and removed the request from its ledger.",
+      ]);
+    },
+    15 * MINUTE,
   );
 });

@@ -92,7 +92,17 @@ export async function broadcastEvm(context: CliContext, options: BroadcastEvmOpt
   //    this tx without it mining: that means a *different* tx took the slot and
   //    this one can never land, so waiting on the hash would hang forever.
   for (;;) {
-    const receipt = await provider.waitForTransaction(hash, 1, 15_000);
+    let receipt: TransactionReceipt | null;
+    try {
+      receipt = await provider.waitForTransaction(hash, 1, 15_000);
+    } catch (err) {
+      // ethers v6 REJECTS with a TIMEOUT error when the wait window elapses (it
+      // does NOT resolve to null) — a confirmation slower than the window is
+      // normal on a live chain, so treat it as "not yet" and fall through to
+      // the burned-nonce check below, then keep waiting. Any other error is real.
+      if ((err as { code?: string })?.code !== "TIMEOUT") throw err;
+      receipt = null;
+    }
     if (receipt !== null) {
       console.log(`confirmed: ${hash}`);
       return assertMinedOk(receipt, hash);
