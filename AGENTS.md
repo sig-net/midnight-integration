@@ -17,6 +17,18 @@ output (signet-midnight compiles its Compact module's pure circuits via
 
 Member-specific rules live in that member's own `AGENTS.md`.
 
+# Running the integration e2e suite
+
+The operational runbook for `npm run test:integration-tests` lives in
+[`.claude/skills/e2e/SKILL.md`](.claude/skills/e2e/SKILL.md) — read it BEFORE
+running or re-deploying the e2e stack. It covers what the test pipeline docs
+(`packages/integration-tests/README.md`) do not: clean redeploys, why the
+derived EVM accounts move with the vault contract address (and the fund-sweep
+script for recovering their Sepolia balances), the fakenet MPC responder
+hand-off, and pacing (zk keygen runs ~10 minutes — background the run).
+It is packaged as a Claude Code skill (`/e2e`), but it is plain markdown
+written for ANY agent or human to follow.
+
 # NEVER BREAK rules
 
 These are non-negotiable. Do not violate them unless the user explicitly grants an
