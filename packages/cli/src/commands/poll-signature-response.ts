@@ -6,7 +6,7 @@
 import type { Transaction } from "ethers";
 
 import {
-  signBidirectionalEventToSignedEVMTransaction,
+  signBidirectionalRequestToSignedEVMTransaction,
   SignetRequestResponseReader,
   type RequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
@@ -42,7 +42,7 @@ const sleep = (ms: number): Promise<void> =>
  * (`EVM_USER_ADDRESS`) over the requested transaction's signing hash, and
  * the first valid post wins. The signed transaction is assembled from the
  * request record and that response via
- * {@link signBidirectionalEventToSignedEVMTransaction}. This command owns
+ * {@link signBidirectionalRequestToSignedEVMTransaction}. This command owns
  * only the loop and the reporting — each rejected post is warned once, not
  * every tick. For the MPC's attestation of the EVM result, see
  * `poll-remote-execution-response`.
@@ -97,7 +97,7 @@ export async function pollSignatureResponse(context: CliContext, options: PollSi
       // record and this response. getSignatureRequest is cached (the verify
       // call above already fetched it), so this adds no extra query.
       const request = await reader.getSignatureRequest(options.requestId);
-      return signBidirectionalEventToSignedEVMTransaction(request, valid.response);
+      return signBidirectionalRequestToSignedEVMTransaction(request, valid.response);
     }
 
     if (Date.now() >= deadline) {

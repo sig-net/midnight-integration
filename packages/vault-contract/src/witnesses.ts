@@ -3,7 +3,7 @@
 // state; only its commitment (userCommitment in the contract) ever reaches
 // the ledger.
 
-import type { Witnesses } from "./managed/contract/index.js";
+import type { Witnesses } from "./managed/erc20-vault/contract/index.js";
 
 /** Private state carried through vault circuit calls. */
 export interface VaultPrivateState {

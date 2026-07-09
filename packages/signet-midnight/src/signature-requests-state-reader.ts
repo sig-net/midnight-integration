@@ -13,9 +13,9 @@ import type { CompactType } from "@midnight-ntwrk/compact-runtime";
 
 import {
   requestIdHex,
-  signBidirectionalEventDescriptor,
-  type SignBidirectionalEvent,
-  type SignBidirectionalEventIndex,
+  signBidirectionalRequestDescriptor,
+  type SignBidirectionalRequest,
+  type SignBidirectionalRequestIndex,
 } from "./signet-requests.ts";
 
 /** The aligned-value cursor every descriptor's `fromValue` consumes. */
@@ -38,15 +38,15 @@ export const SIGNET_NONCE_FIELD = 1;
  * Aligned-value entry count of a request record EXCLUDING the capacity-scaled
  * vectors: requestNonce (1) + txParamType (1, enums are one atom whatever
  * their byte width) + the EVMType2TxParams fixed fields (to..value = 7,
- * accessListEntryCount = 1) + the calldata Maybe's is_some (1) and selector
- * (1) + the routing fields caip2Id..respondSerializationSchema (8). A stored
- * request cell therefore holds
- *   `REQUEST_FIXED_VALUE_ATOMS + 2·maxCalldataWords
+ * accessListEntryCount = 1) + the calldata Maybe's is_some (1), selector (1)
+ * and noWords (1) + the routing fields caip2Id..respondSerializationSchema (8).
+ * A stored request cell therefore holds
+ *   `REQUEST_FIXED_VALUE_ATOMS + maxCalldataWords
  *      + maxAccessListEntries·(2 + maxStorageKeysPerEntry)`
- * entries (each ABIWord is kind + value = 2 atoms; each access-list entry is
+ * entries (each calldata word is one Bytes<32> atom; each access-list entry is
  * address + storageKeyCount + its keys).
  */
-export const REQUEST_FIXED_VALUE_ATOMS = 20;
+export const REQUEST_FIXED_VALUE_ATOMS = 21;
 
 /**
  * Recover a record's capacity instantiation (maxCalldataWords,
@@ -62,9 +62,9 @@ export const REQUEST_FIXED_VALUE_ATOMS = 20;
  * @returns The decoded record.
  * @throws Error if no capacity split decodes the value cleanly.
  */
-function decodeSignBidirectionalEvent(
+function decodeSignBidirectionalRequest(
   atoms: AlignedValue,
-): SignBidirectionalEvent {
+): SignBidirectionalRequest {
   const variable = atoms.length - REQUEST_FIXED_VALUE_ATOMS;
   if (variable < 0) {
     throw new Error(
@@ -76,10 +76,10 @@ function decodeSignBidirectionalEvent(
     maxWords: number,
     maxEntries: number,
     maxKeys: number,
-  ): SignBidirectionalEvent | undefined => {
+  ): SignBidirectionalRequest | undefined => {
     const cursor = [...atoms] as AlignedValue;
     try {
-      const record = signBidirectionalEventDescriptor(
+      const record = signBidirectionalRequestDescriptor(
         maxWords,
         maxEntries,
         maxKeys,
@@ -90,17 +90,16 @@ function decodeSignBidirectionalEvent(
       return undefined;
     }
   };
-  // No access list: variable atoms are calldata words alone.
-  if (variable % 2 === 0) {
-    const record = attempt(variable / 2, 0, 0);
+  // No access list: variable atoms are calldata words alone (one atom each).
+  {
+    const record = attempt(variable, 0, 0);
     if (record !== undefined) return record;
   }
   // With an access list: E entries of (2 + K) atoms, the rest words.
   for (let entries = 1; entries * 2 <= variable; entries++) {
     for (let keys = 0; entries * (2 + keys) <= variable; keys++) {
-      const rest = variable - entries * (2 + keys);
-      if (rest % 2 !== 0) continue;
-      const record = attempt(rest / 2, entries, keys);
+      const words = variable - entries * (2 + keys);
+      const record = attempt(words, entries, keys);
       if (record !== undefined) return record;
     }
   }
@@ -123,7 +122,7 @@ export interface SignetRequestsLedger {
    * The request index (ledger field {@link SIGNET_REQUESTS_INDEX_FIELD}),
    * keyed by hex request id.
    */
-  requestsIndex: SignBidirectionalEventIndex;
+  requestsIndex: SignBidirectionalRequestIndex;
 }
 
 /**
@@ -143,7 +142,7 @@ export function readSignetRequestsLedgerFromState(raw: RawContractState): Signet
   if (map === undefined) {
     throw new Error(`Ledger field ${SIGNET_REQUESTS_INDEX_FIELD} is not a Map`);
   }
-  const requestsIndex: SignBidirectionalEventIndex = new Map();
+  const requestsIndex: SignBidirectionalRequestIndex = new Map();
   for (const key of map.keys()) {
     // fromValue consumes its input, so hand each descriptor a copy.
     const requestId = requestIdType.fromValue([...key.value]);
@@ -151,7 +150,7 @@ export function readSignetRequestsLedgerFromState(raw: RawContractState): Signet
     if (cell === undefined) continue;
     requestsIndex.set(
       requestIdHex(requestId),
-      decodeSignBidirectionalEvent(cell.value),
+      decodeSignBidirectionalRequest(cell.value),
     );
   }
 

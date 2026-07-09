@@ -14,10 +14,12 @@
 // follow below.
 //
 // Naming follows the MPC's canonical vocabulary (sig-net/mpc
-// chain-signatures/primitives): the request mirrors SignBidirectionalEvent
-// (with the EVM transaction decomposed — the Canton-adapter precedent), the
-// signature response mirrors Signature { big_r, s, recovery_id }, and the
-// execution attestation mirrors RespondBidirectionalEvent / serialized_output.
+// chain-signatures/primitives): the SignBidirectionalRequest record mirrors
+// the MPC's SignBidirectionalEvent (with the EVM transaction decomposed — the
+// Canton-adapter precedent) and a client emits a SignBidirectionalEvent to
+// notify the MPC one was stored; the signature response mirrors
+// Signature { big_r, s, recovery_id }, and the execution attestation mirrors
+// RespondBidirectionalEvent / serialized_output.
 //
 // Read more:
 //   - sig-net docs (chain signatures, key derivation): https://docs.sig.network/
@@ -44,10 +46,10 @@ module Signet {
   export new type RequestId = Bytes<32>;
 
   // ---- The canonical request/response pair ----------------------------------
-  // 1. Client contract emits a SignBidirectionalEvent: requesting a signature from the MPC
-  // 2. MPC observes SignBidirectionalEvent, responding with SignatureRespondedEvent (providing the requested signature back to the client)
+  // 1. Client contract stores a SignBidirectionalRequest and emits a SignBidirectionalEvent, requesting a signature from the MPC
+  // 2. MPC reads the request, responding with SignatureRespondedEvent (providing the requested signature back to the client)
   // 3. Client observes SignatureRespondedEvent, broadcasts txn to destination chain
-  // 4. MPC observes, txn execution on destination chain, responds with RespondBidirectionalEvent
+  // 4. MPC observes txn execution on destination chain, responds with RespondBidirectionalEvent
 
   // TxParamType indiciates which transaction-param decomposition a request
   // contains so an off-chain consumer (e.g. the MPC) knows how to re-assemble it.
@@ -61,9 +63,9 @@ module Signet {
               // (i.e. every request id) fails to prove.
   }
 
-  // SignBidirectionalEvent is emitted by a Client contract to request a signature from the MPC.
-  export struct SignBidirectionalEvent<TxParams> {
-    // sender
+  // SignBidirectionalRequest is the record a Client contract stores to request
+  // a signature from the MPC (and hashes into its RequestId).
+  export struct SignBidirectionalRequest<TxParams> {
     requestNonce: Uint<64>;   // contract-local nonce at creation time
 
     txParamType: TxParamType; // which decomposition txParams is (off-chain decode tag)
@@ -94,8 +96,30 @@ module Signet {
                                              // (MPC -> source chain)
   }
 
-  // The counterpart to SignBidirectionalEvent,
-  // emitted by the MPC after it observes SignBidirectionalEvent.
+  // External contract surface of the central signet contract: a client cross-
+  // contract-calls emitSignBidirectionalEvent to emit the notification event.
+  export contract SignetEventEmitter {
+    circuit emitSignBidirectionalEvent(signBidirectionalEvent: SignBidirectionalEvent): [];
+  }
+
+  // SignBidirectionalEvent notifies the MPC that a SignBidirectionalRequest has
+  // been stored in the caller's ledger. Attribution comes from whose
+  // authenticated state the MPC reads, never from a field here.
+  export struct SignBidirectionalEvent {
+      // Address of the calling contract; the MPC reads its request index there.
+      callerAddress: ContractAddress,
+
+      // Representation type (Bytes<32>), NOT the RequestId new type: a `new type`
+      // field crashes the serialize<> event encoder (compiler self-diagnosed bug).
+      requestId: Bytes<32>,
+
+      // Ledger field position of the Map<RequestId, SignBidirectionalRequest> in
+      // the caller contract.
+      signBidirectionalRequestsIndexField: Uint<8>,
+  }
+
+  // The counterpart to SignBidirectionalRequest, emitted by the MPC after it
+  // observes the request.
   // Contains the MPC's secp256k1 signature over the requested transaction.
   // The requesting client uses this to rebuild a signed transaction and broadcast.
   export struct SignatureRespondedEvent {
@@ -167,54 +191,20 @@ module Signet {
     storageKeys: Vector<maxStorageKeys, Bytes<32>>;
   }
 
-  // ABI calldata for the EVM call: 4-byte selector + tagged 32-byte slots
+  // ABI calldata for the EVM call: 4-byte selector + 32-byte slots
   // (https://docs.soliditylang.org/en/latest/abi-spec.html).
-  //
-  // The words vector IS the calldata body: the MPC re-assembles
-  //   data = selector || processed words, in vector order
-  // where each word's kind selects the processing (see ABIWordKind). This
-  // supports full head/tail encoding — a dynamic arg's head slot holds the
-  // offset word, its tail the length word and verbatim data chunks — with the
-  // LAYOUT produced by the client (UI or requesting circuit), never by the
-  // MPC. The MPC does not compute or validate offsets: a malformed layout
-  // only breaks the requester's own call on the destination chain.
   export struct EVMCalldata<#maxWords> {
-    selector: Bytes<4>; // the literal first 4 calldata bytes (big-endian, as broadcast)
-    words: Vector<maxWords, ABIWord>;
+    selector: Bytes<4>;  // the literal first 4 calldata bytes (big-endian, as broadcast)
+    noWords: Uint<16>;   // No. of used words in the words list
+    words: Vector<maxWords, Bytes<32>>;
   }
 
-  // One tagged 32-byte ABI slot of the calldata body.
-  export struct ABIWord {
-    kind: ABIWordKind;
-    value: Bytes<32>;
-  }
-
-  // How the MPC must handle one ABIWord.value when re-assembling calldata.
-  //
-  // The numeric kinds (staticArg, dynArgHead, dynArgLength) are LITTLE-ENDIAN
-  // field embeds — the layout Compact's `x as Field as Bytes<32>` cast
-  // produces — and the MPC decodes the LE integer and re-encodes it as a
-  // big-endian 32-byte ABI word. This is what lets requesting circuits build
-  // contract-enforced args in-circuit (Compact has no byte-reversal
-  // primitive, so they could not produce big-endian words directly).
-  // CAUTION: for values that are natively BYTE STRINGS in display order
-  // (addresses!), the embedded integer must be the value's big-endian
-  // numeric reading — see evmAddressAbiValue below.
-  export enum ABIWordKind {
-    staticArg,    // static arg word: LE numeric embed -> BE ABI word
-    dynArgHead,   // head slot of a dynamic arg (byte offset of its tail): same LE handling
-    dynArgLength, // length word opening a dynamic tail: same LE handling
-    dynArgData,   // 32-byte chunk of dynamic tail data: copied VERBATIM
-    unused        // capacity filler beyond the call's real words: dropped
-  }
-
-  // The field value to embed in a staticArg word for an EVM address: the
+  // The field value to embed in a calldata word for an EVM address: the
   // BIG-ENDIAN numeric reading of its 20 display-order bytes. Embedding the
   // address directly (`addr as Field`) would be wrong: that cast is
   // little-endian, so the MPC's LE-decode -> BE-encode step would emit the
-  // address byte-reversed in the calldata. Usage:
-  //   ABIWord { kind: ABIWordKind.staticArg,
-  //             value: evmAddressAbiValue(addr) as Bytes<32> }
+  // address byte-reversed in the calldata. Usage: a calldata word
+  // `evmAddressAbiValue(addr) as Bytes<32>`.
   // (Uint amounts need no helper: `amount as Field` already embeds the
   // correct numeric value.)
   export pure circuit evmAddressAbiValue(addr: Bytes<20>): Field {
@@ -246,7 +236,7 @@ module Signet {
   // contract declares this as its FIRST ledger field (instantiated at its own
   // calldata slot capacity), so the MPC can find and deserialize it knowing
   // only the contract address.
-  export new type SignBidirectionalEventIndex<TxParams> = Map<RequestId, SignBidirectionalEvent<TxParams>>;
+  export new type SignBidirectionalRequestIndex<TxParams> = Map<RequestId, SignBidirectionalRequest<TxParams>>;
 
   // The contract-local request counter. Signet layout convention: declared as
   // the SECOND ledger field (directly after the index). It sources each
@@ -311,11 +301,11 @@ module Signet {
   // (calculateRequestId) that MUST stay in lockstep — see the
   // deviation note there before changing anything here.
   export pure circuit calculateRequestId<TxParams>(
-    request: SignBidirectionalEvent<TxParams>
+    request: SignBidirectionalRequest<TxParams>
   ): RequestId {
     return persistentHash<Vector<2, Bytes<32>>>([
       pad(32, "signet:midnight:request"),
-      persistentHash<SignBidirectionalEvent<TxParams>>(request)
+      persistentHash<SignBidirectionalRequest<TxParams>>(request)
     ]) as RequestId;
   }
 
@@ -406,7 +396,7 @@ module Signet {
   //   - the remaining MPC routing fields, caller-supplied
   // Store the result under calculateRequestId(request) in the
   // request index.
-  export pure circuit constructSignBidirectionalEvent<TxParams>(
+  export pure circuit constructSignBidirectionalRequest<TxParams>(
     pathCommitment: Bytes<32>,
     requestNonce: Uint<64>,
     txParamType: TxParamType,
@@ -419,11 +409,11 @@ module Signet {
     params: Bytes<64>,
     outputDeserializationSchema: Bytes<128>,
     respondSerializationSchema: Bytes<128>
-  ): SignBidirectionalEvent<TxParams> {
+  ): SignBidirectionalRequest<TxParams> {
     assertPathCommitment(pathCommitment, path);
     // The MPC rejects requests for the unsupported legacy key version 0.
     assert(keyVersion >= 1, "keyVersion must be >= 1");
-    return SignBidirectionalEvent<TxParams> {
+    return SignBidirectionalRequest<TxParams> {
       requestNonce,
       txParamType,
       txParams,

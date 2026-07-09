@@ -7,7 +7,7 @@
 // The lockstep is enforced by each consuming contract's simulator tests: the
 // "erc20-vault ledger shape" test in packages/vault-contract/tests/
 // contract.test.ts assigns the generated `ledger().signetRequestsIndex` to the
-// named SignBidirectionalEventLedgerIndex type — the assignment itself is
+// named SignBidirectionalRequestLedgerIndex type — the assignment itself is
 // the assertion, so any structural drift between the generated managed types
 // and these twins fails that package's `npm run build` / `npm run test`.
 //
@@ -33,7 +33,7 @@ import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts"
  * 32-byte signet request id (Compact: `new type RequestId = Bytes<32>`).
  * Chain-agnostic: downstream consumers treat it as an opaque key. Ids are
  * minted by `calculateRequestId` in Signet.compact — the domain-separated
- * hash of the full {@link SignBidirectionalEvent} record.
+ * hash of the full {@link SignBidirectionalRequest} record.
  */
 export type RequestId = Uint8Array;
 
@@ -55,20 +55,6 @@ export const TxParamType = {
 } as const;
 
 /**
- * How the MPC must handle one {@link ABIWord} when re-assembling calldata
- * (Compact: `enum ABIWordKind`). The numeric kinds (staticArg, dynArgHead,
- * dynArgLength) are little-endian field embeds re-encoded as big-endian ABI
- * words; dynArgData is copied verbatim; unused is dropped.
- */
-export const ABIWordKind = {
-  staticArg: 0,
-  dynArgHead: 1,
-  dynArgLength: 2,
-  dynArgData: 3,
-  unused: 4,
-} as const;
-
-/**
  * Compact's standard-library `Maybe<T>` as the compiler generates it: a
  * plain struct. Even when `is_some` is false, `value` carries a full
  * default-valued `T` (so vector capacities remain inferable).
@@ -78,26 +64,20 @@ export interface Maybe<T> {
   value: T;
 }
 
-/** One tagged 32-byte ABI slot of the calldata body (Compact: `ABIWord`). */
-export interface ABIWord {
-  /** An {@link ABIWordKind} value. */
-  kind: number;
-  /** The 32-byte slot content; interpretation depends on `kind`. */
-  value: Uint8Array;
-}
-
 /**
- * ABI calldata as 4-byte selector + tagged word slots (Compact:
- * `EVMCalldata<#maxWords>`). The words vector IS the calldata body:
- * `data = selector || processed words` — see {@link assembleCalldata}.
- * Head/tail layout (https://docs.soliditylang.org/en/latest/abi-spec.html)
- * is produced by the client; the MPC never computes or validates offsets.
+ * ABI calldata as a 4-byte selector + 32-byte word slots (Compact:
+ * `EVMCalldata<#maxWords>`). Each word is a little-endian field embed (what the
+ * contract's `x as Field as Bytes<32>` cast produces); the MPC re-encodes the
+ * leading {@link noWords} of them big-endian to form the calldata body —
+ * `data = selector || BE(words[0..noWords])`, see {@link assembleCalldata}.
  */
 export interface EVMCalldata {
   /** The literal first 4 calldata bytes (big-endian, as broadcast). */
   selector: Uint8Array;
-  /** Tagged ABI slots; capacity is the contract's `#maxWords` (vault: 2). */
-  words: ABIWord[];
+  /** How many leading {@link words} are real (Compact `noWords: Uint<16>`). */
+  noWords: bigint;
+  /** 32-byte word slots; capacity is the contract's `#maxWords` (vault: 2). */
+  words: Uint8Array[];
 }
 
 /**
@@ -124,7 +104,7 @@ export interface EVMAccessListEntry {
 export interface EVMType2TxParams {
   /** Call target (e.g. the ERC20 contract), 20 bytes. */
   to: Uint8Array;
-  /** EVM chain id (also expressed in {@link SignBidirectionalEvent.caip2Id}). */
+  /** EVM chain id (also expressed in {@link SignBidirectionalRequest.caip2Id}). */
   chainId: bigint;
   /** Account nonce of the MPC-derived sender address. */
   nonce: bigint;
@@ -146,13 +126,13 @@ export interface EVMType2TxParams {
 
 /**
  * Canonical signet request record (Compact:
- * `SignBidirectionalEvent<TxParams>`), stored per {@link RequestId} in a
+ * `SignBidirectionalRequest<TxParams>`), stored per {@link RequestId} in a
  * requesting contract's index (ledger field 0). Mirrors the MPC's
- * SignBidirectionalEvent with the transaction decomposed. The TS twin fixes
+ * SignBidirectionalRequest with the transaction decomposed. The TS twin fixes
  * the type parameter at {@link EVMType2TxParams} — the only decomposition
  * so far; new tx kinds add a union here alongside their Compact struct.
  */
-export interface SignBidirectionalEvent {
+export interface SignBidirectionalRequest {
   /** Contract-local nonce captured when the request was created. */
   requestNonce: bigint;
   /** A {@link TxParamType} value tagging the txParams decomposition. */
@@ -211,11 +191,11 @@ const BYTES_64 = new CompactTypeBytes(64);
 const BYTES_128 = new CompactTypeBytes(128);
 const BYTES_256 = new CompactTypeBytes(256);
 const UINT_8 = new CompactTypeUnsignedInteger(2n ** 8n - 1n, 1);
+const UINT_16 = new CompactTypeUnsignedInteger(2n ** 16n - 1n, 2);
 const UINT_32 = new CompactTypeUnsignedInteger(2n ** 32n - 1n, 4);
 const UINT_64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
 const UINT_128 = new CompactTypeUnsignedInteger(2n ** 128n - 1n, 16);
 const TX_PARAM_TYPE = new CompactTypeEnum(1, 1);
-const ABI_WORD_KIND = new CompactTypeEnum(4, 1);
 
 /**
  * Build the runtime descriptor of a Compact struct from its per-field
@@ -264,12 +244,6 @@ function compactMaybeDescriptor<T>(inner: CompactType<T>): CompactType<Maybe<T>>
   });
 }
 
-/** Descriptor of {@link ABIWord} (Compact: `ABIWord`). */
-const ABI_WORD_DESCRIPTOR = compactStructDescriptor<ABIWord>({
-  kind: ABI_WORD_KIND,
-  value: BYTES_32,
-});
-
 /**
  * Descriptor of {@link EVMCalldata} at one word capacity — the TS analogue
  * of instantiating Compact's `EVMCalldata<#maxWords>`.
@@ -280,7 +254,8 @@ const ABI_WORD_DESCRIPTOR = compactStructDescriptor<ABIWord>({
 export function evmCalldataDescriptor(maxWords: number): CompactType<EVMCalldata> {
   return compactStructDescriptor<EVMCalldata>({
     selector: BYTES_4,
-    words: new CompactTypeVector(maxWords, ABI_WORD_DESCRIPTOR),
+    noWords: UINT_16,
+    words: new CompactTypeVector(maxWords, BYTES_32),
   });
 }
 
@@ -334,19 +309,19 @@ export function evmType2TxParamsDescriptor(
 }
 
 /**
- * Descriptor of {@link SignBidirectionalEvent} at one capacity instantiation.
+ * Descriptor of {@link SignBidirectionalRequest} at one capacity instantiation.
  *
  * @param maxCalldataWords - Calldata word capacity.
  * @param maxAccessListEntries - Access-list entry capacity.
  * @param maxStorageKeysPerEntry - Storage-key capacity per entry.
  * @returns The request record descriptor.
  */
-export function signBidirectionalEventDescriptor(
+export function signBidirectionalRequestDescriptor(
   maxCalldataWords: number,
   maxAccessListEntries: number,
   maxStorageKeysPerEntry: number,
-): CompactType<SignBidirectionalEvent> {
-  return compactStructDescriptor<SignBidirectionalEvent>({
+): CompactType<SignBidirectionalRequest> {
+  return compactStructDescriptor<SignBidirectionalRequest>({
     requestNonce: UINT_64,
     txParamType: TX_PARAM_TYPE,
     txParams: evmType2TxParamsDescriptor(
@@ -381,7 +356,7 @@ const REQUEST_ID_DOMAIN_TAG = asciiPadded("signet:midnight:request", 32);
  * @param request - The full request record (contract-shaped, all slots).
  * @returns The 32-byte request id — the record's ledger map key.
  */
-export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
+export function calculateRequestId(request: SignBidirectionalRequest): RequestId {
   const { txParams } = request;
   const maxCalldataWords = txParams.calldata.value.words.length;
   const maxAccessListEntries = txParams.accessList.length;
@@ -390,7 +365,7 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
   return persistentHash(new CompactTypeVector(2, BYTES_32), [
     REQUEST_ID_DOMAIN_TAG,
     persistentHash(
-      signBidirectionalEventDescriptor(
+      signBidirectionalRequestDescriptor(
         maxCalldataWords,
         maxAccessListEntries,
         maxStorageKeysPerEntry,
@@ -403,13 +378,13 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
 // ---- Calldata / transaction assembly ----------------------------------------
 
 /**
- * The 32-byte value of a NUMERIC ABI word (kinds staticArg / dynArgHead /
- * dynArgLength): the little-endian field embed of the number, exactly what
- * Compact's `x as Field as Bytes<32>` cast produces in-circuit. Use when
- * building words off-chain (UIs, expected-record builders, tests).
+ * The 32-byte value of a numeric ABI word: the little-endian field embed of
+ * the number, exactly what Compact's `x as Field as Bytes<32>` cast produces
+ * in-circuit. Use when building words off-chain (UIs, expected-record
+ * builders, tests).
  *
- * @param value - The word's numeric value (amount, offset, length, ...).
- * @returns The 32-byte LE embed to store in {@link ABIWord.value}.
+ * @param value - The word's numeric value (e.g. an amount).
+ * @returns The 32-byte LE embed to store in an {@link EVMCalldata} word.
  */
 export function numericAbiWordValue(value: bigint): Uint8Array {
   return bigintToBytes32(value);
@@ -423,7 +398,7 @@ export function numericAbiWordValue(value: bigint): Uint8Array {
  * byte-reversed in the assembled calldata.
  *
  * @param address - The 20-byte address in display order.
- * @returns The 32-byte word value to store in {@link ABIWord.value}.
+ * @returns The 32-byte word value to store in an {@link EVMCalldata} word.
  */
 export function evmAddressAbiWord(address: Uint8Array): Uint8Array {
   let value = 0n;
@@ -434,37 +409,24 @@ export function evmAddressAbiWord(address: Uint8Array): Uint8Array {
 }
 
 /**
- * Re-assemble the raw calldata a request's tagged words describe:
- * `data = selector || processed words` in vector order, where each word's
- * {@link ABIWordKind} selects the processing — numeric kinds are LE-decoded
- * and re-encoded as big-endian 32-byte ABI words, dynArgData is copied
- * verbatim, unused is dropped. This is THE implementation of the MPC
- * re-assembly contract documented on `EVMCalldata` in Signet.compact.
+ * Re-assemble the raw calldata a request's words describe:
+ * `data = selector || BE(words[0..noWords])`. Each word is a little-endian
+ * field embed (the contract's `x as Field as Bytes<32>` cast); the leading
+ * `noWords` are re-encoded big-endian into 32-byte ABI words and any remaining
+ * capacity slots are dropped. This is THE implementation of the MPC re-assembly
+ * documented on `EVMCalldata` in Signet.compact.
  *
  * @param calldata - The request's calldata field.
  * @returns Hex calldata for the transaction (`"0x"` when absent).
- * @throws Error on an unknown word kind.
  */
 export function assembleCalldata(calldata: Maybe<EVMCalldata>): string {
   if (!calldata.is_some) {
     return "0x";
   }
-  let data = `0x${bytesToHex(calldata.value.selector)}`;
-  for (const word of calldata.value.words) {
-    switch (word.kind) {
-      case ABIWordKind.staticArg:
-      case ABIWordKind.dynArgHead:
-      case ABIWordKind.dynArgLength:
-        data += bytesToHex(bigintToBytes32BE(bytesToBigint(word.value)));
-        break;
-      case ABIWordKind.dynArgData:
-        data += bytesToHex(word.value);
-        break;
-      case ABIWordKind.unused:
-        break;
-      default:
-        throw new Error(`unknown ABI word kind ${word.kind}`);
-    }
+  const { selector, noWords, words } = calldata.value;
+  let data = `0x${bytesToHex(selector)}`;
+  for (let i = 0; i < Number(noWords); i++) {
+    data += bytesToHex(bigintToBytes32BE(bytesToBigint(words[i])));
   }
   return data;
 }
@@ -504,8 +466,8 @@ function decodeAccessList(
  *   MPC signs).
  * @throws Error if a calldata word carries an unknown kind.
  */
-export function signBidirectionalEventToUnsignedEVMTransaction(
-  event: SignBidirectionalEvent,
+export function signBidirectionalRequestToUnsignedEVMTransaction(
+  event: SignBidirectionalRequest,
 ): Transaction {
   const { txParams } = event;
   return Transaction.from({
@@ -614,7 +576,7 @@ export function signatureToSignatureRespondedEvent(
 /**
  * Assemble the broadcast-ready signed EIP-1559 transaction for a request from
  * its MPC signature response: rebuild the exact unsigned transaction the MPC
- * signed (see {@link signBidirectionalEventToUnsignedEVMTransaction}) and
+ * signed (see {@link signBidirectionalRequestToUnsignedEVMTransaction}) and
  * attach the signature. Does NOT check that the signature recovers to the
  * requester's derived address — the response log is unauthenticated, so
  * verify first with `verifySignatureRespondedEvent`.
@@ -625,25 +587,25 @@ export function signatureToSignatureRespondedEvent(
  *   `eth_sendRawTransaction`, `hash` its on-chain hash, `from` the recovered
  *   sender.
  * @throws Error if the request record is malformed (see
- *   {@link signBidirectionalEventToUnsignedEVMTransaction}) or the response
+ *   {@link signBidirectionalRequestToUnsignedEVMTransaction}) or the response
  *   is not a decodable signature.
  */
-export function signBidirectionalEventToSignedEVMTransaction(
-  event: SignBidirectionalEvent,
+export function signBidirectionalRequestToSignedEVMTransaction(
+  event: SignBidirectionalRequest,
   response: SignatureRespondedEvent,
 ): Transaction {
-  const transaction = signBidirectionalEventToUnsignedEVMTransaction(event);
+  const transaction = signBidirectionalRequestToUnsignedEVMTransaction(event);
   transaction.signature = signatureRespondedEventToSignature(response);
   return transaction;
 }
 
 /**
- * The generated ledger shape of `Map<RequestId, SignBidirectionalEvent>`:
+ * The generated ledger shape of `Map<RequestId, SignBidirectionalRequest>`:
  * what a contract's `ledger(state).signetRequestsIndex` provides. Structural,
  * so any contract exposing the index satisfies it.
  */
-export interface SignBidirectionalEventLedgerIndex
-  extends Iterable<[RequestId, SignBidirectionalEvent]> {
+export interface SignBidirectionalRequestLedgerIndex
+  extends Iterable<[RequestId, SignBidirectionalRequest]> {
   /** @returns `true` when the index holds no requests. */
   isEmpty(): boolean;
   /** @returns Number of requests in the index. */
@@ -658,7 +620,7 @@ export interface SignBidirectionalEventLedgerIndex
    * @returns The stored request record; throws when absent — guard with
    *   {@link member} first.
    */
-  lookup(requestId: RequestId): SignBidirectionalEvent;
+  lookup(requestId: RequestId): SignBidirectionalRequest;
 }
 
 declare const requestIdHexBrand: unique symbol;
@@ -678,9 +640,9 @@ export type RequestIdHex = string & {
 };
 
 /** Plain-JS index parsed out of the ledger, keyed by hex request id. */
-export type SignBidirectionalEventIndex = Map<
+export type SignBidirectionalRequestIndex = Map<
   RequestIdHex,
-  SignBidirectionalEvent
+  SignBidirectionalRequest
 >;
 
 /**
@@ -744,7 +706,7 @@ export const PATH_BYTES = 256;
  * Build the canonical MPC derivation path for an identity commitment: the
  * lowercase hex of the commitment as ASCII, zero-padded to {@link PATH_BYTES}
  * — exactly what the contract's `assertPathCommitment` accepts. Use this to
- * populate {@link SignBidirectionalEvent.path} when constructing requests.
+ * populate {@link SignBidirectionalRequest.path} when constructing requests.
  *
  * @param commitment - 32-byte identity commitment.
  * @returns The 256-byte path field value.
@@ -761,13 +723,13 @@ export function signetPathOfCommitment(commitment: Uint8Array): Uint8Array {
  *
  * @param ledgerIndex - Iterable of `[requestId, request]` entries — e.g. a
  *   contract's `ledger(state).signetRequestsIndex` (any
- *   {@link SignBidirectionalEventLedgerIndex}).
+ *   {@link SignBidirectionalRequestLedgerIndex}).
  * @returns A new `Map` from {@link requestIdHex} key to request record.
  */
-export function toSignBidirectionalEventIndex(
-  ledgerIndex: Iterable<[RequestId, SignBidirectionalEvent]>,
-): SignBidirectionalEventIndex {
-  const index: SignBidirectionalEventIndex = new Map();
+export function toSignBidirectionalRequestIndex(
+  ledgerIndex: Iterable<[RequestId, SignBidirectionalRequest]>,
+): SignBidirectionalRequestIndex {
+  const index: SignBidirectionalRequestIndex = new Map();
   for (const [requestId, request] of ledgerIndex) {
     index.set(requestIdHex(requestId), request);
   }

@@ -25,6 +25,16 @@ constructor(mpcPk: JubjubPoint) {
     mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
 }
 
+// emitSignBidirectionalEvent should be called by clients after (or within) a
+// transaction that writes a SignBidirectionalRequest to their canonical
+// SignBidirectionalRequestIndex state map.
+export circuit emitSignBidirectionalEvent(signBidirectionalEvent: SignBidirectionalEvent): [] {
+    emit(Misc {
+        name: pad(32, "SignBidirectionalEvent"),
+        payload: serialize<SignBidirectionalEvent, 256>(disclose(signBidirectionalEvent)),
+    });
+}
+
 // postSignatureResponse appends a signature response for requestId.
 // Unauthenticated by NECESSITY (secp256k1 ECDSA cannot be verified
 // in-circuit): anyone may post, and nothing is ever overwritten — each post

@@ -10,7 +10,6 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
-  ABIWordKind,
   ERC20_TRANSFER_SELECTOR,
   calculateRequestId,
   deriveJubjubKeypair,
@@ -20,10 +19,10 @@ import {
   requestIdHex,
   signetFieldNode,
   signetPathOfCommitment,
-  toSignBidirectionalEventIndex,
+  toSignBidirectionalRequestIndex,
   SIGNET_REQUESTS_INDEX_FIELD,
   type EVMType2TxParams,
-  type SignBidirectionalEventLedgerIndex,
+  type SignBidirectionalRequestLedgerIndex,
 } from "@midnight-erc20-vault/signet-midnight";
 
 import {
@@ -34,6 +33,11 @@ import {
   witnesses,
   type VaultPrivateState,
 } from "../src/index.ts";
+// The signet contract (callee) module — the same one the vault's generated code
+// cross-contract-calls. requestDeposit ends in a call to its
+// emitSignBidirectionalEvent, so the simulator needs its state (see
+// signetStateProvider) to execute that path.
+import * as SignetEventEmitter from "../src/managed/SignetEventEmitter/contract/index.js";
 
 // ---- Fixtures ----
 
@@ -71,6 +75,29 @@ const OTHER_COMMITMENT = pureCircuits.userCommitment(OTHER_SECRET_KEY);
 // The "MPC" of these tests: its attestation key is pinned by the constructor.
 const MPC_KEYS = deriveJubjubKeypair(bytes(32, 0x42));
 
+// The signet contract (callee) the vault seals + cross-contract-calls. A valid
+// sample contract address so the runtime's address checks pass.
+const SIGNET_ADDRESS = sampleContractAddress();
+const SIGNET_CONTRACT_REF = {
+  bytes: Uint8Array.from(Buffer.from(SIGNET_ADDRESS, "hex")),
+};
+const BLOCK_HASH = "0".repeat(64);
+
+/**
+ * A ContractStateProvider serving the signet contract's initial state to the
+ * simulator's cross-contract call — how requestDeposit reaches
+ * emitSignBidirectionalEvent in-process (no node/indexer). Returns the state
+ * for any address: the vault only calls the single sealed signet contract.
+ */
+const signetStateProvider = async () => {
+  const signet = new SignetEventEmitter.Contract({});
+  const { currentContractState } = await signet.initialState(
+    createConstructorContext(undefined, CPK),
+    MPC_KEYS.pk,
+  );
+  return { getContractState: async () => currentContractState };
+};
+
 const VAULT_EVM = bytes(20, 0xee);
 const ERC20 = bytes(20, 0xaa);
 const ZERO_ADDRESS = new Uint8Array(20);
@@ -78,7 +105,7 @@ const AMOUNT = 1_000_000n;
 const UINT64_MAX = 18446744073709551615n;
 
 /** A zeroed calldata word: the value of every unused capacity slot. */
-const ZERO_WORD = { kind: ABIWordKind.staticArg, value: new Uint8Array(32) };
+const ZERO_WORD = new Uint8Array(32);
 
 /**
  * Known-good caller-supplied tx envelope for a deposit — the base every test
@@ -100,7 +127,7 @@ const VALID_TX_PARAMS: EVMType2TxParams = {
   accessList: [],
   calldata: {
     is_some: false,
-    value: { selector: new Uint8Array(4), words: [ZERO_WORD, ZERO_WORD] },
+    value: { selector: new Uint8Array(4), noWords: 0n, words: [ZERO_WORD, ZERO_WORD] },
   },
 };
 
@@ -164,6 +191,7 @@ const deployContract = async (
       ),
       deployerCommitment,
       MPC_KEYS.pk,
+      SIGNET_CONTRACT_REF,
     );
   const ctx = createCircuitContext(
     "requestDeposit",
@@ -171,6 +199,11 @@ const deployContract = async (
     CPK,
     currentContractState,
     currentPrivateState,
+    await signetStateProvider(),
+    undefined,
+    undefined,
+    undefined,
+    BLOCK_HASH,
   );
   return { contract, ctx };
 };
@@ -212,12 +245,12 @@ describe("erc20-vault ledger shape", () => {
 
     // The assignment is the real assertion: the generated ledger type must
     // stay structurally identical to the shared library's named types.
-    const ledgerIndex: SignBidirectionalEventLedgerIndex = ledger(
+    const ledgerIndex: SignBidirectionalRequestLedgerIndex = ledger(
       ctx.callContext.currentQueryContext.state,
     ).signetRequestsIndex;
 
     expect(ledgerIndex.isEmpty()).toBe(true);
-    expect(toSignBidirectionalEventIndex(ledgerIndex).size).toBe(0);
+    expect(toSignBidirectionalRequestIndex(ledgerIndex).size).toBe(0);
   });
 
   it("MPC-style: finds the request index in RAW state by position, no ledger()", async () => {
@@ -228,7 +261,7 @@ describe("erc20-vault ledger shape", () => {
     expect(node.type()).toBe("map");
 
     const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(rawState);
-    const typedIndex = toSignBidirectionalEventIndex(
+    const typedIndex = toSignBidirectionalRequestIndex(
       ledger(ctx.callContext.currentQueryContext.state).signetRequestsIndex,
     );
     expect(requestsIndex).toEqual(typedIndex);
@@ -303,7 +336,7 @@ describe("deposit round-trip", () => {
     const state = next.callContext.currentQueryContext.state;
 
     // Read 1: generated ledger().
-    const typedIndex = toSignBidirectionalEventIndex(
+    const typedIndex = toSignBidirectionalRequestIndex(
       ledger(state).signetRequestsIndex,
     );
     // Read 2: MPC-style raw read — no compiled contract involved.
@@ -335,17 +368,14 @@ describe("deposit round-trip", () => {
     );
     expect(record.requestNonce).toBe(0n);
 
-    // Contract-built calldata: transfer(vaultEvmAddress, amount) as tagged
-    // words — the raw selector, the BE-embedded address, the LE amount.
+    // Contract-built calldata: transfer(vaultEvmAddress, amount) as words —
+    // the raw selector, the BE-embedded address, the LE amount.
     expect(calldata.is_some).toBe(true);
     expect(calldata.value.selector).toEqual(ERC20_TRANSFER_SELECTOR);
+    expect(calldata.value.noWords).toBe(2n);
     expect(calldata.value.words).toHaveLength(2);
-    expect(calldata.value.words[0]).toEqual({
-      kind: ABIWordKind.staticArg,
-      value: evmAddressAbiWord(VAULT_EVM),
-    });
-    expect(calldata.value.words[1].kind).toBe(ABIWordKind.staticArg);
-    expect(bytesToBigintLE(calldata.value.words[1].value)).toBe(AMOUNT);
+    expect(calldata.value.words[0]).toEqual(evmAddressAbiWord(VAULT_EVM));
+    expect(bytesToBigintLE(calldata.value.words[1])).toBe(AMOUNT);
 
     // The map key IS the domain-separated hash of the record — recomputed
     // off-chain with the library's TS twin of the request-id circuit. This
@@ -490,7 +520,7 @@ describe("deposit validation", () => {
       )
     ).context;
 
-    const index = toSignBidirectionalEventIndex(
+    const index = toSignBidirectionalRequestIndex(
       ledger(afterSecond.callContext.currentQueryContext.state)
         .signetRequestsIndex,
     );

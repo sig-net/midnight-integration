@@ -22,9 +22,9 @@ import {
 import { recoverSignatureRespondedEventSigner } from "./signature-response-verification.ts";
 import type { RawContractState } from "./signature-state-reading.ts";
 import {
-  signBidirectionalEventToSignedEVMTransaction,
-  signBidirectionalEventToUnsignedEVMTransaction,
-  type SignBidirectionalEvent,
+  signBidirectionalRequestToSignedEVMTransaction,
+  signBidirectionalRequestToUnsignedEVMTransaction,
+  type SignBidirectionalRequest,
   type RequestIdHex,
 } from "./signet-requests.ts";
 
@@ -95,7 +95,7 @@ export class SignetRequestResponseReader {
   // Request records never change once stored; cache them across calls.
   private readonly requestCache = new Map<
     RequestIdHex,
-    SignBidirectionalEvent
+    SignBidirectionalRequest
   >();
 
   /**
@@ -139,7 +139,7 @@ export class SignetRequestResponseReader {
    */
   async getSignatureRequest(
     requestId: RequestIdHex,
-  ): Promise<SignBidirectionalEvent> {
+  ): Promise<SignBidirectionalRequest> {
     const cached = this.requestCache.get(requestId);
     if (cached !== undefined) {
       return cached;
@@ -260,7 +260,7 @@ export class SignetRequestResponseReader {
   async getUnsignedEVMTransaction(
     requestId: RequestIdHex,
   ): Promise<Transaction> {
-    return signBidirectionalEventToUnsignedEVMTransaction(
+    return signBidirectionalRequestToUnsignedEVMTransaction(
       await this.getSignatureRequest(requestId),
     );
   }
@@ -295,7 +295,7 @@ export class SignetRequestResponseReader {
     // getSignatureRequest is cached — getVerifiedSignatureResponse already
     // fetched it, so this is a free lookup, not a second query.
     const request = await this.getSignatureRequest(requestId);
-    return signBidirectionalEventToSignedEVMTransaction(request, verified);
+    return signBidirectionalRequestToSignedEVMTransaction(request, verified);
   }
 
   /**

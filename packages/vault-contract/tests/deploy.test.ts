@@ -21,7 +21,7 @@ import {
   type VaultPrivateState,
 } from "../src/index.ts";
 
-const MANAGED_DIR = fileURLToPath(new URL("../src/managed", import.meta.url));
+const MANAGED_DIR = fileURLToPath(new URL("../src/managed/erc20-vault", import.meta.url));
 const HAS_VERIFIER_KEYS = existsSync(join(MANAGED_DIR, "keys"));
 
 // The deployer's identity secret; its commitment is the constructor arg.
@@ -29,6 +29,9 @@ const SECRET_KEY = new Uint8Array(32).fill(7);
 
 // The MPC attestation key the constructor seals.
 const MPC_KEYS = deriveJubjubKeypair(new Uint8Array(32).fill(0x42));
+
+// Stand-in signet-contract reference sealed as the cross-contract emitter.
+const SIGNET_CONTRACT_REF = { bytes: new Uint8Array(32).fill(0x5e) };
 
 // Dummy coin public key (32-byte hex) for the constructor context.
 const CPK = "0".repeat(64);
@@ -51,6 +54,7 @@ describe.skipIf(!HAS_VERIFIER_KEYS)(
         createVaultPrivateState(SECRET_KEY),
         pureCircuits.userCommitment(SECRET_KEY),
         MPC_KEYS.pk,
+        SIGNET_CONTRACT_REF,
       );
 
       expect(deployTransaction.contractAddress).not.toHaveLength(0);
@@ -70,6 +74,7 @@ describe.skipIf(!HAS_VERIFIER_KEYS)(
           createVaultPrivateState(SECRET_KEY),
           new Uint8Array(31), // not Bytes<32> — the generated arg validation must trip
           MPC_KEYS.pk,
+          SIGNET_CONTRACT_REF,
         ),
       ).rejects.toThrow(/Failed to initialize contract/);
     });

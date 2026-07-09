@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 import { CompactTypeUnsignedInteger, StateMap, StateValue } from "@midnight-ntwrk/compact-runtime";
 
 import {
-  ABIWordKind,
   ERC20_TRANSFER_SELECTOR,
   TxParamType,
   evmAddressAbiWord,
@@ -19,8 +18,8 @@ import {
   readSignetRequestsLedgerFromState,
   requestIdHex,
   requestIdType,
-  signBidirectionalEventDescriptor,
-  type SignBidirectionalEvent,
+  signBidirectionalRequestDescriptor,
+  type SignBidirectionalRequest,
 } from "../src/index.ts";
 
 const bytes = (length: number, fill: number) =>
@@ -28,7 +27,7 @@ const bytes = (length: number, fill: number) =>
 
 // Shared across tests: NEVER mutate; build a variation as an explicit spread.
 // The vault's shape: <2 calldata words, 0 access-list entries, 0 keys>.
-const SAMPLE_REQUEST: SignBidirectionalEvent = {
+const SAMPLE_REQUEST: SignBidirectionalRequest = {
   requestNonce: 7n,
   txParamType: TxParamType.evmType2,
   txParams: {
@@ -45,10 +44,8 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
       is_some: true,
       value: {
         selector: ERC20_TRANSFER_SELECTOR,
-        words: [
-          { kind: ABIWordKind.staticArg, value: evmAddressAbiWord(bytes(20, 0xee)) },
-          { kind: ABIWordKind.staticArg, value: numericAbiWordValue(1_000_000n) },
-        ],
+        noWords: 2n,
+        words: [evmAddressAbiWord(bytes(20, 0xee)), numericAbiWordValue(1_000_000n)],
       },
     },
   },
@@ -64,7 +61,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
 
 // A wider instantiation: <2 words, 1 access-list entry, 2 storage keys> with
 // only one key in use — the reader must recover these capacities too.
-const ACCESS_LIST_REQUEST: SignBidirectionalEvent = {
+const ACCESS_LIST_REQUEST: SignBidirectionalRequest = {
   ...SAMPLE_REQUEST,
   txParams: {
     ...SAMPLE_REQUEST.txParams,
@@ -97,10 +94,10 @@ const counterCell = (value: bigint) =>
 
 /** A request record cell encoded at the given capacity instantiation. */
 const requestCell = (
-  request: SignBidirectionalEvent,
+  request: SignBidirectionalRequest,
   [words, entries, keys]: readonly [number, number, number],
 ) => {
-  const descriptor = signBidirectionalEventDescriptor(words, entries, keys);
+  const descriptor = signBidirectionalRequestDescriptor(words, entries, keys);
   return StateValue.newCell({
     value: descriptor.toValue(request),
     alignment: descriptor.alignment(),

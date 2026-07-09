@@ -19,8 +19,24 @@ import {
 } from "@midnight-erc20-vault/lib";
 import { parseJubjubPublicKey } from "@midnight-erc20-vault/signet-midnight";
 
-import { Contract, pureCircuits } from "./managed/contract/index.js";
+import { Contract, pureCircuits } from "./managed/erc20-vault/contract/index.js";
 import { createVaultPrivateState, witnesses, type VaultPrivateState } from "./witnesses.ts";
+
+/**
+ * Convert a contract address (hex, optional `0x`) into the reference shape a
+ * Compact contract-typed constructor arg expects: `{ bytes: Uint8Array(32) }`.
+ *
+ * @param contractAddress - The 32-byte contract address in hex.
+ * @returns The `{ bytes }` reference.
+ * @throws If the address is not 32 bytes of hex.
+ */
+function contractAddressToReference(contractAddress: string): { bytes: Uint8Array } {
+  const hex = contractAddress.startsWith("0x") ? contractAddress.slice(2) : contractAddress;
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+    throw new Error(`not a 32-byte contract address in hex: "${contractAddress}"`);
+  }
+  return { bytes: Uint8Array.from(Buffer.from(hex, "hex")) };
+}
 
 /** The outcome of a successful vault deployment. */
 export interface VaultDeployment {
@@ -43,11 +59,12 @@ export interface VaultDeployment {
  * `mpcPubKeyHash` — claimDeposit accepts only attestations signed by it.
  *
  * @param env - Environment map providing `DEPLOYER_SEED`,
- *   `VAULT_DEPLOYER_SECRET_KEY`, `MPC_JUBJUB_PK` and lib's Midnight node
- *   configuration.
+ *   `VAULT_DEPLOYER_SECRET_KEY`, `MPC_JUBJUB_PK`,
+ *   `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` (the signet contract to seal as the
+ *   cross-contract emitter) and lib's Midnight node configuration.
  * @returns The deployed contract address and deploy transaction id.
- * @throws If `MPC_JUBJUB_PK` is missing/malformed, the deployer wallet holds
- *   no funds, or submission fails.
+ * @throws If `MPC_JUBJUB_PK` or `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` is
+ *   missing/malformed, the deployer wallet holds no funds, or submission fails.
  */
 export async function deployVault(env: Record<string, string | undefined> = process.env): Promise<VaultDeployment> {
   const deployConfig = getDeployConfig(env);
@@ -62,11 +79,20 @@ export async function deployVault(env: Record<string, string | undefined> = proc
   }
   const mpcPk = parseJubjubPublicKey(mpcPkRaw);
 
+  // The signet contract the vault cross-contract-calls to emit signature
+  // requests — sealed into the vault as the SignetEventEmitter reference, so it
+  // must be deployed first.
+  const signetContractAddress = env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS?.trim();
+  if (!signetContractAddress) {
+    throw new Error("MIDNIGHT_SIGNET_CONTRACT_ADDRESS is required (deploy the signet contract first)");
+  }
+  const signetEventEmitter = contractAddressToReference(signetContractAddress);
+
   const compiledContract = makeCompiledContract<Contract<VaultPrivateState>, VaultPrivateState>(
     "erc20-vault",
     Contract,
     witnesses,
-    fileURLToPath(new URL("./managed", import.meta.url)),
+    fileURLToPath(new URL("./managed/erc20-vault", import.meta.url)),
   );
 
   const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
@@ -86,6 +112,7 @@ export async function deployVault(env: Record<string, string | undefined> = proc
         createVaultPrivateState(secretKey),
         deployerCommitment,
         mpcPk,
+        signetEventEmitter,
       );
       console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
 

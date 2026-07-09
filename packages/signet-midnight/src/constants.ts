@@ -8,22 +8,22 @@
 // The routing constants belong in github.com/sig-net/signet.js — kept here
 // until upstreamed.
 
-/** Width of `SignBidirectionalEvent.caip2Id` (`Bytes<32>`). */
+/** Width of `SignBidirectionalRequest.caip2Id` (`Bytes<32>`). */
 export const CAIP2_ID_BYTES = 32;
 
-/** Width of `SignBidirectionalEvent.algo` (`Bytes<32>`). */
+/** Width of `SignBidirectionalRequest.algo` (`Bytes<32>`). */
 export const ALGO_BYTES = 32;
 
-/** Width of `SignBidirectionalEvent.dest` (`Bytes<32>`). */
+/** Width of `SignBidirectionalRequest.dest` (`Bytes<32>`). */
 export const DEST_BYTES = 32;
 
-/** Width of `SignBidirectionalEvent.params` (`Bytes<64>`). */
+/** Width of `SignBidirectionalRequest.params` (`Bytes<64>`). */
 export const MPC_PARAMS_BYTES = 64;
 
-/** Width of `SignBidirectionalEvent.outputDeserializationSchema` (`Bytes<128>`). */
+/** Width of `SignBidirectionalRequest.outputDeserializationSchema` (`Bytes<128>`). */
 export const OUTPUT_DESERIALIZATION_SCHEMA_BYTES = 128;
 
-/** Width of `SignBidirectionalEvent.respondSerializationSchema` (`Bytes<128>`). */
+/** Width of `SignBidirectionalRequest.respondSerializationSchema` (`Bytes<128>`). */
 export const RESPOND_SERIALIZATION_SCHEMA_BYTES = 128;
 
 /** Width of `EVMCalldata.selector` (`Bytes<4>`) — the literal first 4 calldata bytes. */
@@ -75,7 +75,7 @@ export const SIGNET_DEST_ETHEREUM = "ethereum";
 /**
  * Default MPC key version (`keyVersion` field value). Version 0 is the
  * unsupported legacy format — the canonical MPC (and
- * `constructSignBidirectionalEvent`) requires `keyVersion >= 1`.
+ * `constructSignBidirectionalRequest`) requires `keyVersion >= 1`.
  */
 export const SIGNET_DEFAULT_KEY_VERSION = 1n;
 

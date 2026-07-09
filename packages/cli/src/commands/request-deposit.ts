@@ -6,7 +6,6 @@
 // is returned.
 
 import {
-  ABIWordKind,
   ALGO_BYTES,
   asciiPadded,
   CAIP2_ID_BYTES,
@@ -23,9 +22,9 @@ import {
   SIGNET_DEST_ETHEREUM,
   TxParamType,
   calculateRequestId,
-  toSignBidirectionalEventIndex,
+  toSignBidirectionalRequestIndex,
   type EVMType2TxParams,
-  type SignBidirectionalEvent,
+  type SignBidirectionalRequest,
   type RequestIdHex,
 } from "@midnight-erc20-vault/signet-midnight";
 import { ledger } from "@midnight-erc20-vault/vault-contract";
@@ -110,7 +109,7 @@ export async function requestDeposit(context: CliContext, options: RequestDeposi
   // The caller-supplied tx envelope. Calldata is `none`: the CONTRACT builds
   // it (the Maybe's default value still carries the vault's <2, 0, 0>
   // capacities the generated argument check demands).
-  const zeroWord = { kind: ABIWordKind.staticArg, value: new Uint8Array(32) };
+  const zeroWord = new Uint8Array(32);
   const txParams: EVMType2TxParams = {
     to: evmAddressBytes(erc20Address),
     chainId: evmChainId,
@@ -123,7 +122,7 @@ export async function requestDeposit(context: CliContext, options: RequestDeposi
     accessList: [],
     calldata: {
       is_some: false,
-      value: { selector: new Uint8Array(4), words: [zeroWord, zeroWord] },
+      value: { selector: new Uint8Array(4), noWords: 0n, words: [zeroWord, zeroWord] },
     },
   };
   const routing = {
@@ -139,9 +138,9 @@ export async function requestDeposit(context: CliContext, options: RequestDeposi
 
   // The record the contract will store: the caller's envelope with the
   // contract-built calldata swapped in — `transfer(vaultEvmAddress, amount)`
-  // as tagged words (never caller-supplied): the raw selector, the
-  // big-endian address embed, the LE amount embed.
-  const expectedRecord: SignBidirectionalEvent = {
+  // as words (never caller-supplied): the raw selector, the big-endian address
+  // embed, the LE amount embed.
+  const expectedRecord: SignBidirectionalRequest = {
     requestNonce,
     txParamType: TxParamType.evmType2,
     txParams: {
@@ -150,9 +149,10 @@ export async function requestDeposit(context: CliContext, options: RequestDeposi
         is_some: true,
         value: {
           selector: ERC20_TRANSFER_SELECTOR,
+          noWords: 2n,
           words: [
-            { kind: ABIWordKind.staticArg, value: evmAddressAbiWord(vaultEvmAddress) },
-            { kind: ABIWordKind.staticArg, value: numericAbiWordValue(options.amount) },
+            evmAddressAbiWord(vaultEvmAddress),
+            numericAbiWordValue(options.amount),
           ],
         },
       },
@@ -182,7 +182,7 @@ export async function requestDeposit(context: CliContext, options: RequestDeposi
   // off-chain and finding it on the ledger proves both sides agree on every
   // byte of the request.
   const after = await readVaultLedger(context, vaultContractAddress);
-  const index = toSignBidirectionalEventIndex(after.signetRequestsIndex);
+  const index = toSignBidirectionalRequestIndex(after.signetRequestsIndex);
   if (!index.has(expectedIdHex)) {
     throw new Error(
       `recomputed request id ${expectedIdHex} not found on the ledger — ` +

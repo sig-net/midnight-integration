@@ -9,8 +9,8 @@
     "./managed/*": "./src/managed/*"
   },
   "scripts": {
-    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/erc20-vault.compact src/managed",
-    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/erc20-vault.compact src/managed",
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/erc20-vault.compact src/managed/erc20-vault && ln -sfn ../../../signet-contract/src/managed src/managed/SignetEventEmitter",
+    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/erc20-vault.compact src/managed/erc20-vault && ln -sfn ../../../signet-contract/src/managed src/managed/SignetEventEmitter",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "deploy": "tsx deploy.ts"

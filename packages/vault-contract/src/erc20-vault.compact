@@ -14,7 +14,7 @@ import "@midnight-erc20-vault/signet-midnight/src/Signet";
 // Instantiated at <2 calldata words, 0 access-list entries, 0 storage keys> —
 // exactly what transfer(address,uint256) needs (the capacities are this
 // contract's throttle everywhere).
-export ledger signetRequestsIndex: SignBidirectionalEventIndex<EVMType2TxParams<2, 0, 0>>;
+export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParams<2, 0, 0>>;
 
 // Contract-local request counter: gives each signet signature request its
 // requestNonce, and lets the MPC cheaply detect new requests.
@@ -38,6 +38,11 @@ sealed ledger deployer: Bytes<32>;
 // The MPC attestation key, pinned at deploy time: claimDeposit accepts only
 // respond-bidirectional attestations signed by this key.
 export sealed ledger mpcPubKeyHash: Bytes<32>;
+
+// ---- Cross-contract references ----------------------------------------------------
+// The central signet contract, pinned at deploy time: requestDeposit cross-
+// contract-calls it to emit the SignBidirectionalEvent notification.
+sealed ledger signetEventEmitter: SignetEventEmitter;
 
 // ---- Contract-specific types ------------------------------------------------------
 
@@ -72,9 +77,11 @@ export pure circuit userCommitment(sk: Bytes<32>): Bytes<32> {
 constructor(
   deployerCommitment: Bytes<32>,
   mpcPk: JubjubPoint,
+  signetContract: SignetEventEmitter,
 ) {
   deployer = disclose(deployerCommitment);
   mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
+  signetEventEmitter = disclose(signetContract);
 }
 
 export circuit initialize(vaultEvm: Bytes<20>): [] {
@@ -87,7 +94,7 @@ export circuit initialize(vaultEvm: Bytes<20>): [] {
 // ---- Deposit ----------------------------------------------------------------------
 // Records a signet request for `transfer(vault, amount)` on the ERC20, to be
 // signed by the MPC with the caller's derived key and broadcast off-chain.
-// The routing params mirror constructSignBidirectionalEvent's parameter list
+// The routing params mirror constructSignBidirectionalRequest's parameter list
 // (flat — the library defines no caller-params wrapper struct).
 export circuit requestDeposit(
   txParams: EVMType2TxParams<2, 0, 0>,
@@ -115,7 +122,7 @@ export circuit requestDeposit(
   assert(txParams.gasLimit > 0 as Uint<64>, "Gas limit must be positive");
 
   // -- identity -> derivation-path binding --
-  // constructSignBidirectionalEvent asserts the request's path is exactly
+  // constructSignBidirectionalRequest asserts the request's path is exactly
   // the canonical hex of this commitment, so the MPC signs with THIS caller's
   // derived key and no one else's.
   const caller = disclose(userCommitment(callerSecretKey()));
@@ -128,9 +135,10 @@ export circuit requestDeposit(
   // cast already embeds the right number.
   const calldata = EVMCalldata<2> {
     selector: Bytes [0xa9, 0x05, 0x9c, 0xbb], // transfer(address,uint256)
+    noWords: 2 as Uint<16>,
     words: [
-      ABIWord { kind: ABIWordKind.staticArg, value: evmAddressAbiValue(vaultEvmAddress) as Bytes<32> },
-      ABIWord { kind: ABIWordKind.staticArg, value: depositRequest.amount as Field as Bytes<32> }
+      evmAddressAbiValue(vaultEvmAddress) as Bytes<32>,
+      depositRequest.amount as Field as Bytes<32>,
     ]
   };
 
@@ -152,7 +160,7 @@ export circuit requestDeposit(
 
   // -- construct, key, and record the request --
   const requestNonce = signetNonce as Uint<64>;
-  const request = constructSignBidirectionalEvent<EVMType2TxParams<2, 0, 0>>(
+  const request = constructSignBidirectionalRequest<EVMType2TxParams<2, 0, 0>>(
     caller,
     requestNonce,
     TxParamType.evmType2,
@@ -173,6 +181,13 @@ export circuit requestDeposit(
   assert(!signetRequestsIndex.member(requestId), "Request already exists");
   signetNonce.increment(1);
   signetRequestsIndex.insert(requestId, disclose(request));
+
+  // Notify the MPC of the signature request via the signet contract.
+  signetEventEmitter.emitSignBidirectionalEvent(SignBidirectionalEvent{
+    kernel.self(),
+    requestId as Bytes<32>, // RequestId's raw type: a new-type field crashes the event encoder
+    signBidirectionalRequestsIndexField: 0 as Uint<8>,
+  });
 }
 
 // ---- Claim ------------------------------------------------------------------------
@@ -230,7 +245,7 @@ export circuit claimDeposit(
   // requestDeposit stored the amount as calldata word 1 (an LE field embed)
   // and the ERC20 address in txParams.to.
   assert(signatureRequest.txParams.calldata.is_some, "Request has no calldata");
-  const amount = signatureRequest.txParams.calldata.value.words[1].value as Field as Uint<128>;
+  const amount = signatureRequest.txParams.calldata.value.words[1] as Field as Uint<128>;
   const erc20Addr = signatureRequest.txParams.to;
 
   // The domain separator encodes the ERC20 address, so each ERC20 gets its

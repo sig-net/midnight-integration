@@ -97,3 +97,4 @@ npm run compile:zk
 - use generics to allows client contracts to specify argument count.
 - switch to yarn
 - replace all usages of SignetEVMSignatureRequest with canonical EVMSignatureRequest type from signet.js (if it exists).
+- add V1 to every single struct

@@ -216,6 +216,32 @@ security-critical keys off the caller (e.g. an MPC deriving a signing key from t
 address), a forged `sender` is a theft vector — re-establish attribution via authenticated
 state or the tx call-tree. Full analysis: [`caller-attribution.md`](caller-attribution.md).
 
+<a id="22"></a>
+## 22. 🔴 `serialize<T,N>()` can't lower a `new type` field — compiler crash
+
+A struct field whose type is a `new type` alias (e.g. `new type RequestId = Bytes<32>`)
+crashes the compiler when that struct is passed to the `serialize<T,N>` event-payload encoder:
+
+```
+Internal error (please report): Exception in build-serialize: … unhandled type
+#[#{Lnoserialize:talias:…} … RequestId #[#{Lnoserialize:tbytes:…} … 32]]
+```
+
+The `build-serialize` pass (`analysis-passes.ss:6087`) has cases for `struct`/`Bytes`/`Uint`/
+`enum`/`Vector` but **none for a nominal alias node** (`talias`), so it throws instead of
+resolving the alias to its representation type. The asymmetry that makes this confusing:
+**ledger-state serialization resolves `new type`s fine** — the same `RequestId` works as a
+`Map` key and as a ledger-written struct field — so only the explicit `serialize<>` builtin
+(the `Misc.payload` path, [`events.md`](events.md)) chokes.
+
+**Fix:** in the struct you `serialize`, declare the field as the **representation type**
+(`requestId: Bytes<32>`, not `RequestId`) and cast at construction
+(`requestId: disclose(requestId) as Bytes<32>`). The `new type` is a compile-time-only
+distinction, so nothing is lost on the wire; keep it everywhere else (circuit params, ledger
+keys) for the nominal safety. Real instance: `SignBidirectionalEventNotification` in
+`packages/signet-contract/src/signet-contract.compact`. Same monomorphize-at-the-boundary
+shape as [#18](gotchas.md#18).
+
 ---
 
 ## Meta-gotcha: docs describe an aspirational language

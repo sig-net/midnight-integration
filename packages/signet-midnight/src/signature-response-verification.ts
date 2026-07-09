@@ -10,9 +10,9 @@
 import { getAddress, recoverAddress } from "ethers";
 
 import {
-  signBidirectionalEventToUnsignedEVMTransaction,
+  signBidirectionalRequestToUnsignedEVMTransaction,
   signatureRespondedEventToSignature,
-  type SignBidirectionalEvent,
+  type SignBidirectionalRequest,
 } from "./signet-requests.ts";
 import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts";
 
@@ -25,14 +25,14 @@ import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts"
  * @returns The checksummed recovered signer address.
  * @throws Error if the response is not a decodable signature or the request
  *   record is malformed (see
- *   {@link signBidirectionalEventToUnsignedEVMTransaction}).
+ *   {@link signBidirectionalRequestToUnsignedEVMTransaction}).
  */
 export function recoverSignatureRespondedEventSigner(
-  request: SignBidirectionalEvent,
+  request: SignBidirectionalRequest,
   response: SignatureRespondedEvent,
 ): string {
   return recoverAddress(
-    signBidirectionalEventToUnsignedEVMTransaction(request).unsignedHash,
+    signBidirectionalRequestToUnsignedEVMTransaction(request).unsignedHash,
     signatureRespondedEventToSignature(response),
   );
 }
@@ -49,7 +49,7 @@ export function recoverSignatureRespondedEventSigner(
  * @returns `true` iff the response is a valid signature by `expectedSigner`.
  */
 export function verifySignatureRespondedEvent(
-  request: SignBidirectionalEvent,
+  request: SignBidirectionalRequest,
   response: SignatureRespondedEvent,
   expectedSigner: string,
 ): boolean {

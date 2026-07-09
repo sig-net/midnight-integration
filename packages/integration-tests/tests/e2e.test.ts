@@ -193,34 +193,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     console.log(` ➜ 💡 Set as MPC_SECP256K1_PUBKEY in the environment to skip this step on the next run`);
   });
 
-  it(
-    "setup: compile vault contract with proving keys",
-    async () => {
-      if (env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
-        logSkip("compile:vault-contract:zk", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
-        return;
-      }
-      await runRootScript("compile:vault-contract:zk", env, 14 * MINUTE);
-    },
-    15 * MINUTE,
-  );
-
-  it(
-    "setup: deploy vault contract",
-    async () => {
-      if (env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
-        logSkip("deploy:vault-contract", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
-        return;
-      }
-      const { contractAddress } = await deployVault(env);
-      env.MIDNIGHT_VAULT_CONTRACT_ADDRESS = contractAddress;
-      console.log(`deployed a fresh MIDNIGHT_VAULT_CONTRACT_ADDRESS=${contractAddress}`);
-      console.log(` ➜ the vault contract on Midnight — holds deposits and authorizes withdrawals`);
-      console.log(` ➜ 💡 Set as MIDNIGHT_VAULT_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
-    },
-    10 * MINUTE,
-  );
-
+  // The signet contract is deployed FIRST: the vault seals its address as the
+  // cross-contract emitter, and the vault compile symlinks the signet's managed
+  // output (its ZK keys) for the cross-contract proof.
   it(
     "setup: compile signet-contract contract with proving keys",
     async () => {
@@ -245,6 +220,34 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       console.log(`deployed a fresh MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${contractAddress}`);
       console.log(` ➜ the central signet contract on Midnight — records signature requests and authenticated MPC responses`);
       console.log(` ➜ 💡 Set as MIDNIGHT_SIGNET_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
+    },
+    10 * MINUTE,
+  );
+
+  it(
+    "setup: compile vault contract with proving keys",
+    async () => {
+      if (env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
+        logSkip("compile:vault-contract:zk", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
+        return;
+      }
+      await runRootScript("compile:vault-contract:zk", env, 14 * MINUTE);
+    },
+    15 * MINUTE,
+  );
+
+  it(
+    "setup: deploy vault contract",
+    async () => {
+      if (env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
+        logSkip("deploy:vault-contract", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
+        return;
+      }
+      const { contractAddress } = await deployVault(env);
+      env.MIDNIGHT_VAULT_CONTRACT_ADDRESS = contractAddress;
+      console.log(`deployed a fresh MIDNIGHT_VAULT_CONTRACT_ADDRESS=${contractAddress}`);
+      console.log(` ➜ the vault contract on Midnight — holds deposits and authorizes withdrawals`);
+      console.log(` ➜ 💡 Set as MIDNIGHT_VAULT_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
     },
     10 * MINUTE,
   );
@@ -444,7 +447,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       );
       expect(record.txParams.nonce).toBe(evmNonce);
       expect(record.txParams.calldata.is_some).toBe(true);
-      expect(bytesToBigint(record.txParams.calldata.value.words[1].value)).toBe(
+      expect(bytesToBigint(record.txParams.calldata.value.words[1])).toBe(
         amount,
       );
 

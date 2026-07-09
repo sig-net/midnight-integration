@@ -2,7 +2,7 @@
 // SDK: raw contract state from the indexer provider, decoded with the
 // generated `ledger()`. No proving keys or transactions involved.
 
-import { toSignBidirectionalEventIndex } from "@midnight-erc20-vault/signet-midnight";
+import { toSignBidirectionalRequestIndex } from "@midnight-erc20-vault/signet-midnight";
 import { ledger } from "@midnight-erc20-vault/vault-contract";
 
 import { requireConfigValue } from "../config.ts";
@@ -31,7 +31,7 @@ export async function readState(context: CliContext): Promise<void> {
   console.log(`initialized:       ${state.initialized}`);
   console.log(`vault EVM address: 0x${hex(state.vaultEvmAddress)}`);
 
-  const index = toSignBidirectionalEventIndex(state.signetRequestsIndex);
+  const index = toSignBidirectionalRequestIndex(state.signetRequestsIndex);
   console.log(`pending signature requests: ${index.size}`);
   for (const [requestIdHex, request] of index) {
     console.log(`- ${requestIdHex} (requestNonce ${request.requestNonce})`);

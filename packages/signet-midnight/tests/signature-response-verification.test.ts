@@ -14,18 +14,17 @@ import {
 } from "ethers";
 
 import {
-  ABIWordKind,
   ERC20_TRANSFER_SELECTOR,
   TxParamType,
   asciiPadded,
   evmAddressAbiWord,
   numericAbiWordValue,
   signatureToSignatureRespondedEvent,
-  signBidirectionalEventToSignedEVMTransaction,
-  signBidirectionalEventToUnsignedEVMTransaction,
+  signBidirectionalRequestToSignedEVMTransaction,
+  signBidirectionalRequestToUnsignedEVMTransaction,
   recoverSignatureRespondedEventSigner,
   verifySignatureRespondedEvent,
-  type SignBidirectionalEvent,
+  type SignBidirectionalRequest,
   type SignatureRespondedEvent,
 } from "../src/index.ts";
 
@@ -43,7 +42,7 @@ const AMOUNT = 1_000_000n;
  * base every test varies from. Shared across tests: NEVER mutate; build a
  * variation as an explicit spread with the delta inline.
  */
-const REQUEST: SignBidirectionalEvent = {
+const REQUEST: SignBidirectionalRequest = {
   requestNonce: 0n,
   txParamType: TxParamType.evmType2,
   txParams: {
@@ -60,10 +59,8 @@ const REQUEST: SignBidirectionalEvent = {
       is_some: true,
       value: {
         selector: ERC20_TRANSFER_SELECTOR,
-        words: [
-          { kind: ABIWordKind.staticArg, value: evmAddressAbiWord(VAULT_EVM) },
-          { kind: ABIWordKind.staticArg, value: numericAbiWordValue(AMOUNT) },
-        ],
+        noWords: 2n,
+        words: [evmAddressAbiWord(VAULT_EVM), numericAbiWordValue(AMOUNT)],
       },
     },
   },
@@ -86,11 +83,11 @@ const IMPOSTER_KEY = new SigningKey(`0x${"22".repeat(32)}`);
 /** Sign `request`'s rebuilt tx hash with `key`, packed as a response record. */
 const signResponse = (
   key: SigningKey,
-  request: SignBidirectionalEvent,
+  request: SignBidirectionalRequest,
 ): SignatureRespondedEvent =>
   signatureToSignatureRespondedEvent(
     key.sign(
-      signBidirectionalEventToUnsignedEVMTransaction(request).unsignedHash,
+      signBidirectionalRequestToUnsignedEVMTransaction(request).unsignedHash,
     ),
   );
 
@@ -99,8 +96,8 @@ const VALID_RESPONSE = signResponse(MPC_KEY, REQUEST);
 /** REQUEST with one calldata word swapped out. */
 const withWord = (
   index: number,
-  word: { kind: number; value: Uint8Array },
-): SignBidirectionalEvent => ({
+  word: Uint8Array,
+): SignBidirectionalRequest => ({
   ...REQUEST,
   txParams: {
     ...REQUEST.txParams,
@@ -118,9 +115,9 @@ const withWord = (
 
 // ---- Tests ----
 
-describe("signBidirectionalEventToUnsignedEVMTransaction", () => {
+describe("signBidirectionalRequestToUnsignedEVMTransaction", () => {
   it("rebuilds the exact EIP-1559 transaction the request describes", () => {
-    const tx = signBidirectionalEventToUnsignedEVMTransaction(REQUEST);
+    const tx = signBidirectionalRequestToUnsignedEVMTransaction(REQUEST);
 
     expect(tx.type).toBe(2);
     expect(tx.chainId).toBe(11155111n);
@@ -138,14 +135,6 @@ describe("signBidirectionalEventToUnsignedEVMTransaction", () => {
     const [to, amount] = iface.decodeFunctionData("transfer", tx.data);
     expect((to as string).toLowerCase()).toBe(`0x${"ee".repeat(20)}`);
     expect(amount).toBe(AMOUNT);
-  });
-
-  it("rejects a record with an unknown calldata word kind", () => {
-    expect(() =>
-      signBidirectionalEventToUnsignedEVMTransaction(
-        withWord(1, { kind: 99, value: numericAbiWordValue(AMOUNT) }),
-      ),
-    ).toThrow(/unknown ABI word kind 99/);
   });
 });
 
@@ -171,7 +160,7 @@ interface VerifyCase {
   /** Test name, completing the sentence "verifies/rejects <name>". */
   name: string;
   /** The request record the response claims to answer. */
-  request: SignBidirectionalEvent;
+  request: SignBidirectionalRequest;
   /** The candidate response record. */
   response: SignatureRespondedEvent;
   /** The signer the response must recover to. */
@@ -204,10 +193,7 @@ const VERIFY_CASES: VerifyCase[] = [
   },
   {
     name: "a genuine signature over a DIFFERENT request (tampered amount)",
-    request: withWord(1, {
-      kind: ABIWordKind.staticArg,
-      value: numericAbiWordValue(AMOUNT + 1n),
-    }),
+    request: withWord(1, numericAbiWordValue(AMOUNT + 1n)),
     response: VALID_RESPONSE,
     expectedSigner: MPC_ADDRESS,
     valid: false,
@@ -244,9 +230,9 @@ describe("verifySignatureRespondedEvent", () => {
   );
 });
 
-describe("signBidirectionalEventToSignedEVMTransaction", () => {
+describe("signBidirectionalRequestToSignedEVMTransaction", () => {
   it("attaches the response signature to the request's transaction", () => {
-    const signed = signBidirectionalEventToSignedEVMTransaction(
+    const signed = signBidirectionalRequestToSignedEVMTransaction(
       REQUEST,
       VALID_RESPONSE,
     );
@@ -255,7 +241,7 @@ describe("signBidirectionalEventToSignedEVMTransaction", () => {
     // Signing is non-destructive: the signed tx carries the same body as the
     // unsigned one, so its signing hash is unchanged.
     expect(signed.unsignedHash).toBe(
-      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
     );
     // The attached signature recovers to the MPC signer...
     expect(signed.from).toBe(MPC_ADDRESS);
@@ -271,19 +257,19 @@ describe("signBidirectionalEventToSignedEVMTransaction", () => {
     // back to a signature with the same recovered signer — exercising the
     // point-decompression path posters use.
     const signature = MPC_KEY.sign(
-      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
     );
     const record = signatureToSignatureRespondedEvent(
       Signature.from(signature),
     );
     expect(record.bigRy).toHaveLength(32);
-    const signed = signBidirectionalEventToSignedEVMTransaction(REQUEST, record);
+    const signed = signBidirectionalRequestToSignedEVMTransaction(REQUEST, record);
     expect(signed.from).toBe(MPC_ADDRESS);
   });
 
   it("rejects a response with an out-of-range recovery id", () => {
     expect(() =>
-      signBidirectionalEventToSignedEVMTransaction(REQUEST, {
+      signBidirectionalRequestToSignedEVMTransaction(REQUEST, {
         ...VALID_RESPONSE,
         recoveryId: 5n,
       }),
