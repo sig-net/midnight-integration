@@ -54,6 +54,11 @@ module Signet {
   // In-circuit this is redundant as the type is fixed at compile time (i.e. monomorphized).
   export enum TxParamType {
     evmType2, // EVMType2TxParams: an EIP-1559 EVM transaction (envelope + calldata)
+    reserved, // never emitted — exists only to keep the enum at >= 2 variants. A
+              // 1-variant enum compiles to a zero-byte value the proof server's
+              // field-repr parser reads as ZERO field elements while the compiler
+              // allocates ONE, so persistentHash over any struct containing it
+              // (i.e. every request id) fails to prove.
   }
 
   // SignBidirectionalEvent is emitted by a Client contract to request a signature from the MPC.

@@ -46,6 +46,12 @@ export type RequestId = Uint8Array;
 export const TxParamType = {
   /** {@link EVMType2TxParams}: an EIP-1559 EVM transaction. */
   evmType2: 0,
+  /**
+   * Never emitted — mirrors the Compact-side padding variant that keeps the
+   * enum at >= 2 variants (a 1-variant enum is a zero-byte value the proof
+   * server cannot parse inside persistentHash preimages).
+   */
+  reserved: 1,
 } as const;
 
 /**
@@ -194,9 +200,10 @@ export interface SignBidirectionalEvent {
 // Runtime descriptors of the Compact base types the request record uses.
 // CompactTypeUnsignedInteger takes (maxValue, byte length) — same literals
 // the compiler emits for Uint<8/32/64/128>. CompactTypeEnum takes
-// (variantCount - 1, byte length); NOTE the compiler gives a 1-variant enum
-// byte length ZERO (TxParamType compiles to `CompactTypeEnum(0, 0)` — it
-// contributes no bytes), growing to 1 as soon as a second variant lands.
+// (variantCount - 1, byte length); NOTE a 1-variant enum would compile to
+// `CompactTypeEnum(0, 0)` — zero bytes, which the proof server cannot parse
+// inside persistentHash preimages. TxParamType therefore carries a padding
+// `reserved` variant so it stays at (1, 1).
 const BYTES_4 = new CompactTypeBytes(4);
 const BYTES_20 = new CompactTypeBytes(20);
 const BYTES_32 = new CompactTypeBytes(32);
@@ -207,7 +214,7 @@ const UINT_8 = new CompactTypeUnsignedInteger(2n ** 8n - 1n, 1);
 const UINT_32 = new CompactTypeUnsignedInteger(2n ** 32n - 1n, 4);
 const UINT_64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
 const UINT_128 = new CompactTypeUnsignedInteger(2n ** 128n - 1n, 16);
-const TX_PARAM_TYPE = new CompactTypeEnum(0, 0);
+const TX_PARAM_TYPE = new CompactTypeEnum(1, 1);
 const ABI_WORD_KIND = new CompactTypeEnum(4, 1);
 
 /**
