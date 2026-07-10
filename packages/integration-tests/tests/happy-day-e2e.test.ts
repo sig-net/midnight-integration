@@ -1,12 +1,15 @@
-// The ordered e2e pipeline: environment check → setup (compile, deploy,
-// derive keys/addresses, MPC hand-off printout) → initialization → deposit →
-// withdraw.
-// One file ON PURPOSE: vitest runs same-file tests sequentially, and the
-// setup steps feed each other through the env accumulator below. Run with
-// `npm run test:integration-tests` from the repo root (--bail stops the pipeline
-// at the first failure); without RUN_INTEGRATION_TESTS the whole suite
-// skips so plain `npm run test` stays offline. Set STEP_THROUGH=1 to pause
-// before each step (after the first) until you hit Enter in the terminal.
+// The happy-day e2e flow: initialization → deposit round trip → withdraw
+// round trip, against contracts the globalSetup pipeline (src/setup/) has
+// already compiled/deployed/derived — vitest.config.ts holds the
+// orchestration contract (setup runs first, flow files run one at a time in
+// a pinned order). Tests in THIS file run in source order and feed each
+// other through module-scoped state, so the file is one ordered pipeline on
+// purpose. Run with `npm run test:integration-tests` (all flows) or
+// `npm run test:integration-tests:happy-day-e2e` (this file only) from the
+// repo root (--bail 1 stops the pipeline at the first failure); without
+// RUN_INTEGRATION_TESTS the whole suite skips so plain `npm run test` stays
+// offline. Set STEP_THROUGH=1 to pause before each step (after the first)
+// until you hit Enter in the terminal.
 //
 // Tests drive the vault THROUGH the cli's exported command functions
 // (AGENTS.md: orchestration lives in the cli, never in tests).
@@ -15,12 +18,8 @@ import {
   broadcastEvm,
   claimDeposit,
   completeWithdraw,
-  type CliContext,
-  createCliContext,
   ERC20_TRANSFER_GAS_LIMIT,
   ERC20_TRANSFER_MAX_FEE_PER_GAS,
-  getCliConfig,
-  getUserIdentity,
   initialize,
   pollRespondBidirectional,
   pollSignatureResponse,
@@ -29,356 +28,60 @@ import {
   requestWithdraw,
   requireConfigValue,
 } from "@midnight-erc20-vault/cli";
-import { deriveAccountKeys, getDeployConfig, getMidnightNodeConfig, initialiseWalletFacade, type WalletFacade } from "@midnight-erc20-vault/lib";
 import {
   bytesToBigint,
-  deriveEvmAddress,
-  deriveMpcKeys,
-  formatJubjubPublicKey,
-  generateMpcRootKey,
+  decodeRespondBidirectionalEvent,
+  decodeSignatureRespondedEvent,
+  decodeSignBidirectionalEvent,
   executionSucceeded,
-  SignetRequestResponseReader,
+  requestIdBytes,
   RESPOND_BIDIRECTIONAL_EVENT_TAG,
   SIGN_BIDIRECTIONAL_EVENT_TAG,
   SIGNATURE_RESPONDED_EVENT_TAG,
-  decodeRespondBidirectionalEvent,
-  decodeSignBidirectionalEvent,
-  decodeSignatureRespondedEvent,
-  eventNameTag,
-  hexToBytes,
-  requestIdBytes,
   stripHexPrefix,
-  type RespondBidirectional,
   type RequestIdHex,
+  type RespondBidirectional,
 } from "@midnight-erc20-vault/signet-midnight";
-import { deployVault, ledger as vaultContractLedger } from "@midnight-erc20-vault/vault-contract";
-import { deploySignetContract } from "@midnight-erc20-vault/signet-contract";
-import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
+import { ledger as vaultContractLedger } from "@midnight-erc20-vault/vault-contract";
 import { formatEther, parseEther, parseUnits, type Transaction } from "ethers";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { loadRepoDotEnv } from "../src/env-file.ts";
-import { assertCommandAvailable, assertHttpReachable } from "../src/preflight.ts";
-import { getErc20Balance, getEthBalance, getTransactionNonce, isTransactionMined, SEPOLIA_USDC_ADDRESS } from "../src/evm.ts";
-import { runRootScript } from "../src/subprocess.ts";
-import { waitForGo } from "../src/waitForGo.ts";
+import { afterAll, describe, expect, it } from "vitest";
+import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
+import { getErc20Balance, getEthBalance, getTransactionNonce, isTransactionMined } from "../src/evm.ts";
+import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
+import { banner, logSkip } from "../src/output.ts";
+import { createE2eSession } from "../src/session.ts";
+import { pollDecodedSignetEvent } from "../src/signet-events.ts";
 
 const MINUTE = 60_000;
 
 /**
- * Environment accumulator: seeded from the repo-root `.env` file overlaid
- * with the real environment (which wins), then populated by the setup steps.
- * Each pipeline value lives under its canonical env-var name — presence
- * doubles as the step's skip signal, and the final printout is exactly this
- * map's pipeline keys. `process.env` itself is never mutated; the
- * accumulator is passed explicitly to config readers and subprocesses.
+ * The setup-populated env accumulator: repo-root `.env` overlaid with the
+ * real environment (which wins), plus every value the globalSetup pipeline
+ * derived or deployed. Empty when RUN_INTEGRATION_TESTS is unset — the suite
+ * below skips before reading it.
  */
-const env: NodeJS.ProcessEnv = { ...loadRepoDotEnv(), ...process.env };
+const env = injectE2eEnv();
 
-// The cli needs the EVM-side config; default what the environment hasn't
-// pinned (EVM + canonical USDC, matching the funding preflight). Set
-// before any test builds a CliConfig so the shared context sees them.
-env.ERC20_ADDRESS ??= SEPOLIA_USDC_ADDRESS;
-env.EVM_CHAIN_ID ??= "11155111";
+/** Assert a setup step populated `name`, failing with a pointed message. */
+const requireEnv = (name: string): string => requireEnvOf(env, name);
 
-/**
- * The env keys the setup steps populate. Used only to build the "Minimal .env
- * block" printout — order here is purely cosmetic (execution order is fixed by
- * the sequence of `it()` blocks, not this array). Kept in derivation order so
- * the printed block reads like the flow that produced it.
- */
-const PIPELINE_KEYS = [
-  "MPC_ROOT_KEY",
-  "MPC_JUBJUB_PK",
-  "MPC_SECP256K1_PUBKEY",
-  "MIDNIGHT_VAULT_CONTRACT_ADDRESS",
-  "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
-  "EVM_VAULT_ADDRESS",
-  "EVM_USER_ADDRESS",
-] as const;
+// Wallet facade + cli context + MPC-style reader shared by every test in
+// this file (lazily built, so the offline path never touches the network);
+// stopped once in afterAll.
+const session = createE2eSession(env);
 
-/** Assert a prior step populated `name`, failing with a pointed message. */
-function requireEnv(name: string): string {
-  const value = env[name];
-  if (!value) {
-    throw new Error(`${name} is not set — did the step that derives it run (or is it missing from your .env)?`);
-  }
-  return value;
-}
-
-/** Loud, uniform skip line so skipped steps are obvious in the output. */
-function logSkip(step: string, reason: string): void {
-  console.log(`SKIPPED: ${step} — ${reason}`);
-}
-
-/** Print a value the operator must save, too loud to miss. */
-function banner(lines: string[]): void {
-  const border = "=".repeat(72);
-  console.log(`\n${border}\n${lines.join("\n")}\n${border}\n`);
-}
-
-/**
- * Print a bold header at the start of each test. We run with
- * `--disable-console-intercept` (so subprocess output streams live), which
- * means vitest does NOT prefix logs with their test name — this header is what
- * segments the streaming output and shows which step is currently running.
- * A heavy rule (`━`) distinguishes step boundaries from value banners (`=`).
- */
-function testHeader(index: number, total: number, name: string): void {
-  const border = "━".repeat(72);
-  console.log(`\n${border}\n▶  TEST ${index}/${total}  ${name}\n${border}`);
-}
-
-describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
-  // - Print a header before each test.
-  // - Check for step through mode to pause between each step.
-  beforeEach(async (ctx) => {
-    const siblings = ctx.task.suite?.tasks ?? [];
-    const index = siblings.indexOf(ctx.task);
-    if (process.env.STEP_THROUGH && index > 0) {
-      await waitForGo(index + 1, siblings.length, ctx.task.name);
-    }
-    testHeader(index + 1, siblings.length, ctx.task.name);
-  }, 60 * MINUTE);
-
-  it(
-    "environment: midnight stack reachable, compact on PATH, EVM_RPC_URL set",
-    async () => {
-      const nodeConfig = getMidnightNodeConfig(env);
-      await assertHttpReachable("midnight node", new URL("/health", nodeConfig.nodeUrl).href);
-      await assertHttpReachable("indexer", nodeConfig.indexerUrl);
-      await assertHttpReachable("proof server", nodeConfig.proofServerUrl);
-      await assertCommandAvailable("compact", ["--version"]);
-      requireEnv("EVM_RPC_URL");
-
-      const deployConfig = getDeployConfig(env);
-      const cliConfig = getCliConfig(env);
-      console.log(`DEPLOYER_SEED in effect: ${deployConfig.deployerSeed}`);
-      console.log(`USER_SEED in effect:     ${cliConfig.userSeed}`);
-      console.log();
-      console.log(`DEPLOYER_SEED: derives midnight wallet that pays for contract deploys.`);
-      console.log(` ➜ seeds midnight wallet that pays for contract deploys.`);
-      console.log(`USER_SEED:`);
-      console.log(` ➜ seeds midnight wallet that interacts with deployed contracts.`);
-      console.log(` ➜ seeds EVM_USER_ADDRESS generation`);
-    },
-    MINUTE,
-  );
-
-  it("setup: check/derive MPC root key", () => {
-    if (env.MPC_ROOT_KEY) {
-      logSkip("check/derive MPC root key", `MPC_ROOT_KEY is set as ${env.MPC_ROOT_KEY}`);
-      return;
-    }
-    env.MPC_ROOT_KEY = generateMpcRootKey();
-    console.log(`generated a fresh MPC_ROOT_KEY=${env.MPC_ROOT_KEY}`);
-    console.log(` ➜ seeds MPC key generation`);
-    console.log(` ➜ 💡 Set as MPC_ROOT_KEY in the environment to skip this step on the next run`);
-    console.log("(printed again in the MPC server configuration step)");
-  });
-
-  // Derive MPC keys for setting or checking public keys. Must be called
-  // INSIDE the tests below — the describe body runs at collection time,
-  // before the root-key step above has a chance to generate MPC_ROOT_KEY.
-  const mpcKeys = () => deriveMpcKeys(requireEnv("MPC_ROOT_KEY"));
-
-  it("setup: check/derive MPC_JUBJUB_PK public key", () => {
-    const expectedMPCJubjubPK = formatJubjubPublicKey(mpcKeys().jubjubPoint);
-    if (env.MPC_JUBJUB_PK) {
-      console.log(`Found MPC_JUBJUB_PK in the environment as ${env.MPC_JUBJUB_PK}`);
-      expect(env.MPC_JUBJUB_PK, "MPC_JUBJUB_PK should be derived from MPC_ROOT_KEY").toBe(expectedMPCJubjubPK);
-      logSkip("check/derive MPC_JUBJUB_PK public key", `MPC_JUBJUB_PK is set correctly`);
-      return;
-    }
-    env.MPC_JUBJUB_PK = expectedMPCJubjubPK;
-    console.log(`generated a fresh MPC_JUBJUB_PK=${env.MPC_JUBJUB_PK}`);
-    console.log(` ➜ used by contracts to validate signatures`);
-    console.log(` ➜ 💡 Set as MPC_JUBJUB_PK in the environment to skip this step on the next run`);
-  });
-
-  it("setup: check/derive MPC_SECP256K1_PUBKEY public key", () => {
-    const expectedSECP256k1CompressedPubkey = mpcKeys().secp256k1CompressedPubkey;
-    if (env.MPC_SECP256K1_PUBKEY) {
-      console.log(`Found MPC_SECP256K1_PUBKEY in the environment as ${env.MPC_SECP256K1_PUBKEY}`);
-      expect(env.MPC_SECP256K1_PUBKEY, "MPC_SECP256K1_PUBKEY should be derived from MPC_ROOT_KEY").toBe(expectedSECP256k1CompressedPubkey);
-      logSkip("check/derive MPC_SECP256K1_PUBKEY public key", `MPC_SECP256K1_PUBKEY is set correctly`);
-      return;
-    }
-    env.MPC_SECP256K1_PUBKEY = expectedSECP256k1CompressedPubkey;
-    console.log(`generated a fresh MPC_SECP256K1_PUBKEY=${env.MPC_SECP256K1_PUBKEY}`);
-    console.log(` ➜ used by contracts to validate signatures`);
-    console.log(` ➜ 💡 Set as MPC_SECP256K1_PUBKEY in the environment to skip this step on the next run`);
-  });
-
-  // The signet contract is deployed FIRST: the vault seals its address as the
-  // cross-contract emitter, and the vault compile symlinks the signet's managed
-  // output (its ZK keys) for the cross-contract proof.
-  it(
-    "setup: compile signet-contract contract with proving keys",
-    async () => {
-      if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
-        logSkip("compile:signet-contract:zk", `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is set (${env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS})`);
-        return;
-      }
-      await runRootScript("compile:signet-contract:zk", env, 14 * MINUTE);
-    },
-    15 * MINUTE,
-  );
-
-  it(
-    "setup: deploy signet-contract",
-    async () => {
-      if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
-        logSkip("deploy:signet-contract", `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is set (${env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS})`);
-        return;
-      }
-      const { contractAddress } = await deploySignetContract(env);
-      env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS = contractAddress;
-      console.log(`deployed a fresh MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${contractAddress}`);
-      console.log(` ➜ the central signet contract on Midnight — records signature requests and authenticated MPC responses`);
-      console.log(` ➜ 💡 Set as MIDNIGHT_SIGNET_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
-    },
-    10 * MINUTE,
-  );
-
-  it(
-    "setup: compile vault contract with proving keys",
-    async () => {
-      if (env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
-        logSkip("compile:vault-contract:zk", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
-        return;
-      }
-      await runRootScript("compile:vault-contract:zk", env, 14 * MINUTE);
-    },
-    15 * MINUTE,
-  );
-
-  it(
-    "setup: deploy vault contract",
-    async () => {
-      if (env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
-        logSkip("deploy:vault-contract", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
-        return;
-      }
-      const { contractAddress } = await deployVault(env);
-      env.MIDNIGHT_VAULT_CONTRACT_ADDRESS = contractAddress;
-      console.log(`deployed a fresh MIDNIGHT_VAULT_CONTRACT_ADDRESS=${contractAddress}`);
-      console.log(` ➜ the vault contract on Midnight — holds deposits and authorizes withdrawals`);
-      console.log(` ➜ 💡 Set as MIDNIGHT_VAULT_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
-    },
-    10 * MINUTE,
-  );
-
-  it("setup: check/derive vault EVM address", () => {
-    const expectedAddress = deriveEvmAddress(
-      requireEnv("MPC_SECP256K1_PUBKEY"),
-      requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS"),
-      "vault",
-    );
-    if (env.EVM_VAULT_ADDRESS) {
-      console.log(`Found EVM_VAULT_ADDRESS in the environment as ${env.EVM_VAULT_ADDRESS}`);
-      expect(env.EVM_VAULT_ADDRESS, "EVM_VAULT_ADDRESS should be derived from MPC_SECP256K1_PUBKEY + vault contract address").toBe(expectedAddress);
-      logSkip("check/derive vault EVM address", `EVM_VAULT_ADDRESS is set correctly`);
-      return;
-    }
-    env.EVM_VAULT_ADDRESS = expectedAddress;
-    console.log(`derived a fresh EVM_VAULT_ADDRESS=${expectedAddress}`);
-    console.log(` ➜ the vault's own EVM account (path "vault")`);
-    console.log(` ➜ fund it with ETH for gas before running withdrawals`);
-    console.log(` ➜ 💡 Set as EVM_VAULT_ADDRESS in the environment to skip this step on the next run`);
-  });
-
-  it("setup: check/derive user EVM address", () => {
-    const identity = getUserIdentity(getCliConfig(env));
-    const expectedAddress = deriveEvmAddress(
-      requireEnv("MPC_SECP256K1_PUBKEY"),
-      requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS"),
-      identity.commitmentHex,
-    );
-    if (env.EVM_USER_ADDRESS) {
-      console.log(`Found EVM_USER_ADDRESS in the environment as ${env.EVM_USER_ADDRESS}`);
-      expect(env.EVM_USER_ADDRESS, "EVM_USER_ADDRESS should be derived from MPC_SECP256K1_PUBKEY + vault contract + user identity").toBe(expectedAddress);
-      logSkip("check/derive user EVM address", `EVM_USER_ADDRESS is set correctly`);
-      return;
-    }
-    env.EVM_USER_ADDRESS = expectedAddress;
-    console.log(`derived a fresh EVM_USER_ADDRESS=${expectedAddress}`);
-    console.log(` ➜ the user's derived EVM account (path = identity commitment hex)`);
-    console.log(` ➜ FUND IT ON EVM before the deposit test: >= 0.01 ETH (gas) and >= 0.1 USDC (deposit)`);
-    console.log(` ➜ 💡 Set as EVM_USER_ADDRESS in the environment to skip this step on the next run`);
-  });
-
-  it("setup: print MPC server configuration", () => {
-    const rootKey = env.MPC_ROOT_KEY ?? "(not derived here — already held by the server operator)";
-    banner([
-      "MPC (fakenet) server configuration — github.com/sig-net/solana-signet-program:",
-      "",
-      `  MPC_ROOT_KEY=${rootKey}`,
-      `  MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS")}`,
-      "  # 💡 The responder now DISCOVERS requesters by watching this signet",
-      "  #    contract's events — no requester contract list needed.",
-      "",
-      "Set those in the server's .env, then START THE SERVER: `yarn response`",
-      "in the solana-signet-program repo. The e2e deposit/withdraw flows need",
-      "it running.",
-      "",
-      "Minimal .env block for THIS suite:",
-      "",
-      ...PIPELINE_KEYS.map((key) => `  ${key}=${env[key] ?? ""}`),
-      `  EVM_RPC_URL=${env.EVM_RPC_URL ?? ""}`,
-    ]);
-  });
-
-  // Wallet facade + cli context shared by every post-setup test. Built lazily
-  // on first use — createCliContext needs the vault contract deployed, so this
-  // can only run after the setup steps have populated env — and stopped once
-  // in afterAll. Each access re-awaits synced state (instant when already
-  // synced) so long tests / STEP_THROUGH pauses can't hand out a stale wallet.
-  let sharedWallet: { facade: WalletFacade; context: CliContext } | undefined;
-
-  async function sharedCliContext(): Promise<CliContext> {
-    if (!sharedWallet) {
-      const config = getCliConfig(env);
-      const keys = deriveAccountKeys(config.userSeed, config.midnightNodeConfig.networkId);
-      const facade = await initialiseWalletFacade(keys, config.midnightNodeConfig);
-      await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
-      await facade.waitForSyncedState();
-      sharedWallet = { facade, context: await createCliContext(config, { facade, keys }) };
-    }
-    await sharedWallet.facade.waitForSyncedState();
-    return sharedWallet.context;
-  }
-
-  // MPC-style reader over the vault (requester) / signet contract pair, built
-  // lazily on first use once the setup steps have populated the contract
-  // addresses. Backed by a fresh indexerPublicDataProvider so it reads RAW
-  // ledger state exactly as the response server does; it caches fetched request
-  // records, so repeated lookups across tests cost one query each.
-  let sharedReader: SignetRequestResponseReader | undefined;
-
-  function sharedResponseReader(): SignetRequestResponseReader {
-    if (!sharedReader) {
-      const nodeConfig = getMidnightNodeConfig(env);
-      sharedReader = new SignetRequestResponseReader({
-        requesterContractAddress: requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS"),
-        signetContractAddress: requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
-        publicDataProvider: indexerPublicDataProvider({
-          queryURL: nodeConfig.indexerUrl,
-          subscriptionURL: nodeConfig.indexerWsUrl,
-        }),
-      });
-    }
-    return sharedReader;
-  }
+describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e", () => {
+  installFlowHooks();
 
   afterAll(async () => {
-    await sharedWallet?.facade.stop().catch(() => { });
+    await session.stop();
   });
 
   it(
     "initialize [erc-vault contract method call]: seal vault EVM address and read back state",
     async () => {
       const vaultEvmAddress = requireEnv("EVM_VAULT_ADDRESS");
-      const context = await sharedCliContext();
+      const context = await session.cliContext();
       const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
 
       const readLedger = async () => {
@@ -447,7 +150,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
         return;
       }
 
-      const context = await sharedCliContext();
+      const context = await session.cliContext();
 
       // The sweep tx sender is the user's derived EVM account; its next nonce
       // comes from the chain, exactly as a wallet would fetch it.
@@ -463,7 +166,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       // response server does — through a SignetRequestResponseReader over RAW
       // contract state. getSignatureRequest throws when the id is absent, so a
       // returned record is itself proof the request landed on the vault ledger.
-      const record = await sharedResponseReader().getSignatureRequest(
+      const record = await session.responseReader().getSignatureRequest(
         depositTransactionSignatureRequestId,
       );
       expect(record.txParams.nonce).toBe(evmNonce);
@@ -491,44 +194,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       // Pins the SignBidirectionalEvent byte layout against a LIVE indexer —
       // the codec offsets (§signet-events.ts) depend on it, and gotcha #5 means
       // this cannot be exercised in the in-process simulator. The vault's
-      // requestDeposit cross-contract-called the signet contract to emit this;
-      // event indexing lags finalization, so poll (gotcha #15).
+      // requestDeposit cross-contract-called the signet contract to emit this.
       expect(depositTransactionSignatureRequestId).toBeDefined();
       const vaultAddress = requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS");
-      const signetAddress = requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
-      const nodeConfig = getMidnightNodeConfig(env);
-      const pdp = indexerPublicDataProvider({
-        queryURL: nodeConfig.indexerUrl,
-        subscriptionURL: nodeConfig.indexerWsUrl,
+
+      const { decoded, rawPayloadHex } = await pollDecodedSignetEvent({
+        env,
+        tag: SIGN_BIDIRECTIONAL_EVENT_TAG,
+        decode: decodeSignBidirectionalEvent,
+        match: (candidate) => candidate.requestId === depositTransactionSignatureRequestId,
+        description: `for request ${depositTransactionSignatureRequestId}`,
       });
-
-      const deadline = Date.now() + 60_000;
-      let decoded: ReturnType<typeof decodeSignBidirectionalEvent> | undefined;
-      let rawPayloadHex: string | undefined;
-      while (Date.now() < deadline && decoded === undefined) {
-        const events = await pdp.queryContractEvents({
-          contractAddress: signetAddress,
-          types: ["Misc"],
-        });
-        for (const event of events) {
-          if (event.eventType !== "Misc") continue;
-          if (eventNameTag(event.name) !== SIGN_BIDIRECTIONAL_EVENT_TAG) continue;
-          const candidate = decodeSignBidirectionalEvent(hexToBytes(event.payload));
-          if (candidate.requestId === depositTransactionSignatureRequestId) {
-            decoded = candidate;
-            rawPayloadHex = event.payload;
-            break;
-          }
-        }
-        if (decoded === undefined) await new Promise((r) => setTimeout(r, 1000));
-      }
-
-      if (decoded === undefined) {
-        throw new Error(
-          `no Misc "${SIGN_BIDIRECTIONAL_EVENT_TAG}" event for request ` +
-            `${depositTransactionSignatureRequestId} indexed on ${signetAddress} within 60s`,
-        );
-      }
 
       // callerAddress points at the vault (the contract whose authenticated
       // ledger holds the request); requestId matches; the index is at field 0.
@@ -559,7 +235,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       // confirm request Id set in previous test after successful deplost request
       expect(depositTransactionSignatureRequestId).toBeDefined();
 
-      const context = await sharedCliContext();
+      const context = await session.cliContext();
       // Deposit sweeps are signed by the USER's derived account.
       signedDepositSweepTransaction = await pollSignatureResponse(context, {
         requestId: depositTransactionSignatureRequestId,
@@ -587,42 +263,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       // consumed it through the SignetResponseFeed, so it must be indexed —
       // still poll briefly to be robust against indexer lag (gotcha #15).
       expect(depositTransactionSignatureRequestId).toBeDefined();
-      const signetAddress = requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
-      const nodeConfig = getMidnightNodeConfig(env);
-      const pdp = indexerPublicDataProvider({
-        queryURL: nodeConfig.indexerUrl,
-        subscriptionURL: nodeConfig.indexerWsUrl,
+
+      const { decoded, rawPayloadHex } = await pollDecodedSignetEvent({
+        env,
+        tag: SIGNATURE_RESPONDED_EVENT_TAG,
+        decode: decodeSignatureRespondedEvent,
+        // Take the request's FIRST post (count 0) so the assertion is stable
+        // on reruns even if noise posts were added later.
+        match: (candidate) =>
+          candidate.requestId === depositTransactionSignatureRequestId && candidate.count === 0n,
+        description: `for request ${depositTransactionSignatureRequestId} (count 0)`,
       });
-
-      const deadline = Date.now() + 60_000;
-      let decoded: ReturnType<typeof decodeSignatureRespondedEvent> | undefined;
-      let rawPayloadHex: string | undefined;
-      while (Date.now() < deadline && decoded === undefined) {
-        const events = await pdp.queryContractEvents({
-          contractAddress: signetAddress,
-          types: ["Misc"],
-        });
-        for (const event of events) {
-          if (event.eventType !== "Misc") continue;
-          if (eventNameTag(event.name) !== SIGNATURE_RESPONDED_EVENT_TAG) continue;
-          const candidate = decodeSignatureRespondedEvent(hexToBytes(event.payload));
-          // Take the request's FIRST post (count 0) so the assertion is stable
-          // on reruns even if noise posts were added later.
-          if (candidate.requestId === depositTransactionSignatureRequestId && candidate.count === 0n) {
-            decoded = candidate;
-            rawPayloadHex = event.payload;
-            break;
-          }
-        }
-        if (decoded === undefined) await new Promise((r) => setTimeout(r, 1000));
-      }
-
-      if (decoded === undefined) {
-        throw new Error(
-          `no Misc "${SIGNATURE_RESPONDED_EVENT_TAG}" event for request ` +
-            `${depositTransactionSignatureRequestId} (count 0) indexed on ${signetAddress} within 60s`,
-        );
-      }
 
       expect(decoded.requestId).toBe(depositTransactionSignatureRequestId);
       expect(decoded.count).toBe(0n);
@@ -646,7 +297,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       // confirm depositSweepTxn set in previous test after successful deploy request
       expect(signedDepositSweepTransaction).toBeDefined();
 
-      const context = await sharedCliContext();
+      const context = await session.cliContext();
       const result = await broadcastEvm(context, { transaction: signedDepositSweepTransaction });
 
       banner([
@@ -667,7 +318,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       // confirm request Id set in previous test after successful deplost request
       expect(depositTransactionSignatureRequestId).toBeDefined();
 
-      const context = await sharedCliContext();
+      const context = await session.cliContext();
       depositSweepTransactionRespondBidirectional = await pollRespondBidirectional(context, {
         requestId: depositTransactionSignatureRequestId,
         intervalMs: 1000,
@@ -694,41 +345,14 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       // indexed — still poll briefly to be robust against indexer lag
       // (gotcha #15).
       expect(depositTransactionSignatureRequestId).toBeDefined();
-      const signetAddress = requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
-      const nodeConfig = getMidnightNodeConfig(env);
-      const pdp = indexerPublicDataProvider({
-        queryURL: nodeConfig.indexerUrl,
-        subscriptionURL: nodeConfig.indexerWsUrl,
+
+      const { decoded, rawPayloadHex, observedCount } = await pollDecodedSignetEvent({
+        env,
+        tag: RESPOND_BIDIRECTIONAL_EVENT_TAG,
+        decode: decodeRespondBidirectionalEvent,
+        match: (candidate) => candidate.requestId === depositTransactionSignatureRequestId,
+        description: `for request ${depositTransactionSignatureRequestId}`,
       });
-
-      const deadline = Date.now() + 60_000;
-      let decoded: ReturnType<typeof decodeRespondBidirectionalEvent> | undefined;
-      let rawPayloadHex: string | undefined;
-      let observedCount = 0;
-      while (Date.now() < deadline && decoded === undefined) {
-        const events = await pdp.queryContractEvents({
-          contractAddress: signetAddress,
-          types: ["Misc"],
-        });
-        observedCount = 0;
-        for (const event of events) {
-          if (event.eventType !== "Misc") continue;
-          if (eventNameTag(event.name) !== RESPOND_BIDIRECTIONAL_EVENT_TAG) continue;
-          const candidate = decodeRespondBidirectionalEvent(hexToBytes(event.payload));
-          if (candidate.requestId !== depositTransactionSignatureRequestId) continue;
-          observedCount += 1;
-          decoded = candidate;
-          rawPayloadHex = event.payload;
-        }
-        if (decoded === undefined) await new Promise((r) => setTimeout(r, 1000));
-      }
-
-      if (decoded === undefined) {
-        throw new Error(
-          `no Misc "${RESPOND_BIDIRECTIONAL_EVENT_TAG}" event for request ` +
-            `${depositTransactionSignatureRequestId} indexed on ${signetAddress} within 60s`,
-        );
-      }
 
       expect(decoded.requestId).toBe(depositTransactionSignatureRequestId);
       // At most once per request: the index holds one authenticated slot
@@ -761,7 +385,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       expect(depositTransactionSignatureRequestId).toBeDefined();
       expect(depositSweepTransactionRespondBidirectional).toBeDefined();
 
-      const context = await sharedCliContext();
+      const context = await session.cliContext();
       const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
       const requestKey = requestIdBytes(depositTransactionSignatureRequestId);
 
@@ -845,7 +469,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
         return;
       }
 
-      const context = await sharedCliContext();
+      const context = await session.cliContext();
 
       // The withdraw tx sender is the VAULT's derived EVM account; its next
       // nonce comes from the chain, exactly as a wallet would fetch it. The
@@ -865,7 +489,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       // MPC-convention verification: the request resolves from RAW vault
       // state through the same reader the response server uses — recorded
       // under the VAULT's derivation path, with contract-built calldata.
-      const record = await sharedResponseReader().getSignatureRequest(
+      const record = await session.responseReader().getSignatureRequest(
         withdrawTransactionSignatureRequestId,
       );
       expect(record.txParams.nonce).toBe(evmNonce);
@@ -892,42 +516,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     "watch withdraw signature request: signet contract emitted a SignBidirectionalEvent for the withdraw request",
     async () => {
       // The same watch the MPC runs for discovery: requestWithdraw
-      // cross-contract-called the signet contract to emit this. Event indexing
-      // lags finalization, so poll (gotcha #15).
+      // cross-contract-called the signet contract to emit this.
       expect(withdrawTransactionSignatureRequestId).toBeDefined();
       const vaultAddress = requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS");
-      const signetAddress = requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
-      const nodeConfig = getMidnightNodeConfig(env);
-      const pdp = indexerPublicDataProvider({
-        queryURL: nodeConfig.indexerUrl,
-        subscriptionURL: nodeConfig.indexerWsUrl,
+
+      const { decoded } = await pollDecodedSignetEvent({
+        env,
+        tag: SIGN_BIDIRECTIONAL_EVENT_TAG,
+        decode: decodeSignBidirectionalEvent,
+        match: (candidate) => candidate.requestId === withdrawTransactionSignatureRequestId,
+        description: `for withdraw request ${withdrawTransactionSignatureRequestId}`,
       });
-
-      const deadline = Date.now() + 60_000;
-      let decoded: ReturnType<typeof decodeSignBidirectionalEvent> | undefined;
-      while (Date.now() < deadline && decoded === undefined) {
-        const events = await pdp.queryContractEvents({
-          contractAddress: signetAddress,
-          types: ["Misc"],
-        });
-        for (const event of events) {
-          if (event.eventType !== "Misc") continue;
-          if (eventNameTag(event.name) !== SIGN_BIDIRECTIONAL_EVENT_TAG) continue;
-          const candidate = decodeSignBidirectionalEvent(hexToBytes(event.payload));
-          if (candidate.requestId === withdrawTransactionSignatureRequestId) {
-            decoded = candidate;
-            break;
-          }
-        }
-        if (decoded === undefined) await new Promise((r) => setTimeout(r, 1000));
-      }
-
-      if (decoded === undefined) {
-        throw new Error(
-          `no Misc "${SIGN_BIDIRECTIONAL_EVENT_TAG}" event for withdraw request ` +
-            `${withdrawTransactionSignatureRequestId} indexed on ${signetAddress} within 60s`,
-        );
-      }
 
       expect(decoded.callerAddress).toBe(stripHexPrefix(vaultAddress).toLowerCase());
       expect(decoded.requestsIndexField).toBe(0);
@@ -950,7 +549,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     async () => {
       expect(withdrawTransactionSignatureRequestId).toBeDefined();
 
-      const context = await sharedCliContext();
+      const context = await session.cliContext();
       // Withdraw transactions are signed by the VAULT's derived account, not
       // the user's — verify the MPC's signature against it.
       signedWithdrawTransaction = await pollSignatureResponse(context, {
@@ -976,7 +575,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       const rpcUrl = requireEnv("EVM_RPC_URL");
       const erc20Address = requireEnv("ERC20_ADDRESS");
       const destination = requireEnv("EVM_USER_ADDRESS");
-      const context = await sharedCliContext();
+      const context = await session.cliContext();
 
       // Rerun tolerance: if this signed tx already mined on a previous run,
       // re-broadcasting is an idempotent no-op and the balance delta below
@@ -1017,7 +616,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
     async () => {
       expect(withdrawTransactionSignatureRequestId).toBeDefined();
 
-      const context = await sharedCliContext();
+      const context = await session.cliContext();
       withdrawRespondBidirectional = await pollRespondBidirectional(context, {
         requestId: withdrawTransactionSignatureRequestId,
         intervalMs: 1000,
@@ -1055,7 +654,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       expect(withdrawTransactionSignatureRequestId).toBeDefined();
       expect(withdrawRespondBidirectional).toBeDefined();
 
-      const context = await sharedCliContext();
+      const context = await session.cliContext();
       const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
       const requestKey = requestIdBytes(withdrawTransactionSignatureRequestId);
 

@@ -9,9 +9,12 @@ description: Run the integration e2e suite (packages/integration-tests) —
 # e2e — run the integration suite
 
 This runbook is plain markdown on purpose: any agent or human can follow it,
-not just Claude Code. The test pipeline itself (what each of the 25 steps
-does) is documented in `packages/integration-tests/README.md`; this file is
-the *operational* knowledge around it.
+not just Claude Code. The pipeline itself (the globalSetup steps + the flow
+test files) is documented in `packages/integration-tests/README.md`; this
+file is the *operational* knowledge around it. Setup (compile, deploy, key
+and address derivation) runs in vitest globalSetup before ANY flow file —
+including single-file runs — and flow files run one at a time in the order
+pinned by `vitest.config.ts`.
 
 ## Modes
 
@@ -22,7 +25,9 @@ the *operational* knowledge around it.
 
 ## Ground rules (violating these wastes 10+ minutes per mistake)
 
-- Run the suite from the repo root: `npm run test:integration-tests`.
+- Run the suite from the repo root: `npm run test:integration-tests` (all
+  flows) or `npm run test:integration-tests:happy-day-e2e` (one flow; the
+  setup pipeline still runs first).
 - **Never set `STEP_THROUGH=1` in an unattended run** — it pauses for stdin
   between tests and hangs forever.
 - A redeploy run zk-compiles two contracts (**~10 minutes of keygen**). Run
@@ -37,8 +42,8 @@ the *operational* knowledge around it.
   additionally needs `EVM_VAULT_ADDRESS` to hold **≥ 0.003 ETH** (the vault's
   derived account pays the withdraw transfer's gas itself; its USDC comes
   from the suite's own deposit sweep).
-- Every test from the deposit signature poll onward (16–25: both signature
-  polls, broadcasts, the attestation, claim and withdraw) needs the
+- Every test from the deposit signature poll onward (both signature polls,
+  broadcasts, the attestations, claim and withdraw settle) needs the
   **fakenet MPC responder running** with the CURRENT contract addresses (see
   hand-off below). If it is not running, the suite times out polling.
 
@@ -57,7 +62,8 @@ the *operational* knowledge around it.
    `check midnight for SignBidirectionalEvents at <vault address>`).
    If not: start it — see step 6 of the redeploy flow.
 2. `npm run test:integration-tests > <logfile> 2>&1 &` and watch the log.
-   Expect all setup steps to log `SKIPPED: …` and 25/25 to pass in ~5 min.
+   Expect all globalSetup steps to log `SKIPPED: …` and every flow file to
+   pass (happy-day: 17/17) in ~5 min.
 
 ## Redeploy flow (`/e2e redeploy`)
 
@@ -71,14 +77,15 @@ be swept to the new one.
    `MIDNIGHT_VAULT_CONTRACT_ADDRESS`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`,
    `EVM_VAULT_ADDRESS`, `EVM_USER_ADDRESS`. Note the old vault contract
    address and old `EVM_USER_ADDRESS` — the sweep needs them.
-2. Run the suite in the background. It zk-compiles (~10 min), deploys both
-   contracts, derives the new addresses, initializes the vault, and then
-   **fails at the funding preflight — this is the expected stopping point.**
+2. Run the suite in the background. globalSetup zk-compiles (~10 min),
+   deploys both contracts and derives the new addresses; the happy-day flow
+   then initializes the vault and **fails at the funding preflight — this is
+   the expected stopping point** (`--bail 1` cancels any later flow files).
 3. Grep the log for the new values:
    `deployed a fresh MIDNIGHT_VAULT_CONTRACT_ADDRESS=…`,
    `deployed a fresh MIDNIGHT_SIGNET_CONTRACT_ADDRESS=…`,
    `derived a fresh EVM_VAULT_ADDRESS=…`, `derived a fresh EVM_USER_ADDRESS=…`
-   (the test 11 banner also prints the complete `.env` block).
+   (the final globalSetup banner also prints the complete `.env` block).
 4. Sweep the old derived user account to the new one:
 
    ```sh
@@ -107,7 +114,8 @@ be swept to the new one.
    - restart the responder: kill any running one, then `yarn response`
      (background, own log). Healthy startup logs
      `MidnightMonitor: nonce (none) -> 0 on <new vault address>`.
-7. Rerun the suite (rerun flow). All setup steps skip; 25/25 should pass.
+7. Rerun the suite (rerun flow). All setup steps skip; every flow file
+   should pass (happy-day: 17/17).
 
 ## Reading failures
 
@@ -120,7 +128,8 @@ be swept to the new one.
   exactly this).
 - Preflight `expected 0 to be greater than or equal to …`: the derived user
   address is unfunded — you are mid-redeploy; continue from step 4.
-- Tests 16+ timing out while 1–15 pass: the MPC responder is down or watching
-  stale contract addresses — redo step 6.
+- The signature-poll / attestation tests timing out while setup and the
+  earlier contract calls pass: the MPC responder is down or watching stale
+  contract addresses — redo step 6.
 - `vault is already initialized` on a kept address is informational; the test
   still asserts state and passes.

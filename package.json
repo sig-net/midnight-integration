@@ -16,6 +16,7 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:integration-tests": "npm run test:integration -w @midnight-erc20-vault/integration-tests",
+    "test:integration-tests:happy-day-e2e": "npm run test:integration:happy-day-e2e -w @midnight-erc20-vault/integration-tests",
     "deploy:vault-contract": "npm run deploy -w @midnight-erc20-vault/vault-contract",
     "cli": "npm run cli -w @midnight-erc20-vault/cli --",
     "compile:signet-contract": "npm run compile -w @midnight-erc20-vault/signet-contract",
