@@ -9,8 +9,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  RESPOND_BIDIRECTIONAL_EVENT_TAG,
   SIGN_BIDIRECTIONAL_EVENT_TAG,
   SIGNATURE_RESPONDED_EVENT_TAG,
+  decodeRespondBidirectionalEvent,
   decodeSignBidirectionalEvent,
   decodeSignatureRespondedEvent,
   eventNameTag,
@@ -123,6 +125,40 @@ describe("decodeSignatureRespondedEvent", () => {
 
   it("carries a tag distinct from the request-side event", () => {
     expect(SIGNATURE_RESPONDED_EVENT_TAG).not.toBe(SIGN_BIDIRECTIONAL_EVENT_TAG);
+  });
+});
+
+/** Build a `serialize<RespondBidirectionalEvent, 256>` payload from its parts. */
+const buildRespondBidirectionalPayload = (requestId: Uint8Array): Uint8Array => {
+  const payload = new Uint8Array(256);
+  payload.set(requestId, 0);
+  return payload;
+};
+
+describe("decodeRespondBidirectionalEvent", () => {
+  it("recovers requestId exactly, without byte-reversal", () => {
+    const decoded = decodeRespondBidirectionalEvent(
+      buildRespondBidirectionalPayload(REQUEST_ID_BYTES),
+    );
+    // REQUEST_ID_BYTES is asymmetric (0x40, 0x41, …): a byte-reversal bug
+    // would surface as "…4140" up front instead of "4041…".
+    expect(decoded.requestId).toBe(REQUEST_ID_HEX);
+    expect(decoded.requestId.startsWith("4041")).toBe(true);
+  });
+
+  it("rejects a payload shorter than the fixed fields", () => {
+    expect(() => decodeRespondBidirectionalEvent(new Uint8Array(31))).toThrow(
+      /fewer than/,
+    );
+  });
+
+  it("carries a tag distinct from both other signet events", () => {
+    expect(RESPOND_BIDIRECTIONAL_EVENT_TAG).not.toBe(
+      SIGN_BIDIRECTIONAL_EVENT_TAG,
+    );
+    expect(RESPOND_BIDIRECTIONAL_EVENT_TAG).not.toBe(
+      SIGNATURE_RESPONDED_EVENT_TAG,
+    );
   });
 });
 

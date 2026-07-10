@@ -116,8 +116,20 @@ export circuit postRespondBidirectional(
     // First valid write wins. A re-post is a no-op, never an overwrite —
     // Schnorr is randomized, so even the MPC re-signing the same output
     // yields bytewise-different records; asserting equality would misfire.
+    // The no-op also emits nothing: the event fires at most once per request,
+    // exactly when the one authenticated slot is filled.
     if (respondBidirectionalIndex.member(disclosedRequestId)) {
         return [];
     }
     respondBidirectionalIndex.insert(disclosedRequestId, disclosedResponse);
+
+    // Notify the requesting client the attestation landed. A ping only —
+    // clients read the record back from the index; no off-chain verification
+    // follows, the in-circuit checks above already authenticated it.
+    emit(Misc {
+        name: pad(32, "RespondBidirectionalEvent"),
+        payload: serialize<RespondBidirectionalEvent, 256>(RespondBidirectionalEvent {
+            requestId: disclosedRequestId as Bytes<32>,
+        }),
+    });
 }

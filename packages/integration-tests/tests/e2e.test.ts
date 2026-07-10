@@ -38,8 +38,10 @@ import {
   generateMpcRootKey,
   executionSucceeded,
   SignetRequestResponseReader,
+  RESPOND_BIDIRECTIONAL_EVENT_TAG,
   SIGN_BIDIRECTIONAL_EVENT_TAG,
   SIGNATURE_RESPONDED_EVENT_TAG,
+  decodeRespondBidirectionalEvent,
   decodeSignBidirectionalEvent,
   decodeSignatureRespondedEvent,
   eventNameTag,
@@ -679,6 +681,70 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       ]);
     },
     5 * MINUTE,
+  );
+
+  it(
+    "golden event: signet contract emitted a decodable RespondBidirectionalEvent for the stored attestation",
+    async () => {
+      // Pins the RespondBidirectionalEvent byte layout against a LIVE indexer —
+      // the codec offsets (§signet-events.ts) depend on it, and gotcha #5 means
+      // this cannot be exercised in the in-process simulator. The MPC's
+      // postRespondBidirectional emitted this; pollRespondBidirectional already
+      // consumed it through the SignetRespondBidirectionalFeed, so it must be
+      // indexed — still poll briefly to be robust against indexer lag
+      // (gotcha #15).
+      expect(depositTransactionSignatureRequestId).toBeDefined();
+      const signetAddress = requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
+      const nodeConfig = getMidnightNodeConfig(env);
+      const pdp = indexerPublicDataProvider({
+        queryURL: nodeConfig.indexerUrl,
+        subscriptionURL: nodeConfig.indexerWsUrl,
+      });
+
+      const deadline = Date.now() + 60_000;
+      let decoded: ReturnType<typeof decodeRespondBidirectionalEvent> | undefined;
+      let rawPayloadHex: string | undefined;
+      let observedCount = 0;
+      while (Date.now() < deadline && decoded === undefined) {
+        const events = await pdp.queryContractEvents({
+          contractAddress: signetAddress,
+          types: ["Misc"],
+        });
+        observedCount = 0;
+        for (const event of events) {
+          if (event.eventType !== "Misc") continue;
+          if (eventNameTag(event.name) !== RESPOND_BIDIRECTIONAL_EVENT_TAG) continue;
+          const candidate = decodeRespondBidirectionalEvent(hexToBytes(event.payload));
+          if (candidate.requestId !== depositTransactionSignatureRequestId) continue;
+          observedCount += 1;
+          decoded = candidate;
+          rawPayloadHex = event.payload;
+        }
+        if (decoded === undefined) await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      if (decoded === undefined) {
+        throw new Error(
+          `no Misc "${RESPOND_BIDIRECTIONAL_EVENT_TAG}" event for request ` +
+            `${depositTransactionSignatureRequestId} indexed on ${signetAddress} within 60s`,
+        );
+      }
+
+      expect(decoded.requestId).toBe(depositTransactionSignatureRequestId);
+      // At most once per request: the index holds one authenticated slot
+      // (first valid write wins; a re-post is a no-op that emits nothing).
+      expect(observedCount).toBe(1);
+
+      banner([
+        "Golden RespondBidirectionalEvent decoded from the live indexer:",
+        "",
+        `  requestId: ${decoded.requestId}`,
+        "",
+        `  raw payload (capture as the unit fixture if the layout ever drifts):`,
+        `  ${rawPayloadHex}`,
+      ]);
+    },
+    2 * MINUTE,
   );
 
   it(

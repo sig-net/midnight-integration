@@ -13,6 +13,13 @@
 // response log is UNAUTHENTICATED — neither the event nor the stored record
 // confers authenticity. Only the off-chain signature verification does, which
 // is why the feed yields per-post VERDICTS rather than raw responses.
+//
+// The MPC's OTHER response kind — the respond-bidirectional attestation of a
+// request's remote execution — gets the same event-gated treatment via
+// SignetRespondBidirectionalFeed (RespondBidirectionalEvent → index read),
+// but with the opposite trust model: the signet contract verified the
+// attestation IN-CIRCUIT at post time, so the feed yields the stored record
+// itself, no verdicts.
 
 import {
   SignetEventObserver,
@@ -20,9 +27,15 @@ import {
   type SignetEventSource,
 } from "./signet-event-observer.ts";
 import {
+  respondBidirectionalEventCodec,
   signatureRespondedEventCodec,
+  type RespondBidirectionalEvent,
   type SignatureRespondedEvent,
 } from "./signet-events.ts";
+import {
+  readSignetContractLedgerFromState,
+  type RespondBidirectional,
+} from "./signet-contract-state-reader.ts";
 import {
   SignetRequestResponseReader,
   type SignatureResponseVerdict,
@@ -184,5 +197,129 @@ export class SignetResponseFeed {
     requestId: RequestIdHex,
   ): Promise<SignBidirectionalRequest> {
     return this.reader.getSignatureRequest(requestId);
+  }
+}
+
+/** Everything a {@link SignetRespondBidirectionalFeed} needs. */
+export interface SignetRespondBidirectionalFeedConfig {
+  /**
+   * Address of the central signet contract whose events and
+   * respond-bidirectional index to watch. Attestations live entirely on the
+   * signet contract, so — unlike {@link SignetResponseFeedConfig} — no
+   * requester contract address is needed.
+   */
+  readonly signetContractAddress: string;
+  /**
+   * Source of BOTH events and raw contract state — a full
+   * `indexerPublicDataProvider` satisfies both halves.
+   */
+  readonly source: SignetEventSource & SignetPublicStateSource;
+  /** Durable resume floor for the underlying observer (see {@link SignetEventObserverConfig.fromEventId}). */
+  readonly fromEventId?: number;
+  /** Poll cadence for {@link SignetRespondBidirectionalFeed.attestation}; default {@link DEFAULT_RESPONSE_FEED_POLL_INTERVAL_MS}. */
+  readonly pollIntervalMs?: number;
+}
+
+/**
+ * The event-driven respond-bidirectional feed: composes a
+ * {@link SignetEventObserver} of {@link RespondBidirectionalEvent}
+ * notifications (discovery) with a read of the signet contract's
+ * respond-bidirectional index (the source of truth), yielding the MPC's
+ * attestation of a request's remote execution. No verdicts and no off-chain
+ * verification — the signet contract verified the attestation IN-CIRCUIT at
+ * post time (Schnorr over `(requestId, hash(serializedOutput, outputLen))`
+ * against its sealed MPC key), so the stored record is authentic by
+ * construction and there is exactly one per request (first valid write wins).
+ */
+export class SignetRespondBidirectionalFeed {
+  private readonly observer: SignetEventObserver<RespondBidirectionalEvent>;
+  private readonly signetContractAddress: string;
+  private readonly source: SignetPublicStateSource;
+  private readonly pollIntervalMs: number;
+
+  // Attestation records never change once stored (one authenticated slot per
+  // request, first valid write wins), so cache them across polls.
+  private readonly attestations = new Map<RequestIdHex, RespondBidirectional>();
+
+  /**
+   * @param config - The signet contract, combined event/state source, and
+   *   resume floor.
+   */
+  constructor(config: SignetRespondBidirectionalFeedConfig) {
+    this.observer = new SignetEventObserver({
+      signetContractAddress: config.signetContractAddress,
+      source: config.source,
+      codec: respondBidirectionalEventCodec,
+      fromEventId: config.fromEventId,
+      pollIntervalMs: config.pollIntervalMs,
+    });
+    this.signetContractAddress = config.signetContractAddress;
+    this.source = config.source;
+    this.pollIntervalMs =
+      config.pollIntervalMs ?? DEFAULT_RESPONSE_FEED_POLL_INTERVAL_MS;
+  }
+
+  /**
+   * One-shot: the attestation for `requestId`, or `undefined` while none is
+   * discoverable yet. The index is only read when a currently-visible event
+   * announces `requestId`'s attestation — no event, no state query. An event
+   * whose ledger write has not indexed yet is simply retried next cycle
+   * (events are the trigger, the ledger is the source of truth).
+   *
+   * @param requestId - The request whose attestation to look for.
+   * @returns The stored attestation record, or `undefined` when its event is
+   *   not yet visible or its write not yet indexed.
+   * @throws Error when the signet contract has no state on-chain.
+   */
+  async poll(requestId: RequestIdHex): Promise<RespondBidirectional | undefined> {
+    const cached = this.attestations.get(requestId);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const events = await this.observer.currentEvents();
+    if (!events.some((event) => event.requestId === requestId)) {
+      return undefined;
+    }
+    const state = await this.source.queryContractState(
+      this.signetContractAddress,
+    );
+    if (!state?.data) {
+      throw new Error(
+        `no state data found for signet contract '${this.signetContractAddress}' - is it deployed?`,
+      );
+    }
+    const record = readSignetContractLedgerFromState(
+      state.data,
+    ).respondBidirectionalIndex.get(requestId);
+    if (record === undefined) {
+      return undefined;
+    }
+    this.attestations.set(requestId, record);
+    return record;
+  }
+
+  /**
+   * Live wait: poll + sleep until `requestId`'s attestation is discoverable,
+   * and return it. Runs until `opts.signal` aborts — the caller owns the
+   * give-up policy (see the cli's poll-respond-bidirectional command).
+   *
+   * @param requestId - The request whose attestation to wait for.
+   * @param opts.signal - Abort to stop waiting.
+   * @returns The stored attestation record, or `undefined` when aborted
+   *   before one was discovered.
+   * @throws Error when the signet contract has no state on-chain.
+   */
+  async attestation(
+    requestId: RequestIdHex,
+    opts?: { signal?: AbortSignal },
+  ): Promise<RespondBidirectional | undefined> {
+    while (!opts?.signal?.aborted) {
+      const record = await this.poll(requestId);
+      if (record !== undefined) {
+        return record;
+      }
+      await sleepUnlessAborted(this.pollIntervalMs, opts?.signal);
+    }
+    return undefined;
   }
 }

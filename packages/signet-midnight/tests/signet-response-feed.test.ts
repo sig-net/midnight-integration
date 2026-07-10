@@ -20,6 +20,7 @@ import { computeAddress, SigningKey } from "ethers";
 
 import {
   ERC20_TRANSFER_SELECTOR,
+  SignetRespondBidirectionalFeed,
   SignetResponseFeed,
   TxParamType,
   asciiPadded,
@@ -28,11 +29,13 @@ import {
   numericAbiWordValue,
   requestIdHex,
   requestIdType,
+  respondBidirectionalType,
   signatureResponseType,
   signatureToSignatureResponse,
   signBidirectionalRequestDescriptor,
   signBidirectionalRequestToUnsignedEVMTransaction,
   signetResponseKeyType,
+  type RespondBidirectional,
   type SignatureResponse,
   type SignBidirectionalRequest,
 } from "../src/index.ts";
@@ -122,8 +125,31 @@ const requesterState = (): StateValueType => {
     );
 };
 
-/** Signet contract state holding `posts` for REQUEST_ID (layout fields 0-3). */
-const signetState = (posts: SignatureResponse[]): StateValueType => {
+// A contract-verified attestation record as stored in the respond-
+// bidirectional index (field 2). The feed trusts stored records (the contract
+// verified them in-circuit at post time), so the Schnorr components can be
+// arbitrary values here.
+const OUTPUT_SUCCESS = new Uint8Array(128);
+OUTPUT_SUCCESS[0] = 1;
+const ATTESTATION: RespondBidirectional = {
+  serializedOutput: OUTPUT_SUCCESS,
+  outputLen: 32n,
+  pk: { x: 1n, y: 2n },
+  announcement: { x: 3n, y: 4n },
+  response: 5n,
+};
+
+/** One stored attestation: the request id it answers plus the record. */
+interface StoredAttestation {
+  requestId: Uint8Array;
+  record: RespondBidirectional;
+}
+
+/** Signet contract state holding `posts` for REQUEST_ID plus `attestations` (layout fields 0-3). */
+const signetState = (
+  posts: SignatureResponse[],
+  attestations: StoredAttestation[] = [],
+): StateValueType => {
   let counterMap = new StateMap();
   if (posts.length > 0) {
     counterMap = counterMap.insert(
@@ -153,10 +179,23 @@ const signetState = (posts: SignatureResponse[]): StateValueType => {
       }),
     );
   });
+  let respondMap = new StateMap();
+  for (const { requestId, record } of attestations) {
+    respondMap = respondMap.insert(
+      {
+        value: requestIdType.toValue(requestId),
+        alignment: requestIdType.alignment(),
+      },
+      StateValue.newCell({
+        value: respondBidirectionalType.toValue(record),
+        alignment: respondBidirectionalType.alignment(),
+      }),
+    );
+  }
   return StateValue.newArray()
     .arrayPush(StateValue.newMap(counterMap))
     .arrayPush(StateValue.newMap(responseMap))
-    .arrayPush(StateValue.newMap(new StateMap()))
+    .arrayPush(StateValue.newMap(respondMap))
     .arrayPush(
       StateValue.newCell({
         value: bytes32.toValue(bytes(32, 0x99)),
@@ -195,16 +234,41 @@ const respondedEvent = (
     raw: "",
   }) as ContractEvent;
 
+/** Build a RespondBidirectionalEvent Misc ContractEvent with cursor id. */
+const respondBidirectionalMiscEvent = (
+  id: number,
+  requestId: Uint8Array,
+): ContractEvent => {
+  const payload = new Uint8Array(256);
+  payload.set(requestId, 0);
+  return {
+    eventType: "Misc",
+    name: bytesToHex(asciiPadded("RespondBidirectionalEvent", 32)),
+    payload: bytesToHex(payload),
+    id,
+    maxId: 100,
+    version: 1,
+    contractAddress: SIGNET_ADDRESS,
+    transactionId: id,
+    raw: "",
+  } as ContractEvent;
+};
+
 /**
- * Combined event + state stub over MUTABLE `events` / `posts` arrays, so a
- * test can grow them mid-flight (indexing skew scenarios). Query counters
- * make the event-gated state read observable.
+ * Combined event + state stub over MUTABLE `events` / `posts` /
+ * `attestations` arrays, so a test can grow them mid-flight (indexing skew
+ * scenarios). Query counters make the event-gated state read observable.
  */
-const stubSource = (events: ContractEvent[], posts: SignatureResponse[]) => ({
+const stubSource = (
+  events: ContractEvent[],
+  posts: SignatureResponse[],
+  attestations: StoredAttestation[] = [],
+) => ({
   queryContractEvents: vi.fn(async () => [...events]),
   queryContractState: vi.fn(async (address: string) => {
     if (address === REQUESTER_ADDRESS) return { data: requesterState() };
-    if (address === SIGNET_ADDRESS) return { data: signetState(posts) };
+    if (address === SIGNET_ADDRESS)
+      return { data: signetState(posts, attestations) };
     return null;
   }),
 });
@@ -332,5 +396,119 @@ describe("SignetResponseFeed.getSignatureRequest", () => {
     expect(await makeFeed(source).getSignatureRequest(REQUEST_ID_HEX)).toEqual(
       REQUEST,
     );
+  });
+});
+
+const makeRespondBidirectionalFeed = (source: ReturnType<typeof stubSource>) =>
+  new SignetRespondBidirectionalFeed({
+    signetContractAddress: SIGNET_ADDRESS,
+    source,
+    pollIntervalMs: 1,
+  });
+
+describe("SignetRespondBidirectionalFeed.poll", () => {
+  it("yields the stored attestation once its event and record are visible", async () => {
+    const source = stubSource(
+      [respondBidirectionalMiscEvent(1, REQUEST_ID)],
+      [],
+      [{ requestId: REQUEST_ID, record: ATTESTATION }],
+    );
+    expect(
+      await makeRespondBidirectionalFeed(source).poll(REQUEST_ID_HEX),
+    ).toEqual(ATTESTATION);
+  });
+
+  it("does not read state while no event names the request — even when the record is stored", async () => {
+    const source = stubSource(
+      [], // no event indexed yet
+      [],
+      [{ requestId: REQUEST_ID, record: ATTESTATION }],
+    );
+    expect(
+      await makeRespondBidirectionalFeed(source).poll(REQUEST_ID_HEX),
+    ).toBeUndefined();
+    expect(signetStateReads(source)).toBe(0);
+  });
+
+  it("ignores events for other requests", async () => {
+    const source = stubSource(
+      [respondBidirectionalMiscEvent(1, OTHER_REQUEST_ID)],
+      [],
+      [{ requestId: OTHER_REQUEST_ID, record: ATTESTATION }],
+    );
+    expect(
+      await makeRespondBidirectionalFeed(source).poll(REQUEST_ID_HEX),
+    ).toBeUndefined();
+    expect(signetStateReads(source)).toBe(0);
+  });
+
+  it("retries an attestation whose event is visible before its ledger write indexed", async () => {
+    const attestations: StoredAttestation[] = []; // write not indexed yet
+    const source = stubSource(
+      [respondBidirectionalMiscEvent(1, REQUEST_ID)],
+      [],
+      attestations,
+    );
+    const feed = makeRespondBidirectionalFeed(source);
+
+    expect(await feed.poll(REQUEST_ID_HEX)).toBeUndefined();
+
+    attestations.push({ requestId: REQUEST_ID, record: ATTESTATION }); // the write lands
+    expect(await feed.poll(REQUEST_ID_HEX)).toEqual(ATTESTATION);
+  });
+
+  it("serves repeat polls from the cache — records are immutable once stored", async () => {
+    const source = stubSource(
+      [respondBidirectionalMiscEvent(1, REQUEST_ID)],
+      [],
+      [{ requestId: REQUEST_ID, record: ATTESTATION }],
+    );
+    const feed = makeRespondBidirectionalFeed(source);
+    await feed.poll(REQUEST_ID_HEX);
+    const eventScans = source.queryContractEvents.mock.calls.length;
+    const stateReads = signetStateReads(source);
+
+    expect(await feed.poll(REQUEST_ID_HEX)).toEqual(ATTESTATION);
+    expect(source.queryContractEvents.mock.calls.length).toBe(eventScans);
+    expect(signetStateReads(source)).toBe(stateReads);
+  });
+
+  it("throws when an event announces an attestation but the signet contract has no state", async () => {
+    const source = {
+      queryContractEvents: vi.fn(async () => [
+        respondBidirectionalMiscEvent(1, REQUEST_ID),
+      ]),
+      queryContractState: vi.fn(async () => null),
+    };
+    await expect(
+      makeRespondBidirectionalFeed(source).poll(REQUEST_ID_HEX),
+    ).rejects.toThrow(/no state data found for signet contract/);
+  });
+});
+
+describe("SignetRespondBidirectionalFeed.attestation", () => {
+  it("waits until the attestation appears mid-flight, then returns it", async () => {
+    const events: ContractEvent[] = [];
+    const attestations: StoredAttestation[] = [];
+    const source = stubSource(events, [], attestations);
+    const feed = makeRespondBidirectionalFeed(source);
+
+    const waiting = feed.attestation(REQUEST_ID_HEX);
+    // The MPC posts while we wait: event + write land together.
+    events.push(respondBidirectionalMiscEvent(1, REQUEST_ID));
+    attestations.push({ requestId: REQUEST_ID, record: ATTESTATION });
+
+    expect(await waiting).toEqual(ATTESTATION);
+  });
+
+  it("returns undefined when aborted before an attestation is discovered", async () => {
+    const source = stubSource([], [], []);
+    const feed = makeRespondBidirectionalFeed(source);
+    const giveUp = new AbortController();
+
+    const waiting = feed.attestation(REQUEST_ID_HEX, { signal: giveUp.signal });
+    giveUp.abort();
+
+    expect(await waiting).toBeUndefined();
   });
 });

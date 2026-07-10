@@ -5,6 +5,9 @@
 // postRespondBidirectional's in-circuit Schnorr verification is exercised
 // end to end.
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -319,6 +322,23 @@ describe("postRespondBidirectional", () => {
     const state = ledger(next.callContext.currentQueryContext.state);
     expect(state.respondBidirectionalIndex.size()).toBe(1n);
     expect(state.respondBidirectionalIndex.lookup(REQUEST_A)).toEqual(first);
+  });
+
+  it("compiled emit: the circuit lowers to an event (`log`) transcript op", () => {
+    // Event DELIVERY is unobservable in-process — the emitted event lands in
+    // the circuit's public transcript behind an opaque WASM handle; only a
+    // live indexer surfaces it (the golden e2e test pins that, plus the
+    // payload byte layout). What CAN be pinned here: the emit statement was
+    // accepted at compile time — the generated circuit body carries the
+    // event op. Scoped to postRespondBidirectional's own method so the other
+    // circuits' emits cannot mask a regression.
+    const js = readFileSync(
+      fileURLToPath(new URL("../src/managed/contract/index.js", import.meta.url)),
+      "utf8",
+    );
+    const start = js.indexOf("async _postRespondBidirectional_0(");
+    expect(start).toBeGreaterThan(-1);
+    expect(js.slice(start)).toContain("'log'");
   });
 
   it("tracks attestations per request id", async () => {

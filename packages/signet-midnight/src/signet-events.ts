@@ -12,7 +12,11 @@
 //     signature response was posted, then reads the post back from the
 //     response log and verifies the signature off-chain (the log is
 //     unauthenticated — see signet-response-feed.ts).
-// Either way the event is a notification only — never the source of truth.
+//   - RespondBidirectionalEvent: the requesting client watches these to learn
+//     the MPC's attestation of a request's remote execution landed, then reads
+//     the record back from the respond-bidirectional index — no off-chain
+//     verification, the contract authenticated it in-circuit at post time.
+// In every case the event is a notification only — never the source of truth.
 //
 // These are the event-side twins of the Compact structs — each MUST stay in
 // lockstep with its struct in Signet.compact (field order and widths). The
@@ -198,10 +202,62 @@ export function decodeSignatureRespondedEvent(
 }
 
 /**
+ * The `Misc` event `name` tag the signet contract emits alongside the
+ * serialized {@link RespondBidirectionalEvent} payload (Compact:
+ * `pad(32, "RespondBidirectionalEvent")`). Observers filter on this ascii tag.
+ */
+export const RESPOND_BIDIRECTIONAL_EVENT_TAG = "RespondBidirectionalEvent";
+
+/**
+ * Minimum serialized length of a {@link RespondBidirectionalEvent}:
+ * `requestId` (32). `serialize<T,256>` right-pads to 256, so a real payload
+ * is longer; this is the floor the decoder needs.
+ */
+const MIN_RESPOND_BIDIRECTIONAL_PAYLOAD_BYTES = REQUEST_ID_BYTES;
+
+/**
+ * TS twin of the Compact `RespondBidirectionalEvent` *event* struct (not the
+ * `RespondBidirectional` record it announces). The notification the signet
+ * contract emits from `postRespondBidirectional` when the MPC's attestation
+ * of a request's remote execution lands in the respond-bidirectional index —
+ * at most once per request (one authenticated slot, first valid write wins).
+ * A ping only, but unlike {@link SignatureRespondedEvent} no off-chain
+ * verification follows the read-back: the contract verified the attestation
+ * in-circuit at post time, so the stored record is authentic by construction.
+ */
+export interface RespondBidirectionalEvent {
+  /** Which request the stored attestation answers. */
+  requestId: RequestIdHex;
+}
+
+/**
+ * Decode a `Misc` payload (`serialize<RespondBidirectionalEvent, 256>`) into
+ * the struct. Layout per knowledge-base/events.md: fields in declaration
+ * order packed at the front — `requestId = payload[0..32]` (raw bytes) —
+ * right-zero-padded.
+ *
+ * @param payload - The decoded (raw bytes) `Misc.payload`.
+ * @returns The decoded event notification.
+ * @throws Error if the payload is shorter than the fixed fields require.
+ */
+export function decodeRespondBidirectionalEvent(
+  payload: Uint8Array,
+): RespondBidirectionalEvent {
+  if (payload.length < MIN_RESPOND_BIDIRECTIONAL_PAYLOAD_BYTES) {
+    throw new Error(
+      `RespondBidirectionalEvent payload is ${payload.length} bytes — fewer than ` +
+        `the ${MIN_RESPOND_BIDIRECTIONAL_PAYLOAD_BYTES} its fixed fields need`,
+    );
+  }
+  return { requestId: requestIdHex(payload.slice(0, REQUEST_ID_BYTES)) };
+}
+
+/**
  * One signet event kind as an observer consumes it: the `Misc.name` ascii tag
  * to filter on plus the payload decoder. A `SignetEventObserver` is
- * instantiated with one of these — see {@link signBidirectionalEventCodec}
- * and {@link signatureRespondedEventCodec}.
+ * instantiated with one of these — see {@link signBidirectionalEventCodec},
+ * {@link signatureRespondedEventCodec}, and
+ * {@link respondBidirectionalEventCodec}.
  */
 export interface SignetMiscEventCodec<T> {
   /** The ascii `Misc.name` tag identifying this event kind. */
@@ -228,4 +284,11 @@ export const signatureRespondedEventCodec: SignetMiscEventCodec<SignatureRespond
   {
     tag: SIGNATURE_RESPONDED_EVENT_TAG,
     decode: decodeSignatureRespondedEvent,
+  };
+
+/** The {@link SignetMiscEventCodec} of {@link RespondBidirectionalEvent} notifications. */
+export const respondBidirectionalEventCodec: SignetMiscEventCodec<RespondBidirectionalEvent> =
+  {
+    tag: RESPOND_BIDIRECTIONAL_EVENT_TAG,
+    decode: decodeRespondBidirectionalEvent,
   };

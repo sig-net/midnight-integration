@@ -172,7 +172,23 @@ module Signet {
 
     // Schnorr response scalar s.
     response: Field;
-  }  
+  }
+
+  // RespondBidirectionalEvent notifies the requesting client that the MPC's
+  // RespondBidirectional attestation of a request's remote execution has been
+  // stored in the central signet contract's respond-bidirectional index — the
+  // attestation-direction counterpart of SignatureRespondedEvent. A ping,
+  // never the source of truth: the client reads the record back from the
+  // index at requestId. Unlike signature responses, NO off-chain verification
+  // follows — the contract verified the attestation in-circuit at post time,
+  // so the stored record is authentic by construction. Emitted at most once
+  // per request: the index holds one authenticated slot, first valid write
+  // wins, and a re-post is a no-op that emits nothing.
+  export struct RespondBidirectionalEvent {
+      // Representation type (Bytes<32>), NOT the RequestId new type: a `new type`
+      // field crashes the serialize<> event encoder (compiler self-diagnosed bug).
+      requestId: Bytes<32>;
+  }
 
   // The EVM transaction to be signed, decomposed into typed fields
   // (EIP-1559 / type-2: https://eips.ethereum.org/EIPS/eip-1559).
