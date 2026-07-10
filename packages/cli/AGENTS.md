@@ -26,5 +26,5 @@ Read the root `/AGENTS.md` first; everything there applies. Local rules:
   websockets, no push channels.
 - Unit tests here are pure (config parsing and the like); anything needing a
   running stack belongs in `packages/integration-tests`.
-- Stubbed commands throw `NotImplementedError` with a message naming the
-  missing piece — never a silent no-op.
+- If a command must ship before the piece it drives exists, it throws an
+  error naming the missing piece — never a silent no-op.

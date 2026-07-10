@@ -12,12 +12,12 @@ import { parseRequestIdHex, type RequestIdHex } from "@midnight-erc20-vault/sign
 
 import { broadcastEvm } from "./commands/broadcast-evm.ts";
 import { claimDeposit } from "./commands/claim-deposit.ts";
+import { completeWithdraw } from "./commands/complete-withdraw.ts";
 import { depositE2E } from "./commands/deposit-e2e.ts";
 import { initialize } from "./commands/initialize.ts";
 import { formatRespondBidirectional, pollRespondBidirectional } from "./commands/poll-respond-bidirectional.ts";
 import { pollSignatureResponse } from "./commands/poll-signature-response.ts";
 import { readState } from "./commands/read-state.ts";
-import { refundWithdraw } from "./commands/refund-withdraw.ts";
 import { requestDeposit } from "./commands/request-deposit.ts";
 import { requestWithdraw } from "./commands/request-withdraw.ts";
 import { withdrawE2E } from "./commands/withdraw-e2e.ts";
@@ -168,11 +168,11 @@ program
   });
 
 program
-  .command("refund-withdraw")
-  .description("settle a withdraw request: success is final, failure re-mints the escrow to the refund recipient")
+  .command("complete-withdraw")
+  .description("settle a withdraw request: success is final, failure re-mints the surrendered value to the refund recipient")
   .requiredOption("--request-id <hex>", "the request id to settle", parseRequestIdArg)
   .action((options: { requestId: RequestIdHex }) => {
-    work = (context) => refundWithdraw(context, options);
+    work = (context) => completeWithdraw(context, options);
   });
 
 withPollingOptions(

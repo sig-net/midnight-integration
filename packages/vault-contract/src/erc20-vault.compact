@@ -65,25 +65,6 @@ sealed ledger signetEventEmitter: SignetEventEmitter;
 // withdrawals across any ERC20 colors proceed concurrently.
 export ledger refundRecipient: Map<RequestId, Bytes<32>>;
 
-// ---- Contract-specific types ------------------------------------------------------
-
-// The vault-specific arguments of a deposit — everything here is about THIS
-// application (which token, how much). Everything else about the request is
-// composed by the contract; see requestDeposit.
-struct DepositRequest {
-  erc20Address: Bytes<20>; // the ERC20 token contract on the target chain
-  amount: Uint<128>;       // token amount to move into the vault
-}
-
-// The vault-specific arguments of a withdraw — which token, how much, and
-// where the vault sends it on the target chain. The surrendered coin and the
-// refund recipient are separate (coin-typed) circuit parameters.
-struct WithdrawRequest {
-  erc20Address: Bytes<20>;   // the ERC20 token contract on the target chain
-  amount: Uint<128>;         // token amount to pull out of the vault
-  destEvmAddress: Bytes<20>; // EVM recipient of the vault's transfer
-}
-
 // ---- Fixed MPC routing --------------------------------------------------------------
 // This vault does exactly one thing: have the MPC sign ERC20 `transfer` calls
 // on an EVM chain. The signet request fields that follow from that are
@@ -172,6 +153,15 @@ export circuit initialize(
 }
 
 // ---- Deposit ----------------------------------------------------------------------
+
+// The vault-specific arguments of a deposit — everything here is about THIS
+// application (which token, how much). Everything else about the request is
+// composed by the contract; see requestDeposit.
+struct DepositRequest {
+  erc20Address: Bytes<20>; // the ERC20 token contract on the target chain
+  amount: Uint<128>;       // token amount to move into the vault
+}
+
 // Records a signet request for `transfer(vault, amount)` on the ERC20, to be
 // signed by the MPC with the caller's derived key and broadcast off-chain.
 // The contract composes the ENTIRE transaction and routing itself; the caller
@@ -334,6 +324,16 @@ export circuit claimDeposit(
 }
 
 // ---- Withdraw ---------------------------------------------------------------------
+
+// The vault-specific arguments of a withdraw — which token, how much, and
+// where the vault sends it on the target chain. The surrendered coin and the
+// refund recipient are separate (coin-typed) circuit parameters.
+struct WithdrawRequest {
+  erc20Address: Bytes<20>;   // the ERC20 token contract on the target chain
+  amount: Uint<128>;         // token amount to pull out of the vault
+  destEvmAddress: Bytes<20>; // EVM recipient of the vault's transfer
+}
+
 // Starts a withdrawal, optimistically: the caller surrenders `amount` of the
 // ERC20's vault token up front, and the vault records a signet request for
 // `transfer(destEvmAddress, amount)` on the ERC20, to be signed by the MPC
@@ -444,4 +444,80 @@ export circuit requestWithdraw(
     requestId as Bytes<32>, // RequestId's raw type: a new-type field crashes the event encoder
     signBidirectionalRequestsIndexField: 0 as Uint<8>,
   });
+}
+
+// ---- Complete withdraw --------------------------------------------------------------
+// Settles a withdrawal, in BOTH branches: the caller presents the MPC's
+// Schnorr-signed attestation of the vault→destination EVM transfer; on
+// success the withdrawal is final (the surrendered value stays burned), on
+// failure the surrendered value is re-minted to the refund recipient pinned
+// at request time. Permissionless: the refund always goes to the pinned
+// recipient, so it does not matter who calls it. One settle per request.
+export circuit completeWithdraw(
+  requestId: RequestId,
+  respondBidirectional: RespondBidirectional,
+): [] {
+  // requestId keys the ledger operations and the refund mint nonce below, so
+  // it is public; the response is only verified, never written.
+  const disclosedRequestId = disclose(requestId);
+
+  // -- attestation key: pk must be the MPC's registered key --
+  assert(
+    persistentHash<JubjubPoint>(respondBidirectional.pk) == mpcPubKeyHash,
+    "Unauthorized: attestation pk is not the MPC key"
+  );
+
+  // -- attestation signature: the MPC signed THIS request and THIS output --
+  assert(
+    jubjubSchnorrVerify<4>(
+      signetAttestationMessage(
+        disclosedRequestId,
+        respondBidirectional.serializedOutput,
+        respondBidirectional.outputLen
+      ),
+      JubjubSchnorrSignature {
+        announcement: respondBidirectional.announcement,
+        response: respondBidirectional.response,
+      },
+      respondBidirectional.pk
+    ),
+    "Invalid attestation signature"
+  );
+
+  // -- double-settle protection: must be a pending withdrawal, consumed here --
+  // refundRecipient is the pending-withdrawal marker: deposits never insert
+  // it, so a deposit request cannot be settled through this circuit (its own
+  // settle is claimDeposit, which is depositor-gated).
+  assert(refundRecipient.member(disclosedRequestId), "Withdrawal not found");
+  const signatureRequest = signetRequestsIndex.lookup(disclosedRequestId);
+  signetRequestsIndex.remove(disclosedRequestId);
+
+  // -- branch on the EVM result: refund unless the transfer succeeded --
+  // A success output's first byte is 0x01; the MPC's 0xdeadbeef error
+  // sentinel (or a `false` return = 0x00) is not. Checking one byte avoids
+  // the BLS-field overflow a full 32-byte cast risks on arbitrary failure
+  // outputs. Disclosed: whether a refund happens is public anyway (a mint is
+  // observable).
+  const succeeded = disclose(slice<1>(respondBidirectional.serializedOutput, 0) as Field == 1 as Field);
+
+  if (!succeeded) {
+    // Re-mint the surrendered value to the pinned refund recipient. Amount
+    // and token come from the consumed request: requestWithdraw stored the
+    // amount as calldata word 1 (an LE field embed) and the ERC20 address in
+    // txParams.to.
+    const amount = signatureRequest.txParams.calldata.value.words[1] as Field as Uint<128>;
+    const erc20Addr = signatureRequest.txParams.to;
+
+    const domainSep = vaultTokenDomainSeparator(erc20Addr);
+    const mintNonce = persistentHash<Vector<2, Bytes<32>>>([
+      pad(32, "erc20:refund:"),
+      disclosedRequestId as Bytes<32>,
+    ]);
+    const recipient = left<ZswapCoinPublicKey, ContractAddress>(
+      ZswapCoinPublicKey { bytes: refundRecipient.lookup(disclosedRequestId) }
+    );
+    mintShieldedToken(domainSep, amount as Uint<64>, mintNonce, recipient);
+  }
+
+  refundRecipient.remove(disclosedRequestId);
 }

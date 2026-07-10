@@ -5,9 +5,9 @@
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
 import { broadcastEvm } from "./broadcast-evm.ts";
+import { completeWithdraw } from "./complete-withdraw.ts";
 import { pollRespondBidirectional } from "./poll-respond-bidirectional.ts";
 import { pollSignatureResponse } from "./poll-signature-response.ts";
-import { refundWithdraw } from "./refund-withdraw.ts";
 import { requestWithdraw } from "./request-withdraw.ts";
 
 /** Options for {@link withdrawE2E}. */
@@ -26,21 +26,18 @@ export interface WithdrawE2EOptions {
 
 /**
  * Run the withdraw flow end-to-end:
- * 1. `requestWithdraw` escrows the shielded coin and records the signature
+ * 1. `requestWithdraw` surrenders the shielded coin and records the signature
  *    request (`path = "vault"`).
  * 2. The MPC signs the vault→destination EVM transfer and posts the signed
  *    transaction to the signet contract; poll for it.
  * 3. Broadcast the signed transaction to the EVM chain.
  * 4. The MPC observes the receipt and posts the Schnorr-signed
  *    `(requestId, serializedOutput)` attestation; poll for it.
- * 5. `refundWithdraw` settles the request: success is final, failure
- *    re-mints the escrow to the pinned refund recipient.
- *
- * Currently halts at step 5 (the settle circuit is not ported yet).
+ * 5. `completeWithdraw` settles the request: success is final, failure
+ *    re-mints the surrendered value to the pinned refund recipient.
  *
  * @param context - The CLI context.
  * @param options - The withdraw arguments and polling patience.
- * @throws NotImplementedError — from the first unwired step.
  */
 export async function withdrawE2E(context: CliContext, options: WithdrawE2EOptions): Promise<void> {
   const { amount, destEvmAddress, evmNonce, intervalMs, timeoutMs } = options;
@@ -54,7 +51,7 @@ export async function withdrawE2E(context: CliContext, options: WithdrawE2EOptio
   await broadcastEvm(context, { transaction });
 
   await pollRespondBidirectional(context, { requestId, intervalMs, timeoutMs });
-  await refundWithdraw(context, { requestId });
+  await completeWithdraw(context, { requestId });
 
   console.log(`withdraw ${requestId} settled`);
 }

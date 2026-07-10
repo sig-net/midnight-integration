@@ -147,6 +147,17 @@ exception for that specific case.
   secret-key signing, witness computations (e.g. `callerSecretKey`), and
   byte plumbing. A TS twin of provable logic WILL drift from the circuit and
   break agreement with the proofs silently.
+- **Declare types and helpers immediately above their single consumer; the top
+  of a file is reserved for what the WHOLE file needs.** Reading a function
+  must never require scrolling back and forth between it and a definition
+  somewhere else in the file: a struct/type/interface/constant/helper used by
+  exactly ONE function sits directly above that function. The top of a file
+  holds only file-wide declarations — module state (a contract's ledger
+  layout, a package's config) and anything consumed by two or more functions.
+  The moment a declaration gains a second consumer, move it to the top (or out
+  to its shared home) in the same change — never leave it attached to its
+  first consumer. This applies to every language in the repo: TypeScript,
+  Compact contracts, test files, all of it.
 - **Root scripts that target one member are named `<task>:<package-dir>` — the
   member's directory name in full, never a shorthand.** `compile:vault-contract`,
   `deploy:signet-contract`, `test:integration-tests` — never

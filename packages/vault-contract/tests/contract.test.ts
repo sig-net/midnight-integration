@@ -12,6 +12,7 @@ import {
 
 import {
   ERC20_TRANSFER_SELECTOR,
+  MPC_ERROR_SENTINEL,
   calculateRequestId,
   deriveJubjubKeypair,
   evmAddressAbiWord,
@@ -20,10 +21,13 @@ import {
   readSignetRequestsLedgerFromState,
   requestIdBytes,
   requestIdHex,
+  schnorrSign,
   signetFieldNode,
   signetPathOfCommitment,
   toSignBidirectionalRequestIndex,
   SIGNET_REQUESTS_INDEX_FIELD,
+  type JubjubKeypair,
+  type RespondBidirectional,
   type SignBidirectionalRequestLedgerIndex,
 } from "@midnight-erc20-vault/signet-midnight";
 
@@ -701,5 +705,187 @@ describe("withdraw validation", () => {
     await expect(
       requestWithdraw(contract, ctx, VALID_WITHDRAW),
     ).rejects.toThrow(/Not initialized/);
+  });
+});
+
+// ---- Complete-withdraw fixtures ----
+
+// An MPC key OTHER than the one the constructor pinned.
+const IMPOSTER_KEYS = deriveJubjubKeypair(bytes(32, 0x43));
+
+// A successful remote execution: first byte 1 (the LE encoding the circuit
+// decodes as `as Field == 1`), rest zero; 32 meaningful bytes (one ABI word).
+const OUTPUT_SUCCESS = new Uint8Array(128);
+OUTPUT_SUCCESS[0] = 1;
+
+// A failed remote execution: the MPC's 0xdeadbeef error sentinel.
+const OUTPUT_FAILURE = new Uint8Array(128);
+OUTPUT_FAILURE.set(MPC_ERROR_SENTINEL);
+
+const OUTPUT_LEN = 32n;
+
+/**
+ * Sign a REAL attestation of (requestId, serializedOutput, outputLen) with
+ * `keys` — message and challenge both come from the compiled circuits,
+ * exactly like the MPC.
+ */
+const attest = (
+  keys: JubjubKeypair,
+  requestId: Uint8Array,
+  serializedOutput: Uint8Array,
+): RespondBidirectional => {
+  const msg = signetCircuits.signetAttestationMessage(
+    requestId,
+    serializedOutput,
+    OUTPUT_LEN,
+  );
+  const signature = schnorrSign(keys.sk, msg, (ax, ay, px, py, m) =>
+    signetCircuits.schnorrChallenge(ax, ay, px, py, m),
+  );
+  return {
+    serializedOutput,
+    outputLen: OUTPUT_LEN,
+    pk: keys.pk,
+    announcement: signature.announcement,
+    response: signature.response,
+  };
+};
+
+/**
+ * Deploy + initialize + requestWithdraw(VALID_WITHDRAW): the arrange step of
+ * every settle test. Returns the pending withdrawal's request id (the single
+ * ledger index key) alongside the threaded context.
+ */
+const withdrawRequested = async () => {
+  const { contract, ctx } = await deployInitialized();
+  const next = (await requestWithdraw(contract, ctx, VALID_WITHDRAW)).context;
+  const index = toSignBidirectionalRequestIndex(
+    ledger(next.callContext.currentQueryContext.state).signetRequestsIndex,
+  );
+  const [idHex] = [...index.keys()];
+  return { contract, ctx: next, requestId: requestIdBytes(idHex) };
+};
+
+// ---- Complete-withdraw tests ----
+
+describe("completeWithdraw settle", () => {
+  it("success attestation finalizes: request and refund marker both consumed", async () => {
+    const { contract, ctx, requestId } = await withdrawRequested();
+
+    const next = (
+      await contract.circuits.completeWithdraw(
+        ctx,
+        requestId,
+        attest(MPC_KEYS, requestId, OUTPUT_SUCCESS),
+      )
+    ).context;
+
+    const state = ledger(next.callContext.currentQueryContext.state);
+    expect(state.signetRequestsIndex.isEmpty()).toBe(true);
+    expect(state.refundRecipient.isEmpty()).toBe(true);
+  });
+
+  it("failure attestation (MPC error sentinel) re-mints to the refund recipient and consumes the withdrawal", async () => {
+    const { contract, ctx, requestId } = await withdrawRequested();
+
+    // The refund branch runs mintShieldedToken in-circuit — the call
+    // resolving proves the mint executed; the ledger cleanup is the same as
+    // the success branch (the mint itself is shielded, not ledger state).
+    const next = (
+      await contract.circuits.completeWithdraw(
+        ctx,
+        requestId,
+        attest(MPC_KEYS, requestId, OUTPUT_FAILURE),
+      )
+    ).context;
+
+    const state = ledger(next.callContext.currentQueryContext.state);
+    expect(state.signetRequestsIndex.isEmpty()).toBe(true);
+    expect(state.refundRecipient.isEmpty()).toBe(true);
+  });
+
+  it("rejects an attestation by a key other than the pinned MPC key", async () => {
+    const { contract, ctx, requestId } = await withdrawRequested();
+    await expect(
+      contract.circuits.completeWithdraw(
+        ctx,
+        requestId,
+        attest(IMPOSTER_KEYS, requestId, OUTPUT_SUCCESS),
+      ),
+    ).rejects.toThrow(/attestation pk is not the MPC key/);
+  });
+
+  it("rejects a tampered attestation (output differs from what was signed)", async () => {
+    const { contract, ctx, requestId } = await withdrawRequested();
+    const attestation = attest(MPC_KEYS, requestId, OUTPUT_SUCCESS);
+    const tamperedOutput = new Uint8Array(OUTPUT_FAILURE);
+    await expect(
+      contract.circuits.completeWithdraw(ctx, requestId, {
+        ...attestation,
+        serializedOutput: tamperedOutput,
+      }),
+    ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects a genuine attestation presented under a different request id", async () => {
+    const { contract, ctx, requestId } = await withdrawRequested();
+    // Signed for some OTHER id: the message binds the request id, so the
+    // signature cannot be replayed onto this pending withdrawal.
+    const otherId = bytes(32, 0xab);
+    await expect(
+      contract.circuits.completeWithdraw(
+        ctx,
+        requestId,
+        attest(MPC_KEYS, otherId, OUTPUT_SUCCESS),
+      ),
+    ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects a genuinely attested id that has no pending withdrawal", async () => {
+    const { contract, ctx } = await withdrawRequested();
+    const unknownId = bytes(32, 0xab);
+    await expect(
+      contract.circuits.completeWithdraw(
+        ctx,
+        unknownId,
+        attest(MPC_KEYS, unknownId, OUTPUT_SUCCESS),
+      ),
+    ).rejects.toThrow(/Withdrawal not found/);
+  });
+
+  it("settles once: a second completeWithdraw for the same request rejects", async () => {
+    const { contract, ctx, requestId } = await withdrawRequested();
+    const next = (
+      await contract.circuits.completeWithdraw(
+        ctx,
+        requestId,
+        attest(MPC_KEYS, requestId, OUTPUT_SUCCESS),
+      )
+    ).context;
+    await expect(
+      contract.circuits.completeWithdraw(
+        next,
+        requestId,
+        attest(MPC_KEYS, requestId, OUTPUT_SUCCESS),
+      ),
+    ).rejects.toThrow(/Withdrawal not found/);
+  });
+
+  it("rejects settling a DEPOSIT request (no refund marker) even with a genuine attestation", async () => {
+    const { contract, ctx } = await deployInitialized();
+    const next = (await requestDeposit(contract, ctx, VALID_DEPOSIT)).context;
+    const index = toSignBidirectionalRequestIndex(
+      ledger(next.callContext.currentQueryContext.state).signetRequestsIndex,
+    );
+    const [depositIdHex] = [...index.keys()];
+    const depositId = requestIdBytes(depositIdHex);
+
+    await expect(
+      contract.circuits.completeWithdraw(
+        next,
+        depositId,
+        attest(MPC_KEYS, depositId, OUTPUT_SUCCESS),
+      ),
+    ).rejects.toThrow(/Withdrawal not found/);
   });
 });

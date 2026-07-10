@@ -34,12 +34,11 @@ Two ways to consume it:
 | `claim-deposit` | Verify the MPC attestation in-circuit and mint shielded vault tokens | wired |
 | `deposit-e2e` | Full deposit orchestration (see below) | wired |
 | `request-withdraw` | Surrender a shielded vault coin (burned) and record a withdraw signature request | wired |
-| `refund-withdraw` | Settle a withdraw: success is final, failure re-mints the surrendered value to the refund recipient | stubbed (circuit not ported) |
-| `withdraw-e2e` | Full withdraw orchestration (see below) | partial (halts at settle) |
+| `complete-withdraw` | Settle a withdraw: success is final, failure re-mints the surrendered value to the refund recipient | wired |
+| `withdraw-e2e` | Full withdraw orchestration (see below) | wired |
 
 Every command runs inside a wallet session and a joined vault contract (see
-**Running**). Stubbed commands validate their inputs, print what they would
-do, then throw `NotImplementedError` naming the missing piece.
+**Running**).
 
 ## The deposit flow (`deposit-e2e`)
 
@@ -89,7 +88,7 @@ the vault's EVM address. Optimistic, with a refund on failure:
    signet contract; `poll-signature-response` (with `--expected-signer` set
    to the VAULT's derived address) + `broadcast-evm` as above.
 3. The MPC posts the Schnorr-signed attestation of the EVM result.
-4. **`refund-withdraw`** settles the request in either direction: on EVM
+4. **`complete-withdraw`** settles the request in either direction: on EVM
    success the withdrawal is final; on failure the surrendered value is
    re-minted to the pinned refund recipient. The call is permissionless —
    anyone may settle, the refund always goes to the pinned recipient.
@@ -131,8 +130,3 @@ Prerequisites: `npm run compile:zk` output for the vault (proving keys), a
 running Midnight stack (node, indexer, proof server), deployed vault + signet
 contracts, and a funded wallet. The integration suite
 (`packages/integration-tests`) drives all of this end to end.
-
-## Status
-
-Everything is wired except `refund-withdraw`: the settle circuit is not yet
-ported to the vault contract, so `withdraw-e2e` halts at its final step.

@@ -14,6 +14,7 @@
 import {
   broadcastEvm,
   claimDeposit,
+  completeWithdraw,
   type CliContext,
   createCliContext,
   ERC20_TRANSFER_GAS_LIMIT,
@@ -940,5 +941,100 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       ]);
     },
     2 * MINUTE,
+  );
+
+  // Populated by the poll step below for the settle step.
+  let withdrawRespondBidirectional: RespondBidirectional;
+
+  it(
+    "pollRespondBidirectional: poll signet contract for withdraw transaction attestation",
+    async () => {
+      expect(withdrawTransactionSignatureRequestId).toBeDefined();
+
+      const context = await sharedCliContext();
+      withdrawRespondBidirectional = await pollRespondBidirectional(context, {
+        requestId: withdrawTransactionSignatureRequestId,
+        intervalMs: 1000,
+        timeoutMs: 1 * MINUTE,
+      });
+
+      // Happy-day flow: the broadcast step saw the transfer mine, so the MPC
+      // must attest success (first output byte 1), not its error sentinel.
+      expect(
+        executionSucceeded(withdrawRespondBidirectional.serializedOutput),
+        "the MPC must attest the withdraw transfer as succeeded",
+      ).toBe(true);
+
+      banner([
+        `Found withdraw respond-bidirectional attestation from signet contract: ` +
+          `'${executionSucceeded(withdrawRespondBidirectional.serializedOutput)}' ` +
+          `(${withdrawRespondBidirectional.response})`,
+      ]);
+    },
+    5 * MINUTE,
+  );
+
+  it(
+    "completeWithdraw [erc-vault contract method call]: verify the MPC attestation in-circuit and settle the withdrawal",
+    async () => {
+      // Final leg of the withdraw round trip: the request is on the vault
+      // ledger and the MPC's attestation is posted (previous steps). Settling
+      // re-verifies the attestation IN-CIRCUIT (pk hash, Schnorr signature)
+      // and branches on the EVM result — this is the HAPPY path, so the
+      // withdrawal finalizes with NO refund (the surrendered value stays
+      // burned) and the request + its pending-withdrawal marker are CONSUMED
+      // (double-settle protection). Both removals are publicly observable on
+      // RAW ledger state — present before, absent after — and only happen if
+      // every in-circuit check passed.
+      expect(withdrawTransactionSignatureRequestId).toBeDefined();
+      expect(withdrawRespondBidirectional).toBeDefined();
+
+      const context = await sharedCliContext();
+      const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
+      const requestKey = requestIdBytes(withdrawTransactionSignatureRequestId);
+
+      const readVaultLedger = async () => {
+        const contractState = await context.providers.publicDataProvider.queryContractState(vaultContractAddress);
+        if (!contractState) {
+          throw new Error(`no contract state found at ${vaultContractAddress}`);
+        }
+        return vaultContractLedger(contractState.data);
+      };
+
+      // Rerun against a kept contract address: if a prior run already settled
+      // this request the pending-withdrawal marker is gone and completeWithdraw
+      // would reject with "Withdrawal not found" — skip cleanly instead.
+      const before = await readVaultLedger();
+      if (!before.refundRecipient.member(requestKey)) {
+        logSkip(
+          "completeWithdraw",
+          `withdrawal ${withdrawTransactionSignatureRequestId} already settled (no pending marker on the ledger)`,
+        );
+        return;
+      }
+      expect(before.signetRequestsIndex.member(requestKey)).toBe(true);
+
+      await completeWithdraw(context, { requestId: withdrawTransactionSignatureRequestId });
+      await readState(context);
+
+      const after = await readVaultLedger();
+      expect(
+        after.signetRequestsIndex.member(requestKey),
+        "completeWithdraw must consume the request from the ledger",
+      ).toBe(false);
+      expect(
+        after.refundRecipient.member(requestKey),
+        "completeWithdraw must consume the pending-withdrawal marker",
+      ).toBe(false);
+
+      banner([
+        `Withdraw ${withdrawTransactionSignatureRequestId} settled (success — no refund).`,
+        "",
+        "The vault verified the MPC attestation in-circuit, finalized the",
+        "withdrawal, and removed the request and its refund marker from the",
+        "ledger.",
+      ]);
+    },
+    15 * MINUTE,
   );
 });

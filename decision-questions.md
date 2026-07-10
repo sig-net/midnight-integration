@@ -1,29 +1,101 @@
 # Questions for the Midnight team — signet MPC signature requests on Midnight
 
-## Who we are / what we're building
+Hi everyone and a happy Friday!
 
-We are [sig-net](https://docs.sig.network/) (signet): an MPC network providing chain
-signatures. A Midnight contract records a "please sign this EVM transaction" request; our
-MPC reads it, signs with a key derived from `f(requesterContractAddress, path)`, and posts
-responses back to a central signet contract. Because the **requester contract address is a
-key-derivation input**, request attribution is security-critical — a forged "sender" field
-would be a theft vector, not a cosmetic bug.
+We have made great progress on our Signet Midnight integration, but before we finalise our v1 design we would like to check some of our architectural decision points with you.
 
-Toolchain we're on: `compactc` 0.33.0 (language 0.25), `compact-runtime` 0.18.0-rc.0,
-`midnight-js` 5.0.0-beta.3, `ledger-v9` 1.0.0-rc.3.
+The Signet bidrectional signature flow this design implements is as follows:
+- A Client invokes a method on some contract (caller contract) on Midnight which composes and submits a `SignBidrectionalRequest`
+   - This request for a particular transaction for some foreign chain to be signed
+   - The request can be identified by a unique requestId
+- MPC network observes the bidrectional signature request for the transaction, compiles the transaction, signs it, and publishes a `SignatureResponse`
+- The Client observes the signature response and uses it to submit the signed transaction on the destination chain
+- MPC network observes the signed transaction execution & publishes the signed result/output back to Midnight as `RespondBidirectional`
+- Client observes the `RespondBidirectional` and submits it back to the original caller contract completing the bidirectional flow
 
-## The design we've settled on (and want sanity-checked)
+These are the requirments of the architecture:
+- arbitrary contracts must be able to communicate to the MPC that a signing request has been submitted
+- arbitrary contracts must be able store the signature requests such that the MPC can find them without a harcoded list of "allowed callers"
+- the MPC needs to able to verify which contract submitted the signature request
+- arbitrary transactions need to be supported (i.e. EVM, Solana etc.)
+- dynamic transaction size needs to be supported (e.g. for dynamic arguments like arrays)
 
-Requests are **stored in the caller contract's own ledger**; a **cross-contract call to a
-singleton emits one small event as a notification only**. The caller tells the MPC *where*
-its request index lives by ledger field position:
+The design we are looking at rignt now accomplishes this as follows:
+- 1. Signature Requests are stored in the caller contract's own ledger. This solves attribution of the request to a specific contract.
+- 2. A caller contract emits a notification event via cross a cross-contract call to a Signet singleton contract. The event indicates by field position where the index lives. The Signet singleton contract is the onchain registry of signature responses, and signed remote execution responses.
 
+We are happy with (2.) - using a cross contract call to emitt an event as an MPC notification mechanism.
+
+We would like to zoom in a bit more on (1.) to confirm that it is a reasonable and future proof approach.
+
+First an explanation of this choice:
+- For exported compact circuits (exporting required for cross contract calls) types cannot be generically configured. This makes it impossible to use a cross contract call to submit Signature requests to the Signet singleton contract as we would be forced to limit transaction size
+- Storing the signature requests in an event emitted by the calling contract becomes overly complex as the event sizes are limited to a hard 256-byte payload. Coming up with a signature request splitting protocol that each client contract needs to implement is impractical and fragile.
+
+Simplified code snippets of this implementation are as follows:
+
+```
+// --- Key Signet Protocol Data Structures ---
+
+// Bidirectional signature request:
+struct SignBidirectionalRequest<TxParams> {
+   txParams: TxParams;        // generic txParams
+   txParmsType: TxParamType;  // enum as off-chain decode tag
+   // ...other signet routing fields...
+}
+
+// For EVM Type 2 Transaction TxParams is configured as follows by the client:
+// (a decomposed EIP-1559 transaction)
+struct EVMType2TxParams<#maxCalldataWords, #maxAccessListEntries, #maxStorageKeysPerEntry> {
+   accessList: Vector<maxAccessListEntries, EVMAccessListEntry<maxStorageKeysPerEntry>>;
+   calldata: Maybe<EVMCalldata<maxCalldataWords>>
+   // ... other EVM Type 2 Transaction fields ...
+}
+
+// SignBidirectionalEvent notifies the MPC that a SignBidirectionalRequest has
+// been stored in the caller's ledger.
+export struct SignBidirectionalEvent {
+   // Address of the calling contract; the MPC reads its request index there.
+   callerAddress: ContractAddress,
+
+   // Ledger field position of the Map<RequestId, SignBidirectionalRequest> in
+   // the caller contract.
+   signBidirectionalRequestsIndexField: Uint<8>,
+
+   // ... other event fields ...
+}
+
+// --- Example Caller Contract Integration Implementation ---
+
+// Signet EVM Requests index configured to hold EVM Type 2 Transactions with 2 call data words
+export ledger signetEVMSignatureRequestsIndex: Map<RequestId, SignBidirectionalRequest<EVMType2TxParams<2, 0, 0>>>;
+
+// Some Caller contract method that initiates the sign bi-directional flow:
+export circuit SomeMethodDoingCrossChainThing(): [] {
+
+   // 1. caller constructs bidrectional signature request and calculates the requestId
+   const request = constructSignBidirectionalRequest<EVMType2TxParams<2, 0, 0>>(
+      // ... other request construction args ...
+   );
+   const requestId = calculateRequestId<EVMType2TxParams<2, 0, 0>>(request);
+
+   // 2. caller inserts the bidrectional signature request into the index
+   signetEVMSignatureRequestsIndex.insert(requestId, disclose(request));
+
+   // 3. caller notifies the MPC of the signature request via a cross contract call via the signet contract
+  signetEventEmitter.emitSignBidirectionalEvent(SignBidirectionalEvent{
+    kernel.self(),
+    requestId as Bytes<32>, // RequestId's raw type: a new-type field crashes the event encoder
+    signBidirectionalRequestsIndexField: 0 as Uint<8>,
+  });   
+}
+```
+
+The caller contract has does the following to integrate with the Signet Bidirectional Signing flow:
 ```compact
-// Caller contract — signet layout convention: request index at ledger field 0.
-// The record is generic in BOTH a type and compile-time counts, e.g.
+// Caller contract declares a signetRequestsIndex at ANY location in their ledger
 // EVMType2TxParams<#maxCalldataWords, #maxAccessListEntries, #maxStorageKeysPerEntry>.
-export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParams<2, 0, 0>>;
-export ledger signetNonce: SignetNonce;  // field 1: change-detection counter
+export ledger signetRequestsIndex: Map<RequestId, SignBidirectionalRequest<TxParams>>;
 
 // After storing the request: notify the MPC via the singleton (cross-contract call).
 signetEventEmitter.emitSignBidirectionalEvent(SignBidirectionalEvent {

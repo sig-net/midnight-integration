@@ -34,11 +34,8 @@ export interface DepositE2EOptions {
  * 5. `claimDeposit` verifies the attestation in-circuit and mints shielded
  *    vault tokens.
  *
- * Currently halts at step 1 (call-transaction plumbing pending).
- *
  * @param context - The CLI context.
  * @param options - The deposit arguments and polling patience.
- * @throws NotImplementedError — from the first unwired step.
  */
 export async function depositE2E(context: CliContext, options: DepositE2EOptions): Promise<void> {
   const { amount, evmNonce, intervalMs, timeoutMs } = options;
