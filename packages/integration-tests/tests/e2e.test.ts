@@ -1,5 +1,6 @@
 // The ordered e2e pipeline: environment check → setup (compile, deploy,
-// derive keys/addresses, MPC hand-off printout) → initialization → deposit.
+// derive keys/addresses, MPC hand-off printout) → initialization → deposit →
+// withdraw.
 // One file ON PURPOSE: vitest runs same-file tests sequentially, and the
 // setup steps feed each other through the env accumulator below. Run with
 // `npm run test:integration-tests` from the repo root (--bail stops the pipeline
@@ -15,6 +16,8 @@ import {
   claimDeposit,
   type CliContext,
   createCliContext,
+  ERC20_TRANSFER_GAS_LIMIT,
+  ERC20_TRANSFER_MAX_FEE_PER_GAS,
   getCliConfig,
   getUserIdentity,
   initialize,
@@ -22,6 +25,7 @@ import {
   pollSignatureResponse,
   readState,
   requestDeposit,
+  requestWithdraw,
   requireConfigValue,
 } from "@midnight-erc20-vault/cli";
 import { deriveAccountKeys, getDeployConfig, getMidnightNodeConfig, initialiseWalletFacade, type WalletFacade } from "@midnight-erc20-vault/lib";
@@ -47,11 +51,11 @@ import {
 import { deployVault, ledger as vaultContractLedger } from "@midnight-erc20-vault/vault-contract";
 import { deploySignetContract } from "@midnight-erc20-vault/signet-contract";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
-import { parseEther, parseUnits, type Transaction } from "ethers";
+import { formatEther, parseEther, parseUnits, type Transaction } from "ethers";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { loadRepoDotEnv } from "../src/env-file.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../src/preflight.ts";
-import { getErc20Balance, getEthBalance, getTransactionNonce, SEPOLIA_USDC_ADDRESS } from "../src/evm.ts";
+import { getErc20Balance, getEthBalance, getTransactionNonce, isTransactionMined, SEPOLIA_USDC_ADDRESS } from "../src/evm.ts";
 import { runRootScript } from "../src/subprocess.ts";
 import { waitForGo } from "../src/waitForGo.ts";
 
@@ -395,6 +399,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       expect(`0x${Buffer.from(state.vaultEvmAddress).toString("hex")}`.toLowerCase()).toBe(
         vaultEvmAddress.toLowerCase(),
       );
+      // The pinned chain config: numeric id + zero-padded CAIP-2 string.
+      expect(state.evmChainId).toBe(BigInt(requireEnv("EVM_CHAIN_ID")));
+      expect(new TextDecoder().decode(state.caip2Id).replace(/\0+$/u, "")).toBe(
+        `eip155:${requireEnv("EVM_CHAIN_ID")}`,
+      );
     },
     15 * MINUTE,
   );
@@ -548,10 +557,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       expect(depositTransactionSignatureRequestId).toBeDefined();
 
       const context = await sharedCliContext();
+      // Deposit sweeps are signed by the USER's derived account.
       signedDepositSweepTransaction = await pollSignatureResponse(context, {
         requestId: depositTransactionSignatureRequestId,
         intervalMs: 1000,
         timeoutMs: 1 * MINUTE,
+        expectedSigner: requireEnv("EVM_USER_ADDRESS"),
       });
 
       banner([
@@ -719,5 +730,215 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault e2e", () => {
       ]);
     },
     15 * MINUTE,
+  );
+
+  // ── Withdraw leg: drive the deposited 0.1 USDC back OUT of the vault to the
+  // user's derived EVM account, spending the shielded tokens the claim minted.
+  const WITHDRAW_AMOUNT = parseUnits("0.1", 6);
+
+  it(
+    "withdraw funding preflight: check vault EVM account for minimum ETH (gas) and ERC20 balances.",
+    async () => {
+      const rpcUrl = requireEnv("EVM_RPC_URL");
+      const vaultAddress = requireEnv("EVM_VAULT_ADDRESS");
+      const erc20Address = requireEnv("ERC20_ADDRESS");
+
+      // The withdraw tx is sent FROM the vault's derived account, which pays
+      // its own gas: require the full fee-cap budget of one MPC-signed ERC20
+      // transfer (gas limit x max fee per gas).
+      const gasBudget = ERC20_TRANSFER_GAS_LIMIT * ERC20_TRANSFER_MAX_FEE_PER_GAS;
+      const ethBalance = await getEthBalance(rpcUrl, vaultAddress);
+      console.log(`${vaultAddress} ETH balance: ${ethBalance} wei (withdraw gas budget: ${gasBudget} wei)`);
+      expect(
+        ethBalance,
+        `fund the vault's derived account ${vaultAddress} with >= ${formatEther(gasBudget)} ETH on EVM`,
+      ).toBeGreaterThanOrEqual(gasBudget);
+
+      const { balance, decimals } = await getErc20Balance(rpcUrl, erc20Address, vaultAddress);
+      console.log(`${vaultAddress} balance on ${erc20Address}: ${balance} (decimals ${decimals})`);
+      expect(
+        balance,
+        `the vault ${vaultAddress} must hold >= 0.1 of ERC20 ${erc20Address} — did the deposit sweep land?`,
+      ).toBeGreaterThanOrEqual(WITHDRAW_AMOUNT);
+    },
+    MINUTE,
+  );
+
+  // Populated by the requestWithdraw test (or WITHDRAW_REQUEST_ID) for the
+  // subsequent withdraw stages.
+  let withdrawTransactionSignatureRequestId: RequestIdHex;
+
+  it(
+    "requestWithdraw [erc-vault contract method call]: escrow shielded vault tokens and read the request back MPC-style",
+    async () => {
+      // check if a request Id was given in the environment (for skipping steps during local development)
+      if (env.WITHDRAW_REQUEST_ID) {
+        withdrawTransactionSignatureRequestId = env.WITHDRAW_REQUEST_ID as RequestIdHex;
+        logSkip("requestWithdraw", `WITHDRAW_REQUEST_ID present in environment, skipping withdraw call '${withdrawTransactionSignatureRequestId}'`);
+        return;
+      }
+
+      const context = await sharedCliContext();
+
+      // The withdraw tx sender is the VAULT's derived EVM account; its next
+      // nonce comes from the chain, exactly as a wallet would fetch it. The
+      // destination is the user's derived account, so the suite's funds cycle.
+      const evmNonce = await getTransactionNonce(requireEnv("EVM_RPC_URL"), requireEnv("EVM_VAULT_ADDRESS"));
+      const destEvmAddress = requireEnv("EVM_USER_ADDRESS");
+
+      withdrawTransactionSignatureRequestId = await requestWithdraw(context, {
+        amount: WITHDRAW_AMOUNT,
+        destEvmAddress,
+        evmNonce,
+      });
+      await readState(context);
+
+      expect(withdrawTransactionSignatureRequestId).toMatch(/^[0-9a-f]{64}$/);
+
+      // MPC-convention verification: the request resolves from RAW vault
+      // state through the same reader the response server uses — recorded
+      // under the VAULT's derivation path, with contract-built calldata.
+      const record = await sharedResponseReader().getSignatureRequest(
+        withdrawTransactionSignatureRequestId,
+      );
+      expect(record.txParams.nonce).toBe(evmNonce);
+      expect(record.txParams.calldata.is_some).toBe(true);
+      expect(bytesToBigint(record.txParams.calldata.value.words[1])).toBe(
+        WITHDRAW_AMOUNT,
+      );
+      expect(new TextDecoder().decode(record.path).replace(/\0+$/u, "")).toBe("vault");
+
+      banner([
+        `Withdraw request recorded on the vault ledger:`,
+        "",
+        `  request id: ${withdrawTransactionSignatureRequestId}`,
+        "",
+        "The caller's shielded vault tokens are escrowed. The response server",
+        "should pick the request up on its next poll and sign the EVM transfer",
+        "FROM the vault's derived account (path \"vault\").",
+      ]);
+    },
+    5 * MINUTE,
+  );
+
+  it(
+    "watch withdraw signature request: signet contract emitted a SignBidirectionalEvent for the withdraw request",
+    async () => {
+      // The same watch the MPC runs for discovery: requestWithdraw
+      // cross-contract-called the signet contract to emit this. Event indexing
+      // lags finalization, so poll (gotcha #15).
+      expect(withdrawTransactionSignatureRequestId).toBeDefined();
+      const vaultAddress = requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS");
+      const signetAddress = requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
+      const nodeConfig = getMidnightNodeConfig(env);
+      const pdp = indexerPublicDataProvider({
+        queryURL: nodeConfig.indexerUrl,
+        subscriptionURL: nodeConfig.indexerWsUrl,
+      });
+
+      const deadline = Date.now() + 60_000;
+      let decoded: ReturnType<typeof decodeSignBidirectionalEvent> | undefined;
+      while (Date.now() < deadline && decoded === undefined) {
+        const events = await pdp.queryContractEvents({
+          contractAddress: signetAddress,
+          types: ["Misc"],
+        });
+        for (const event of events) {
+          if (event.eventType !== "Misc") continue;
+          if (eventNameTag(event.name) !== SIGN_BIDIRECTIONAL_EVENT_TAG) continue;
+          const candidate = decodeSignBidirectionalEvent(hexToBytes(event.payload));
+          if (candidate.requestId === withdrawTransactionSignatureRequestId) {
+            decoded = candidate;
+            break;
+          }
+        }
+        if (decoded === undefined) await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      if (decoded === undefined) {
+        throw new Error(
+          `no Misc "${SIGN_BIDIRECTIONAL_EVENT_TAG}" event for withdraw request ` +
+            `${withdrawTransactionSignatureRequestId} indexed on ${signetAddress} within 60s`,
+        );
+      }
+
+      expect(decoded.callerAddress).toBe(stripHexPrefix(vaultAddress).toLowerCase());
+      expect(decoded.requestsIndexField).toBe(0);
+
+      banner([
+        "SignBidirectionalEvent observed for the withdraw request:",
+        "",
+        `  callerAddress: ${decoded.callerAddress}`,
+        `  requestId:     ${decoded.requestId}`,
+      ]);
+    },
+    2 * MINUTE,
+  );
+
+  // Populated by the poll step below for the broadcast step.
+  let signedWithdrawTransaction: Transaction;
+
+  it(
+    "pollSignatureResponse: poll signet contract for withdraw transaction signature response",
+    async () => {
+      expect(withdrawTransactionSignatureRequestId).toBeDefined();
+
+      const context = await sharedCliContext();
+      // Withdraw transactions are signed by the VAULT's derived account, not
+      // the user's — verify the MPC's signature against it.
+      signedWithdrawTransaction = await pollSignatureResponse(context, {
+        requestId: withdrawTransactionSignatureRequestId,
+        intervalMs: 1000,
+        timeoutMs: 1 * MINUTE,
+        expectedSigner: requireEnv("EVM_VAULT_ADDRESS"),
+      });
+
+      banner([
+        `MPC signed response for withdraw request ${withdrawTransactionSignatureRequestId} found from Signet Contract.`,
+        "",
+        `Signature: ${signedWithdrawTransaction}`,
+      ]);
+    },
+    5 * MINUTE,
+  );
+
+  it(
+    "broadcast withdraw evm txn: the ERC20 leaves the vault on the EVM side",
+    async () => {
+      expect(signedWithdrawTransaction).toBeDefined();
+      const rpcUrl = requireEnv("EVM_RPC_URL");
+      const erc20Address = requireEnv("ERC20_ADDRESS");
+      const destination = requireEnv("EVM_USER_ADDRESS");
+      const context = await sharedCliContext();
+
+      // Rerun tolerance: if this signed tx already mined on a previous run,
+      // re-broadcasting is an idempotent no-op and the balance delta below
+      // would read 0 — skip the delta assertion in that case.
+      const alreadyMined =
+        signedWithdrawTransaction.hash !== null &&
+        (await isTransactionMined(rpcUrl, signedWithdrawTransaction.hash));
+      const before = await getErc20Balance(rpcUrl, erc20Address, destination);
+
+      // broadcastEvm waits for one confirmation and throws if the tx reverted.
+      const txHash = await broadcastEvm(context, { transaction: signedWithdrawTransaction });
+
+      if (alreadyMined) {
+        logSkip("withdraw balance delta assertion", `tx ${txHash} had already mined on a previous run`);
+      } else {
+        const after = await getErc20Balance(rpcUrl, erc20Address, destination);
+        expect(
+          after.balance - before.balance,
+          `the destination ${destination} must receive the withdrawn ERC20`,
+        ).toBe(WITHDRAW_AMOUNT);
+      }
+
+      banner([
+        `Withdraw transaction mined on EVM: ${txHash}`,
+        "",
+        `The vault's derived account transferred ${WITHDRAW_AMOUNT} base units of`,
+        `${erc20Address} to ${destination}.`,
+      ]);
+    },
+    2 * MINUTE,
   );
 });

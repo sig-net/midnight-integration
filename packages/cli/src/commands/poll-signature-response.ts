@@ -23,6 +23,14 @@ export interface PollSignatureResponseOptions {
   readonly intervalMs: number;
   /** Give-up timeout in milliseconds. */
   readonly timeoutMs: number;
+  /**
+   * EVM address the MPC's signature must recover to — the request's derived
+   * sender. Deposit requests are signed by the user's derived account
+   * (`EVM_USER_ADDRESS`); withdraw requests by the VAULT's
+   * (`EVM_VAULT_ADDRESS`). Always explicit: this command is generic over
+   * request kinds, and which account signs is the caller's knowledge.
+   */
+  readonly expectedSigner: string;
 }
 
 /**
@@ -38,8 +46,9 @@ export interface PollSignatureResponseOptions {
  * SignatureRespondedEvent per post, the feed reads the response log when an
  * event announces a new post, and — the log being unauthenticated (secp256k1
  * cannot be verified in-circuit) — judges every post by whether its signature
- * recovers to the user's MPC-derived address (`EVM_USER_ADDRESS`) over the
- * requested transaction's signing hash. The first valid post wins. The signed
+ * recovers to the request's MPC-derived sender (see
+ * {@link PollSignatureResponseOptions.expectedSigner}) over the requested
+ * transaction's signing hash. The first valid post wins. The signed
  * transaction is assembled from the request record and that response via
  * {@link signBidirectionalRequestToSignedEVMTransaction}. This command owns
  * only the timeout and the reporting — the feed yields each post's verdict
@@ -62,7 +71,7 @@ export async function pollSignatureResponse(context: CliContext, options: PollSi
     context.config.vaultContractAddress,
     "MIDNIGHT_VAULT_CONTRACT_ADDRESS",
   );
-  const expectedSigner = requireConfigValue(context.config.evmUserAddress, "EVM_USER_ADDRESS");
+  const expectedSigner = options.expectedSigner;
   console.log(`signet contract:   ${signetContractAddress}`);
   console.log(`request id:         ${options.requestId}`);
   console.log(`expected signer:    ${expectedSigner}`);

@@ -9,7 +9,7 @@ description: Run the integration e2e suite (packages/integration-tests) —
 # e2e — run the integration suite
 
 This runbook is plain markdown on purpose: any agent or human can follow it,
-not just Claude Code. The test pipeline itself (what each of the 17 steps
+not just Claude Code. The test pipeline itself (what each of the 25 steps
 does) is documented in `packages/integration-tests/README.md`; this file is
 the *operational* knowledge around it.
 
@@ -33,11 +33,14 @@ the *operational* knowledge around it.
   (see the redeploy flow).
 - Preflight minimums on `EVM_USER_ADDRESS` (Sepolia): **≥ 0.009 ETH** and
   **≥ 0.1 of `ERC20_ADDRESS`** (default Sepolia USDC
-  `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`).
-- Tests 15–17 (pollSignatureResponse / broadcast / pollRespondBidirectional)
-  need the **fakenet MPC responder running** with the CURRENT contract
-  addresses (see hand-off below). If it is not running, the suite times out
-  polling.
+  `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`). The withdraw preflight
+  additionally needs `EVM_VAULT_ADDRESS` to hold **≥ 0.003 ETH** (the vault's
+  derived account pays the withdraw transfer's gas itself; its USDC comes
+  from the suite's own deposit sweep).
+- Every test from the deposit signature poll onward (16–25: both signature
+  polls, broadcasts, the attestation, claim and withdraw) needs the
+  **fakenet MPC responder running** with the CURRENT contract addresses (see
+  hand-off below). If it is not running, the suite times out polling.
 
 ## Preconditions (both modes)
 
@@ -54,7 +57,7 @@ the *operational* knowledge around it.
    `check midnight for SignBidirectionalEvents at <vault address>`).
    If not: start it — see step 6 of the redeploy flow.
 2. `npm run test:integration-tests > <logfile> 2>&1 &` and watch the log.
-   Expect all setup steps to log `SKIPPED: …` and 17/17 to pass in ~2–3 min.
+   Expect all setup steps to log `SKIPPED: …` and 25/25 to pass in ~5 min.
 
 ## Redeploy flow (`/e2e redeploy`)
 
@@ -91,7 +94,11 @@ be swept to the new one.
    only), refuses to sign unless the derived address matches `--expect`, and
    moves the full ERC20 balance plus all ETH minus a gas reserve. If the old
    account holds nothing, fund the new address from the funding wallet whose
-   seed is in the `.env` comment instead.
+   seed is in the `.env` comment instead. Repeat with `--path vault` for the
+   vault's own derived account (old → new `EVM_VAULT_ADDRESS`) if the old one
+   still holds ETH; otherwise fund the new `EVM_VAULT_ADDRESS` with
+   **≥ 0.003 ETH** from the funding wallet — the withdraw leg needs it for
+   gas.
 5. Write the four new values into `.env` (uncomment + replace).
 6. MPC hand-off — in the `solana-signet-program` checkout:
    - set `MIDNIGHT_CONTRACT_ADDRESSES=<new vault contract address>` and
@@ -100,7 +107,7 @@ be swept to the new one.
    - restart the responder: kill any running one, then `yarn response`
      (background, own log). Healthy startup logs
      `MidnightMonitor: nonce (none) -> 0 on <new vault address>`.
-7. Rerun the suite (rerun flow). All setup steps skip; 17/17 should pass.
+7. Rerun the suite (rerun flow). All setup steps skip; 25/25 should pass.
 
 ## Reading failures
 
@@ -113,7 +120,7 @@ be swept to the new one.
   exactly this).
 - Preflight `expected 0 to be greater than or equal to …`: the derived user
   address is unfunded — you are mid-redeploy; continue from step 4.
-- Tests 15+ timing out while 1–14 pass: the MPC responder is down or watching
+- Tests 16+ timing out while 1–15 pass: the MPC responder is down or watching
   stale contract addresses — redo step 6.
 - `vault is already initialized` on a kept address is informational; the test
   still asserts state and passes.

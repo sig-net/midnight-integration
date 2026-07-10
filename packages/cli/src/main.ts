@@ -100,8 +100,12 @@ withPollingOptions(
   program
     .command("poll-signature-response")
     .description("poll the signet contract for the MPC's signature over a request's EVM transaction")
-    .requiredOption("--request-id <hex>", "the request id to poll for", parseRequestIdArg),
-).action((options: { requestId: RequestIdHex; intervalMs: number; timeoutMs: number }) => {
+    .requiredOption("--request-id <hex>", "the request id to poll for", parseRequestIdArg)
+    .requiredOption(
+      "--expected-signer <address>",
+      "EVM address the signature must recover to (the user's derived address for deposits; the vault's for withdrawals)",
+    ),
+).action((options: { requestId: RequestIdHex; intervalMs: number; timeoutMs: number; expectedSigner: string }) => {
   work = async (context) => {
     // Edge: a standalone command emits the tx as serialized hex for stdout.
     console.log((await pollSignatureResponse(context, options)).serialized);
@@ -156,7 +160,8 @@ program
   .description("escrow a shielded vault coin and record a withdraw signature request; prints the request id")
   .requiredOption("--amount <amount>", "withdraw amount in ERC20 base units", parseBigintArg)
   .requiredOption("--dest-evm-address <address>", "destination EVM address (20-byte 0x hex)")
-  .action((options: { amount: bigint; destEvmAddress: string }) => {
+  .requiredOption("--evm-nonce <nonce>", "nonce of the vault's derived EVM account", parseBigintArg)
+  .action((options: { amount: bigint; destEvmAddress: string; evmNonce: bigint }) => {
     work = async (context) => {
       console.log(await requestWithdraw(context, options));
     };
@@ -175,8 +180,9 @@ withPollingOptions(
     .command("withdraw-e2e")
     .description("full withdraw flow: request → poll signed tx → broadcast → poll attestation → settle")
     .requiredOption("--amount <amount>", "withdraw amount in ERC20 base units", parseBigintArg)
-    .requiredOption("--dest-evm-address <address>", "destination EVM address (20-byte 0x hex)"),
-).action((options: { amount: bigint; destEvmAddress: string; intervalMs: number; timeoutMs: number }) => {
+    .requiredOption("--dest-evm-address <address>", "destination EVM address (20-byte 0x hex)")
+    .requiredOption("--evm-nonce <nonce>", "nonce of the vault's derived EVM account", parseBigintArg),
+).action((options: { amount: bigint; destEvmAddress: string; evmNonce: bigint; intervalMs: number; timeoutMs: number }) => {
   work = (context) => withdrawE2E(context, options);
 });
 

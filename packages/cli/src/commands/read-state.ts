@@ -30,6 +30,8 @@ export async function readState(context: CliContext): Promise<void> {
   console.log(`vault contract:    ${vaultContractAddress}`);
   console.log(`initialized:       ${state.initialized}`);
   console.log(`vault EVM address: 0x${hex(state.vaultEvmAddress)}`);
+  // caip2Id is zero-padded ASCII; NUL-trim for display.
+  console.log(`EVM chain:         ${state.evmChainId} (${new TextDecoder().decode(state.caip2Id).replace(/\0+$/u, "")})`);
 
   const index = toSignBidirectionalRequestIndex(state.signetRequestsIndex);
   console.log(`pending signature requests: ${index.size}`);

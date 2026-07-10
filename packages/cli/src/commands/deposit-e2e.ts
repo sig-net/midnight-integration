@@ -2,6 +2,7 @@
 // from the granular commands. Every MPC hand-off is polled from the
 // signet contract.
 
+import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
 import { broadcastEvm } from "./broadcast-evm.ts";
 import { claimDeposit } from "./claim-deposit.ts";
@@ -44,7 +45,10 @@ export async function depositE2E(context: CliContext, options: DepositE2EOptions
 
   const requestId = await requestDeposit(context, { amount, evmNonce });
 
-  const transaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs });
+  // Deposit sweeps are signed by the USER's derived account — verify the
+  // MPC's signature against it.
+  const expectedSigner = requireConfigValue(context.config.evmUserAddress, "EVM_USER_ADDRESS");
+  const transaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs, expectedSigner });
   await broadcastEvm(context, { transaction });
 
   await pollRespondBidirectional(context, { requestId, intervalMs, timeoutMs });

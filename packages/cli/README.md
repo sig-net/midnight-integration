@@ -26,20 +26,20 @@ Two ways to consume it:
 | Command | What it does | Status |
 |---|---|---|
 | `read-state` | Read the vault's public ledger via the typed `ledger()` decode: config + pending signature requests | wired |
-| `initialize` | Deployer-only one-off: seal the vault's EVM address into the contract config (`callTx.initialize`) | wired |
-| `request-deposit` | Record a deposit signature request on the vault's ledger; prints the request id | stubbed (routing constants) |
-| `poll-signature-response` | Poll the signet contract for a request's MPC response | stubbed (placeholder record) |
-| `broadcast-evm` | Broadcast an MPC-signed EVM transaction; prints the tx hash | stubbed (ethers pending) |
-| `claim-deposit` | Verify the MPC attestation in-circuit and mint shielded vault tokens | stubbed (circuit not ported) |
-| `deposit-e2e` | Full deposit orchestration (see below) | partial |
-| `request-withdraw` | Escrow a shielded coin and record a withdraw signature request | stubbed (circuit not ported) |
-| `refund-withdraw` | Settle a withdraw: success is final, failure re-mints the escrow to the refund recipient | stubbed (circuit not ported) |
-| `withdraw-e2e` | Full withdraw orchestration (see below) | stubbed |
+| `initialize` | Deployer-only one-off: seal the vault's EVM address AND its chain (`EVM_CHAIN_ID`, numeric + CAIP-2) into the contract config | wired |
+| `request-deposit` | Record a deposit signature request on the vault's ledger; prints the request id | wired |
+| `poll-signature-response` | Poll the signet contract for the MPC's signature over a request's EVM transaction (`--expected-signer` says whose derived account must have signed) | wired |
+| `poll-respond-bidirectional` | Poll the signet contract for the MPC's attestation of a request's remote EVM execution | wired |
+| `broadcast-evm` | Broadcast an MPC-signed EVM transaction; prints the tx hash | wired |
+| `claim-deposit` | Verify the MPC attestation in-circuit and mint shielded vault tokens | wired |
+| `deposit-e2e` | Full deposit orchestration (see below) | wired |
+| `request-withdraw` | Surrender a shielded vault coin (burned) and record a withdraw signature request | wired |
+| `refund-withdraw` | Settle a withdraw: success is final, failure re-mints the surrendered value to the refund recipient | stubbed (circuit not ported) |
+| `withdraw-e2e` | Full withdraw orchestration (see below) | partial (halts at settle) |
 
 Every command runs inside a wallet session and a joined vault contract (see
 **Running**). Stubbed commands validate their inputs, print what they would
-do, then throw `NotImplementedError` naming the missing piece. See **Status**
-below.
+do, then throw `NotImplementedError` naming the missing piece.
 
 ## The deposit flow (`deposit-e2e`)
 
@@ -58,11 +58,12 @@ signet contract** — there is no push channel.
    derived EVM address into the vault's EVM address), signs it with the key
    derived from `(contract address, path)`, and posts the **signed
    transaction** to the signet contract.
-3. **`poll-signature-response`** picks the signed transaction up;
-   **`broadcast-evm`** sends it to the EVM chain.
+3. **`poll-signature-response`** picks the signed transaction up (verifying
+   it recovers to the user's derived address — pass it as
+   `--expected-signer`); **`broadcast-evm`** sends it to the EVM chain.
 4. The MPC observes the EVM receipt and posts a **Schnorr-signed
    `(requestId, outputData)` attestation** of the result to the
-   signet contract; `poll-signature-response` picks it up.
+   signet contract; `poll-respond-bidirectional` picks it up.
 5. **`claim-deposit`** calls the vault's `claimDeposit` circuit, which
    verifies the MPC public key hash, the Schnorr signature, the EVM success
    flag, and the caller's identity against the stored request — then mints
@@ -75,17 +76,21 @@ hex, so identity, path, and derived EVM account are bound 1:1.
 ## The withdraw flow (`withdraw-e2e`)
 
 Withdraw surrenders shielded vault tokens on Midnight and pays out ERC20 from
-the vault's EVM address. Optimistic with escrow + refund:
+the vault's EVM address. Optimistic, with a refund on failure:
 
 1. **`request-withdraw`** calls the vault's `requestWithdraw` circuit: the
-   shielded coin is escrowed UP FRONT, a refund recipient is pinned, and the
-   signature request is recorded with `path = "vault"` — so the MPC signs
-   from the VAULT's derived EVM address, not the user's.
+   shielded coin is surrendered UP FRONT (burned — vault tokens are IOUs; a
+   refund mints fresh ones), a refund recipient is pinned, and the signature
+   request is recorded with `path = "vault"` — so the MPC signs from the
+   VAULT's derived EVM address, not the user's. The vault pays the withdraw
+   gas, so the whole fee envelope is fixed by the contract; the caller
+   supplies only the vault account's nonce, the amount, and the destination.
 2. The MPC signs the vault→destination ERC20 `transfer` and posts it to the
-   signet contract; `poll-signature-response` + `broadcast-evm` as above.
+   signet contract; `poll-signature-response` (with `--expected-signer` set
+   to the VAULT's derived address) + `broadcast-evm` as above.
 3. The MPC posts the Schnorr-signed attestation of the EVM result.
 4. **`refund-withdraw`** settles the request in either direction: on EVM
-   success the withdrawal is final; on failure the escrowed value is
+   success the withdrawal is final; on failure the surrendered value is
    re-minted to the pinned refund recipient. The call is permissionless —
    anyone may settle, the refund always goes to the pinned recipient.
 
@@ -104,8 +109,8 @@ the rest is CLI-specific.
 | `MIDNIGHT_VAULT_CONTRACT_ADDRESS` | Deployed ERC20 vault contract on Midnight | — |
 | `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` | Deployed signet contract on Midnight | — |
 | `EVM_RPC_URL` | JSON-RPC endpoint of the EVM chain | — |
-| `EVM_CHAIN_ID` | EVM chain id (also yields the CAIP-2 routing id `eip155:<id>`) | — |
-| `ERC20_ADDRESS` | The ERC20 token the vault holds | — |
+| `EVM_CHAIN_ID` | EVM chain id, sealed into the contract by `initialize` (with its CAIP-2 form `eip155:<id>`); request commands read it back from the ledger | — |
+| `ERC20_ADDRESS` | The ERC20 token to deposit/withdraw | — |
 
 For `initialize`, set `VAULT_USER_SECRET_KEY` to the DEPLOYER's secret — the
 circuit is gated to the identity whose commitment was sealed at deploy time.
@@ -118,26 +123,16 @@ npm run cli -- --help
 npm run cli -- read-state
 npm run cli -- request-deposit --amount 1 --evm-nonce 0
 npm run cli -- deposit-e2e --amount 1 --evm-nonce 0 --interval-ms 5000 --timeout-ms 300000
+npm run cli -- request-withdraw --amount 1 --dest-evm-address 0x... --evm-nonce 0
+npm run cli -- poll-signature-response --request-id <hex> --expected-signer 0x...
 ```
 
-Prerequisites once the commands are wired: `npm run compile:zk` output for the
-vault (proving keys), a running Midnight stack (node, indexer, proof server),
-deployed vault + signet contracts, and a funded wallet.
+Prerequisites: `npm run compile:zk` output for the vault (proving keys), a
+running Midnight stack (node, indexer, proof server), deployed vault + signet
+contracts, and a funded wallet. The integration suite
+(`packages/integration-tests`) drives all of this end to end.
 
 ## Status
 
-The wallet session, vault providers, contract join, `read-state`, and
-`initialize` are fully wired (pending a run against a live stack). Still
-missing, in dependency order:
-
-1. **The MPC routing constants + codec** (keyVersion, algo, dest, schemas,
-   gas defaults) ported from the MVP — needed by `request-deposit` to
-   construct the signet request arguments; the circuit call itself is one
-   `context.vault.callTx.requestDeposit(...)` away.
-2. **The real response record in the signet contract** — the
-   current placeholder stores 32 bytes per request, which cannot carry a
-   signed EVM transaction or a Schnorr attestation. Blocks `poll-signature-response`
-   (and joining the responses contract into the context).
-3. **Vault circuits `claimDeposit`, `requestWithdraw`, `refundWithdraw`** —
-   not yet ported from the MVP.
-4. **`ethers`** for `broadcast-evm` — added when that command is wired.
+Everything is wired except `refund-withdraw`: the settle circuit is not yet
+ported to the vault contract, so `withdraw-e2e` halts at its final step.

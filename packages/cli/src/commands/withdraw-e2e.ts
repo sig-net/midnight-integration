@@ -2,6 +2,7 @@
 // from the granular commands. Every MPC hand-off is polled from the
 // signet contract.
 
+import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
 import { broadcastEvm } from "./broadcast-evm.ts";
 import { pollRespondBidirectional } from "./poll-respond-bidirectional.ts";
@@ -15,6 +16,8 @@ export interface WithdrawE2EOptions {
   readonly amount: bigint;
   /** Destination EVM address (20-byte 0x hex) receiving the ERC20. */
   readonly destEvmAddress: string;
+  /** Nonce of the VAULT's derived EVM account (the withdraw tx sender). */
+  readonly evmNonce: bigint;
   /** Poll interval in milliseconds. */
   readonly intervalMs: number;
   /** Give-up timeout in milliseconds per polling stage. */
@@ -33,18 +36,21 @@ export interface WithdrawE2EOptions {
  * 5. `refundWithdraw` settles the request: success is final, failure
  *    re-mints the escrow to the pinned refund recipient.
  *
- * Currently halts at step 1 (circuit not ported).
+ * Currently halts at step 5 (the settle circuit is not ported yet).
  *
  * @param context - The CLI context.
  * @param options - The withdraw arguments and polling patience.
  * @throws NotImplementedError — from the first unwired step.
  */
 export async function withdrawE2E(context: CliContext, options: WithdrawE2EOptions): Promise<void> {
-  const { amount, destEvmAddress, intervalMs, timeoutMs } = options;
+  const { amount, destEvmAddress, evmNonce, intervalMs, timeoutMs } = options;
 
-  const requestId = await requestWithdraw(context, { amount, destEvmAddress });
+  const requestId = await requestWithdraw(context, { amount, destEvmAddress, evmNonce });
 
-  const transaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs });
+  // Withdraw transactions are signed by the VAULT's derived account, not the
+  // user's — verify the MPC's signature against it.
+  const expectedSigner = requireConfigValue(context.config.evmVaultAddress, "EVM_VAULT_ADDRESS");
+  const transaction = await pollSignatureResponse(context, { requestId, intervalMs, timeoutMs, expectedSigner });
   await broadcastEvm(context, { transaction });
 
   await pollRespondBidirectional(context, { requestId, intervalMs, timeoutMs });

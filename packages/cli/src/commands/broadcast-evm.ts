@@ -109,6 +109,14 @@ export async function broadcastEvm(context: CliContext, options: BroadcastEvmOpt
     }
     const latestNonce = await provider.getTransactionCount(from, "latest");
     if (latestNonce > nonce) {
+      // The nonce advanced: either OUR tx just mined (waitForTransaction can
+      // miss an inclusion that lands right at its window edge) or a different
+      // tx took the slot. Only the receipt distinguishes the two.
+      const latestReceipt = await provider.getTransactionReceipt(hash);
+      if (latestReceipt !== null) {
+        console.log(`confirmed: ${hash}`);
+        return assertMinedOk(latestReceipt, hash);
+      }
       throw new Error(
         `nonce ${nonce} for ${from} was consumed by a different transaction; ` +
           `this signed tx (${hash}) can never mine`,

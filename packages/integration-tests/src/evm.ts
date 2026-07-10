@@ -44,6 +44,24 @@ export async function getTransactionNonce(rpcUrl: string, address: string): Prom
 }
 
 /**
+ * Whether a transaction hash has already mined (a receipt exists, succeeded
+ * or reverted). Lets reruns distinguish a fresh broadcast from an idempotent
+ * re-broadcast of an already-mined transaction.
+ *
+ * @param rpcUrl - JSON-RPC endpoint (e.g. `EVM_RPC_URL`).
+ * @param txHash - The transaction hash to look up.
+ * @returns `true` when a receipt exists for `txHash`.
+ */
+export async function isTransactionMined(rpcUrl: string, txHash: string): Promise<boolean> {
+  const provider = new JsonRpcProvider(rpcUrl);
+  try {
+    return (await provider.getTransactionReceipt(txHash)) !== null;
+  } finally {
+    provider.destroy();
+  }
+}
+
+/**
  * Read an address's ERC20 token balance along with the token's decimals.
  *
  * @param rpcUrl - JSON-RPC endpoint (e.g. `EVM_RPC_URL`).

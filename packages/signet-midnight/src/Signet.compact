@@ -404,8 +404,9 @@ module Signet {
 
   // ---- Request construction ---------------------------------------------------
 
-  // Assemble the canonical request record from its parts, enforcing the
-  // path <-> identity binding and the canonical keyVersion floor on the way.
+  // Assemble the canonical request record for a CALLER-IDENTITY request,
+  // enforcing the path <-> identity binding on the way — the MPC signs with
+  // the calling user's derived key and no one else's.
   // The requesting contract supplies:
   //   - pathCommitment: the DISCLOSED identity commitment of the caller
   //     (derived from a secret-key witness — see the vault's userCommitment)
@@ -431,6 +432,42 @@ module Signet {
     respondSerializationSchema: Bytes<128>
   ): SignBidirectionalRequest<TxParams> {
     assertPathCommitment(pathCommitment, path);
+    return constructContractPathSignBidirectionalRequest<TxParams>(
+      requestNonce,
+      txParamType,
+      txParams,
+      caip2Id,
+      keyVersion,
+      path,
+      algo,
+      dest,
+      params,
+      outputDeserializationSchema,
+      respondSerializationSchema
+    );
+  }
+
+  // Assemble the canonical request record for a CONTRACT-OWNED derivation
+  // path: a literal the requesting contract fixes in-circuit (e.g. a vault
+  // treasury's "vault"), so the MPC signs with the CONTRACT's derived account
+  // rather than a caller's. No identity binding applies — the contract itself
+  // vouches for the path by hardcoding it; never pass a caller-supplied path
+  // here (that would let anyone request signatures under any derived key —
+  // use constructSignBidirectionalRequest for caller-identity requests).
+  // Enforces the canonical keyVersion floor for both constructors.
+  export pure circuit constructContractPathSignBidirectionalRequest<TxParams>(
+    requestNonce: Uint<64>,
+    txParamType: TxParamType,
+    txParams: TxParams,
+    caip2Id: Bytes<32>,
+    keyVersion: Uint<32>,
+    path: Bytes<256>,
+    algo: Bytes<32>,
+    dest: Bytes<32>,
+    params: Bytes<64>,
+    outputDeserializationSchema: Bytes<128>,
+    respondSerializationSchema: Bytes<128>
+  ): SignBidirectionalRequest<TxParams> {
     // The MPC rejects requests for the unsupported legacy key version 0.
     assert(keyVersion >= 1, "keyVersion must be >= 1");
     return SignBidirectionalRequest<TxParams> {
