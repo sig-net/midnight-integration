@@ -348,10 +348,6 @@ export circuit claimDeposit(
 // envelope is contract-fixed below, never caller-chosen — a caller-supplied
 // fee cap would let anyone burn the vault account's ETH at will. Only the
 // account nonce (chain state) and the MPC key version remain caller inputs.
-//
-// No kernel.checkpoint(): the whole circuit runs in one transcript segment,
-// so a failure anywhere aborts atomically — the coin can never be taken
-// without the request (and its event) landing in the same transaction.
 export circuit requestWithdraw(
   evmNonce: Uint<64>,
   keyVersion: Uint<32>,
