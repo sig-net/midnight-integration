@@ -7,28 +7,25 @@ import CompactStandardLibrary;
 // Signet.compact and https://docs.sig.network/ for the protocol.
 import "@midnight-erc20-vault/signet-midnight/src/Signet";
 
-// ---- Signet ledger layout ---------------------------------------------------------
-// The request index MUST be ledger field 0 and the nonce counter field 1: the
-// MPC locates them by position, knowing only this contract's address (signet
-// layout convention). DO NOT DECLARE ANY OTHER LEDGER STATE ABOVE THESE!
-// Instantiated at <2 calldata words, 0 access-list entries, 0 storage keys> —
-// exactly what transfer(address,uint256) needs (the capacities are this
-// contract's throttle everywhere).
+// ---- Signet ledger layout ----------------------------------------------------------
+// MPC locates this index by position so location must stay fixed after first contract deploy.
+// Type configured for EVM Type 2 transactions with <2 calldata words, 0 access-list entries, 0 storage keys>.
+// This supports an EVM Type 2 transaction executing an ERC20 transfer(address,uint256) call.
 export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParams<2, 0, 0>>;
 
-// Contract-local request counter: gives each signet signature request its
-// requestNonce, and lets the MPC cheaply detect new requests.
+// Contract-local request counter: used to keep signature request hashes different between identical calls.
 export ledger signetNonce: SignetNonce;
 
-// ---- Contract state (declared AFTER the signet fields) ----------------------------
+// ---- Contract state ----------------------------------------------------------------
 
 // Becomes 1 once initialize() has run.
 export ledger initialized: Counter;
 
 // The vault's own EVM address: the contract-enforced recipient of every
-// deposit transfer. Set in initialize() rather than the constructor because
-// the MPC derives it FROM this contract's address (epsilon derivation — see
-// https://docs.sig.network/), which does not exist until after deployment.
+// deposit transfer. Set in initialize() rather than the constructor as the
+// MPC derives this EVM address FROM this contract's Midnight address which
+// does not exist until after deployment
+// (epsilon derivation — see https://docs.sig.network/).
 export ledger vaultEvmAddress: Bytes<20>;
 
 // The ONE EVM chain this vault operates on, in both forms consumers need:
@@ -82,6 +79,7 @@ struct VaultMpcRouting {
 
 // ECDSA over an EVM ("ethereum") destination, no extras, and the ERC20
 // `transfer` bool result schema in both directions.
+// TODO: add reference to official Signet docs for explanation of these params.
 pure circuit vaultMpcRouting(): VaultMpcRouting {
   const schema = pad(128, "[{\"name\":\"success\",\"type\":\"bool\"}]");
   return VaultMpcRouting {
