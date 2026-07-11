@@ -9,18 +9,25 @@ repo touches a network from tests. The pipeline has two halves:
   addresses → print the MPC hand-off banner. Runs ONCE in vitest's main
   process before ANY test file, including single-file runs. Every step skips
   itself when its env var is already set.
-- **Flow files** (`tests/*.test.ts`, `--bail 1`): today that is
-  `happy-day-e2e.test.ts`, the full deposit AND withdraw round trip:
-  initialize → `requestDeposit` → the MPC signs → the sweep transaction
-  broadcasts on Sepolia → the attestation lands back on Midnight →
-  `claimDeposit` mints shielded vault tokens → `requestWithdraw` escrows
-  them → the MPC signs the vault→user transfer → it broadcasts on Sepolia
-  (the ERC20 leaves the vault). Flow files run one at a time in the order
+- **Flow files** (`tests/*.test.ts`, `--bail 1`), one at a time in the order
   pinned by `FILE_ORDER` in `vitest.config.ts` — they share chain state, one
-  MPC responder, and EVM nonces/funds, so they can never run in parallel.
+  MPC responder, and EVM nonces/funds, so they can never run in parallel:
+  - `happy-day-e2e.test.ts` — the full deposit AND withdraw round trip:
+    initialize → `requestDeposit` → the MPC signs → the sweep transaction
+    broadcasts on Sepolia → the attestation lands back on Midnight →
+    `claimDeposit` mints shielded vault tokens → `requestWithdraw` escrows
+    them → the MPC signs the vault→user transfer → it broadcasts on Sepolia
+    (the ERC20 leaves the vault).
+  - `deposit-withdrawal-failure-refund.test.ts` — the refund branch: a
+    deposit round trip arranges shielded tokens (via `src/flows/deposit.ts`),
+    a fakenet-only drain empties the vault's EVM ERC20 balance, then a
+    withdraw whose transfer mines and REVERTS drives the MPC's failure
+    attestation into `completeWithdraw`'s in-circuit refund. The drain sends
+    the vault's ERC20 back to `EVM_USER_ADDRESS`, so EVM funds keep cycling.
 
-The cli owns the orchestration; tests only sequence and assert. To add a
-flow file (failure-refund, benchmark, false-claimer…), start from
+The cli owns the orchestration; tests only sequence and assert — reusable
+sequences live in `src/flows/` (deposit round trip, withdraw legs). To add a
+flow file (benchmark, false-claimer…), start from
 [`src/flows/TODO.md`](src/flows/TODO.md) — it is a self-contained work
 order, including the three registration points every new file must touch.
 
@@ -42,6 +49,7 @@ order, including the three registration points every new file must touch.
 ```sh
 npm run test:integration-tests                 # all flow files, from the repo root
 npm run test:integration-tests:happy-day-e2e   # just the happy-day flow
+npm run test:integration-tests:deposit-withdrawal-failure-refund   # just the refund flow
 ```
 
 Selecting a single flow file still runs the globalSetup pipeline first —
@@ -66,8 +74,8 @@ contract addresses:
    `EVM_VAULT_ADDRESS` with ETH for the withdraw gas (≥ 0.003 ETH — the
    vault's derived account sends the withdraw transfer itself), configure
    and start the responder.
-3. **Run 2** — every setup step skips; the deposit + withdraw flow runs to
-   the end (17/17 tests in the happy-day file).
+3. **Run 2** — every setup step skips; every flow file runs to the end
+   (happy-day: 17/17, failure-refund: 9/9).
 
 **Redeploying after a circuit change?** The derived EVM accounts move with
 the vault contract address, and funds on the old ones do not follow. Follow
@@ -89,8 +97,10 @@ it includes the fund-sweep script.
 | `MPC_JUBJUB_PK`, `MPC_SECP256K1_PUBKEY` | MPC public keys | derived from root key |
 | `EVM_VAULT_ADDRESS` / `EVM_USER_ADDRESS` | Epsilon-derived EVM accounts | derived by run 1 |
 | `ERC20_ADDRESS` | Token for the deposit/withdraw flows | Sepolia USDC `0x1c7D…7238` |
-| `DEPOSIT_REQUEST_ID` | Reuse an existing request id, skipping the `requestDeposit` call | unset |
-| `WITHDRAW_REQUEST_ID` | Reuse an existing request id, skipping the `requestWithdraw` call | unset |
+| `DEPOSIT_REQUEST_ID` | Happy-day: reuse an existing request id, skipping the `requestDeposit` call | unset |
+| `WITHDRAW_REQUEST_ID` | Happy-day: reuse an existing request id, skipping the `requestWithdraw` call | unset |
+| `FAILURE_REFUND_DEPOSIT_REQUEST_ID` | Failure-refund: resume the arrange deposit from an existing request id | unset |
+| `FAILURE_REFUND_WITHDRAW_REQUEST_ID` | Failure-refund: resume the doomed withdraw from an existing request id | unset |
 | `STEP_THROUGH` | `1` pauses before each setup step and each test (hit enter) — interactive debugging only, never unattended | unset |
 
 ## Gotchas
@@ -105,3 +115,7 @@ it includes the fund-sweep script.
   addresses.
 - Proof failures surface as `Failed Proof Server response … 400`; the real
   error is in `docker logs midnight-proof-server`.
+- In the `test:integration` script, `--bail 1` must stay LAST: the
+  single-file scripts append their `tests/<name>.test.ts` filter after it,
+  and a trailing BOOLEAN flag (`--disable-console-intercept`) would swallow
+  that filter as its value — vitest then silently runs EVERY flow file.

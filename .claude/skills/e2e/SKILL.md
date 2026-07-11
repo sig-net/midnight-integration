@@ -41,7 +41,12 @@ pinned by `vitest.config.ts`.
   `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`). The withdraw preflight
   additionally needs `EVM_VAULT_ADDRESS` to hold **≥ 0.003 ETH** (the vault's
   derived account pays the withdraw transfer's gas itself; its USDC comes
-  from the suite's own deposit sweep).
+  from the suite's own deposit sweep). The failure-refund flow enforces the
+  same minimums and sends two more vault-account transactions (the
+  fakenet-only ERC20 drain, then the deliberately reverting transfer), so
+  the vault's ETH drifts down a little faster when it runs; its ERC20
+  balance ends at zero BY DESIGN (the drain returns it to
+  `EVM_USER_ADDRESS`).
 - Every test from the deposit signature poll onward (both signature polls,
   broadcasts, the attestations, claim and withdraw settle) needs the
   **fakenet MPC responder running** with the CURRENT contract addresses (see
@@ -63,7 +68,11 @@ pinned by `vitest.config.ts`.
    If not: start it — see step 6 of the redeploy flow.
 2. `npm run test:integration-tests > <logfile> 2>&1 &` and watch the log.
    Expect all globalSetup steps to log `SKIPPED: …` and every flow file to
-   pass (happy-day: 17/17) in ~5 min.
+   pass (happy-day: 17/17, then deposit-withdrawal-failure-refund: 9/9) in
+   ~10–15 min. Single-file scripts:
+   `npm run test:integration-tests:happy-day-e2e`,
+   `npm run test:integration-tests:deposit-withdrawal-failure-refund`
+   (globalSetup still runs first either way).
 
 ## Redeploy flow (`/e2e redeploy`)
 
@@ -133,3 +142,17 @@ be swept to the new one.
   contract addresses — redo step 6.
 - `vault is already initialized` on a kept address is informational; the test
   still asserts state and passes.
+- `connect ECONNREFUSED 127.0.0.1:6300` mid-claim/settle with
+  `docker ps -a` showing the proof server `Exited (137)`: the proof server
+  was OOM-killed (it has done this repeatedly at the claim step — a single
+  claim/settle proof peaks at ~8–10 GiB inside the Docker VM, so with the
+  default 16 GB VM one heavy proof under host memory pressure is enough;
+  `docker restart midnight-proof-server` between flow files buys headroom,
+  since each flow file starts with a proving-free window). Recover
+  with `docker start midnight-proof-server`, then rerun the SAME flow file
+  resuming its pending request instead of spending another deposit —
+  happy-day: `DEPOSIT_REQUEST_ID=<id>` / `WITHDRAW_REQUEST_ID=<id>`;
+  failure-refund: `FAILURE_REFUND_DEPOSIT_REQUEST_ID=<id>` /
+  `FAILURE_REFUND_WITHDRAW_REQUEST_ID=<id>` (each file prints its ids as it
+  goes; `broadcastEvm` is idempotent, so already-mined transfers skip
+  through).

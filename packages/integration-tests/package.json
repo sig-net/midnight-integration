@@ -7,8 +7,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
-    "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run --bail 1 --disable-console-intercept",
-    "test:integration:happy-day-e2e": "npm run test:integration -- tests/happy-day-e2e.test.ts"
+    "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run --disable-console-intercept --bail 1",
+    "test:integration:happy-day-e2e": "npm run test:integration -- tests/happy-day-e2e.test.ts",
+    "test:integration:deposit-withdrawal-failure-refund": "npm run test:integration -- tests/deposit-withdrawal-failure-refund.test.ts"
   },
   "dependencies": {
     "@midnight-erc20-vault/cli": "*",
