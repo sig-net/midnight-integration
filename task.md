@@ -136,6 +136,7 @@ only integration path needs Sepolia ETH and a hand-started fakenet server.
       code, and auto-funds both derived accounts on chain id 31337. Until B.2
       lands, a fresh local run 1 stops at the deposit signature-poll timeout
       (the fakenet responder hand-off) instead of the funding preflight.
+      Commit a98256b.
 - [ ] **B.2 Port the MPC simulator/watcher**, updated from the old
       websocket push to the contract-post model (read request via the event
       feeds → sign → broadcast → post response/attestation to the signet
