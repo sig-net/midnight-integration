@@ -46,7 +46,7 @@ intent → `submitUnprovenTransaction(facade, keys, tx)` balances/signs/finalize
 through the wallet facade. Witness-less contracts bind via `makeVacantCompiledContract`
 (vs `makeCompiledContract` for contracts with witnesses); private state is `{}`.
 
-CLI shells: `npm run deploy:token`, then `XC_TOKEN_CONTRACT_ADDRESS=<addr> npm run deploy:vault`.
+CLI shells: `yarn deploy:token`, then `XC_TOKEN_CONTRACT_ADDRESS=<addr> yarn deploy:vault`.
 
 ## Calling a circuit from TS
 
@@ -73,7 +73,7 @@ const ledger = Token.ledger(st.data);                              // decode via
 ## The integration test
 
 [`tests/integrationTest.test.ts`](../tests/integrationTest.test.ts). Gated by
-`RUN_INTEGRATION_TESTS` (skips otherwise, so offline `npm test` stays green). Single file,
+`RUN_INTEGRATION_TESTS` (skips otherwise, so offline `yarn test` stays green). Single file,
 sequential steps sharing an `env` accumulator so re-runs can resume:
 
 1. environment: node/indexer/proof-server reachable.
@@ -86,8 +86,8 @@ Run it:
 ```bash
 docker compose up -d                       # from repo root, if not already up
 cd packages/xcontract-events
-npm run compile:zk                          # generate proving/verifier keys for BOTH contracts
-npm run test:integration                    # RUN_INTEGRATION_TESTS=1 vitest run ... integrationTest.test.ts
+yarn compile:zk                          # generate proving/verifier keys for BOTH contracts
+yarn test:integration                    # RUN_INTEGRATION_TESTS=1 vitest run ... integrationTest.test.ts
 ```
 Set `XC_TOKEN_CONTRACT_ADDRESS` / `XC_VAULT_CONTRACT_ADDRESS` to skip deploys and reuse
 existing contracts (note: the `sequence == 0` assertion assumes a fresh token — see
@@ -106,7 +106,7 @@ Test Files  2 passed (2)   Tests  12 passed (12)
 [`tests/xcontract-events.test.ts`](../tests/xcontract-events.test.ts) — in-process simulator
 via `@midnight-ntwrk/compact-runtime`. Asserts custom-event payload round-trips, the emit
 path runs + compiled to `'log'`, the cross-contract call lowered to `crossContractCall`, and
-`contractDependencies` extracts the callee address. Run with `npm test`.
+`contractDependencies` extracts the callee address. Run with `yarn test`.
 
 ## Noise you can ignore
 

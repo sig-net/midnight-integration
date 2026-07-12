@@ -24,9 +24,9 @@ This demo comprises of 3 processes: the Midnight Stack, the MPC Server, and the 
 #### **Step 0**: Install Dependencies and Compile Midnight Contracts
 ```sh
 cd <repo>
-npm install
+yarn install
 compact update 0.31.1
-npm run compile:zk
+yarn compile:zk
 ```
 
 
@@ -95,7 +95,6 @@ npm run compile:zk
 - remove all the unnecessary padding from the signet signing request to reduce circuit size and proving time
 - move generic types into signet.js
 - use generics to allows client contracts to specify argument count.
-- switch to yarn
 - replace all usages of SignetEVMSignatureRequest with canonical EVMSignatureRequest type from signet.js (if it exists).
 - add V1 to every single struct
 - allow deposit to either normal address or contract address

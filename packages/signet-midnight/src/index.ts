@@ -20,7 +20,7 @@ export * from "./schnorr.ts";
 export * from "./mpc-keys.ts";
 
 /**
- * Compiled pure circuits of Signet.compact (run `npm run compile` first): the
+ * Compiled pure circuits of Signet.compact (run `yarn compile` first): the
  * executable reference implementation of the client-agnostic circuits —
  * path<->identity checks, the attestation message, and the Schnorr challenge.
  * Off-chain code MUST use these instead of re-porting the algorithms — they

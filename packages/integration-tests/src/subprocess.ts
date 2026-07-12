@@ -5,11 +5,11 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-/** Absolute path of the repository root (where the npm workspace scripts live). */
+/** Absolute path of the repository root (where the workspace's root scripts live). */
 export const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 
 /**
- * Run a root-level npm script (`npm run <script>` at {@link REPO_ROOT}),
+ * Run a root-level package script (`yarn run <script>` at {@link REPO_ROOT}),
  * streaming its output live to the console and capturing stdout.
  *
  * @param script - Name of the root package.json script (e.g. `compile:vault-contract:zk`).
@@ -26,7 +26,7 @@ export async function runRootScript(
   timeoutMs: number,
 ): Promise<string> {
   return await new Promise((resolve, reject) => {
-    const child = spawn("npm", ["run", script], {
+    const child = spawn("yarn", ["run", script], {
       cwd: REPO_ROOT,
       env: env as NodeJS.ProcessEnv,
       stdio: ["ignore", "pipe", "pipe"],
@@ -56,7 +56,7 @@ export async function runRootScript(
       const tail = combined.split("\n").slice(-20).join("\n");
       reject(
         new Error(
-          `npm run ${script} ${signal ? `killed by ${signal} (timeout ${timeoutMs}ms?)` : `exited with code ${code}`}\n--- output tail ---\n${tail}`,
+          `yarn run ${script} ${signal ? `killed by ${signal} (timeout ${timeoutMs}ms?)` : `exited with code ${code}`}\n--- output tail ---\n${tail}`,
         ),
       );
     });

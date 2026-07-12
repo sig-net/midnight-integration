@@ -82,16 +82,16 @@ ledger/state exactly as the MPC does — the same view on both sides is the poin
 **1. Classify the change.**
 
 - **TS-only** (cli command, reader, descriptor, seed TS helper): no recompile of
-  circuits. `npm run compile` is still needed once if `src/managed/` is absent.
+  circuits. `yarn compile` is still needed once if `src/managed/` is absent.
 - **`.compact` edit that does NOT alter a circuit's proof** (comment, a
-  non-hashed rename): `npm run compile` (default `--skip-zk`) regenerates
+  non-hashed rename): `yarn compile` (default `--skip-zk`) regenerates
   `src/managed/`; simulator tests and typecheck are enough.
 - **`.compact` edit that alters a circuit, a struct layout, or the request-id
   hash domain**: the proving keys change. This forces a **redeploy**.
 
 **2. Verify in-process first (fast, no stack).**
 
-- `npm run build && npm run test` in the member you touched (AGENTS.md: `tsx`
+- `yarn build && yarn test` in the member you touched (AGENTS.md: `tsx`
   and vitest do NOT typecheck — "it runs" is not verification).
 - Contract packages carry simulator unit tests (`tests/contract.test.ts`) that
   exercise circuits in-process via `compact-runtime`. Add the happy path AND the
@@ -159,11 +159,11 @@ mined and returns immediately) and the suite reaches your stage on real state.
 2. Write the circuit in the `.compact`; if it consumes/produces a signet struct,
    confirm the seed already models it — add/extend the struct AND its descriptor
    together if not.
-3. `npm run compile` in the contract package; add simulator tests for the happy
+3. `yarn compile` in the contract package; add simulator tests for the happy
    path and every reject.
 4. Add the cli command that drives it (build args, submit `callTx.<circuit>`,
    read back the observable effect). Export it from the cli index.
-5. `npm run build && npm run test` in each touched member.
+5. `yarn build && yarn test` in each touched member.
 6. Extend `packages/integration-tests/tests/e2e.test.ts` with a step that drives
    the new command and asserts a publicly-observable effect (a ledger
    insert/removal is stronger than a return value — a shielded mint is not

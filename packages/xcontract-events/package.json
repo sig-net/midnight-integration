@@ -3,15 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Throwaway spike: proves compactc 0.33 (this repo's toolchain) supports cross-contract calls and MIP-0002 events. token.compact (B) emits a custom event; vault.compact (A) calls it cross-contract. Unit tests run offline; the integration test deploys both + calls A→B against a live Midnight stack (gated by RUN_INTEGRATION_TESTS). Run `npm run compile:zk` before deploying.",
+  "description": "Throwaway spike: proves compactc 0.33 (this repo's toolchain) supports cross-contract calls and MIP-0002 events. token.compact (B) emits a custom event; vault.compact (A) calls it cross-contract. Unit tests run offline; the integration test deploys both + calls A→B against a live Midnight stack (gated by RUN_INTEGRATION_TESTS). Run `yarn compile:zk` before deploying.",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "compile": "npm run compile:token && npm run compile:vault",
+    "compile": "yarn compile:token && yarn compile:vault",
     "compile:token": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/token.compact src/managed/token",
     "compile:vault": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/vault.compact src/managed/vault",
-    "compile:zk": "npm run compile:token:zk && npm run compile:vault:zk",
+    "compile:zk": "yarn compile:token:zk && yarn compile:vault:zk",
     "compile:token:zk": "COMPACT_PATH=../../node_modules compact compile src/token.compact src/managed/token",
     "compile:vault:zk": "COMPACT_PATH=../../node_modules compact compile src/vault.compact src/managed/vault",
     "build": "tsc -p tsconfig.json",

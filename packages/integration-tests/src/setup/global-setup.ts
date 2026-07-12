@@ -2,7 +2,7 @@
 // the main process before ANY test file — including single-file selections —
 // then hands the populated env accumulator to the flow-test workers via
 // project.provide. A throw here aborts the whole run before any test starts.
-// Without RUN_INTEGRATION_TESTS this is a no-op so plain `npm run test`
+// Without RUN_INTEGRATION_TESTS this is a no-op so plain `yarn test`
 // stays offline (the flow suites then skip via describe.skipIf and see an
 // empty injected env).
 

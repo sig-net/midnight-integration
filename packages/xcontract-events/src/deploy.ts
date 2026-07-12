@@ -1,6 +1,6 @@
 // Deploy flows for the two spike contracts, using the generic plumbing in
 // @midnight-erc20-vault/lib (same shape as vault-contract / signet-contract
-// deploy scripts). Requires `npm run compile:zk` output (verifier keys) in
+// deploy scripts). Requires `yarn compile:zk` output (verifier keys) in
 // src/managed/{token,vault}.
 //
 // The ORDER matters: the vault (A) is constructed with a REFERENCE to an

@@ -9,7 +9,7 @@
 // contract.test.ts assigns the generated `ledger().signetRequestsIndex` to the
 // named SignBidirectionalRequestLedgerIndex type — the assignment itself is
 // the assertion, so any structural drift between the generated managed types
-// and these twins fails that package's `npm run build` / `npm run test`.
+// and these twins fails that package's `yarn build` / `yarn test`.
 //
 // Read more: https://docs.sig.network/ (signet protocol) and the module
 // header in Signet.compact (layout convention, path binding).

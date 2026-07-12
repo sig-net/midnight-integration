@@ -1,6 +1,7 @@
 # midnight-erc20-vault — workspace-wide agent rules
 
-This repository is a single **npm workspace**. Its members live under `packages/`:
+This repository is a single **Yarn workspace** (Yarn 4 via corepack, `nodeLinker:
+node-modules`). Its members live under `packages/`:
 
 - **`packages/lib`** — shared runtime plumbing (config, network, providers, wallet,
   logging). The ONLY copy of these files.
@@ -9,8 +10,8 @@ This repository is a single **npm workspace**. Its members live under `packages/
 - **`packages/vault-contract`** / **`packages/signet-contract`** — one
   package per Compact contract, no contract/sdk split. See "Contract packages" below.
 
-Run `npm install` from the repo root — never from inside a member.
-Run `npm run compile` once before `build`/`test`: the contract packages AND
+Run `yarn install` from the repo root — never from inside a member.
+Run `yarn compile` once before `build`/`test`: the contract packages AND
 `packages/signet-midnight` typecheck against their generated `src/managed/`
 output (signet-midnight compiles its Compact module's pure circuits via
 `src/circuits.compact` — skip-zk only, no `compile:zk` script on purpose).
@@ -19,7 +20,7 @@ Member-specific rules live in that member's own `AGENTS.md`.
 
 # Running the integration e2e suite
 
-The operational runbook for `npm run test:integration-tests` lives in
+The operational runbook for `yarn test:integration-tests` lives in
 [`.claude/skills/e2e/SKILL.md`](.claude/skills/e2e/SKILL.md) — read it BEFORE
 running or re-deploying the e2e stack. It covers what the test pipeline docs
 (`packages/integration-tests/README.md`) do not: clean redeploys, why the
@@ -47,20 +48,22 @@ exception for that specific case.
   scaffold leftovers, commented-out blocks — delete them, never leave them for
   "later". Code that isn't reached is a lie about what the system does.
 - **ALWAYS install dependencies at the latest STABLE version; NEVER pin.** First
-  resolve the version — `npm view <pkg> dist-tags version deprecated` — then add it
-  explicitly: `npm install <pkg>@<version> -w <workspace>`, where `<version>` is that
-  latest stable release. Naming the version is NOT a pin: `npm install` still writes
-  a caret range (`^<version>`) into package.json; spelling it out just forces you to
-  look at what you're pulling in. If the resolved latest is a prerelease (an
-  `-rc`/`-beta`/`-alpha`/`-next`/`-canary` in the version string), STOP and ask the
-  user — never adopt a prerelease unprompted; let them opt in. Before you install,
-  confirm the release is sound: it is not deprecated (from the `npm view` above),
-  and after install `npm audit signatures` verifies its registry
-  signature/provenance and `npm audit` reports no new advisory. The compact toolchain
+  resolve the version — `yarn npm info <pkg> --fields dist-tags,version,deprecated`
+  — then add it explicitly: `yarn workspace <workspace> add <pkg>@^<version>`, where
+  `<version>` is that latest stable release. The caret is deliberate and NOT
+  optional: `yarn add` writes exactly the range you name, so a bare
+  `<pkg>@<version>` would silently pin — always spell the `^`. Naming the version
+  inside the caret range is NOT a pin: the range still floats; spelling it out just
+  forces you to look at what you're pulling in. If the resolved latest is a
+  prerelease (an `-rc`/`-beta`/`-alpha`/`-next`/`-canary` in the version string),
+  STOP and ask the user — never adopt a prerelease unprompted; let them opt in.
+  Before you install, confirm the release is sound: it is not deprecated (from the
+  `yarn npm info` above), and after install `yarn npm audit` reports no new
+  advisory. The compact toolchain
   is likewise unpinned: `compact update`
   installs it and compile scripts carry **no `+version` pin**. Corollary: a
   dependency shared by two members MUST resolve to the same version in every member
-  — bump it everywhere in the same change and `npm install` from the root. A single
+  — bump it everywhere in the same change and `yarn install` from the root. A single
   shared version is what keeps the WASM-backed `@midnight-ntwrk/*` packages
   resolving to one instance; divergence causes dual-instance "expected instance
   of…" bugs.
@@ -69,13 +72,13 @@ exception for that specific case.
   No `dist/`, no `tsc --outDir`, no ts-node loaders, no copy steps. Tests run under
   vitest; entrypoints run under `tsx`. If you think you need a build step, stop and
   ask — a build step is a defect in this workspace, not a missing feature.
-- **ALWAYS finish a change with `npm run build && npm run test`** in the member you
+- **ALWAYS finish a change with `yarn build && yarn test`** in the member you
   touched (or from the root). `tsx` and vitest execute without typechecking — "it
   runs" is NOT verification. If you add a new top-level TS directory to a member,
   add it to that member's tsconfig `include` in the same change; a file outside
   `include` passes silently and then breaks in the IDE.
 - **NEVER commit generated compiler output.** Each contract package's
-  `src/managed/` is produced by `npm run compile` and is gitignored. Default
+  `src/managed/` is produced by `yarn compile` and is gitignored. Default
   compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run
   `compile:zk` only when proving keys are actually needed (real deploys).
 - **Shared plumbing lives ONCE, in `packages/lib`.** The moment a second package
@@ -174,7 +177,7 @@ exception for that specific case.
 The two contract packages are deliberately identical in shape; these rules apply to
 both (and to any additional contract package):
 
-- **Compile before you check.** `npm run compile` regenerates `src/managed/`;
+- **Compile before you check.** `yarn compile` regenerates `src/managed/`;
   typecheck and tests read its emitted `contract/index.d.ts`.
 - **`src/index.ts` is the curated export surface** — it re-exports the managed
   output plus the handwritten witnesses. Consumers import the package root; NEVER

@@ -25,8 +25,8 @@ pinned by `vitest.config.ts`.
 
 ## Ground rules (violating these wastes 10+ minutes per mistake)
 
-- Run the suite from the repo root: `npm run test:integration-tests` (all
-  flows) or `npm run test:integration-tests:happy-day-e2e` (one flow; the
+- Run the suite from the repo root: `yarn test:integration-tests` (all
+  flows) or `yarn test:integration-tests:happy-day-e2e` (one flow; the
   setup pipeline still runs first).
 - **Never set `STEP_THROUGH=1` in an unattended run** — it pauses for stdin
   between tests and hangs forever.
@@ -57,7 +57,7 @@ pinned by `vitest.config.ts`.
 
 1. Local Midnight stack up: `docker compose up -d` at the repo root
    (node :9944, indexer :8088, proof server :6300).
-2. `compact --version` works; `npm install` and `npm run compile` have run.
+2. `compact --version` works; `yarn install` and `yarn compile` have run.
 3. `.env` at the repo root exists (it also holds the fakenet
    `MPC_ROOT_KEY` and, in a comment, the Sepolia funding-wallet seed).
 4. If `EVM_RPC_URL` points at the local EVM (`http://127.0.0.1:8545`): the
@@ -74,12 +74,12 @@ pinned by `vitest.config.ts`.
    (`ps` for a `fakenet-signer` / `yarn response` process; its log prints
    `check midnight for SignBidirectionalEvents at <vault address>`).
    If not: start it — see step 6 of the redeploy flow.
-2. `npm run test:integration-tests > <logfile> 2>&1 &` and watch the log.
+2. `yarn test:integration-tests > <logfile> 2>&1 &` and watch the log.
    Expect all globalSetup steps to log `SKIPPED: …` and every flow file to
    pass (happy-day: 17/17, then deposit-withdrawal-failure-refund: 9/9) in
    ~10–15 min. Single-file scripts:
-   `npm run test:integration-tests:happy-day-e2e`,
-   `npm run test:integration-tests:deposit-withdrawal-failure-refund`
+   `yarn test:integration-tests:happy-day-e2e`,
+   `yarn test:integration-tests:deposit-withdrawal-failure-refund`
    (globalSetup still runs first either way).
 
 ## Redeploy flow (`/e2e redeploy`)
@@ -112,7 +112,7 @@ be swept to the new one.
 
    ```sh
    set -a && source .env && set +a
-   npx tsx .claude/skills/e2e/scripts/sweep-derived-funds.ts \
+   yarn tsx .claude/skills/e2e/scripts/sweep-derived-funds.ts \
      --old-contract <OLD vault contract address> \
      --path <user commitment hex, printed as "caller commitment"> \
      --expect <OLD EVM_USER_ADDRESS> \

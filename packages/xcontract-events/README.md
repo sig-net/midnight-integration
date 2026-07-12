@@ -44,13 +44,13 @@ calls"*).
   cross-contract call landed + emitted). Gated by `RUN_INTEGRATION_TESTS`.
 
 ```bash
-npm run compile        # both contracts, --skip-zk (fast)
-npm run compile:zk     # with proving/verifier keys — required to deploy & prove
-npm test               # offline: unit tests run, integration test skips
+yarn compile        # both contracts, --skip-zk (fast)
+yarn compile:zk     # with proving/verifier keys — required to deploy & prove
+yarn test               # offline: unit tests run, integration test skips
 
 # live e2e (needs a running node + indexer + proof server, funded DEPLOYER_SEED):
-npm run compile:zk
-npm run test:integration
+yarn compile:zk
+yarn test:integration
 ```
 
 ## How to write each feature

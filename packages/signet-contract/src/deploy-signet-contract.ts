@@ -2,7 +2,7 @@
 // contract's deploy transaction using the generic plumbing in
 // @midnight-erc20-vault/lib. Everything contract-specific lives HERE: the
 // MPC attestation key constructor arg and the (empty) private state.
-// Requires `npm run compile:zk` output (verifier keys) in src/managed.
+// Requires `yarn compile:zk` output (verifier keys) in src/managed.
 
 import {
   assertDeployerFunded,

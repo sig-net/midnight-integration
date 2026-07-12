@@ -4,10 +4,10 @@
 // orchestration contract (setup runs first, flow files run one at a time in
 // a pinned order). Tests in THIS file run in source order and feed each
 // other through module-scoped state, so the file is one ordered pipeline on
-// purpose. Run with `npm run test:integration-tests` (all flows) or
-// `npm run test:integration-tests:happy-day-e2e` (this file only) from the
+// purpose. Run with `yarn test:integration-tests` (all flows) or
+// `yarn test:integration-tests:happy-day-e2e` (this file only) from the
 // repo root (--bail 1 stops the pipeline at the first failure); without
-// RUN_INTEGRATION_TESTS the whole suite skips so plain `npm run test` stays
+// RUN_INTEGRATION_TESTS the whole suite skips so plain `yarn test` stays
 // offline. Set STEP_THROUGH=1 to pause before each step (after the first)
 // until you hit Enter in the terminal.
 //

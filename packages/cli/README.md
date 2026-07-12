@@ -8,7 +8,7 @@ never re-implement the orchestration themselves.
 
 Two ways to consume it:
 
-- **As a CLI** — `npm run cli -- <command> [flags]` (from the repo root),
+- **As a CLI** — `yarn cli <command> [flags]` (from the repo root),
   configuration from the environment.
 - **As a library** — import the command functions from
   `@midnight-erc20-vault/cli`; each command is one exported async function
@@ -120,15 +120,15 @@ circuit is gated to the identity whose commitment was sealed at deploy time.
 
 ```sh
 # from the repo root
-npm run cli -- --help
-npm run cli -- read-state
-npm run cli -- request-deposit --amount 1 --evm-nonce 0
-npm run cli -- deposit-e2e --amount 1 --evm-nonce 0 --interval-ms 5000 --timeout-ms 300000
-npm run cli -- request-withdraw --amount 1 --dest-evm-address 0x... --evm-nonce 0
-npm run cli -- poll-signature-response --request-id <hex> --expected-signer 0x...
+yarn cli --help
+yarn cli read-state
+yarn cli request-deposit --amount 1 --evm-nonce 0
+yarn cli deposit-e2e --amount 1 --evm-nonce 0 --interval-ms 5000 --timeout-ms 300000
+yarn cli request-withdraw --amount 1 --dest-evm-address 0x... --evm-nonce 0
+yarn cli poll-signature-response --request-id <hex> --expected-signer 0x...
 ```
 
-Prerequisites: `npm run compile:zk` output for the vault (proving keys), a
+Prerequisites: `yarn compile:zk` output for the vault (proving keys), a
 running Midnight stack (node, indexer, proof server), deployed vault + signet
 contracts, and a funded wallet. The integration suite
 (`packages/integration-tests`) drives all of this end to end.

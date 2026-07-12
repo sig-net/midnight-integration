@@ -42,7 +42,7 @@ order, including the three registration points every new file must touch.
 - **Local dev stack**: `docker compose up -d` at the repo root — Midnight
   (node :9944, indexer :8088, proof server :6300) plus the `evm` service
   (anvil, :8545, chain id 31337).
-- **compact compiler** on PATH, then `npm install` + `npm run compile` from
+- **compact compiler** on PATH, then `yarn install` + `yarn compile` from
   the root.
 - **An EVM chain via `EVM_RPC_URL`** (repo-root `.env` — the suite loads it
   itself; real environment variables win over the file). Two options:
@@ -64,10 +64,10 @@ order, including the three registration points every new file must touch.
 ## Running
 
 ```sh
-npm run test:integration-tests                 # all flow files, from the repo root
-npm run test:integration-tests:happy-day-e2e   # just the happy-day flow
-npm run test:integration-tests:deposit-withdrawal-failure-refund   # just the refund flow
-npm run test:integration-tests:deposit-claimant-not-caller   # just the alternate-recipient claim flow
+yarn test:integration-tests                 # all flow files, from the repo root
+yarn test:integration-tests:happy-day-e2e   # just the happy-day flow
+yarn test:integration-tests:deposit-withdrawal-failure-refund   # just the refund flow
+yarn test:integration-tests:deposit-claimant-not-caller   # just the alternate-recipient claim flow
 ```
 
 Selecting a single flow file still runs the globalSetup pipeline first —

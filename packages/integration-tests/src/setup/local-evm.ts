@@ -59,7 +59,7 @@ const TEST_USDC_ARTIFACT_URL = new URL(
  *
  * @param rpcUrl - JSON-RPC endpoint of the LOCAL dev chain (`EVM_RPC_URL`).
  * @returns The deployed token's address.
- * @throws If the artifact is missing (run `npm run compile:integration-tests:evm`
+ * @throws If the artifact is missing (run `yarn compile:integration-tests:evm`
  *   at the repo root first) or the deployment fails.
  */
 export async function deployTestUsdc(rpcUrl: string): Promise<string> {
@@ -69,7 +69,7 @@ export async function deployTestUsdc(rpcUrl: string): Promise<string> {
   } catch (error) {
     throw new Error(
       `TestUSDC artifact not found at ${TEST_USDC_ARTIFACT_URL.pathname} — run` +
-        ` \`npm run compile:integration-tests:evm\` at the repo root first`,
+        ` \`yarn compile:integration-tests:evm\` at the repo root first`,
       { cause: error },
     );
   }

@@ -30,7 +30,7 @@ emittable. Wrap your struct in `Misc.payload` via `serialize` (#1, [`events.md`]
 
 The default `compact compile --skip-zk` produces **no `keys/` and `expectedVk = {}`**. Deploy
 (`buildDeployTransaction`) and any circuit-call proof need the verifier/prover keys. Symptom
-if you skip it: deploy or `/check` fails to find keys. Run `npm run compile:zk` (full compile)
+if you skip it: deploy or `/check` fails to find keys. Run `yarn compile:zk` (full compile)
 first. See [`toolchain.md`](toolchain.md).
 
 <a id="4"></a>

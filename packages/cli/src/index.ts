@@ -1,6 +1,6 @@
 // Public surface of @midnight-erc20-vault/cli — the config plus the command
 // functions integration tests import to drive the vault exactly as a client
-// would. The runnable entrypoint is src/main.ts (`npm run cli`); importing
+// would. The runnable entrypoint is src/main.ts (`yarn cli`); importing
 // this module never executes anything.
 
 export * from "./config.ts";

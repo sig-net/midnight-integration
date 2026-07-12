@@ -3,7 +3,7 @@
 **How to use this file:** single source of truth for what REMAINS of the
 refactor. Work one task at a time; tick the box, append the commit hash, and
 record any decision you make in the Decision Log at the bottom. Run
-`npm run compile && npm run build && npm run test` before calling anything
+`yarn compile && yarn build && yarn test` before calling anything
 done. Read `/AGENTS.md` + the member `AGENTS.md` of any package you touch —
 those rules (JSDoc on exports, latest deps, no emitted JS, simulator-only unit
 tests, websocket ban, orchestration lives in the cli) are non-negotiable.
@@ -195,6 +195,18 @@ only integration path needs Sepolia ETH and a hand-started fakenet server.
       repo superseded (its READING-GUIDE still points people at MVP paths)
       and plan its archival once its last unported assets (signer goldens,
       CI workflow) have moved.
+- [x] **D.5 Migrate the workspace from npm to Yarn** (from the README TODO
+      list). Yarn 4 via corepack (`packageManager` field), `nodeLinker:
+      node-modules`, npm `overrides` → yarn `resolutions`, root aggregate
+      scripts → `yarn workspaces foreach`, `runRootScript`/launch.json spawn
+      yarn, docs/comments swept (npm-registry mentions and the old-repo
+      Sepolia runbook deliberately kept as-is). `yarn.lock` is gitignored
+      like package-lock.json was — installs keep floating to latest (D25).
+      *Done when:* fresh `yarn install` + `yarn compile && yarn build &&
+      yarn test` green from a clean node_modules — verified 2026-07-12
+      (225 unit tests pass; integration suite env-gates to skip; the
+      response server's cross-repo symlinks into this repo's node_modules
+      still resolve).
 
 ## Phase E — Finalisation: protocol alignment & freeze
 
@@ -298,5 +310,30 @@ a pinned cross-repo ref) is accepted.
 prover material). B.1's local EVM cannot complete a round trip until the
 responder can target a local RPC; B.3's integration job waits on B.2, its
 compile/unit rows can land independently.
+
+### D25 — npm → Yarn 4 migration choices (2026-07-12)
+**Decision:** The workspace package manager is Yarn 4 (corepack
+`packageManager` field; no committed release blob), with `nodeLinker:
+node-modules` and `enableScripts: true` forced in `.yarnrc.yml`. `yarn.lock`
+is gitignored exactly like package-lock.json was — the latest-stable-never-pin
+rule keeps working through fresh installs. Root aggregate scripts use
+`yarn workspaces foreach --all --exclude midnight-erc20-vault --topological`
+(the root workspace must be excluded or foreach recurses into the aggregate
+script itself and runs every member twice). `tsx` was added as a root
+devDependency because `yarn run` only exposes declared deps' binaries (npx
+fell back to `.bin` regardless — `yarn tsx` does not). AGENTS.md's install
+rule now spells the caret explicitly (`yarn workspace <ws> add <pkg>@^<ver>`)
+because unlike npm, `yarn add` writes exactly the range named — a bare
+version would silently pin. The `npm audit signatures` provenance check was
+dropped from the install rule (no yarn equivalent; `yarn npm audit` covers
+advisories).
+**Why:** node-modules linker (not PnP) because the @midnight-ntwrk wasm
+packages, `COMPACT_PATH=../../node_modules` compile imports, and the response
+server's cross-repo symlinks all require a real hoisted tree.
+**Impact:** none on wire formats or deployments. npm-registry references in
+docker-compose.yaml comments and the old-repo commands in
+`docs/e2e-sepolia-runbook.md` intentionally still say "npm". Verified: fresh
+install, compile/build/test green (225 tests), solana-signet-program symlinks
+into this tree still resolve.
 
 <!-- Append new decisions below this line. -->

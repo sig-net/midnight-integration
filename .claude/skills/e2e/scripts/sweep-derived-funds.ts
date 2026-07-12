@@ -15,7 +15,7 @@
  *
  * Usage (from the repo root, env from .env):
  *   set -a && source .env && set +a
- *   npx tsx .claude/skills/e2e/scripts/sweep-derived-funds.ts \
+ *   yarn tsx .claude/skills/e2e/scripts/sweep-derived-funds.ts \
  *     --old-contract <midnight vault contract address the account derives from> \
  *     --path <derivation path: "vault" or the user commitment hex> \
  *     --expect <the derived address you believe you are sweeping> \

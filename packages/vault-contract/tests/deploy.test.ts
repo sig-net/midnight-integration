@@ -1,7 +1,7 @@
 // Deploy-tx build test (task.md 2.1 "done when"): runs the Compact
 // constructor against the REAL compiled output and wraps the resulting state
 // in an unproven deploy transaction. No network, no wallet, no proof server —
-// but attaching verifier keys needs `npm run compile:zk` output, so with the
+// but attaching verifier keys needs `yarn compile:zk` output, so with the
 // default --skip-zk output the suite skips (visibly, via the describe title).
 
 import { existsSync } from "node:fs";
@@ -37,7 +37,7 @@ const SIGNET_CONTRACT_REF = { bytes: new Uint8Array(32).fill(0x5e) };
 const CPK = "0".repeat(64);
 
 describe.skipIf(!HAS_VERIFIER_KEYS)(
-  "vault deploy tx (SKIPPED without src/managed/keys — run `npm run compile:zk -w @midnight-erc20-vault/vault-contract`)",
+  "vault deploy tx (SKIPPED without src/managed/keys — run `yarn workspace @midnight-erc20-vault/vault-contract compile:zk`)",
   () => {
     const compiledContract = makeCompiledContract<Contract<VaultPrivateState>, VaultPrivateState>(
       "erc20-vault",

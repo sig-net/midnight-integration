@@ -1,4 +1,4 @@
-// Runnable CLI entrypoint (`npm run cli`) — a thin commander shell over the
+// Runnable CLI entrypoint (`yarn cli`) — a thin commander shell over the
 // exported command functions in ./commands. Flow: define the commands, parse
 // (help/validation stay offline), then build the wallet + context ONCE and
 // run the selected command. No orchestration logic lives here; integration

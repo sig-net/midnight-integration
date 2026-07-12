@@ -2,7 +2,7 @@
 // transaction using the generic plumbing in @midnight-erc20-vault/lib.
 // Everything contract-specific lives HERE: the constructor arg
 // (deployerCommitment), the witnesses, and the private state. Requires
-// `npm run compile:zk` output (verifier keys) in src/managed.
+// `yarn compile:zk` output (verifier keys) in src/managed.
 
 import { fileURLToPath } from "node:url";
 

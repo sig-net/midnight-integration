@@ -15,7 +15,7 @@
 //     emit path ran under real proving.)
 //
 // Env-gated exactly like the vault e2e: skips entirely unless
-// RUN_INTEGRATION_TESTS is set, so the offline `npm test` stays green. Needs a
+// RUN_INTEGRATION_TESTS is set, so the offline `yarn test` stays green. Needs a
 // running node + indexer + proof server (lib's Midnight node config env) and a
 // funded DEPLOYER_SEED wallet. One file on purpose: vitest runs same-file
 // tests sequentially and the steps feed each other through the `env`
