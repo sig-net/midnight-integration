@@ -43,12 +43,21 @@ order, including the three registration points every new file must touch.
   (node :9944, indexer :8088, proof server :6300).
 - **compact compiler** on PATH, then `npm install` + `npm run compile` from
   the root.
-- **`EVM_RPC_URL`** set (repo-root `.env` — the suite loads it itself; real
-  environment variables win over the file).
+- **An EVM chain via `EVM_RPC_URL`** (repo-root `.env` — the suite loads it
+  itself; real environment variables win over the file). Two options:
+  - **Sepolia** — a real endpoint (e.g. Infura); derived accounts need
+    manual funding (see Running).
+  - **Local hardhat node** — `npm run evm-node:integration-tests` at the
+    repo root, long-running in its own terminal (:8545, chain id 31337).
+    Setup detects the local chain, deploys `contracts/TestUSDC.sol` when
+    `ERC20_ADDRESS` has no code, and auto-funds both derived accounts
+    (10 ETH + 1000 USDC each) — pointing `EVM_RPC_URL` at it is the ONLY
+    required change.
 - For every step from the deposit signature poll onward: the fakenet MPC
   responder from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)
-  (`yarn response`) — the suite prints the exact config it needs.
+  (`yarn response`) — the suite prints the exact config it needs. On the
+  local loop, point the responder's `EVM_RPC_URL` at the SAME hardhat node.
 
 ## Running
 
@@ -72,17 +81,25 @@ design** — the MPC responder can only be configured after run 1 prints the
 contract addresses:
 
 1. **Run 1** — globalSetup compiles with proving keys (~10 min: background
-   it), deploys both contracts, derives keys and EVM addresses, and prints
-   the complete `.env` block + responder config; the happy-day flow then
-   initializes the vault and stops at the funding preflight (later flow
-   files are cancelled by `--bail 1`). That stop is the hand-off, not a bug.
-2. **Between runs** — paste the printed block into `.env`, fund
-   `EVM_USER_ADDRESS` on Sepolia (≥ 0.009 ETH, ≥ 0.1 USDC) and
-   `EVM_VAULT_ADDRESS` with ETH for the withdraw gas (≥ 0.003 ETH — the
-   vault's derived account sends the withdraw transfer itself), configure
-   and start the responder.
-3. **Run 2** — every setup step skips; every flow file runs to the end
-   (happy-day: 17/17, failure-refund: 9/9, claimant-not-caller: 5/5).
+   it), deploys both contracts (and, on the local chain, the TestUSDC
+   token), derives keys and EVM addresses, and prints the complete `.env`
+   block + responder config; the happy-day flow then initializes the vault
+   and stops (later flow files are cancelled by `--bail 1`). On Sepolia the
+   stop is the funding preflight; on the local chain funding is automatic,
+   so the flow proceeds through `requestDeposit` and stops at the
+   signature-poll timeout (~1 min) instead. Either stop is the hand-off,
+   not a bug.
+2. **Between runs** — paste the printed block into `.env`. On Sepolia, fund
+   `EVM_USER_ADDRESS` (≥ 0.009 ETH, ≥ 0.1 USDC) and `EVM_VAULT_ADDRESS`
+   with ETH for the withdraw gas (≥ 0.003 ETH — the vault's derived account
+   sends the withdraw transfer itself); on the local chain skip funding
+   entirely. Configure and start the responder. On the local chain,
+   optionally set `DEPOSIT_REQUEST_ID` from run 1's printout so run 2
+   resumes the already-recorded request instead of creating a fresh one.
+3. **Run 2** — every setup step skips (the ERC20 step by finding code
+   on-chain, funding by the balances already meeting their targets); every
+   flow file runs to the end (happy-day: 17/17, failure-refund: 9/9,
+   claimant-not-caller: 5/5).
 
 **Redeploying after a circuit change?** The derived EVM accounts move with
 the vault contract address, and funds on the old ones do not follow. Follow
@@ -95,7 +112,8 @@ it includes the fund-sweep script.
 | Variable | Purpose | Default |
 |---|---|---|
 | `RUN_INTEGRATION_TESTS` | Opt-in gate (real env only, not `.env`); `test:integration-tests` sets it | unset (suite skips) |
-| `EVM_RPC_URL` | EVM JSON-RPC endpoint | — (required) |
+| `EVM_RPC_URL` | EVM JSON-RPC endpoint (Sepolia or the local hardhat node) | — (required) |
+| `EVM_CHAIN_ID` | Chain id, sealed into the vault at initialize | resolved from the RPC; verified when set |
 | `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (lib config) | local stack defaults |
 | `DEPLOYER_SEED` / `VAULT_DEPLOYER_SECRET_KEY` | Deployer wallet / identity | genesis seed `00…01` |
 | `USER_SEED` / `VAULT_USER_SECRET_KEY` | User wallet / identity (cli) | genesis seed `00…01` |
@@ -103,7 +121,7 @@ it includes the fund-sweep script.
 | `MPC_ROOT_KEY` | Fakenet signer root key | derived by run 1 |
 | `MPC_JUBJUB_PK`, `MPC_SECP256K1_PUBKEY` | MPC public keys | derived from root key |
 | `EVM_VAULT_ADDRESS` / `EVM_USER_ADDRESS` | Epsilon-derived EVM accounts | derived by run 1 |
-| `ERC20_ADDRESS` | Token for the deposit/withdraw flows | Sepolia USDC `0x1c7D…7238` |
+| `ERC20_ADDRESS` | Token for the deposit/withdraw flows | Sepolia USDC `0x1c7D…7238` on Sepolia; auto-deployed TestUSDC on the local chain |
 | `DEPOSIT_REQUEST_ID` | Happy-day: reuse an existing request id, skipping the `requestDeposit` call | unset |
 | `WITHDRAW_REQUEST_ID` | Happy-day: reuse an existing request id, skipping the `requestWithdraw` call | unset |
 | `FAILURE_REFUND_DEPOSIT_REQUEST_ID` | Failure-refund: resume the arrange deposit from an existing request id | unset |
@@ -121,6 +139,13 @@ it includes the fund-sweep script.
 - The signature-poll / attestation steps timing out while everything else
   passes means the MPC responder is down or watching stale contract
   addresses.
+- Restarting the local hardhat node wipes the EVM chain while Midnight state
+  survives — shielded vault tokens minted under the old `ERC20_ADDRESS` are
+  domain-separated by it and would strand. In practice the redeploy lands on
+  the SAME address (first tx of the well-known funder, nonce 0), so kept
+  `.env` values and shielded balances stay coherent; only in-flight request
+  ids (a broadcast-but-unclaimed deposit) become unusable — drop the resume
+  vars and let the flow create fresh requests.
 - Proof failures surface as `Failed Proof Server response … 400`; the real
   error is in `docker logs midnight-proof-server`.
 - In the `test:integration` script, `--bail 1` must stay LAST: the

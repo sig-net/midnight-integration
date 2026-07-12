@@ -4,7 +4,6 @@
 // The worker-side half (inject + hooks) lives in flow-hooks.ts.
 
 import { loadRepoDotEnv } from "./env-file.ts";
-import { SEPOLIA_USDC_ADDRESS } from "./evm.ts";
 
 /**
  * Environment accumulator: seeded from the repo-root `.env` file overlaid
@@ -13,15 +12,12 @@ import { SEPOLIA_USDC_ADDRESS } from "./evm.ts";
  * doubles as the step's skip signal, and the final printout is exactly this
  * map's pipeline keys. `process.env` itself is never mutated; the
  * accumulator is passed explicitly to config readers and subprocesses, and
- * handed to the test workers via vitest's provide/inject.
+ * handed to the test workers via vitest's provide/inject. EVM-side values
+ * (`EVM_CHAIN_ID`, `ERC20_ADDRESS`) are NOT defaulted here — the
+ * `resolveEvmChain` setup step fills them chain-aware from `EVM_RPC_URL`.
  */
 export function buildBaseEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...loadRepoDotEnv(), ...process.env };
-  // The cli needs the EVM-side config; default what the environment hasn't
-  // pinned (EVM + canonical USDC, matching the funding preflight).
-  env.ERC20_ADDRESS ??= SEPOLIA_USDC_ADDRESS;
-  env.EVM_CHAIN_ID ??= "11155111";
-  return env;
+  return { ...loadRepoDotEnv(), ...process.env };
 }
 
 /**
@@ -31,6 +27,8 @@ export function buildBaseEnv(): NodeJS.ProcessEnv {
  * printed block reads like the flow that produced it.
  */
 export const PIPELINE_KEYS = [
+  "EVM_CHAIN_ID",
+  "ERC20_ADDRESS",
   "MPC_ROOT_KEY",
   "MPC_JUBJUB_PK",
   "MPC_SECP256K1_PUBKEY",

@@ -127,8 +127,15 @@ simulator + watcher + Hardhat TestUSDC harness + standalone stack) on
 every PR — hermetic, no external funds. The refactor has no CI, and its
 only integration path needs Sepolia ETH and a hand-started fakenet server.
 
-- [ ] **B.1 Port the EVM harness** (Hardhat node + TestUSDC +
+- [x] **B.1 Port the EVM harness** (Hardhat node + TestUSDC +
       derived-address funding) into integration-tests (or a harness package).
+      Done as integration-test setup, no harness package (D23): hardhat 3 +
+      TestUSDC live in `packages/integration-tests`; the node is external and
+      long-running (`npm run evm-node:integration-tests`); setup resolves the
+      chain id from `EVM_RPC_URL`, deploys the token when the address has no
+      code, and auto-funds both derived accounts on chain id 31337. Until B.2
+      lands, a fresh local run 1 stops at the deposit signature-poll timeout
+      (the fakenet responder hand-off) instead of the funding preflight.
 - [ ] **B.2 Port the MPC simulator/watcher**, updated from the old
       websocket push to the contract-post model (read request via the event
       feeds → sign → broadcast → post response/attestation to the signet
@@ -230,5 +237,27 @@ for the final wire types. The hermetic local loop (old-repo
 `vault.api.test.ts` + MPC simulator/watcher + Hardhat harness) was the old
 repo's actual CI pipeline, not a convenience, so it merges with CI as
 Phase B.
+
+### D23 — Local EVM is test setup, not a package; on-chain code is the ERC20 skip signal (2026-07-12)
+**Decision:** Phase B.1 split off from B.2 (MPC simulator port, still open)
+and implemented as pure integration-test setup: hardhat + `TestUSDC.sol`
+are devDependencies/files of `packages/integration-tests` — no new workspace
+member, no harness package, no in-test node spawning. The hardhat node is
+external and long-running (`npm run evm-node:integration-tests`, parallel to
+`docker compose up -d`), so it survives the run-1 → start-responder → run-2
+hand-off. New setup steps: `resolveEvmChain` (chain id resolved from
+`EVM_RPC_URL`, verified loudly when preset — it is sealed into the vault at
+initialize; Sepolia-USDC defaulting is now chain-aware), `ensureErc20Deployed`
+(skip signal is the ON-CHAIN `getCode` check, not env presence — a kept
+`ERC20_ADDRESS` can outlive a wiped local chain; deploys TestUSDC only on
+chain id 31337, throws elsewhere), `fundLocalEvmAccounts` (idempotent top-up
+of both derived accounts to 10 ETH / 1000 USDC, local chain only).
+**Why:** switching the whole suite to a local EVM must cost exactly one env
+change (`EVM_RPC_URL`); the old repo's always-fresh-spawn harness cannot skip,
+and env-presence skipping cannot detect a wiped chain.
+**Impact:** unlike the old repo the MPC root key is NOT throwaway-per-run
+locally — the fakenet responder still holds it (B.2 replaces this with the
+in-process simulator). Deterministic nonce-0 deploy keeps `ERC20_ADDRESS`
+stable across local chain wipes.
 
 <!-- Append new decisions below this line. -->

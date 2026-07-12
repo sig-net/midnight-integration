@@ -16,10 +16,13 @@ import {
 } from "@midnight-erc20-vault/signet-midnight";
 import { deploySignetContract } from "@midnight-erc20-vault/signet-contract";
 import { deployVault } from "@midnight-erc20-vault/vault-contract";
+import { formatEther, formatUnits } from "ethers";
 import { PIPELINE_KEYS, requireEnv } from "../e2e-env.ts";
+import { getDeployedCode, getEvmChainId, SEPOLIA_USDC_ADDRESS } from "../evm.ts";
 import { banner, logSkip } from "../output.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../preflight.ts";
 import { runRootScript } from "../subprocess.ts";
+import { deployTestUsdc, isLocalEvmChain, topUpLocalAccount, WellKnownEvmChainId } from "./local-evm.ts";
 
 const MINUTE = 60_000;
 
@@ -41,6 +44,72 @@ export async function assertEnvironment(env: NodeJS.ProcessEnv): Promise<void> {
   console.log(`USER_SEED:`);
   console.log(` ➜ seeds midnight wallet that interacts with deployed contracts.`);
   console.log(` ➜ seeds EVM_USER_ADDRESS generation`);
+}
+
+export async function resolveEvmChain(env: NodeJS.ProcessEnv): Promise<void> {
+  const rpcUrl = requireEnv(env, "EVM_RPC_URL");
+  let chainId: bigint;
+  try {
+    chainId = await getEvmChainId(rpcUrl);
+  } catch (error) {
+    throw new Error(
+      `EVM_RPC_URL (${rpcUrl}) is not answering — is the EVM node up?` +
+        ` For the local loop, start one with \`npm run evm-node:integration-tests\` at the repo root`,
+      { cause: error },
+    );
+  }
+  if (env.EVM_CHAIN_ID) {
+    console.log(`Found EVM_CHAIN_ID in the environment as ${env.EVM_CHAIN_ID}`);
+    if (BigInt(env.EVM_CHAIN_ID) !== chainId) {
+      throw new Error(
+        `EVM_CHAIN_ID must match the chain EVM_RPC_URL serves (it is sealed into the vault at` +
+          ` initialize): the RPC reports ${chainId}, found ${env.EVM_CHAIN_ID}`,
+      );
+    }
+    logSkip("resolve EVM chain id", `EVM_CHAIN_ID is set correctly`);
+  } else {
+    env.EVM_CHAIN_ID = chainId.toString();
+    console.log(`resolved EVM_CHAIN_ID=${env.EVM_CHAIN_ID} from EVM_RPC_URL`);
+    console.log(` ➜ sealed into the vault at initialize as CAIP-2 eip155:${env.EVM_CHAIN_ID}`);
+    console.log(` ➜ 💡 Set as EVM_CHAIN_ID in the environment to pin it explicitly`);
+  }
+  // Chain-aware ERC20 defaulting: only Sepolia has a canonical token. On the
+  // local dev chain the next step deploys one; on any other chain the next
+  // step demands an explicit ERC20_ADDRESS.
+  if (!env.ERC20_ADDRESS && chainId === BigInt(WellKnownEvmChainId.Sepolia)) {
+    env.ERC20_ADDRESS = SEPOLIA_USDC_ADDRESS;
+    console.log(`defaulted ERC20_ADDRESS=${SEPOLIA_USDC_ADDRESS} (canonical Sepolia USDC)`);
+  }
+}
+
+export async function ensureErc20Deployed(env: NodeJS.ProcessEnv): Promise<void> {
+  const rpcUrl = requireEnv(env, "EVM_RPC_URL");
+  const chainId = BigInt(requireEnv(env, "EVM_CHAIN_ID"));
+  const local = isLocalEvmChain(chainId);
+  if (env.ERC20_ADDRESS) {
+    // The skip signal is the ON-CHAIN code check, not env presence: a kept
+    // ERC20_ADDRESS can outlive a wiped local chain.
+    const code = await getDeployedCode(rpcUrl, env.ERC20_ADDRESS);
+    if (code !== "0x") {
+      logSkip("check/deploy ERC20 token", `ERC20_ADDRESS (${env.ERC20_ADDRESS}) has code on chain ${chainId}`);
+      return;
+    }
+    if (!local) {
+      throw new Error(
+        `ERC20_ADDRESS (${env.ERC20_ADDRESS}) has no code on chain ${chainId} — wrong address, or wrong EVM_RPC_URL?`,
+      );
+    }
+    console.log(`ERC20_ADDRESS (${env.ERC20_ADDRESS}) has no code — the local chain was wiped; redeploying`);
+  } else if (!local) {
+    throw new Error(
+      `ERC20_ADDRESS is not set and chain ${chainId} is not the local dev chain — set the token to use in the environment`,
+    );
+  }
+  await runRootScript("compile:integration-tests:evm", env, 2 * MINUTE);
+  env.ERC20_ADDRESS = await deployTestUsdc(rpcUrl);
+  console.log(`deployed a fresh TestUSDC as ERC20_ADDRESS=${env.ERC20_ADDRESS}`);
+  console.log(` ➜ the token the deposit/withdraw flows move; open mint funds the derived accounts`);
+  console.log(` ➜ 💡 Set as ERC20_ADDRESS in the environment to pin it for the next run`);
 }
 
 export function ensureMpcRootKey(env: NodeJS.ProcessEnv): void {
@@ -159,7 +228,7 @@ export function ensureVaultEvmAddress(env: NodeJS.ProcessEnv): void {
   env.EVM_VAULT_ADDRESS = expectedAddress;
   console.log(`derived a fresh EVM_VAULT_ADDRESS=${expectedAddress}`);
   console.log(` ➜ the vault's own EVM account (path "vault")`);
-  console.log(` ➜ fund it with ETH for gas before running withdrawals`);
+  console.log(` ➜ fund it with ETH for gas before running withdrawals (automatic on the local dev chain)`);
   console.log(` ➜ 💡 Set as EVM_VAULT_ADDRESS in the environment to skip this step on the next run`);
 }
 
@@ -183,8 +252,30 @@ export function ensureUserEvmAddress(env: NodeJS.ProcessEnv): void {
   env.EVM_USER_ADDRESS = expectedAddress;
   console.log(`derived a fresh EVM_USER_ADDRESS=${expectedAddress}`);
   console.log(` ➜ the user's derived EVM account (path = identity commitment hex)`);
-  console.log(` ➜ FUND IT ON EVM before the deposit test: >= 0.01 ETH (gas) and >= 0.1 USDC (deposit)`);
+  console.log(
+    ` ➜ FUND IT ON EVM before the deposit test: >= 0.01 ETH (gas) and >= 0.1 USDC (deposit) — automatic on the local dev chain`,
+  );
   console.log(` ➜ 💡 Set as EVM_USER_ADDRESS in the environment to skip this step on the next run`);
+}
+
+export async function fundLocalEvmAccounts(env: NodeJS.ProcessEnv): Promise<void> {
+  const rpcUrl = requireEnv(env, "EVM_RPC_URL");
+  const chainId = BigInt(requireEnv(env, "EVM_CHAIN_ID"));
+  if (!isLocalEvmChain(chainId)) {
+    logSkip(
+      "fund derived EVM accounts",
+      `chain ${chainId} is not the local dev chain — fund the derived accounts manually (see the printed hints)`,
+    );
+    return;
+  }
+  const erc20Address = requireEnv(env, "ERC20_ADDRESS");
+  for (const name of ["EVM_USER_ADDRESS", "EVM_VAULT_ADDRESS"] as const) {
+    const address = requireEnv(env, name);
+    const { ethBalance, tokenBalance } = await topUpLocalAccount(rpcUrl, erc20Address, address);
+    console.log(
+      `topped up ${name}=${address} to ${formatEther(ethBalance)} ETH and ${formatUnits(tokenBalance, 6)} USDC`,
+    );
+  }
 }
 
 export function printMpcServerConfig(env: NodeJS.ProcessEnv): void {

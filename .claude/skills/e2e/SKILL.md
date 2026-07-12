@@ -34,8 +34,9 @@ pinned by `vitest.config.ts`.
   the suite in the background, redirect output to a log file, and watch the
   log; do not sit on a foreground call with a 2-minute timeout.
 - The suite is `vitest --bail 1`: it stops at the first failure, and on a
-  fresh deploy a failure at the **funding preflight is expected**, not a bug
-  (see the redeploy flow).
+  fresh deploy a failure is expected, not a bug (see the redeploy flow): on
+  Sepolia at the **funding preflight**; on the local EVM (funding is
+  automatic) at the **deposit signature-poll timeout** instead.
 - Preflight minimums on `EVM_USER_ADDRESS` (Sepolia): **≥ 0.009 ETH** and
   **≥ 0.1 of `ERC20_ADDRESS`** (default Sepolia USDC
   `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`). The withdraw preflight
@@ -59,6 +60,12 @@ pinned by `vitest.config.ts`.
 2. `compact --version` works; `npm install` and `npm run compile` have run.
 3. `.env` at the repo root exists (it also holds the fakenet
    `MPC_ROOT_KEY` and, in a comment, the Sepolia funding-wallet seed).
+4. If `EVM_RPC_URL` points at the local EVM (`http://127.0.0.1:8545`): the
+   hardhat node is up — `npm run evm-node:integration-tests` at the repo
+   root, long-running in its own terminal/background (check with a
+   `curl -s http://127.0.0.1:8545` probe or `ps` for `hardhat node`). Setup
+   then deploys TestUSDC when missing and auto-funds the derived accounts;
+   the MPC responder must point its own `EVM_RPC_URL` at the SAME node.
 
 ## Rerun flow (`/e2e`)
 
@@ -90,6 +97,11 @@ be swept to the new one.
    deploys both contracts and derives the new addresses; the happy-day flow
    then initializes the vault and **fails at the funding preflight — this is
    the expected stopping point** (`--bail 1` cancels any later flow files).
+   **Local EVM variant:** funding is automatic, so the run instead proceeds
+   through `requestDeposit` and stops at the signature-poll timeout; skip
+   step 4 entirely (no sweep — the new derived accounts are topped up by
+   setup on the next run) and optionally note the printed
+   `DEPOSIT_REQUEST_ID` to resume that request in step 7.
 3. Grep the log for the new values:
    `deployed a fresh MIDNIGHT_VAULT_CONTRACT_ADDRESS=…`,
    `deployed a fresh MIDNIGHT_SIGNET_CONTRACT_ADDRESS=…`,

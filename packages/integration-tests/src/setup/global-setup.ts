@@ -16,18 +16,23 @@ import {
   compileVaultContract,
   deploySignetContractStep,
   deployVaultContractStep,
+  ensureErc20Deployed,
   ensureMpcJubjubPk,
   ensureMpcRootKey,
   ensureMpcSecp256k1Pubkey,
   ensureUserEvmAddress,
   ensureVaultEvmAddress,
+  fundLocalEvmAccounts,
   printMpcServerConfig,
+  resolveEvmChain,
 } from "./steps.ts";
 
 /** Step names match the original suite's test names — they are what the
  * operator greps for and what STEP_THROUGH prompts show. */
 const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void>][] = [
   ["environment: midnight stack reachable, compact on PATH, EVM_RPC_URL set", assertEnvironment],
+  ["setup: resolve EVM chain id from EVM_RPC_URL", resolveEvmChain],
+  ["setup: check/deploy ERC20 token on the EVM chain", ensureErc20Deployed],
   ["setup: check/derive MPC root key", ensureMpcRootKey],
   ["setup: check/derive MPC_JUBJUB_PK public key", ensureMpcJubjubPk],
   ["setup: check/derive MPC_SECP256K1_PUBKEY public key", ensureMpcSecp256k1Pubkey],
@@ -37,6 +42,7 @@ const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void
   ["setup: deploy vault contract", deployVaultContractStep],
   ["setup: check/derive vault EVM address", ensureVaultEvmAddress],
   ["setup: check/derive user EVM address", ensureUserEvmAddress],
+  ["setup: fund derived EVM accounts (local chain only)", fundLocalEvmAccounts],
   ["setup: print MPC server configuration", printMpcServerConfig],
 ];
 
