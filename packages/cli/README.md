@@ -66,7 +66,9 @@ signet contract** — there is no push channel.
 5. **`claim-deposit`** calls the vault's `claimDeposit` circuit, which
    verifies the MPC public key hash, the Schnorr signature, the EVM success
    flag, and the caller's identity against the stored request — then mints
-   shielded vault tokens to the caller.
+   shielded vault tokens to the caller, or to the wallet named with
+   `--recipient <coin-public-key>` (only the depositor may claim either
+   way; the option redirects the mint, not the right to claim).
 
 The user's derived EVM address (step 2's sender) must hold the ERC20 amount
 plus gas beforehand; the derivation path IS the caller's identity commitment

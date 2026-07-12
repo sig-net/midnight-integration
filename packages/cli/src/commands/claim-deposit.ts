@@ -1,6 +1,9 @@
 // `claim-deposit` — the second half of the deposit flow: present the MPC's
 // Schnorr-signed attestation of the EVM sweep to the vault, which verifies it
-// in-circuit and mints shielded tokens to the caller.
+// in-circuit and mints shielded tokens to the caller (or a recipient the
+// caller names).
+
+import { encodeCoinPublicKey, type CoinPublicKey } from "@midnight-ntwrk/compact-runtime";
 
 import {
   requestIdBytes,
@@ -15,6 +18,12 @@ import type { CliContext } from "../context.ts";
 export interface ClaimDepositOptions {
   /** The request id being claimed. */
   readonly requestId: RequestIdHex;
+  /**
+   * Coin public key of the wallet receiving the minted tokens; the caller's
+   * own wallet when omitted. Only the DEPOSITOR may claim either way — this
+   * redirects the mint, not the right to claim.
+   */
+  readonly recipient?: CoinPublicKey;
 }
 
 /**
@@ -25,7 +34,8 @@ export interface ClaimDepositOptions {
  * the {@link SignetRequestResponseReader} — the same read the response server
  * writes to — then calls the circuit, which verifies the MPC public key hash,
  * the Schnorr signature, the EVM success flag, and the caller identity against
- * the stored request, and mints shielded vault tokens on success. The mint's
+ * the stored request, and mints shielded vault tokens on success — to
+ * `options.recipient` when given, otherwise to the caller. The mint's
  * coin handling is midnight-js's job: `vault.callTx.claimDeposit(...)`
  * balances the resulting offer like any other call.
  *
@@ -44,6 +54,9 @@ export async function claimDeposit(context: CliContext, options: ClaimDepositOpt
   console.log(`vault contract:  ${vaultContractAddress}`);
   console.log(`signet contract: ${signetContractAddress}`);
   console.log(`request id:      ${options.requestId}`);
+  if (options.recipient !== undefined) {
+    console.log(`recipient:       ${options.recipient}`);
+  }
 
   const reader = new SignetRequestResponseReader({
     requesterContractAddress: vaultContractAddress,
@@ -59,9 +72,27 @@ export async function claimDeposit(context: CliContext, options: ClaimDepositOpt
     );
   }
 
+  // The circuit's Maybe<Either<ZswapCoinPublicKey, ContractAddress>> recipient.
+  // Compact's Maybe/Either are plain structs: a `none` (and the unused
+  // ContractAddress side) still carries a default-valued payload.
+  const recipient = {
+    is_some: options.recipient !== undefined,
+    value: {
+      is_left: true,
+      left: {
+        bytes:
+          options.recipient !== undefined
+            ? encodeCoinPublicKey(options.recipient)
+            : new Uint8Array(32),
+      },
+      right: { bytes: new Uint8Array(32) },
+    },
+  };
+
   const result = await context.vault.callTx.claimDeposit(
     requestIdBytes(options.requestId),
     respondBidirectional,
+    recipient,
   );
   console.log(`claimDeposit finalized in tx ${result.public.txId}`);
 }

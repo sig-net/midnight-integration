@@ -256,11 +256,13 @@ export circuit requestDeposit(
 
 // ---- Claim ------------------------------------------------------------------------
 // Completes a deposit: the caller presents the MPC's Schnorr-signed attestation
-// that the requested EVM transfer executed, and the vault mints them shielded
-// tokens for the deposited amount. One claim per request, depositor only.
+// that the requested EVM transfer executed, and the vault mints shielded tokens for
+// the deposited amount to either the original requester or an optionally provided
+// recipient. One claim per request and only the original depositor may execute the claim.
 export circuit claimDeposit(
   requestId: RequestId,
   respondBidirectional: RespondBidirectional,
+  recipient: Maybe<Either<ZswapCoinPublicKey, ContractAddress>>,
 ): [] {
   // requestId keys the ledger operations and the mint nonce below, so it is
   // public; the response is only verified, never written, and stays private.
@@ -317,8 +319,10 @@ export circuit claimDeposit(
     pad(32, "erc20:mint:"),
     disclosedRequestId as Bytes<32>,
   ]);
-  const recipient = left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey());
-  mintShieldedToken(domainSep, amount as Uint<64>, mintNonce, recipient);
+  const claimRecipient = disclose(recipient).is_some
+    ? disclose(recipient).value
+    : left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey());
+  mintShieldedToken(domainSep, amount as Uint<64>, mintNonce, claimRecipient);
 }
 
 // ---- Withdraw ---------------------------------------------------------------------

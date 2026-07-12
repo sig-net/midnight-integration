@@ -708,7 +708,7 @@ describe("withdraw validation", () => {
   });
 });
 
-// ---- Complete-withdraw fixtures ----
+// ---- Attestation fixtures (shared by the completeWithdraw + claimDeposit settle suites) ----
 
 // An MPC key OTHER than the one the constructor pinned.
 const IMPOSTER_KEYS = deriveJubjubKeypair(bytes(32, 0x43));
@@ -751,10 +751,12 @@ const attest = (
   };
 };
 
+// ---- Complete-withdraw fixtures ----
+
 /**
  * Deploy + initialize + requestWithdraw(VALID_WITHDRAW): the arrange step of
- * every settle test. Returns the pending withdrawal's request id (the single
- * ledger index key) alongside the threaded context.
+ * every complete-withdraw test. Returns the pending withdrawal's request id
+ * (the single ledger index key) alongside the threaded context.
  */
 const withdrawRequested = async () => {
   const { contract, ctx } = await deployInitialized();
@@ -887,5 +889,177 @@ describe("completeWithdraw settle", () => {
         attest(MPC_KEYS, depositId, OUTPUT_SUCCESS),
       ),
     ).rejects.toThrow(/Withdrawal not found/);
+  });
+});
+
+// ---- Claim-deposit fixtures ----
+
+// The circuit's `Maybe<Either<ZswapCoinPublicKey, ContractAddress>>` recipient
+// argument. Compact's Maybe/Either are plain structs: even a `none` (and the
+// unused Either side of a `some`) carries a fully default-valued payload so
+// the argument stays well-aligned.
+const CALLER_RECIPIENT = {
+  is_some: false,
+  value: {
+    is_left: true,
+    left: { bytes: new Uint8Array(32) },
+    right: { bytes: new Uint8Array(32) },
+  },
+};
+const OTHER_WALLET_RECIPIENT = {
+  is_some: true,
+  value: {
+    is_left: true,
+    left: { bytes: bytes(32, 0x21) },
+    right: { bytes: new Uint8Array(32) },
+  },
+};
+const CONTRACT_RECIPIENT = {
+  is_some: true,
+  value: {
+    is_left: false,
+    left: { bytes: new Uint8Array(32) },
+    right: { bytes: hexToBytes(sampleContractAddress()) },
+  },
+};
+
+/**
+ * Deploy + initialize + requestDeposit(VALID_DEPOSIT): the arrange step of
+ * every claim test. Returns the pending deposit's request id (the single
+ * ledger index key) alongside the threaded context.
+ */
+const depositRequested = async () => {
+  const { contract, ctx } = await deployInitialized();
+  const next = (await requestDeposit(contract, ctx, VALID_DEPOSIT)).context;
+  const index = toSignBidirectionalRequestIndex(
+    ledger(next.callContext.currentQueryContext.state).signetRequestsIndex,
+  );
+  const [idHex] = [...index.keys()];
+  return { contract, ctx: next, requestId: requestIdBytes(idHex) };
+};
+
+// ---- Claim-deposit tests ----
+
+describe("claimDeposit settle", () => {
+  // The mint itself is shielded — the call resolving proves it executed; the
+  // publicly-observable effect asserted here is the request's consumption.
+  it.each([
+    { name: "no recipient: mints to the caller", recipient: CALLER_RECIPIENT },
+    { name: "an explicit wallet recipient: mints to the given coin public key", recipient: OTHER_WALLET_RECIPIENT },
+    { name: "an explicit contract recipient: mints to the given contract address", recipient: CONTRACT_RECIPIENT },
+  ])("$name and consumes the request", async ({ recipient }) => {
+    const { contract, ctx, requestId } = await depositRequested();
+
+    const next = (
+      await contract.circuits.claimDeposit(
+        ctx,
+        requestId,
+        attest(MPC_KEYS, requestId, OUTPUT_SUCCESS),
+        recipient,
+      )
+    ).context;
+
+    const state = ledger(next.callContext.currentQueryContext.state);
+    expect(state.signetRequestsIndex.isEmpty()).toBe(true);
+  });
+
+  it("rejects an attestation by a key other than the pinned MPC key", async () => {
+    const { contract, ctx, requestId } = await depositRequested();
+    await expect(
+      contract.circuits.claimDeposit(
+        ctx,
+        requestId,
+        attest(IMPOSTER_KEYS, requestId, OUTPUT_SUCCESS),
+        CALLER_RECIPIENT,
+      ),
+    ).rejects.toThrow(/attestation pk is not the MPC key/);
+  });
+
+  it("rejects a genuinely attested FAILED sweep (MPC error sentinel)", async () => {
+    const { contract, ctx, requestId } = await depositRequested();
+    await expect(
+      contract.circuits.claimDeposit(
+        ctx,
+        requestId,
+        attest(MPC_KEYS, requestId, OUTPUT_FAILURE),
+        CALLER_RECIPIENT,
+      ),
+    ).rejects.toThrow(/ERC20 transfer returned false/);
+  });
+
+  it("rejects a tampered attestation (output differs from what was signed)", async () => {
+    const { contract, ctx, requestId } = await depositRequested();
+    const attestation = attest(MPC_KEYS, requestId, OUTPUT_SUCCESS);
+    // Keep the tampered output a "success" so the tamper is caught by the
+    // signature check, not the earlier return-value check.
+    const tamperedOutput = new Uint8Array(OUTPUT_SUCCESS);
+    tamperedOutput[64] = 0xff;
+    await expect(
+      contract.circuits.claimDeposit(
+        ctx,
+        requestId,
+        { ...attestation, serializedOutput: tamperedOutput },
+        CALLER_RECIPIENT,
+      ),
+    ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects a genuinely attested id that has no pending request", async () => {
+    const { contract, ctx } = await depositRequested();
+    const unknownId = bytes(32, 0xab);
+    await expect(
+      contract.circuits.claimDeposit(
+        ctx,
+        unknownId,
+        attest(MPC_KEYS, unknownId, OUTPUT_SUCCESS),
+        CALLER_RECIPIENT,
+      ),
+    ).rejects.toThrow(/Request not found/);
+  });
+
+  it("claims once: a second claimDeposit for the same request rejects", async () => {
+    const { contract, ctx, requestId } = await depositRequested();
+    const next = (
+      await contract.circuits.claimDeposit(
+        ctx,
+        requestId,
+        attest(MPC_KEYS, requestId, OUTPUT_SUCCESS),
+        CALLER_RECIPIENT,
+      )
+    ).context;
+    await expect(
+      contract.circuits.claimDeposit(
+        next,
+        requestId,
+        attest(MPC_KEYS, requestId, OUTPUT_SUCCESS),
+        CALLER_RECIPIENT,
+      ),
+    ).rejects.toThrow(/Request not found/);
+  });
+
+  it("rejects a caller other than the original depositor — even one naming themselves recipient", async () => {
+    const { contract, ctx, requestId } = await depositRequested();
+    // Re-enter the threaded contract state as a DIFFERENT caller: same public
+    // state, but the private state (the callerSecretKey witness) is a stranger's.
+    const strangerCtx = createCircuitContext(
+      "claimDeposit",
+      VAULT_ADDRESS,
+      CPK,
+      ctx.callContext.currentQueryContext.state,
+      createVaultPrivateState(OTHER_SECRET_KEY),
+      await signetStateProvider(),
+      undefined,
+      undefined,
+      undefined,
+      BLOCK_HASH,
+    );
+    await expect(
+      contract.circuits.claimDeposit(
+        strangerCtx,
+        requestId,
+        attest(MPC_KEYS, requestId, OUTPUT_SUCCESS),
+        OTHER_WALLET_RECIPIENT,
+      ),
+    ).rejects.toThrow(/path hex does not match commitment/);
   });
 });

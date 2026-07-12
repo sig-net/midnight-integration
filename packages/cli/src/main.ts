@@ -4,6 +4,7 @@
 // run the selected command. No orchestration logic lives here; integration
 // tests import the command functions directly.
 
+import { encodeCoinPublicKey, type CoinPublicKey } from "@midnight-ntwrk/compact-runtime";
 import { Command, InvalidArgumentError } from "commander";
 import { Transaction } from "ethers";
 
@@ -44,6 +45,17 @@ const parseRequestIdArg = (value: string): RequestIdHex => {
   } catch {
     throw new InvalidArgumentError("must be a 32-byte request id in hex");
   }
+};
+
+// Validate by encoding (the same conversion the command performs); the value
+// stays the SDK's hex CoinPublicKey form.
+const parseCoinPublicKeyArg = (value: string): CoinPublicKey => {
+  try {
+    encodeCoinPublicKey(value);
+  } catch {
+    throw new InvalidArgumentError("must be a 32-byte Zswap coin public key in hex");
+  }
+  return value;
 };
 
 // Edge: parse the serialized-hex CLI arg into a typed transaction here so the
@@ -141,7 +153,12 @@ program
   .command("claim-deposit")
   .description("claim a completed deposit: verify the MPC attestation in-circuit and mint shielded tokens")
   .requiredOption("--request-id <hex>", "the request id to claim", parseRequestIdArg)
-  .action((options: { requestId: RequestIdHex }) => {
+  .option(
+    "--recipient <coin-public-key>",
+    "coin public key of the wallet receiving the minted tokens (defaults to the caller's own wallet)",
+    parseCoinPublicKeyArg,
+  )
+  .action((options: { requestId: RequestIdHex; recipient?: CoinPublicKey }) => {
     work = (context) => claimDeposit(context, options);
   });
 
