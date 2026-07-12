@@ -1,6 +1,7 @@
-# Midnight Network local development stack: node + indexer + proof server.
-# Bring it up with `docker compose up -d`; the integration tests
-# (packages/integration-tests) expect these endpoints on localhost.
+# Local development stack: Midnight (node + indexer + proof server) plus a
+# local EVM dev chain. Bring it up with `docker compose up -d`; the
+# integration tests (packages/integration-tests) expect these endpoints on
+# localhost.
 #
 # Ledger-9 / contract-events line, matching the workspace's npm stack
 # (midnight-js 5.0.0-beta.3 / @midnightntwrk/ledger-v9 1.0.0-rc.3 /
@@ -82,3 +83,20 @@ services:
       # Beneficiary of block-production rewards; arbitrary-but-valid hex on a
       # local dev chain.
       SIDECHAIN_BLOCK_BENEFICIARY: '04bcf7ad3be7a5c790460be82a713af570f22e0f801f6659ab8e84a52be6969e'
+
+  evm:
+    # Local EVM dev chain (anvil, Foundry's node): chain id 31337, automine,
+    # the universal pre-funded dev-mnemonic accounts. Point EVM_RPC_URL at
+    # http://127.0.0.1:8545 and the integration-test setup deploys TestUSDC
+    # and auto-funds the derived accounts (see
+    # packages/integration-tests/README.md). anvil rather than `hardhat
+    # node` because Foundry publishes an official image while hardhat has
+    # none — for our flows they are interchangeable local EVM nodes (same
+    # chain id, same dev accounts); hardhat remains solely the Solidity
+    # compiler for contracts/TestUSDC.sol. State is in-memory: a restart
+    # wipes the chain (setup detects this and redeploys the token).
+    container_name: 'local-evm'
+    image: 'ghcr.io/foundry-rs/foundry:v1.5.1'
+    entrypoint: ['anvil', '--host', '0.0.0.0']
+    ports:
+      - '127.0.0.1:8545:8545'

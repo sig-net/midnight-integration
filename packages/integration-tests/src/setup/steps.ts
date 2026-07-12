@@ -54,7 +54,7 @@ export async function resolveEvmChain(env: NodeJS.ProcessEnv): Promise<void> {
   } catch (error) {
     throw new Error(
       `EVM_RPC_URL (${rpcUrl}) is not answering — is the EVM node up?` +
-        ` For the local loop, start one with \`npm run evm-node:integration-tests\` at the repo root`,
+        ` For the local loop it is the \`evm\` docker compose service: \`docker compose up -d\` at the repo root`,
       { cause: error },
     );
   }

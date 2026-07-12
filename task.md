@@ -131,21 +131,38 @@ only integration path needs Sepolia ETH and a hand-started fakenet server.
       derived-address funding) into integration-tests (or a harness package).
       Done as integration-test setup, no harness package (D23): hardhat 3 +
       TestUSDC live in `packages/integration-tests`; the node is external and
-      long-running (`npm run evm-node:integration-tests`); setup resolves the
+      long-running (the `evm` docker compose service — anvil, chain id
+      31337; hardhat is the Solidity compiler only); setup resolves the
       chain id from `EVM_RPC_URL`, deploys the token when the address has no
       code, and auto-funds both derived accounts on chain id 31337. Until B.2
       lands, a fresh local run 1 stops at the deposit signature-poll timeout
       (the fakenet responder hand-off) instead of the funding preflight.
       Commit a98256b.
-- [ ] **B.2 Port the MPC simulator/watcher**, updated from the old
-      websocket push to the contract-post model (read request via the event
-      feeds → sign → broadcast → post response/attestation to the signet
-      contract).
+- [ ] **B.2 Dockerize the real fakenet responder** (D24 — replaces the old
+      "port the MPC simulator/watcher" task: a ported simulator would be a
+      third implementation of the MPC logic, and CI would verify the copy
+      instead of the artifact everyone runs). Ship the solana-signet-program
+      response server as a compose service next to node/indexer/proof-server.
+      **PAUSED until the common lib is published (D.1)** — the responder
+      consumes `signet-midnight`/`signet-contract`/`lib` via cross-repo
+      `link:` deps today, so an image build would have to span both repos and
+      would bake in that layout. Known upstream gaps to fix in the responder
+      when this resumes: (1) ~~no `EVM_RPC_URL`~~ DONE — the responder now
+      honors an `EVM_RPC_URL` env override for all eip155 chains
+      (solana-signet-program, bernard/add-response-contract), so the
+      hand-run fakenet can already target the local EVM; (2) the Solana leg is
+      unconditional at boot (`ensureInitialized()` crashes without reachable
+      Solana RPC + `SOLANA_PRIVATE_KEY`/`PROGRAM_ID`/`INFURA_API_KEY`) —
+      needs a Midnight-only switch for a hermetic loop; (3) the signet
+      contract's gitignored zk `managed/` output (~85 MB prover key) must be
+      compiled in the image or mounted from the host.
       *Done when:* a `local-loop` flow file runs deposit→claim and
       withdraw→settle green with no external network and no manual steps.
 - [ ] **B.3 GitHub Actions:** compile (skip-zk) → build → unit tests on
       every push; the hermetic loop as the integration job (crib the old
       repo's workflow); zk compile as a manual/weekly row-count canary.
+      The compile/build/unit-test rows can land now; the integration job
+      waits on B.2.
       *Done when:* a PR shows green checks from a fresh clone.
 
 ## Phase C — Remaining flow tests (work order: `src/flows/TODO.md`)
@@ -158,9 +175,12 @@ only integration path needs Sepolia ETH and a hand-started fakenet server.
 
 ## Phase D — Loose ends
 
-- [ ] **D.1 Response-server dependency decision** (old 5.1): it consumes
-      signet-midnight via a file symlink today. Decide npm publish vs
-      `file:` dep vs vendoring; record in both repos' logs.
+- [ ] **D.1 Publish the common lib** (old 5.1, upgraded from "decide" to
+      the B.2 prerequisite per D24): the response server consumes
+      signet-midnight / signet-contract / lib via cross-repo `link:` deps
+      today. Publish them (or settle an equivalent consumable form) so the
+      responder can depend on released versions; record in both repos' logs.
+      B.2 (dockerized fakenet) is paused until this lands.
 - [ ] **D.2 Deployment manifest — keep or drop** (old 2.3/4.5): env-var
       resume (`DEPOSIT_REQUEST_ID` etc.) replaced it in practice. Either
       implement `deployments/<network>.json` + an ensure-deployed helper, or
@@ -244,7 +264,7 @@ Phase B.
 and implemented as pure integration-test setup: hardhat + `TestUSDC.sol`
 are devDependencies/files of `packages/integration-tests` — no new workspace
 member, no harness package, no in-test node spawning. The hardhat node is
-external and long-running (`npm run evm-node:integration-tests`, parallel to
+external and long-running (the `evm` compose service, part of
 `docker compose up -d`), so it survives the run-1 → start-responder → run-2
 hand-off. New setup steps: `resolveEvmChain` (chain id resolved from
 `EVM_RPC_URL`, verified loudly when preset — it is sealed into the vault at
@@ -260,5 +280,23 @@ and env-presence skipping cannot detect a wiped chain.
 locally — the fakenet responder still holds it (B.2 replaces this with the
 in-process simulator). Deterministic nonce-0 deploy keeps `ERC20_ADDRESS`
 stable across local chain wipes.
+
+### D24 — No simulator port; dockerize the real fakenet, after the common lib ships (2026-07-12)
+**Decision:** Per Bernard: B.2 will NOT port the old repo's in-process MPC
+simulator/watcher ("double fakenet" — the fakenet responder IS already the
+simulator). Instead the actual solana-signet-program response server gets
+dockerized into the compose stack. That work is PAUSED until the common lib
+(signet-midnight / signet-contract / lib) is published — D.1, upgraded from
+"decide the dependency form" to the prerequisite — because the responder's
+cross-repo `link:` deps would otherwise be baked into the image.
+**Why:** a ported simulator is a third implementation of the MPC logic that
+drifts, and CI would exercise the copy instead of the real artifact. The
+trade-off (heavier, slower CI: on-chain proving, image build, zk-key cache,
+a pinned cross-repo ref) is accepted.
+**Impact:** feasibility findings recorded in B.2 (upstream gaps: no
+`EVM_RPC_URL` override, unconditional Solana boot leg, gitignored ~85 MB zk
+prover material). B.1's local EVM cannot complete a round trip until the
+responder can target a local RPC; B.3's integration job waits on B.2, its
+compile/unit rows can land independently.
 
 <!-- Append new decisions below this line. -->

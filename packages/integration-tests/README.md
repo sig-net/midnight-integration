@@ -39,25 +39,27 @@ order, including the three registration points every new file must touch.
 
 ## Prerequisites
 
-- **Local Midnight stack**: `docker compose up -d` at the repo root
-  (node :9944, indexer :8088, proof server :6300).
+- **Local dev stack**: `docker compose up -d` at the repo root — Midnight
+  (node :9944, indexer :8088, proof server :6300) plus the `evm` service
+  (anvil, :8545, chain id 31337).
 - **compact compiler** on PATH, then `npm install` + `npm run compile` from
   the root.
 - **An EVM chain via `EVM_RPC_URL`** (repo-root `.env` — the suite loads it
   itself; real environment variables win over the file). Two options:
   - **Sepolia** — a real endpoint (e.g. Infura); derived accounts need
     manual funding (see Running).
-  - **Local hardhat node** — `npm run evm-node:integration-tests` at the
-    repo root, long-running in its own terminal (:8545, chain id 31337).
-    Setup detects the local chain, deploys `contracts/TestUSDC.sol` when
-    `ERC20_ADDRESS` has no code, and auto-funds both derived accounts
-    (10 ETH + 1000 USDC each) — pointing `EVM_RPC_URL` at it is the ONLY
-    required change.
+  - **The local `evm` compose service** — set
+    `EVM_RPC_URL=http://127.0.0.1:8545`; that is the ONLY required change.
+    Setup detects the local chain (id 31337), deploys
+    `contracts/TestUSDC.sol` when `ERC20_ADDRESS` has no code (hardhat is
+    the Solidity compiler; the node is anvil — interchangeable for these
+    flows), and auto-funds both derived accounts (10 ETH + 1000 USDC each).
 - For every step from the deposit signature poll onward: the fakenet MPC
   responder from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)
   (`yarn response`) — the suite prints the exact config it needs. On the
-  local loop, point the responder's `EVM_RPC_URL` at the SAME hardhat node.
+  local loop, set `EVM_RPC_URL=http://127.0.0.1:8545` in the responder's
+  env too, so it signs/verifies against the SAME local chain.
 
 ## Running
 
@@ -139,8 +141,9 @@ it includes the fund-sweep script.
 - The signature-poll / attestation steps timing out while everything else
   passes means the MPC responder is down or watching stale contract
   addresses.
-- Restarting the local hardhat node wipes the EVM chain while Midnight state
-  survives — shielded vault tokens minted under the old `ERC20_ADDRESS` are
+- Restarting the local `evm` container wipes the EVM chain (anvil state is
+  in-memory) while Midnight state survives — shielded vault tokens minted
+  under the old `ERC20_ADDRESS` are
   domain-separated by it and would strand. In practice the redeploy lands on
   the SAME address (first tx of the well-known funder, nonce 0), so kept
   `.env` values and shielded balances stay coherent; only in-flight request

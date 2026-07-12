@@ -1,9 +1,9 @@
-// Hardhat config for the local-EVM test harness: compiles
-// contracts/TestUSDC.sol and serves the long-running local JSON-RPC node
-// (`npm run evm-node:integration-tests` at the repo root). The default
-// edr-simulated network is chainId 31337 on port 8545 with the well-known
-// pre-funded dev accounts — exactly what the setup pipeline's local-chain
-// detection, token deploy, and auto-funding key on.
+// Hardhat config for compiling contracts/TestUSDC.sol (the
+// compile:integration-tests:evm root script). Hardhat is the Solidity
+// COMPILER only — the local EVM node itself is the `evm` docker compose
+// service (anvil): chain id 31337 on port 8545 with the universal pre-funded
+// dev accounts, exactly what the setup pipeline's local-chain detection,
+// token deploy, and auto-funding key on.
 import { defineConfig } from "hardhat/config";
 
 export default defineConfig({

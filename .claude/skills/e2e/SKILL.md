@@ -61,11 +61,12 @@ pinned by `vitest.config.ts`.
 3. `.env` at the repo root exists (it also holds the fakenet
    `MPC_ROOT_KEY` and, in a comment, the Sepolia funding-wallet seed).
 4. If `EVM_RPC_URL` points at the local EVM (`http://127.0.0.1:8545`): the
-   hardhat node is up — `npm run evm-node:integration-tests` at the repo
-   root, long-running in its own terminal/background (check with a
-   `curl -s http://127.0.0.1:8545` probe or `ps` for `hardhat node`). Setup
-   then deploys TestUSDC when missing and auto-funds the derived accounts;
-   the MPC responder must point its own `EVM_RPC_URL` at the SAME node.
+   `evm` compose service (anvil) is up — part of the same
+   `docker compose up -d` as the Midnight stack (probe with
+   `curl -s http://127.0.0.1:8545`). Setup then deploys TestUSDC when
+   missing and auto-funds the derived accounts; the MPC responder must set
+   its own `EVM_RPC_URL` to the SAME node. Restarting the container wipes
+   the EVM chain (in-memory state); setup detects that and redeploys.
 
 ## Rerun flow (`/e2e`)
 
