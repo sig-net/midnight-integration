@@ -24,6 +24,12 @@ repo touches a network from tests. The pipeline has two halves:
     withdraw whose transfer mines and REVERTS drives the MPC's failure
     attestation into `completeWithdraw`'s in-circuit refund. The drain sends
     the vault's ERC20 back to `EVM_USER_ADDRESS`, so EVM funds keep cycling.
+  - `deposit-claimant-not-caller.test.ts` — the optional claim recipient: a
+    deposit round trip claims with `recipient` set to a SECOND wallet's coin
+    public key, and that wallet — synced fresh from its own seed — must see
+    the minted shielded vault tokens in its balance. Ends with the same
+    fakenet-only drain (the claimed tokens strand on the recipient), so EVM
+    funds keep cycling.
 
 The cli owns the orchestration; tests only sequence and assert — reusable
 sequences live in `src/flows/` (deposit round trip, withdraw legs). To add a
@@ -50,6 +56,7 @@ order, including the three registration points every new file must touch.
 npm run test:integration-tests                 # all flow files, from the repo root
 npm run test:integration-tests:happy-day-e2e   # just the happy-day flow
 npm run test:integration-tests:deposit-withdrawal-failure-refund   # just the refund flow
+npm run test:integration-tests:deposit-claimant-not-caller   # just the alternate-recipient claim flow
 ```
 
 Selecting a single flow file still runs the globalSetup pipeline first —
@@ -75,7 +82,7 @@ contract addresses:
    vault's derived account sends the withdraw transfer itself), configure
    and start the responder.
 3. **Run 2** — every setup step skips; every flow file runs to the end
-   (happy-day: 17/17, failure-refund: 9/9).
+   (happy-day: 17/17, failure-refund: 9/9, claimant-not-caller: 5/5).
 
 **Redeploying after a circuit change?** The derived EVM accounts move with
 the vault contract address, and funds on the old ones do not follow. Follow
@@ -101,6 +108,7 @@ it includes the fund-sweep script.
 | `WITHDRAW_REQUEST_ID` | Happy-day: reuse an existing request id, skipping the `requestWithdraw` call | unset |
 | `FAILURE_REFUND_DEPOSIT_REQUEST_ID` | Failure-refund: resume the arrange deposit from an existing request id | unset |
 | `FAILURE_REFUND_WITHDRAW_REQUEST_ID` | Failure-refund: resume the doomed withdraw from an existing request id | unset |
+| `DEPOSIT_CLAIMANT_NOT_CALLER_DEPOSIT_REQUEST_ID` | Claimant-not-caller: resume the deposit from an existing request id | unset |
 | `STEP_THROUGH` | `1` pauses before each setup step and each test (hit enter) — interactive debugging only, never unattended | unset |
 
 ## Gotchas

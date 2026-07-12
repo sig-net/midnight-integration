@@ -4,7 +4,9 @@
 // caller names).
 
 import { encodeCoinPublicKey, type CoinPublicKey } from "@midnight-ntwrk/compact-runtime";
+import { withContractScopedTransaction } from "@midnight-ntwrk/midnight-js/contracts";
 
+import type { EncPublicKey } from "@midnight-erc20-vault/lib";
 import {
   requestIdBytes,
   SignetRequestResponseReader,
@@ -14,16 +16,30 @@ import {
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
 
+/**
+ * A shielded wallet the vault can mint to. Both halves of the key pair are
+ * needed: the coin public key addresses the coin, and the encryption public
+ * key encrypts the output's ciphertext so the recipient wallet can DISCOVER
+ * the coin while syncing — without it, midnight-js cannot build an output to
+ * a key that is not the caller's own.
+ */
+export interface ShieldedTokenRecipient {
+  /** Coin public key the minted coin is addressed to. */
+  readonly coinPublicKey: CoinPublicKey;
+  /** Encryption public key of the same wallet, for output discovery. */
+  readonly encryptionPublicKey: EncPublicKey;
+}
+
 /** Options for {@link claimDeposit}. */
 export interface ClaimDepositOptions {
   /** The request id being claimed. */
   readonly requestId: RequestIdHex;
   /**
-   * Coin public key of the wallet receiving the minted tokens; the caller's
-   * own wallet when omitted. Only the DEPOSITOR may claim either way — this
-   * redirects the mint, not the right to claim.
+   * The wallet receiving the minted tokens; the caller's own wallet when
+   * omitted. Only the DEPOSITOR may claim either way — this redirects the
+   * mint, not the right to claim.
    */
-  readonly recipient?: CoinPublicKey;
+  readonly recipient?: ShieldedTokenRecipient;
 }
 
 /**
@@ -55,7 +71,7 @@ export async function claimDeposit(context: CliContext, options: ClaimDepositOpt
   console.log(`signet contract: ${signetContractAddress}`);
   console.log(`request id:      ${options.requestId}`);
   if (options.recipient !== undefined) {
-    console.log(`recipient:       ${options.recipient}`);
+    console.log(`recipient:       ${options.recipient.coinPublicKey}`);
   }
 
   const reader = new SignetRequestResponseReader({
@@ -82,17 +98,39 @@ export async function claimDeposit(context: CliContext, options: ClaimDepositOpt
       left: {
         bytes:
           options.recipient !== undefined
-            ? encodeCoinPublicKey(options.recipient)
+            ? encodeCoinPublicKey(options.recipient.coinPublicKey)
             : new Uint8Array(32),
       },
       right: { bytes: new Uint8Array(32) },
     },
   };
 
-  const result = await context.vault.callTx.claimDeposit(
-    requestIdBytes(options.requestId),
-    respondBidirectional,
-    recipient,
-  );
+  // Minting to another wallet's key needs that wallet's encryption public
+  // key mapped in, or midnight-js cannot encrypt the output's ciphertext and
+  // rejects the transaction build; a scoped transaction is the only carrier
+  // for such mappings. The caller's own wallet resolves implicitly.
+  const result =
+    options.recipient !== undefined
+      ? await withContractScopedTransaction(
+          context.providers,
+          async (txCtx) => {
+            await context.vault.callTx.claimDeposit(
+              txCtx,
+              requestIdBytes(options.requestId),
+              respondBidirectional,
+              recipient,
+            );
+          },
+          {
+            additionalCoinEncPublicKeyMappings: new Map([
+              [options.recipient.coinPublicKey, options.recipient.encryptionPublicKey],
+            ]),
+          },
+        )
+      : await context.vault.callTx.claimDeposit(
+          requestIdBytes(options.requestId),
+          respondBidirectional,
+          recipient,
+        );
   console.log(`claimDeposit finalized in tx ${result.public.txId}`);
 }

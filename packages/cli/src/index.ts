@@ -9,6 +9,7 @@ export * from "./evm.ts";
 export * from "./identity.ts";
 export * from "./mpc-routing.ts";
 export * from "./vault-ledger.ts";
+export * from "./vault-token.ts";
 export * from "./commands/broadcast-evm.ts";
 export * from "./commands/claim-deposit.ts";
 export * from "./commands/complete-withdraw.ts";

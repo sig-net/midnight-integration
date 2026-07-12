@@ -35,6 +35,10 @@ import { parseSeed } from "./seed.ts";
 // Consumers hold facades/states we hand them without adding the wallet-sdk
 // packages themselves — re-export the handle types alongside the builders.
 export type { FacadeState, TransactionIdentifier, WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
+// The encryption-key string type of the shielded key pair consumers receive
+// through AccountKeys (e.g. to address a mint to another wallet) —
+// re-exported so they don't add the ledger package themselves.
+export type { EncPublicKey } from "@midnightntwrk/ledger-v9";
 
 /** The live key material for one account. Reused for signing / balancing. */
 export interface AccountKeys {

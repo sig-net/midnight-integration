@@ -14,6 +14,7 @@ import {
   requestDeposit,
   requireConfigValue,
   readVaultLedger,
+  type ShieldedTokenRecipient,
 } from "@midnight-erc20-vault/cli";
 import {
   executionSucceeded,
@@ -40,6 +41,12 @@ export interface DepositRoundTripOptions {
    * request skips the claim.
    */
   readonly reuseRequestId?: RequestIdHex;
+  /**
+   * The wallet the claim mints the shielded vault tokens to; the caller's
+   * own wallet when omitted. Passed through to `claimDeposit` — only the
+   * depositor (the session wallet) may claim either way.
+   */
+  readonly claimRecipient?: ShieldedTokenRecipient;
 }
 
 /** What {@link runDepositRoundTrip} hands back to the flow file. */
@@ -48,13 +55,21 @@ export interface DepositRoundTripResult {
   readonly requestId: RequestIdHex;
   /** Wall-clock milliseconds per leg, keyed by cli command name. */
   readonly timings: Record<string, number>;
+  /**
+   * Whether THIS run executed the claim. `false` means the request was
+   * already claimed by a prior run (rerun against a kept contract address) —
+   * the mint happened back then, so effects like a balance delta are not
+   * observable in this run.
+   */
+  readonly claimed: boolean;
 }
 
 /**
  * Run the full deposit round trip against the live stack: fetch the user's
  * EVM nonce, `requestDeposit`, poll the MPC's signature, broadcast the sweep,
- * poll the MPC's attestation, and `claimDeposit` — leaving the caller's
- * wallet holding `opts.amount` of freshly minted shielded vault tokens.
+ * poll the MPC's attestation, and `claimDeposit` — leaving the claim
+ * recipient (`opts.claimRecipient`, the caller's own wallet by default)
+ * holding `opts.amount` of freshly minted shielded vault tokens.
  *
  * Arrange-stage plumbing: it asserts each leg produced what the next one
  * needs (pointed throws, nothing skips silently), but carries none of the
@@ -143,11 +158,15 @@ export async function runDepositRoundTrip(
     "MIDNIGHT_VAULT_CONTRACT_ADDRESS",
   );
   const ledger = await readVaultLedger(context, vaultContractAddress);
+  let claimed = false;
   if (!ledger.signetRequestsIndex.member(requestIdBytes(requestId))) {
     logSkip("claimDeposit", `request ${requestId} already claimed (not on the ledger)`);
   } else {
-    await timed("claimDeposit", () => claimDeposit(context, { requestId }));
+    await timed("claimDeposit", () =>
+      claimDeposit(context, { requestId, recipient: opts.claimRecipient }),
+    );
+    claimed = true;
   }
 
-  return { requestId, timings };
+  return { requestId, timings, claimed };
 }

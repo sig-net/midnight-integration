@@ -9,10 +9,12 @@ already exists — read these before writing code:
   points, the env vars), then `.claude/skills/e2e/SKILL.md` (running it,
   funding, MPC responder hand-off, failure recovery).
 - **Flow helpers in this directory**: `deposit.ts` exports
-  `runDepositRoundTrip(session, env, { amount, reuseRequestId? })` — the
-  whole deposit leg as arrange-stage plumbing, returning
-  `{ requestId, timings }` where `timings` is wall-clock milliseconds per
-  leg keyed by cli command name. `withdraw.ts` exports the withdraw flow as
+  `runDepositRoundTrip(session, env, { amount, reuseRequestId?, claimRecipient? })`
+  — the whole deposit leg as arrange-stage plumbing, returning
+  `{ requestId, timings, claimed }` where `timings` is wall-clock
+  milliseconds per leg keyed by cli command name and `claimed` is whether
+  THIS run executed the claim (false on rerun of an already-claimed
+  request). `withdraw.ts` exports the withdraw flow as
   four legs (`requestWithdrawLeg`, `pollSignedWithdrawLeg`,
   `pollWithdrawAttestationLeg`, `settleWithdrawLeg`) so a flow can
   intervene mid-flow; no leg asserts the EVM outcome.

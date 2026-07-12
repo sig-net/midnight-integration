@@ -5,8 +5,6 @@
 // recomputed off-chain with the library's TS twin of the request-id circuit
 // and asserted against the ledger map key before it is returned.
 
-import { rawTokenType } from "@midnight-ntwrk/compact-runtime";
-
 import {
   asciiPadded,
   calculateRequestId,
@@ -22,8 +20,6 @@ import {
   type RequestIdHex,
   type SignBidirectionalRequest,
 } from "@midnight-erc20-vault/signet-midnight";
-import { pureCircuits } from "@midnight-erc20-vault/vault-contract";
-
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
 import {
@@ -34,6 +30,7 @@ import {
 } from "../evm.ts";
 import { VAULT_MPC_ROUTING } from "../mpc-routing.ts";
 import { readVaultLedger } from "../vault-ledger.ts";
+import { vaultTokenType } from "../vault-token.ts";
 
 /** Options for {@link requestWithdraw}. */
 export interface RequestWithdrawOptions {
@@ -100,7 +97,7 @@ export async function requestWithdraw(context: CliContext, options: RequestWithd
   // `amount`, under a fresh random nonce.
   const coin = {
     nonce: crypto.getRandomValues(new Uint8Array(32)),
-    color: hexToBytes(rawTokenType(pureCircuits.vaultTokenDomainSeparator(erc20), vaultContractAddress)),
+    color: hexToBytes(vaultTokenType(erc20Address, vaultContractAddress)),
     value: options.amount,
   };
 

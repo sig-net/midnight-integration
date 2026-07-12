@@ -8,7 +8,7 @@ import { encodeCoinPublicKey, type CoinPublicKey } from "@midnight-ntwrk/compact
 import { Command, InvalidArgumentError } from "commander";
 import { Transaction } from "ethers";
 
-import { deriveAccountKeys, withSyncedWalletFacade } from "@midnight-erc20-vault/lib";
+import { deriveAccountKeys, withSyncedWalletFacade, type EncPublicKey } from "@midnight-erc20-vault/lib";
 import { parseRequestIdHex, type RequestIdHex } from "@midnight-erc20-vault/signet-midnight";
 
 import { broadcastEvm } from "./commands/broadcast-evm.ts";
@@ -154,13 +154,36 @@ program
   .description("claim a completed deposit: verify the MPC attestation in-circuit and mint shielded tokens")
   .requiredOption("--request-id <hex>", "the request id to claim", parseRequestIdArg)
   .option(
-    "--recipient <coin-public-key>",
+    "--recipient-coin-public-key <hex>",
     "coin public key of the wallet receiving the minted tokens (defaults to the caller's own wallet)",
     parseCoinPublicKeyArg,
   )
-  .action((options: { requestId: RequestIdHex; recipient?: CoinPublicKey }) => {
-    work = (context) => claimDeposit(context, options);
-  });
+  .option(
+    "--recipient-encryption-public-key <hex>",
+    "encryption public key of the same wallet, so it can discover the coin (required with --recipient-coin-public-key)",
+  )
+  .action(
+    (options: {
+      requestId: RequestIdHex;
+      recipientCoinPublicKey?: CoinPublicKey;
+      recipientEncryptionPublicKey?: EncPublicKey;
+    }) => {
+      const { requestId, recipientCoinPublicKey, recipientEncryptionPublicKey } = options;
+      if ((recipientCoinPublicKey === undefined) !== (recipientEncryptionPublicKey === undefined)) {
+        throw new InvalidArgumentError(
+          "--recipient-coin-public-key and --recipient-encryption-public-key must be given together",
+        );
+      }
+      work = (context) =>
+        claimDeposit(context, {
+          requestId,
+          recipient:
+            recipientCoinPublicKey !== undefined && recipientEncryptionPublicKey !== undefined
+              ? { coinPublicKey: recipientCoinPublicKey, encryptionPublicKey: recipientEncryptionPublicKey }
+              : undefined,
+        });
+    },
+  );
 
 withPollingOptions(
   program
