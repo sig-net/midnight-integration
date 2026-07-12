@@ -206,7 +206,7 @@ only integration path needs Sepolia ETH and a hand-started fakenet server.
       yarn test` green from a clean node_modules — verified 2026-07-12
       (225 unit tests pass; integration suite env-gates to skip; the
       response server's cross-repo symlinks into this repo's node_modules
-      still resolve).
+      still resolve). Commit aed77b2.
 
 ## Phase E — Finalisation: protocol alignment & freeze
 
