@@ -8,12 +8,8 @@
 
 import { getCliConfig, getUserIdentity } from "@midnight-erc20-vault/cli";
 import { getDeployConfig, getMidnightNodeConfig } from "@midnight-erc20-vault/lib";
-import {
-  deriveEvmAddress,
-  deriveMpcKeys,
-  formatJubjubPublicKey,
-  generateMpcRootKey,
-} from "@sig-net/midnight";
+import { deriveEvmAddress, formatJubjubPublicKey } from "@sig-net/midnight";
+import { deriveMpcKeys, generateMpcRootKey } from "./mpc-keys.ts";
 import { deploySignetContract } from "@midnight-erc20-vault/signet-contract";
 import { deployVault } from "@midnight-erc20-vault/vault-contract";
 import { formatEther, formatUnits } from "ethers";

@@ -1,16 +1,13 @@
-// MPC key material helpers: root key generation and public-key derivation.
-//
-// This belongs in github.com/sig-net/signet.js — kept here until upstreamed.
-// Ported from the old repo's boilerplate/contract-cli/src/derive-mpc-keys.ts:
-// the exact derivations the fakenet response server performs on its
-// MPC_ROOT_KEY, so both sides compute the same public keys.
+// Fakenet MPC key material helpers: root key generation and public-key
+// derivation. Test-harness only — a real client never holds the MPC root key;
+// these mirror what the fakenet response server derives from its MPC_ROOT_KEY
+// so the e2e setup can precompute the same public keys it will present.
 
 import { randomBytes } from "node:crypto";
 
 import { SigningKey } from "ethers";
 
-import { deriveJubjubKeypair } from "./schnorr.ts";
-import type { JubjubPoint } from "@midnight-ntwrk/compact-runtime";
+import { deriveJubjubKeypair, type JubjubPoint } from "@sig-net/midnight";
 
 /**
  * The public keys the MPC network presents for a given root key: the Jubjub

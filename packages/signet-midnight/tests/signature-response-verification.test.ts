@@ -14,7 +14,6 @@ import {
 } from "ethers";
 
 import {
-  ERC20_TRANSFER_SELECTOR,
   TxParamType,
   asciiPadded,
   evmAddressAbiWord,
@@ -27,6 +26,10 @@ import {
   type SignBidirectionalRequest,
   type SignatureResponse,
 } from "../src/index.ts";
+
+// The ERC20 transfer(address,uint256) selector — a realistic calldata fixture
+// (the app-level constant lives in the cli, not the SDK).
+const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
 // ---- Fixtures ----
 

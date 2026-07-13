@@ -8,7 +8,6 @@
 import {
   asciiPadded,
   calculateRequestId,
-  ERC20_TRANSFER_SELECTOR,
   evmAddressAbiWord,
   hexToBytes,
   numericAbiWordValue,
@@ -23,6 +22,7 @@ import {
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
 import {
+  ERC20_TRANSFER_SELECTOR,
   ERC20_TRANSFER_GAS_LIMIT,
   ERC20_TRANSFER_MAX_FEE_PER_GAS,
   ERC20_TRANSFER_MAX_PRIORITY_FEE_PER_GAS,

@@ -8,6 +8,13 @@
 // lockstep with requestWithdraw in erc20-vault.compact, or the withdraw
 // expected-record check fails.
 
+/**
+ * The ERC20 `transfer(address,uint256)` selector, as broadcast (big-endian).
+ * Application-level (this demo's vault moves ERC20s) — the in-circuit twin is
+ * the literal `Bytes [0xa9, 0x05, 0x9c, 0xbb]` in erc20-vault.compact.
+ */
+export const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
+
 /** Gas ceiling of an MPC-signed ERC20 transfer. */
 export const ERC20_TRANSFER_GAS_LIMIT = 100_000n;
 

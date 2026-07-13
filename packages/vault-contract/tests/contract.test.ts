@@ -11,7 +11,6 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
-  ERC20_TRANSFER_SELECTOR,
   MPC_ERROR_SENTINEL,
   calculateRequestId,
   deriveJubjubKeypair,
@@ -30,6 +29,10 @@ import {
   type RespondBidirectional,
   type SignBidirectionalRequestLedgerIndex,
 } from "@sig-net/midnight";
+
+// The ERC20 transfer(address,uint256) selector — the TS mirror of the literal
+// `Bytes [0xa9, 0x05, 0x9c, 0xbb]` hardcoded in erc20-vault.compact.
+const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
 import {
   Contract,

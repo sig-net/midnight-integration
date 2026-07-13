@@ -29,9 +29,6 @@ export const RESPOND_SERIALIZATION_SCHEMA_BYTES = 128;
 /** Width of `EVMCalldata.selector` (`Bytes<4>`) — the literal first 4 calldata bytes. */
 export const SELECTOR_BYTES = 4;
 
-/** The ERC20 `transfer(address,uint256)` selector, as broadcast (big-endian). */
-export const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
-
 /** Width of `RespondBidirectional.serializedOutput` (`Bytes<128>`). */
 export const SERIALIZED_OUTPUT_BYTES = 128;
 

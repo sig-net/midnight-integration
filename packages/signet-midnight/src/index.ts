@@ -17,7 +17,6 @@ export * from "./signet-response-feed.ts";
 export * from "./constants.ts";
 export * from "./epsilon-derivation.ts";
 export * from "./schnorr.ts";
-export * from "./mpc-keys.ts";
 
 /**
  * Compiled pure circuits of Signet.compact (run `yarn compile` first): the

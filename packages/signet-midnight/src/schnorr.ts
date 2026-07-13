@@ -24,6 +24,11 @@ import {
   type JubjubPoint,
 } from "@midnight-ntwrk/compact-runtime";
 
+// Re-exported because it appears throughout this module's public signatures
+// (hashJubjubPoint, parse/formatJubjubPublicKey, JubjubKeypair.pk) — SDK
+// consumers shouldn't have to depend on compact-runtime just for the type.
+export type { JubjubPoint } from "@midnight-ntwrk/compact-runtime";
+
 /** Jubjub curve scalar field order (group order of the generator). */
 export const JUBJUB_ORDER = 6554484396890773809930967563523245729705921265872317281365359162392183254199n;
 
