@@ -466,6 +466,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
         const result = await deployedContract.callTx.claim(
           requestId,
           paddedOutputData,
+          api.randomBytes(32),
           response.pk,
           response.announcement,
           response.response,
@@ -530,6 +531,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
           deployedContract.callTx.claim(
             requestId,
             paddedOutputData,
+            api.randomBytes(32),
             response.pk,
             response.announcement,
             response.response,
@@ -577,6 +579,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
         deployedContract.callTx.claim(
           requestId,
           paddedOutputData,
+          api.randomBytes(32),
           response.pk,
           response.announcement,
           forgedResponse,
@@ -613,6 +616,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
         deployedContract.callTx.claim(
           requestId,
           paddedOutputData,
+          api.randomBytes(32),
           fakePk,
           response.announcement,
           response.response,
@@ -645,6 +649,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
         deployedContract.callTx.claim(
           requestId,
           tamperedOutputData,
+          api.randomBytes(32),
           response.pk,
           response.announcement,
           response.response,
@@ -679,6 +684,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
         deployedContract.callTx.claim(
           fakeRequestId,
           paddedOutputData,
+          api.randomBytes(32),
           response.pk,
           response.announcement,
           response.response,
@@ -708,7 +714,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
 
   // ════════════════════════════════════════════════════════════════
   //  Withdraw flow (outbound): surrender a shielded coin → vault pays
-  //  out the ERC20 on Sepolia → completeWithdraw finalizes / refunds.
+  //  out the ERC20 on Sepolia → success needs no follow-up; failure → claimRefund.
   // ════════════════════════════════════════════════════════════════
 
   // The path withdraw constructs in-circuit is the literal string "vault".
@@ -770,13 +776,14 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
     await deployedContract.callTx.deposit(SEPOLIA_USDC_ADDRESS, amount, testEvmChainId, userNonce, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testPath, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
     const resp = await mpcP;
     const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
-    await deployedContract.callTx.claim(rid, out, resp.pk, resp.announcement, resp.response);
-    return hash2x32(pad32('erc20:mint:'), rid);
+    const mn = api.randomBytes(32);
+    await deployedContract.callTx.claim(rid, out, mn, resp.pk, resp.announcement, resp.response);
+    return mn;
   };
 
   // ── STEP 6: Withdraw success — surrender the coin, vault pays out, finalize ──
   it(
-    'STEP 6 — withdraw → MPC signs vault→dest transfer → completeWithdraw (success, final)',
+    'STEP 6 — withdraw → MPC signs vault→dest transfer → success (no refund needed)',
     async () => {
       section('STEP 6', 'Withdraw from the vault (success)');
       const before = await shieldedVaultBalance();
@@ -785,12 +792,10 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       const vaultNonce = BigInt(await sepolia().getTransactionCount(vaultEvmAddress()));
       const wrid = buildWithdrawRid(led!.signetNonce ?? 0n, vaultNonce, DEST_EVM, testAmount);
       const wridHex = Buffer.from(wrid).toString('hex');
-      const refundPk = await shieldedPk();
-
       const mpcP = handleMpcWebSocket(MPC_WS_URL, wridHex, SEPOLIA_RPC_URL);
 
       wait('Generating ZK proof for withdraw()...');
-      await deployedContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, refundPk, testEvmChainId, vaultNonce, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
+      await deployedContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, testEvmChainId, vaultNonce, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
       ok('withdraw() confirmed — coin surrendered');
       expect(await shieldedVaultBalance()).toBe(before - testAmount);
 
@@ -799,18 +804,19 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
       expect(out[0] === 0xde && out[1] === 0xad).toBe(false); // expect success, not deadbeef
 
-      await deployedContract.callTx.completeWithdraw(wrid, out, resp.pk, resp.announcement, resp.response);
-      ok('completeWithdraw(success) — withdrawal final, no refund');
+      // Success: no follow-up. claimRefund would revert (nothing to refund); the request
+      // row is intentionally left in place (successful withdrawals need no completer).
+      ok('withdraw(success) — vault paid out, no refund');
       expect(await shieldedVaultBalance()).toBe(before - testAmount); // NOT refunded
       const after = await api.getLedgerState(providers, DEPLOYED_CONTRACT_ADDRESS!);
-      expect(after!.refundRecipient.member(wrid)).toBe(false);
+      expect(after!.refundCommitment.member(wrid)).toBe(true); // left pending (no cleanup on success)
     },
     1000 * 60 * 15,
   );
 
   // ── STEP 7: Withdraw failure (stale nonce) → deadbeef → refund ──
   it(
-    'STEP 7 — withdraw with a stale nonce → MPC 0xdeadbeef → completeWithdraw refunds the coin',
+    'STEP 7 — withdraw with a stale nonce → MPC 0xdeadbeef → claimRefund refunds the coin',
     async () => {
       section('STEP 7', 'Withdraw failure → refund');
       await mintFreshCoin(testAmount); // ensure the wallet holds vault-token balance
@@ -823,14 +829,14 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       const wridHex = Buffer.from(wrid).toString('hex');
 
       const mpcP = handleMpcWebSocket(MPC_WS_URL, wridHex, SEPOLIA_RPC_URL);
-      await deployedContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, await shieldedPk(), testEvmChainId, staleNonce, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
+      await deployedContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, testEvmChainId, staleNonce, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
       expect(await shieldedVaultBalance()).toBe(before - testAmount); // surrendered
 
       const resp = await mpcP;
       const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
       expect(out[0]).toBe(0xde); // deadbeef failure
-      await deployedContract.callTx.completeWithdraw(wrid, out, resp.pk, resp.announcement, resp.response);
-      ok('completeWithdraw(deadbeef) — coin refunded');
+      await deployedContract.callTx.claimRefund(wrid, out, api.randomBytes(32), resp.pk, resp.announcement, resp.response);
+      ok('claimRefund(deadbeef) — coin refunded to the withdrawer');
       expect(await shieldedVaultBalance()).toBe(before); // restored
     },
     1000 * 60 * 15,
@@ -844,7 +850,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
   // api.fundWalletForFees), so no manual tDUST setup is needed. MIDNIGHT_WALLET_SEED_B
   // can override B's seed; it defaults to ...0002.
   it(
-    'STEP 8 — transfer value A→B: old owner cannot withdraw, new owner can; complete is permissionless',
+    'STEP 8 — transfer value A→B: old owner cannot withdraw, new owner can',
     async () => {
       section('STEP 8', 'Bearer transfer: value moves with the coin');
       await mintFreshCoin(testAmount); // ensure A holds at least testAmount
@@ -879,7 +885,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       // #3 — A now holds 0 vault tokens: its withdraw cannot be funded → must fail.
       const vaultNonceA = BigInt(await sepolia().getTransactionCount(vaultEvmAddress()));
       await expect(
-        deployedContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, await shieldedPk(), testEvmChainId, vaultNonceA, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema),
+        deployedContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, testEvmChainId, vaultNonceA, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema),
       ).rejects.toThrow();
       ok('#3 — original owner (0 balance) can no longer withdraw');
 
@@ -890,14 +896,14 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       const wridHex = Buffer.from(wrid).toString('hex');
 
       const mpcP = handleMpcWebSocket(MPC_WS_URL, wridHex, SEPOLIA_RPC_URL);
-      await bContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, await shieldedPk(bCtx), testEvmChainId, vaultNonceB, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
+      await bContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, testEvmChainId, vaultNonceB, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
       ok('#4 — new owner (B) withdrew from the transferred balance');
 
       const resp = await mpcP;
       const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
-      // #7 — completeWithdraw is permissionless: wallet A finalizes B's withdrawal.
-      await deployedContract.callTx.completeWithdraw(wrid, out, resp.pk, resp.announcement, resp.response);
-      ok('#7 — third party (A) finalized B’s withdrawal (permissionless)');
+      // B's withdrawal succeeds (vault pays out) → no refund follow-up needed.
+      expect(out[0] === 0xde && out[1] === 0xad).toBe(false);
+      ok('#4 — new owner (B) withdrew successfully from the transferred balance');
 
       await bCtx.wallet.stop();
     },

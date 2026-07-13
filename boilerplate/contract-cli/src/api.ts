@@ -390,9 +390,9 @@ export const fundWalletForFees = async (
   return dust;
 };
 
-// completeWithdraw with optional coinPublicKey → encryptionPublicKey mappings, needed when
-// the refund mints to another wallet's key (the prover needs its encryption key).
-export const completeWithdrawWithMappings = async (
+// claimRefund with optional coinPublicKey → encryptionPublicKey mappings. The refund
+// mints to the caller's own key, so mappings are usually unnecessary, but kept optional.
+export const claimRefundWithMappings = async (
   providers: VaultProviders,
   contractAddress: string,
   args: unknown[],
@@ -400,7 +400,7 @@ export const completeWithdrawWithMappings = async (
 ) => {
   const opts = createCallTxOptions(
     vaultCompiledContract,
-    'completeWithdraw',
+    'claimRefund',
     contractAddress as any,
     'vaultPrivateState',
     coinToEncPk as any,
@@ -420,7 +420,7 @@ export const buildFreshWallet = async (config: Config): Promise<WalletContext> =
 
 export const configureProviders = async (ctx: WalletContext, config: Config) => {
   const walletAndMidnightProvider = await createWalletAndMidnightProvider(ctx);
-  const zkConfigProvider = new NodeZkConfigProvider<'initialize' | 'deposit' | 'claim' | 'withdraw' | 'completeWithdraw'>(contractConfig.zkConfigPath);
+  const zkConfigProvider = new NodeZkConfigProvider<'initialize' | 'deposit' | 'claim' | 'withdraw' | 'claimRefund'>(contractConfig.zkConfigPath);
   const accountId = walletAndMidnightProvider.getCoinPublicKey();
   const storagePassword = `${Buffer.from(accountId, 'hex').toString('base64')}!`;
   return {

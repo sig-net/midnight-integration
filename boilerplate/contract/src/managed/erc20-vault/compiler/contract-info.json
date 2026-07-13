@@ -203,22 +203,6 @@
           }
         },
         {
-          "name": "refundPk",
-          "type": {
-            "type-name": "Struct",
-            "name": "ZswapCoinPublicKey",
-            "elements": [
-              {
-                "name": "bytes",
-                "type": {
-                  "type-name": "Bytes",
-                  "length": 32
-                }
-              }
-            ]
-          }
-        },
-        {
           "name": "evmChainId",
           "type": {
             "type-name": "Uint",
@@ -336,6 +320,13 @@
           }
         },
         {
+          "name": "mintNonce",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        },
+        {
           "name": "pk",
           "type": {
             "type-name": "Alias",
@@ -371,7 +362,7 @@
       }
     },
     {
-      "name": "completeWithdraw",
+      "name": "claimRefund",
       "pure": false,
       "proof": true,
       "arguments": [
@@ -387,6 +378,13 @@
           "type": {
             "type-name": "Bytes",
             "length": 4096
+          }
+        },
+        {
+          "name": "mintNonce",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
           }
         },
         {
@@ -640,8 +638,8 @@
     {
       "name": "signetEvmPriorityFee",
       "index": [
-        0,
-        11
+        1,
+        0
       ],
       "exported": true,
       "storage": "Map",
@@ -658,7 +656,7 @@
       "name": "signetEvmValue",
       "index": [
         1,
-        0
+        1
       ],
       "exported": true,
       "storage": "Map",
@@ -675,7 +673,7 @@
       "name": "signetCaip2Id",
       "index": [
         1,
-        1
+        2
       ],
       "exported": true,
       "storage": "Map",
@@ -692,7 +690,7 @@
       "name": "signetKeyVersion",
       "index": [
         1,
-        2
+        3
       ],
       "exported": true,
       "storage": "Map",
@@ -709,7 +707,7 @@
       "name": "signetPath",
       "index": [
         1,
-        3
+        4
       ],
       "exported": true,
       "storage": "Map",
@@ -726,7 +724,7 @@
       "name": "signetAlgo",
       "index": [
         1,
-        4
+        5
       ],
       "exported": true,
       "storage": "Map",
@@ -743,7 +741,7 @@
       "name": "signetDest",
       "index": [
         1,
-        5
+        6
       ],
       "exported": true,
       "storage": "Map",
@@ -760,7 +758,7 @@
       "name": "signetParams",
       "index": [
         1,
-        6
+        7
       ],
       "exported": true,
       "storage": "Map",
@@ -777,7 +775,7 @@
       "name": "signetOutputSchema",
       "index": [
         1,
-        7
+        8
       ],
       "exported": true,
       "storage": "Map",
@@ -794,7 +792,7 @@
       "name": "signetRespondSchema",
       "index": [
         1,
-        8
+        9
       ],
       "exported": true,
       "storage": "Map",
@@ -811,7 +809,7 @@
       "name": "signetOutputData",
       "index": [
         1,
-        9
+        10
       ],
       "exported": true,
       "storage": "Map",
@@ -828,7 +826,7 @@
       "name": "initialized",
       "index": [
         1,
-        10
+        11
       ],
       "exported": true,
       "storage": "Counter"
@@ -837,7 +835,7 @@
       "name": "sepoliaVaultAddress",
       "index": [
         1,
-        11
+        12
       ],
       "exported": true,
       "storage": "Cell",
@@ -850,7 +848,7 @@
       "name": "deployer",
       "index": [
         1,
-        12
+        13
       ],
       "exported": false,
       "storage": "Cell",
@@ -860,10 +858,10 @@
       }
     },
     {
-      "name": "refundRecipient",
+      "name": "refundCommitment",
       "index": [
         1,
-        13
+        14
       ],
       "exported": true,
       "storage": "Map",
@@ -874,49 +872,6 @@
       "value": {
         "type-name": "Bytes",
         "length": 32
-      }
-    },
-    {
-      "name": "heldCoin",
-      "index": [
-        1,
-        14
-      ],
-      "exported": true,
-      "storage": "Cell",
-      "type": {
-        "type-name": "Struct",
-        "name": "QualifiedShieldedCoinInfo",
-        "elements": [
-          {
-            "name": "nonce",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          },
-          {
-            "name": "color",
-            "type": {
-              "type-name": "Bytes",
-              "length": 32
-            }
-          },
-          {
-            "name": "value",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 340282366920938463463374607431768211455
-            }
-          },
-          {
-            "name": "mt_index",
-            "type": {
-              "type-name": "Uint",
-              "maxval": 18446744073709551615
-            }
-          }
-        ]
       }
     }
   ]

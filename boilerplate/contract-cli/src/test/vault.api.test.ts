@@ -169,7 +169,9 @@ describe('ERC20 Vault', () => {
   });
 
   // Per-test proof-server restart so each test gets a fresh prover (cumulative proofs OOM it).
+  // Set SKIP_PROOF_SERVER_RESTART=1 to disable (roomy runners, or to measure memory growth).
   beforeEach(() => {
+    if (process.env.SKIP_PROOF_SERVER_RESTART) return;
     try {
       execSync('docker compose -f standalone.yml restart proof-server', { stdio: 'ignore', timeout: 60000 });
       for (let i = 0; i < 60; i++) {
@@ -284,6 +286,7 @@ describe('ERC20 Vault', () => {
     const result = await deployedContract.callTx.claim(
       requestId,
       mpc.outputData,
+      api.randomBytes(32),
       jubjubPk,
       mpc.announcement,
       mpc.response,
@@ -329,7 +332,7 @@ describe('ERC20 Vault', () => {
   // The coin is a circuit PARAMETER: the wallet funds its value from balance and
   // makes change; its nonce is arbitrary (the contract's received-coin nonce), and
   // its color/value are enforced on-chain. On EVM failure (0xdeadbeef)
-  // completeWithdraw() re-mints to refundPk. These reuse the ~3M vault-token
+  // claimRefund() re-mints to the withdrawer. These reuse the ~3M vault-token
   // balance minted by the deposit/claim cycles above — no fresh deposits, fewer
   // proofs, and exactly how the protocol draws from balance.
   // Vault-token color = rawTokenType(hash("erc20:vault:", erc20Address), contractAddress).
@@ -351,37 +354,29 @@ describe('ERC20 Vault', () => {
   const BURN_DEST = '0x000000000000000000000000000000000000dEaD';
   const ZERO_DEST = '0x0000000000000000000000000000000000000000';
   const addr20 = (a: string): Uint8Array => new Uint8Array(Buffer.from(a.slice(2), 'hex'));
-  const myRefundPk = async (): Promise<{ bytes: Uint8Array }> => {
-    const s = await Rx.firstValueFrom(walletCtx.wallet.state().pipe(Rx.filter((x) => x.isSynced)));
-    return { bytes: new Uint8Array(Buffer.from(s.shielded.coinPublicKey.toHexString().replace(/^0x/, ''), 'hex')) };
-  };
-  const doWithdraw = async (amount: bigint, refundPk: { bytes: Uint8Array }, coin = mkCoin(amount), dest = BURN_DEST) => {
+  const doWithdraw = async (amount: bigint, coin = mkCoin(amount), dest = BURN_DEST) => {
     const evmNonce = BigInt(await evm.provider.getTransactionCount(vaultEvmAddr));
     return deployedContract.callTx.withdraw(
-      testErc20Address, amount, coin, addr20(dest), refundPk, testEvmChainId, evmNonce,
+      testErc20Address, amount, coin, addr20(dest), testEvmChainId, evmNonce,
       testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id,
       testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema,
     );
   };
   const pendingRidHexes = async (): Promise<string[]> => {
     const led = await api.getLedgerState(providers, contractAddress);
-    return [...led!.refundRecipient].map(([k]) => Buffer.from(k).toString('hex'));
+    return [...led!.refundCommitment].map(([k]) => Buffer.from(k).toString('hex'));
   };
-  const withdrawAndRid = async (amount: bigint, refundPk: { bytes: Uint8Array }, dest = BURN_DEST): Promise<Uint8Array> => {
+  const withdrawAndRid = async (amount: bigint, dest = BURN_DEST): Promise<Uint8Array> => {
     const before = new Set(await pendingRidHexes());
-    await doWithdraw(amount, refundPk, mkCoin(amount), dest);
+    await doWithdraw(amount, mkCoin(amount), dest);
     const newHex = (await pendingRidHexes()).find((h) => !before.has(h))!;
     return new Uint8Array(Buffer.from(newHex, 'hex'));
   };
-  // The watcher detected the withdraw request and broadcast vault→dest on the EVM; await its
-  // signed response over the observed result, then submit completeWithdraw.
-  const mpcComplete = async (rid: Uint8Array, mappings?: ReadonlyMap<string, string>) => {
+  // Recipient-only refund: the withdrawer awaits the MPC's signed response and submits
+  // claimRefund with a fresh random nonce (only a failure is refundable, mints to self).
+  const mpcComplete = async (rid: Uint8Array) => {
     const mpc = await watcher.awaitResponse(rid);
-    if (mappings) {
-      await api.completeWithdrawWithMappings(providers, contractAddress, [rid, mpc.outputData, jubjubPk, mpc.announcement, mpc.response], mappings);
-    } else {
-      await deployedContract.callTx.completeWithdraw(rid, mpc.outputData, jubjubPk, mpc.announcement, mpc.response);
-    }
+    await deployedContract.callTx.claimRefund(rid, mpc.outputData, api.randomBytes(32), jubjubPk, mpc.announcement, mpc.response);
     return mpc;
   };
 
@@ -390,75 +385,42 @@ describe('ERC20 Vault', () => {
     const W = 200_000n;
     const bal = await shieldedBalance();
     expect(bal).toBeGreaterThanOrEqual(W);
-    const rid = await withdrawAndRid(W, await myRefundPk(), ZERO_DEST);
+    const rid = await withdrawAndRid(W, ZERO_DEST);
     expect(await shieldedBalance()).toBe(bal - W);           // value surrendered
     const led = await api.getLedgerState(providers, contractAddress);
-    expect(led!.refundRecipient.member(rid)).toBe(true);
+    expect(led!.refundCommitment.member(rid)).toBe(true);
     expect((await mpcComplete(rid)).success).toBe(false);   // EVM transfer reverts → refund
-    expect(await shieldedBalance()).toBe(bal);              // restored
+    expect(await shieldedBalance()).toBe(bal);              // restored (to self)
     const led2 = await api.getLedgerState(providers, contractAddress);
-    expect(led2!.refundRecipient.member(rid)).toBe(false);  // cleaned up
+    expect(led2!.refundCommitment.member(rid)).toBe(false);  // cleaned up
   });
 
 
-  // #5 — success completion is final: no refund.
-  it('completeWithdraw with a success output is final (no refund)', async () => {
+  // #5 — claimRefund on a successful withdrawal reverts (nothing to refund); the request
+  // is left in place (successful withdrawals need no follow-up).
+  it('rejects claimRefund when the withdrawal succeeded (nothing to refund)', async () => {
     const W = 200_000n;
     const bal = await shieldedBalance();
-    const rid = await withdrawAndRid(W, await myRefundPk());
+    const rid = await withdrawAndRid(W);
     expect(await shieldedBalance()).toBe(bal - W);
-    expect((await mpcComplete(rid)).success).toBe(true);    // EVM transfer succeeds → final
+    const mpc = await watcher.awaitResponse(rid);
+    expect(mpc.success).toBe(true);                          // EVM transfer succeeds
+    await expect(
+      deployedContract.callTx.claimRefund(rid, mpc.outputData, api.randomBytes(32), jubjubPk, mpc.announcement, mpc.response),
+    ).rejects.toThrow();                                     // no refund on success
     expect(await shieldedBalance()).toBe(bal - W);           // NOT refunded
     const led = await api.getLedgerState(providers, contractAddress);
-    expect(led!.refundRecipient.member(rid)).toBe(false);
+    expect(led!.refundCommitment.member(rid)).toBe(true);    // left pending (no cleanup on success)
   });
 
-  // #6 — a failed withdraw refunds to the caller-chosen refundPk (a different wallet B).
-  it('refunds to a second wallet (the caller-chosen refundPk), not the caller', async () => {
-    const W = 200_000n;
-    const balA = await shieldedBalance();
+  // (removed) refund-to-a-second-wallet: recipient-only claimRefund always mints to the
+  // withdrawer, so a caller-chosen refund key no longer exists.
 
-    // B only RECEIVES the minted refund (passive — no funding needed to observe a coin).
-    const bCtx = await api.buildWallet(config, Buffer.from(api.randomBytes(32)).toString('hex'));
-    try {
-      const bState: any = await Rx.firstValueFrom(bCtx.wallet.state().pipe(Rx.filter((x: any) => x.isSynced)));
-      const bCoinPkHex: string = bState.shielded.coinPublicKey.toHexString();
-      const bEncPkHex: string = bState.shielded.encryptionPublicKey.toHexString();
-      const bCoinPkBare = bCoinPkHex.replace(/^0x/, '');
-      const bRefundPk = { bytes: new Uint8Array(Buffer.from(bCoinPkBare, 'hex')) };
-      const balBbefore = bState.shielded.balances[vaultColorHex()] ?? 0n;
-
-      // A withdraws to address(0) (EVM revert → failure), naming B as the refund recipient.
-      const rid = await withdrawAndRid(W, bRefundPk, ZERO_DEST);
-      expect(await shieldedBalance()).toBe(balA - W);                       // A surrendered the coin
-      const led = await api.getLedgerState(providers, contractAddress);
-      expect(Buffer.from(led!.refundRecipient.lookup(rid)).toString('hex')).toBe(bCoinPkBare); // stored = B
-
-      // Refund mints to B (supply B's enc pk so the prover can build the Zswap output).
-      const mpc = await mpcComplete(rid, new Map([[bCoinPkHex, bEncPkHex]]));
-      expect(mpc.success).toBe(false);
-
-      expect(await shieldedBalance()).toBe(balA - W);                      // A NOT refunded
-      const balBafter: bigint = await Rx.firstValueFrom(
-        bCtx.wallet.state().pipe(
-          Rx.throttleTime(3000),
-          Rx.filter((x: any) => x.isSynced && (x.shielded.balances[vaultColorHex()] ?? 0n) > balBbefore),
-          Rx.map((x: any) => x.shielded.balances[vaultColorHex()] ?? 0n),
-        ),
-      );
-      expect(balBafter).toBe(balBbefore + W);                             // B received the refund
-      const led2 = await api.getLedgerState(providers, contractAddress);
-      expect(led2!.refundRecipient.member(rid)).toBe(false);              // cleaned up
-    } finally {
-      await bCtx.wallet.stop();
-    }
-  });
-
-  // W3 — a forged / wrong-key MPC signature on completeWithdraw must be rejected (no refund mint).
-  it('rejects completeWithdraw with a forged or wrong-key MPC signature (no refund minted)', async () => {
+  // W3 — a forged / wrong-key MPC signature on claimRefund must be rejected (no refund mint).
+  it('rejects claimRefund with a forged or wrong-key MPC signature (no refund minted)', async () => {
     const W = 200_000n;
     const bal = await shieldedBalance();
-    const rid = await withdrawAndRid(W, await myRefundPk(), ZERO_DEST);
+    const rid = await withdrawAndRid(W, ZERO_DEST);
     expect(await shieldedBalance()).toBe(bal - W);           // coin surrendered
 
     // Real MPC response over the (failed) EVM result, from the watcher.
@@ -467,26 +429,26 @@ describe('ERC20 Vault', () => {
 
     // (a) Flip one bit of the response scalar → s·G ≠ R + h·pk.
     await expect(
-      deployedContract.callTx.completeWithdraw(rid, mpc.outputData, jubjubPk, mpc.announcement, mpc.response ^ 1n),
+      deployedContract.callTx.claimRefund(rid, mpc.outputData, api.randomBytes(32), jubjubPk, mpc.announcement, mpc.response ^ 1n),
     ).rejects.toThrow();
     expect(await shieldedBalance()).toBe(bal - W);           // NO refund minted
     let led = await api.getLedgerState(providers, contractAddress);
-    expect(led!.refundRecipient.member(rid)).toBe(true);     // still pending
+    expect(led!.refundCommitment.member(rid)).toBe(true);    // still pending
 
     // (b) Different public key → pk hash ≠ stored mpcPubKeyHash.
     await expect(
-      deployedContract.callTx.completeWithdraw(
-        rid, mpc.outputData, { x: jubjubPk.x + 1n, y: jubjubPk.y }, mpc.announcement, mpc.response),
+      deployedContract.callTx.claimRefund(
+        rid, mpc.outputData, api.randomBytes(32), { x: jubjubPk.x + 1n, y: jubjubPk.y }, mpc.announcement, mpc.response),
     ).rejects.toThrow('Unauthorized: wrong public key');
     expect(await shieldedBalance()).toBe(bal - W);           // still no mint
     led = await api.getLedgerState(providers, contractAddress);
-    expect(led!.refundRecipient.member(rid)).toBe(true);     // still pending
+    expect(led!.refundCommitment.member(rid)).toBe(true);    // still pending
 
-    // The real signature completes it → refund restores the balance.
-    await deployedContract.callTx.completeWithdraw(rid, mpc.outputData, jubjubPk, mpc.announcement, mpc.response);
+    // The real signature completes it → refund restores the balance (to self).
+    await deployedContract.callTx.claimRefund(rid, mpc.outputData, api.randomBytes(32), jubjubPk, mpc.announcement, mpc.response);
     expect(await shieldedBalance()).toBe(bal);
     led = await api.getLedgerState(providers, contractAddress);
-    expect(led!.refundRecipient.member(rid)).toBe(false);    // cleaned up
+    expect(led!.refundCommitment.member(rid)).toBe(false);   // cleaned up
   });
 
   // #8 (drain attack) — surrendering a coin of the WRONG color must be rejected.
@@ -501,7 +463,7 @@ describe('ERC20 Vault', () => {
     const worthlessErc20 = new Uint8Array(20).fill(0xab); // a different (worthless) ERC20
     const wrongColor = new Uint8Array(Buffer.from(vaultColorHexFor(worthlessErc20), 'hex'));
     expect(Buffer.compare(wrongColor, vaultColorBytes())).not.toBe(0); // sanity: colors differ
-    await expect(doWithdraw(W, await myRefundPk(), mkCoin(W, wrongColor))).rejects.toThrow();
+    await expect(doWithdraw(W, mkCoin(W, wrongColor))).rejects.toThrow();
     expect(await shieldedBalance()).toBe(bal); // atomic: no coin taken
   });
 
@@ -512,14 +474,14 @@ describe('ERC20 Vault', () => {
     const W = 200_000n;
     const bal = await shieldedBalance();
     const mismatched = mkCoin(W + 1n);                       // value W+1, but amount is W
-    await expect(doWithdraw(W, await myRefundPk(), mismatched)).rejects.toThrow();
+    await expect(doWithdraw(W, mismatched)).rejects.toThrow();
     expect(await shieldedBalance()).toBe(bal);              // atomic: no coin taken
   });
 
   // #10 — cannot withdraw more than the balance (wallet can't fund the spend).
   it('rejects withdraw exceeding the vault-token balance', async () => {
     const tooMuch = (await shieldedBalance()) + 1_000_000n;
-    await expect(doWithdraw(tooMuch, await myRefundPk())).rejects.toThrow();
+    await expect(doWithdraw(tooMuch)).rejects.toThrow();
   });
 
   // #11 — only the original depositor (matching identity commitment) can claim.
@@ -544,7 +506,7 @@ describe('ERC20 Vault', () => {
     const wrongSk = hash2x32(pad32('test:user:'), pad32('not-the-depositor'));
     await providers.privateStateProvider.set(VaultPrivateStateId, { secretKey: wrongSk });
     await expect(
-      deployedContract.callTx.claim(rid, out, jubjubPk, sig.announcement, sig.response),
+      deployedContract.callTx.claim(rid, out, api.randomBytes(32), jubjubPk, sig.announcement, sig.response),
     ).rejects.toThrow();
     // Restore the real identity for any subsequent tests. We intentionally DON'T do a
     // second (success) claim here — the wrong-key rejection above is the whole assertion,

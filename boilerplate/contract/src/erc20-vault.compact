@@ -55,12 +55,10 @@ export ledger signetOutputData: Map<Bytes<32>, Bytes<4096>>;   // index 21
 export ledger initialized: Counter;
 export ledger sepoliaVaultAddress: Bytes<20>;
 sealed ledger deployer: Bytes<32>;
-// Pending withdrawals: requestId -> refund recipient (Zswap public key bytes),
-// so a failed withdrawal can be re-minted to a user-chosen key. Declared after
-// all signet fields so it never shifts their positions.
-export ledger refundRecipient: Map<Bytes<32>, Bytes<32>>;
-// Surrendered coins are taken into this slot via writeCoin (escrow pattern).
-export ledger heldCoin: QualifiedShieldedCoinInfo;
+// Pending withdrawals: requestId -> commitment of the withdrawer's secret, so only
+// they can pull a refund (by proving the secret) and mint it with their own random
+// nonce. Declared after all signet fields so it never shifts their positions.
+export ledger refundCommitment: Map<Bytes<32>, Bytes<32>>;
 
 // ---- Witness: get the caller's secret key for identity ----
 witness callerSecretKey(): Bytes<32>;
@@ -104,7 +102,6 @@ circuit assertHexOf(commitment: Bytes<32>, hexStr: Bytes<64>): [] {
 constructor(mpcPk: JubjubPoint, deployerCommitment: Bytes<32>) {
   mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
   deployer = disclose(deployerCommitment);
-  heldCoin = default<QualifiedShieldedCoinInfo>;
 }
 
 export circuit initialize(sepoliaVault: Bytes<20>): [] {
@@ -276,14 +273,13 @@ export circuit deposit(
 //   - The user surrenders `amount` of their shielded vault coin up front.
 //   - A signet request transfers the ERC20 FROM the vault address
 //     (path = "vault") to destEvmAddress; the user broadcasts it.
-//   - On EVM failure the MPC returns a 0xdeadbeef output and the user
-//     calls completeWithdraw() to re-mint the coin (refund).
+//   - On EVM failure the MPC returns a 0xdeadbeef output and the withdrawer
+//     calls claimRefund() to re-mint the coin (refund) to themselves.
 export circuit withdraw(
   erc20Address: Bytes<20>,
   amount: Uint<128>,
   coin: ShieldedCoinInfo,
   destEvmAddress: Bytes<20>,
-  refundPk: ZswapCoinPublicKey,
   evmChainId: Uint<64>,
   evmNonce: Uint<64>,
   evmGasLimit: Uint<64>,
@@ -333,8 +329,11 @@ export circuit withdraw(
     caip2Id, keyVersion, path, algo, dest, params, outputSchema, respondSchema
   ));
 
+  // Commit to the withdrawer's identity so only they can pull a refund later.
+  const refundSk = callerSecretKey();
+  const refundCom = disclose(userCommitment(refundSk));
+
   receiveShielded(disclose(coin));
-  heldCoin.writeCoin(disclose(coin), right<ZswapCoinPublicKey, ContractAddress>(kernel.self()));
 
   // Everything above is guaranteed (so the receive balances + bad input aborts pre-take);
   // the signet writes below are fallible but pure writes, so they can't fail and strand the coin.
@@ -370,8 +369,8 @@ export circuit withdraw(
   signetOutputSchema.insert(requestId, disclose(outputSchema));
   signetRespondSchema.insert(requestId, disclose(respondSchema));
 
-  // ---- Record refund recipient for failure ----
-  refundRecipient.insert(requestId, disclose(refundPk.bytes));
+  // ---- Record the withdrawer's commitment for a recipient-only refund ----
+  refundCommitment.insert(requestId, refundCom);
 }
 
 // ============================================================
@@ -387,6 +386,7 @@ export circuit withdraw(
 export circuit claim(
   requestId: Bytes<32>,
   outputData: Bytes<4096>,
+  mintNonce: Bytes<32>,
   pk: JubjubPoint,
   announcement: JubjubPoint,
   response: Field
@@ -442,12 +442,8 @@ export circuit claim(
     pad(32, "erc20:vault:"),
     erc20Addr as Field as Bytes<32>
   ]);
-  const mintNonce = persistentHash<Vector<2, Bytes<32>>>([
-    pad(32, "erc20:mint:"),
-    rid
-  ]);
   const recipient = left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey());
-  mintShieldedToken(domainSep, amount as Uint<64>, mintNonce, recipient);
+  mintShieldedToken(domainSep, amount as Uint<64>, disclose(mintNonce), recipient);
 
   // Clean up: remove all signet maps for this request
   // Calldata args (compound keys — 2 args for ERC20 vault)
@@ -479,10 +475,14 @@ export circuit claim(
   signetRespondSchema.remove(rid);
 }
 
-// Complete withdrawal: final on success; refund (re-mint to refundPk) on EVM failure.
-export circuit completeWithdraw(
+// Refund after EVM failure. Recipient-only: the caller proves they are the withdrawer
+// (via the commitment pinned at withdraw) and mints the refund to their own key with a
+// caller-chosen random `mintNonce`, so the coin is unlinkable. Only an MPC-signed
+// failure authorizes it. Successful withdrawals need no follow-up.
+export circuit claimRefund(
   requestId: Bytes<32>,
   outputData: Bytes<4096>,
+  mintNonce: Bytes<32>,
   pk: JubjubPoint,
   announcement: JubjubPoint,
   response: Field
@@ -506,36 +506,32 @@ export circuit completeWithdraw(
     pk
   );
 
-  // Must be a pending withdrawal. Permissionless: the refund always goes to the
-  // recipient pinned at withdraw time, so it doesn't matter who calls this.
-  assert(refundRecipient.member(rid), "Withdrawal not found");
+  // Must be a pending withdrawal.
+  assert(refundCommitment.member(rid), "Withdrawal not found");
 
-  // Refund unless the transfer succeeded. A success output's first byte is
-  // 0x01; a 0xdeadbeef failure (or a `false` return = 0x00) is not. Checking
-  // one byte avoids the BLS-field overflow that a full 32-byte cast risks.
-  // Disclosed: whether a refund happens is public (a mint is observable).
+  // Caller must be the withdrawer: prove knowledge of the committed secret.
+  const sk = callerSecretKey();
+  assert(userCommitment(sk) == refundCommitment.lookup(rid), "Not the withdrawer");
+
+  // Only a genuine failure is refundable. A success output's first byte is 0x01;
+  // a 0xdeadbeef failure (or a `false` return = 0x00) is not. One byte avoids the
+  // BLS-field overflow a full 32-byte cast risks.
   const succeeded = disclose(slice<1>(outputData, 0) as Field == 1);
+  assert(!succeeded, "Withdrawal succeeded; nothing to refund");
 
-  if (!succeeded) {
-    const amountBytes = signetCalldataArgs.lookup(calldataArgKey(rid, 1 as Field));
-    const amount = amountBytes as Field as Uint<128>;
-    const erc20Addr = signetEvmTo.lookup(rid);
-    const domainSep = persistentHash<Vector<2, Bytes<32>>>([
-      pad(32, "erc20:vault:"),
-      erc20Addr as Field as Bytes<32>
-    ]);
-    const mintNonce = persistentHash<Vector<2, Bytes<32>>>([
-      pad(32, "erc20:refund:"),
-      rid
-    ]);
-    const recipient = left<ZswapCoinPublicKey, ContractAddress>(
-      ZswapCoinPublicKey { bytes: refundRecipient.lookup(rid) }
-    );
-    mintShieldedToken(domainSep, amount as Uint<64>, mintNonce, recipient);
-  }
+  // Re-mint the surrendered amount to the caller with their own random nonce.
+  const amountBytes = signetCalldataArgs.lookup(calldataArgKey(rid, 1 as Field));
+  const amount = amountBytes as Field as Uint<128>;
+  const erc20Addr = signetEvmTo.lookup(rid);
+  const domainSep = persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "erc20:vault:"),
+    erc20Addr as Field as Bytes<32>
+  ]);
+  const recipient = left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey());
+  mintShieldedToken(domainSep, amount as Uint<64>, disclose(mintNonce), recipient);
 
   // ---- Clean up the withdrawal + signet maps ----
-  refundRecipient.remove(rid);
+  refundCommitment.remove(rid);
   const argKey0 = calldataArgKey(rid, 0 as Field);
   const argKey1 = calldataArgKey(rid, 1 as Field);
   signetCalldataArgs.remove(argKey0);
