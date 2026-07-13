@@ -10,7 +10,7 @@ import { getCliConfig, getUserIdentity } from "@midnight-erc20-vault/cli";
 import { getDeployConfig, getMidnightNodeConfig } from "@midnight-erc20-vault/lib";
 import { deriveEvmAddress, formatJubjubPublicKey } from "@sig-net/midnight";
 import { deriveMpcKeys, generateMpcRootKey } from "./mpc-keys.ts";
-import { deploySignetContract } from "@midnight-erc20-vault/signet-contract";
+import { deploySignetContract } from "@sig-net/midnight-contract-deploy";
 import { deployVault } from "@midnight-erc20-vault/vault-contract";
 import { formatEther, formatUnits } from "ethers";
 import { PIPELINE_KEYS, requireEnv } from "../e2e-env.ts";

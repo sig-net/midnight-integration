@@ -1,32 +1,55 @@
 {
-  "name": "@midnight-erc20-vault/signet-contract",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@sig-net/midnight-contract",
+  "version": "0.0.1",
   "type": "module",
   "description": "The central signet Compact contract on Midnight: the MPC posts signature responses (unauthenticated counted log, verified off-chain) and remote execution responses (Schnorr attestations, verified in-circuit at post time) here; clients poll it. src/index.ts is the curated export surface.",
+  "//exports": "Local dev consumes raw TS source. `publishConfig.exports` swaps this to the emitted ./dist at publish time.",
   "exports": {
     ".": "./src/index.ts",
     "./managed/*": "./src/managed/*"
   },
+  "//files": "src/managed is EXCLUDED from the tarball (prover keys are ~273MB); the build copies the shippable parts (contract/, compiler/, zkir/, keys/*.verifier) into dist/managed instead.",
+  "files": [
+    "dist",
+    "src",
+    "!src/managed"
+  ],
   "scripts": {
     "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signet-contract.compact src/managed",
     "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/signet-contract.compact src/managed",
-    "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
-    "deploy": "tsx deploy.ts"
+    "//build": "Typecheck (src+tests, noEmit), emit ./dist, then copy the generated managed/ output in — WITHOUT the prover keys (unshippable at ~273MB; consumers pass zkConfigPath to prove). Requires `yarn compile:zk` first: the verifier-key copy fails loudly on skip-zk-only output.",
+    "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig.build.json && mkdir -p dist/managed/keys && cp -R src/managed/contract src/managed/compiler src/managed/zkir dist/managed/ && cp src/managed/keys/*.verifier dist/managed/keys/",
+    "prepack": "yarn build",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./managed/*": "./dist/managed/*"
+    }
   },
   "dependencies": {
-    "@midnight-erc20-vault/lib": "*",
+    "@midnight-ntwrk/compact-js": "2.5.5-rc.5",
+    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.0",
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.3",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "5.0.0-beta.3",
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.3",
     "@midnight-ntwrk/midnight-js-level-private-state-provider": "5.0.0-beta.3",
     "@midnight-ntwrk/midnight-js-node-zk-config-provider": "5.0.0-beta.3",
-    "@sig-net/midnight": "*"
+    "@midnightntwrk/ledger-v9": "1.0.0-rc.3",
+    "@midnightntwrk/wallet-sdk-facade": "5.0.0-beta.2",
+    "@midnightntwrk/wallet-sdk-unshielded-wallet": "4.0.0-beta.2",
+    "@sig-net/midnight": "^0.0.1",
+    "effect": "^3.21.4"
   },
   "devDependencies": {
-    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.0",
     "@types/node": "^26.1.0",
-    "tsx": "^4.23.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   }

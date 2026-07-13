@@ -25,9 +25,9 @@
     "test:integration-tests:false-claimer": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:false-claimer",
     "deploy:vault-contract": "yarn workspace @midnight-erc20-vault/vault-contract run deploy",
     "cli": "yarn workspace @midnight-erc20-vault/cli run cli",
-    "compile:signet-contract": "yarn workspace @midnight-erc20-vault/signet-contract run compile",
-    "compile:signet-contract:zk": "yarn workspace @midnight-erc20-vault/signet-contract run compile:zk",
-    "deploy:signet-contract": "yarn workspace @midnight-erc20-vault/signet-contract run deploy"
+    "compile:signet-contract": "yarn workspace @sig-net/midnight-contract run compile",
+    "compile:signet-contract:zk": "yarn workspace @sig-net/midnight-contract run compile:zk",
+    "deploy:signet-contract": "yarn workspace @sig-net/midnight-contract-deploy run deploy"
   },
   "devDependencies": {
     "tsx": "^4.23.0"

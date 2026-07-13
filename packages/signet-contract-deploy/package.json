@@ -1,0 +1,26 @@
+{
+  "name": "@sig-net/midnight-contract-deploy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deploy flow of the central signet contract — an OPERATOR tool, deliberately unpublished: the contract is a singleton sig-net deploys from this repo. Split from @sig-net/midnight-contract so the published package carries no dependency on the private lib plumbing.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "deploy": "tsx deploy.ts"
+  },
+  "dependencies": {
+    "@midnight-erc20-vault/lib": "*",
+    "@sig-net/midnight": "*",
+    "@sig-net/midnight-contract": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

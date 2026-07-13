@@ -2,7 +2,8 @@
 // contract's deploy transaction using the generic plumbing in
 // @midnight-erc20-vault/lib. Everything contract-specific lives HERE: the
 // MPC attestation key constructor arg and the (empty) private state.
-// Requires `yarn compile:zk` output (verifier keys) in src/managed.
+// Requires `yarn compile:zk` output (verifier keys) in the contract
+// package's src/managed.
 
 import {
   assertDeployerFunded,
@@ -14,9 +15,7 @@ import {
   type TransactionIdentifier,
 } from "@midnight-erc20-vault/lib";
 import { parseJubjubPublicKey } from "@sig-net/midnight";
-
-import { signetContractCompiledContract } from "./providers.ts";
-import { createSignetContractPrivateState } from "./witnesses.ts";
+import { createSignetContractPrivateState, signetContractCompiledContract } from "@sig-net/midnight-contract";
 
 /** The outcome of a successful signet-contract deployment. */
 export interface SignetContractDeployment {

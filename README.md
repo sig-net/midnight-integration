@@ -75,7 +75,7 @@ yarn compile:zk
     │   └── deploy.ts               # deploy script: constructor args + witnesses live here; the
     │                               #   generic build/submit plumbing comes from @.../lib
     │
-    ├── signet-contract/   # @midnight-erc20-vault/signet-contract
+    ├── signet-contract/   # @sig-net/midnight-contract
     │   ├── package.json
     │   ├── tsconfig.json
     │   ├── .gitignore                  # src/managed/
