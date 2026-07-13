@@ -31,18 +31,39 @@ import { bytesToHex, requestIdHex, type RequestIdHex } from "./signet-requests.t
  */
 export const SIGN_BIDIRECTIONAL_EVENT_TAG = "SignBidirectionalEvent";
 
+/**
+ * Byte width of the leading `version` tag (Compact `Uint<8>`). The event is a
+ * FROZEN `{ version, payload }` envelope (see `SignBidirectionalEvent` in
+ * Signet.compact): `version` is at offset 0 and every V1 field is shifted one
+ * byte to make room for it.
+ */
+const VERSION_BYTES = 1;
+
+/** The only payload interpretation this decoder understands today. */
+const SUPPORTED_VERSION = 1;
+
 /** Byte width of the `callerAddress` field (Compact `ContractAddress` = 32 raw bytes). */
 const CALLER_ADDRESS_BYTES = 32;
 
 /** Byte width of the `requestId` field (Compact `Bytes<32>`). */
 const REQUEST_ID_BYTES = 32;
 
+/** Offset of the V1 `callerAddress` in the outer payload (after the version byte). */
+const CALLER_ADDRESS_OFFSET = VERSION_BYTES;
+
+/** Offset of the V1 `requestId` (after version + callerAddress). */
+const REQUEST_ID_OFFSET = CALLER_ADDRESS_OFFSET + CALLER_ADDRESS_BYTES;
+
+/** Offset of the V1 `signBidirectionalRequestsIndexField` (after version + caller + requestId). */
+const REQUESTS_INDEX_FIELD_OFFSET = REQUEST_ID_OFFSET + REQUEST_ID_BYTES;
+
 /**
- * Minimum serialized length: `callerAddress` (32) + `requestId` (32) +
- * `signBidirectionalRequestsIndexField` (1). `serialize<T,256>` right-pads to
- * 256, so a real payload is longer; this is the floor the decoder needs.
+ * Minimum serialized length of a V1 event: `version` (1) + `callerAddress` (32)
+ * + `requestId` (32) + `signBidirectionalRequestsIndexField` (1) = 66.
+ * `serialize<T,256>` right-pads to 256, so a real payload is longer; this is the
+ * floor the decoder needs.
  */
-const MIN_PAYLOAD_BYTES = CALLER_ADDRESS_BYTES + REQUEST_ID_BYTES + 1;
+const MIN_PAYLOAD_BYTES = REQUESTS_INDEX_FIELD_OFFSET + 1;
 
 /**
  * TS twin of the Compact `SignBidirectionalEvent` *event* struct (not the
@@ -51,6 +72,11 @@ const MIN_PAYLOAD_BYTES = CALLER_ADDRESS_BYTES + REQUEST_ID_BYTES + 1;
  * the authenticated copy of it.
  */
 export interface SignBidirectionalEvent {
+  /**
+   * The frozen envelope's `version` tag (Compact `Uint<8>`). Selects how the
+   * opaque payload was interpreted; this decoder only understands version 1.
+   */
+  version: number;
   /**
    * Address of the contract whose request index holds the request (Compact
    * `ContractAddress`, rendered as lowercase hex, no `0x` prefix — directly
@@ -108,19 +134,27 @@ export function eventNameTag(nameHex: string): string {
 
 /**
  * Decode a `Misc` payload (`serialize<SignBidirectionalEvent, 256>`) into the
- * struct. `serialize<T,N>` lays fields out in declaration order, packed at the
- * front and right-zero-padded to N (see knowledge-base/events.md): a
- * `ContractAddress` is 32 raw bytes, so
- * `callerAddress = payload[0..32]`, `requestId = payload[32..64]`,
- * `requestsIndexField = payload[64]`.
+ * struct. The event is a frozen `{ version: Uint<8>, payload: Bytes<224> }`
+ * envelope, and V1 packs the concrete fields into that inner payload with
+ * `serialize<SignBidirectionalEventV1Payload, 224>`. `serialize<T,N>` lays
+ * fields out in declaration order, packed at the front and right-zero-padded
+ * (see knowledge-base/events.md), so in the outer 256-byte payload:
+ * `version = payload[0]`, then everything shifts one byte —
+ * `callerAddress = payload[1..33]`, `requestId = payload[33..65]`,
+ * `requestsIndexField = payload[65]`.
  *
  * The byte layout is pinned against a live indexer by the golden e2e test —
- * `callerAddress` is the struct's FIRST field, a different position than the
+ * `callerAddress` is the V1 payload's FIRST field, a different position than the
  * DepositEvent precedent's `caller`, so do not assume it without that test.
+ *
+ * Fails closed on an unrecognised `version`: a future payload layout adds a
+ * branch here (and, off-chain, a V{N} decoder) rather than silently
+ * misinterpreting bytes under the V1 offsets.
  *
  * @param payload - The decoded (raw bytes) `Misc.payload`.
  * @returns The decoded event notification.
- * @throws Error if the payload is shorter than the fixed fields require.
+ * @throws Error if the payload is shorter than the fixed fields require, or its
+ *   `version` is not one this decoder understands.
  */
 export function decodeSignBidirectionalEvent(
   payload: Uint8Array,
@@ -131,12 +165,21 @@ export function decodeSignBidirectionalEvent(
         `the ${MIN_PAYLOAD_BYTES} its fixed fields need`,
     );
   }
-  const callerAddress = bytesToHex(payload.slice(0, CALLER_ADDRESS_BYTES));
-  const requestId = requestIdHex(
-    payload.slice(CALLER_ADDRESS_BYTES, CALLER_ADDRESS_BYTES + REQUEST_ID_BYTES),
+  const version = payload[0];
+  if (version !== SUPPORTED_VERSION) {
+    throw new Error(
+      `SignBidirectionalEvent version ${version} is not supported ` +
+        `(this decoder understands version ${SUPPORTED_VERSION})`,
+    );
+  }
+  const callerAddress = bytesToHex(
+    payload.slice(CALLER_ADDRESS_OFFSET, CALLER_ADDRESS_OFFSET + CALLER_ADDRESS_BYTES),
   );
-  const requestsIndexField = payload[CALLER_ADDRESS_BYTES + REQUEST_ID_BYTES];
-  return { callerAddress, requestId, requestsIndexField };
+  const requestId = requestIdHex(
+    payload.slice(REQUEST_ID_OFFSET, REQUEST_ID_OFFSET + REQUEST_ID_BYTES),
+  );
+  const requestsIndexField = payload[REQUESTS_INDEX_FIELD_OFFSET];
+  return { version, callerAddress, requestId, requestsIndexField };
 }
 
 /**

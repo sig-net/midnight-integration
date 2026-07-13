@@ -31,24 +31,33 @@ const REQUEST_ID_BYTES = Uint8Array.from({ length: 32 }, (_, i) => 0x40 + i);
 const REQUEST_ID_HEX = requestIdHex(REQUEST_ID_BYTES);
 const REQUESTS_INDEX_FIELD = 0;
 
-/** Build a `serialize<SignBidirectionalEvent, 256>` payload from its parts. */
+/**
+ * Build a `serialize<SignBidirectionalEvent, 256>` payload from its parts. The
+ * event is a frozen `{ version: Uint<8>, payload: Bytes<224> }` envelope and V1
+ * serializes the concrete fields into the inner payload, so `version` is at
+ * byte 0 and every field is shifted one byte: caller[1..33], requestId[33..65],
+ * field[65].
+ */
 const buildPayload = (
   caller: Uint8Array,
   requestId: Uint8Array,
   field: number,
+  version = 1,
 ): Uint8Array => {
   const payload = new Uint8Array(256);
-  payload.set(caller, 0);
-  payload.set(requestId, 32);
-  payload[64] = field;
+  payload[0] = version;
+  payload.set(caller, 1);
+  payload.set(requestId, 33);
+  payload[65] = field;
   return payload;
 };
 
 describe("decodeSignBidirectionalEvent", () => {
-  it("recovers callerAddress, requestId, and requestsIndexField exactly", () => {
+  it("recovers version, callerAddress, requestId, and requestsIndexField exactly", () => {
     const decoded = decodeSignBidirectionalEvent(
       buildPayload(CALLER_ADDRESS_BYTES, REQUEST_ID_BYTES, REQUESTS_INDEX_FIELD),
     );
+    expect(decoded.version).toBe(1);
     expect(decoded.callerAddress).toBe(CALLER_ADDRESS_HEX);
     expect(decoded.requestId).toBe(REQUEST_ID_HEX);
     expect(decoded.requestsIndexField).toBe(REQUESTS_INDEX_FIELD);
@@ -74,6 +83,14 @@ describe("decodeSignBidirectionalEvent", () => {
     expect(() => decodeSignBidirectionalEvent(new Uint8Array(64))).toThrow(
       /fewer than/,
     );
+  });
+
+  it("rejects an unrecognised version (fails closed)", () => {
+    expect(() =>
+      decodeSignBidirectionalEvent(
+        buildPayload(CALLER_ADDRESS_BYTES, REQUEST_ID_BYTES, 0, 2),
+      ),
+    ).toThrow(/version 2 is not supported/);
   });
 });
 

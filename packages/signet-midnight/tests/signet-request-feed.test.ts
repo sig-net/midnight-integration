@@ -105,12 +105,17 @@ const STATE_TABLE: Record<string, StateValueType> = {
   [CALLER_B]: callerStateWith(REQUEST_B_ID),
 };
 
-/** A `serialize<SignBidirectionalEvent,256>` payload. */
+/**
+ * A `serialize<SignBidirectionalEvent,256>` payload. The frozen envelope tags
+ * `version` at byte 0, shifting the V1 fields: caller[1..33], requestId[33..65],
+ * requestsIndexField[65].
+ */
 const payloadFor = (caller: Uint8Array, requestId: Uint8Array): Uint8Array => {
   const payload = new Uint8Array(256);
-  payload.set(caller, 0);
-  payload.set(requestId, 32);
-  payload[64] = 0; // requestsIndexField
+  payload[0] = 1; // version
+  payload.set(caller, 1);
+  payload.set(requestId, 33);
+  payload[65] = 0; // requestsIndexField
   return payload;
 };
 

@@ -107,16 +107,42 @@ module Signet {
   // been stored in the caller's ledger. Attribution comes from whose
   // authenticated state the MPC reads, never from a field here.
   export struct SignBidirectionalEvent {
+      version: Uint<8>;
+      payload: Bytes<224>;
+  }
+
+  // V1 interpretation of SignBidirectionalEvent.payload.
+  export struct SignBidirectionalEventV1Payload {
       // Address of the calling contract; the MPC reads its request index there.
-      callerAddress: ContractAddress,
+      callerAddress: ContractAddress;
 
       // Representation type (Bytes<32>), NOT the RequestId new type: a `new type`
       // field crashes the serialize<> event encoder (compiler self-diagnosed bug).
-      requestId: Bytes<32>,
+      requestId: Bytes<32>;
 
       // Ledger field position of the Map<RequestId, SignBidirectionalRequest> in
       // the caller contract.
-      signBidirectionalRequestsIndexField: Uint<8>,
+      signBidirectionalRequestsIndexField: Uint<8>;
+  }
+
+  // Build the V1 event: pack the concrete fields into the opaque payload with
+  // serialize<> and tag version = 1. Client contracts should call
+  // this instead of hand-constructing the envelope.
+  export pure circuit constructSignBidirectionalEventV1(
+    callerAddress: ContractAddress,
+    requestId: Bytes<32>,
+    signBidirectionalRequestsIndexField: Uint<8>
+  ): SignBidirectionalEvent {
+    return SignBidirectionalEvent {
+      version: 1,
+      payload: serialize<SignBidirectionalEventV1Payload, 224>(
+        SignBidirectionalEventV1Payload {
+          callerAddress,
+          requestId,
+          signBidirectionalRequestsIndexField
+        }
+      )
+    };
   }
 
   // The counterpart to SignBidirectionalRequest: the record the MPC posts to

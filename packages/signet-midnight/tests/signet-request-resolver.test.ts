@@ -104,6 +104,7 @@ const stubSource = (
 const eventFor = (
   overrides: Partial<SignBidirectionalEvent> = {},
 ): SignBidirectionalEvent => ({
+  version: 1,
   callerAddress: CALLER_ADDRESS,
   requestId: REQUEST_ID_HEX,
   requestsIndexField: 0,

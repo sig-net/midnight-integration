@@ -247,11 +247,11 @@ export circuit requestDeposit(
   signetRequestsIndex.insert(requestId, disclose(request));
 
   // Notify the MPC of the signature request via the signet contract.
-  signetEventEmitter.emitSignBidirectionalEvent(SignBidirectionalEvent{
+  signetEventEmitter.emitSignBidirectionalEvent(constructSignBidirectionalEventV1(
     kernel.self(),
     requestId as Bytes<32>, // RequestId's raw type: a new-type field crashes the event encoder
-    signBidirectionalRequestsIndexField: 0 as Uint<8>,
-  });
+    0 as Uint<8>,
+  ));
 }
 
 // ---- Claim ------------------------------------------------------------------------
@@ -441,11 +441,11 @@ export circuit requestWithdraw(
   refundRecipient.insert(requestId, disclose(refundPk.bytes));
 
   // Notify the MPC of the signature request via the signet contract.
-  signetEventEmitter.emitSignBidirectionalEvent(SignBidirectionalEvent{
+  signetEventEmitter.emitSignBidirectionalEvent(constructSignBidirectionalEventV1(
     kernel.self(),
     requestId as Bytes<32>, // RequestId's raw type: a new-type field crashes the event encoder
-    signBidirectionalRequestsIndexField: 0 as Uint<8>,
-  });
+    0 as Uint<8>,
+  ));
 }
 
 // ---- Complete withdraw --------------------------------------------------------------
