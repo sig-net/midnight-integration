@@ -3,12 +3,10 @@
   "version": "0.0.1",
   "type": "module",
   "description": "The central signet Compact contract on Midnight: the MPC posts signature responses (unauthenticated counted log, verified off-chain) and remote execution responses (Schnorr attestations, verified in-circuit at post time) here; clients poll it. src/index.ts is the curated export surface.",
-  "//exports": "Local dev consumes raw TS source. `publishConfig.exports` swaps this to the emitted ./dist at publish time.",
   "exports": {
     ".": "./src/index.ts",
     "./managed/*": "./src/managed/*"
   },
-  "//files": "src/managed is EXCLUDED from the tarball (prover keys are ~273MB); the build copies the shippable parts (contract/, compiler/, zkir/, keys/*.verifier) into dist/managed instead.",
   "files": [
     "dist",
     "src",
@@ -33,7 +31,6 @@
       "./managed/*": "./dist/managed/*"
     }
   },
-  "//dependencies": "Deliberately minimal — the package is platform-agnostic: compact-runtime is the generated contract's runtime, midnight-js is types-only (the SignetContractProviders alias). Environment bindings (zk-config source, state store, wallet adapter) live with each consumer.",
   "dependencies": {
     "@midnight-ntwrk/compact-runtime": "0.18.0-rc.0",
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.3"
