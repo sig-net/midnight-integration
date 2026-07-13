@@ -1,10 +1,12 @@
 // The whole deposit leg as one arrange-stage helper: request → MPC signature
 // → EVM sweep broadcast → MPC attestation → claim. Flow files that need the
-// caller to HOLD shielded vault tokens (failure-refund, benchmark…) run this
-// first; the happy-day file deliberately does NOT use it — its long-hand
-// steps carry the per-leg assertions (golden events, MPC-style ledger reads)
-// this helper elides. Per AGENTS.md, this file only SEQUENCES exported cli
-// commands plus plain reads — every orchestration primitive lives in the cli.
+// caller to HOLD shielded vault tokens (failure-refund, claimant-not-caller,
+// false-claimer…) run this first; the happy-day and benchmark files
+// deliberately do NOT use it — their long-hand steps carry what this helper
+// elides (per-leg assertions there, explicit per-leg timing here: a flow
+// helper must never time in the background for flows that don't measure).
+// Per AGENTS.md, this file only SEQUENCES exported cli commands plus plain
+// reads — every orchestration primitive lives in the cli.
 
 import {
   broadcastEvm,
@@ -47,14 +49,19 @@ export interface DepositRoundTripOptions {
    * depositor (the session wallet) may claim either way.
    */
   readonly claimRecipient?: ShieldedTokenRecipient;
+  /**
+   * Stop after the attestation poll instead of claiming, leaving the request
+   * on the ledger with its attestation posted — claimable by the depositor.
+   * For flows that own the claim step themselves (false-claimer); `claimed`
+   * in the result is then always `false`.
+   */
+  readonly skipClaim?: boolean;
 }
 
 /** What {@link runDepositRoundTrip} hands back to the flow file. */
 export interface DepositRoundTripResult {
   /** The deposit request id the round trip created (or resumed). */
   readonly requestId: RequestIdHex;
-  /** Wall-clock milliseconds per leg, keyed by cli command name. */
-  readonly timings: Record<string, number>;
   /**
    * Whether THIS run executed the claim. `false` means the request was
    * already claimed by a prior run (rerun against a kept contract address) —
@@ -79,7 +86,7 @@ export interface DepositRoundTripResult {
  * @param session - The flow file's shared session (wallet + cli context).
  * @param env - The setup-populated env accumulator.
  * @param opts - Deposit amount and optional resume id.
- * @returns The request id and per-leg wall-clock timings.
+ * @returns The request id and whether this run executed the claim.
  * @throws If any leg times out, the MPC attests the sweep as failed, or the
  *   sweep transaction reverts on-chain.
  */
@@ -89,15 +96,6 @@ export async function runDepositRoundTrip(
   opts: DepositRoundTripOptions,
 ): Promise<DepositRoundTripResult> {
   const context = await session.cliContext();
-  const timings: Record<string, number> = {};
-  const timed = async <T>(leg: string, run: () => Promise<T>): Promise<T> => {
-    const startedAt = Date.now();
-    try {
-      return await run();
-    } finally {
-      timings[leg] = Date.now() - startedAt;
-    }
-  };
 
   let requestId: RequestIdHex;
   if (opts.reuseRequestId) {
@@ -110,37 +108,29 @@ export async function runDepositRoundTrip(
       requireEnv(env, "EVM_RPC_URL"),
       requireEnv(env, "EVM_USER_ADDRESS"),
     );
-    requestId = await timed("requestDeposit", () =>
-      requestDeposit(context, { amount: opts.amount, evmNonce }),
-    );
+    requestId = await requestDeposit(context, { amount: opts.amount, evmNonce });
   }
   if (!/^[0-9a-f]{64}$/.test(requestId)) {
     throw new Error(`deposit request id is not 64-char lowercase hex: "${requestId}"`);
   }
 
   // Deposit sweeps are signed by the USER's derived account.
-  const signedSweepTransaction = await timed("pollSignatureResponse", () =>
-    pollSignatureResponse(context, {
-      requestId,
-      intervalMs: 1000,
-      timeoutMs: 2 * MINUTE,
-      expectedSigner: requireEnv(env, "EVM_USER_ADDRESS"),
-    }),
-  );
+  const signedSweepTransaction = await pollSignatureResponse(context, {
+    requestId,
+    intervalMs: 1000,
+    timeoutMs: 2 * MINUTE,
+    expectedSigner: requireEnv(env, "EVM_USER_ADDRESS"),
+  });
 
   // Idempotent: an already-mined sweep short-circuits; a reverted or
   // nonce-burned sweep throws — either would starve the claim, so let it.
-  await timed("broadcastEvm", () =>
-    broadcastEvm(context, { transaction: signedSweepTransaction }),
-  );
+  await broadcastEvm(context, { transaction: signedSweepTransaction });
 
-  const attestation = await timed("pollRespondBidirectional", () =>
-    pollRespondBidirectional(context, {
-      requestId,
-      intervalMs: 1000,
-      timeoutMs: 2 * MINUTE,
-    }),
-  );
+  const attestation = await pollRespondBidirectional(context, {
+    requestId,
+    intervalMs: 1000,
+    timeoutMs: 2 * MINUTE,
+  });
   // This helper arranges a SUCCESSFUL deposit — a failure attestation means
   // the sweep did not land and the claim below could never mint.
   if (!executionSucceeded(attestation.serializedOutput)) {
@@ -148,6 +138,12 @@ export async function runDepositRoundTrip(
       `the MPC attested deposit sweep ${requestId} as FAILED — ` +
         `the sweep broadcast above mined, so the responder saw a different outcome (stale responder config?)`,
     );
+  }
+
+  let claimed = false;
+  if (opts.skipClaim) {
+    logSkip("claimDeposit", `skipClaim set — request ${requestId} left unclaimed on the ledger`);
+    return { requestId, claimed };
   }
 
   // Rerun against a kept contract address: a prior run may have already
@@ -158,15 +154,12 @@ export async function runDepositRoundTrip(
     "MIDNIGHT_VAULT_CONTRACT_ADDRESS",
   );
   const ledger = await readVaultLedger(context, vaultContractAddress);
-  let claimed = false;
   if (!ledger.signetRequestsIndex.member(requestIdBytes(requestId))) {
     logSkip("claimDeposit", `request ${requestId} already claimed (not on the ledger)`);
   } else {
-    await timed("claimDeposit", () =>
-      claimDeposit(context, { requestId, recipient: opts.claimRecipient }),
-    );
+    await claimDeposit(context, { requestId, recipient: opts.claimRecipient });
     claimed = true;
   }
 
-  return { requestId, timings, claimed };
+  return { requestId, claimed };
 }

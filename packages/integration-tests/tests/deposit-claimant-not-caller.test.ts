@@ -185,7 +185,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault deposit → cla
   it(
     "deposit round trip: claimDeposit names the alternate recipient and consumes the request",
     async () => {
-      const { requestId, timings, claimed } = await runDepositRoundTrip(session, env, {
+      const { requestId, claimed } = await runDepositRoundTrip(session, env, {
         amount: DEPOSIT_AMOUNT,
         reuseRequestId: env.DEPOSIT_CLAIMANT_NOT_CALLER_DEPOSIT_REQUEST_ID as RequestIdHex | undefined,
         claimRecipient: recipientKeys(),
@@ -208,7 +208,6 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault deposit → cla
         `Deposit ${requestId} claimed with the mint directed to the alternate recipient.`,
         "",
         `  claim executed this run: ${claimed}`,
-        `  per-leg wall clock (ms): ${JSON.stringify(timings)}`,
         "",
         "If a later step dies (e.g. proof-server OOM), resume with",
         `  DEPOSIT_CLAIMANT_NOT_CALLER_DEPOSIT_REQUEST_ID=${requestId}`,

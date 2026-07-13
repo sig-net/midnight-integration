@@ -30,12 +30,28 @@ repo touches a network from tests. The pipeline has two halves:
     the minted shielded vault tokens in its balance. Ends with the same
     fakenet-only drain (the claimed tokens strand on the recipient), so EVM
     funds keep cycling.
+  - `benchmark.test.ts` — the pipeline's latency profile: one deposit round
+    trip and one withdraw round trip driven long-hand, one timed leg per
+    test with an explicit stopwatch around exactly the cli command measured
+    (so a narrowed selection can benchmark a single leg), ending in a
+    per-leg wall-clock report (a banner table plus one greppable
+    `BENCHMARK_TIMINGS_JSON` line per run). Reporting only — no regression
+    gate until baseline data accumulates. Funds cycle like the happy-day
+    flow (deposit in, withdraw back out).
+  - `false-claimer.test.ts` — the in-circuit caller-identity check: a
+    deposit round trip stops before the claim, a SECOND identity (different
+    `USER_SEED` + `VAULT_USER_SECRET_KEY`) attempts `claimDeposit` and must
+    be rejected in-circuit with the request left on the ledger, then the
+    rightful identity claims it. Ends with the same fakenet-only drain, so
+    EVM funds keep cycling.
 
 The cli owns the orchestration; tests only sequence and assert — reusable
-sequences live in `src/flows/` (deposit round trip, withdraw legs). To add a
-flow file (benchmark, false-claimer…), start from
-[`src/flows/TODO.md`](src/flows/TODO.md) — it is a self-contained work
-order, including the three registration points every new file must touch.
+sequences live in `src/flows/` (deposit round trip, withdraw legs).
+**Registration points** — every new flow file must touch all three:
+`FILE_ORDER` in `vitest.config.ts`, a `test:integration:<name>` package
+script, and a `test:integration-tests:<name>` root script. Gate the suite
+with `describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)` and give it its
+own funding + vault-initialized preflight tests.
 
 ## Prerequisites
 
@@ -68,6 +84,8 @@ yarn test:integration-tests                 # all flow files, from the repo root
 yarn test:integration-tests:happy-day-e2e   # just the happy-day flow
 yarn test:integration-tests:deposit-withdrawal-failure-refund   # just the refund flow
 yarn test:integration-tests:deposit-claimant-not-caller   # just the alternate-recipient claim flow
+yarn test:integration-tests:benchmark                      # just the per-leg timing report flow
+yarn test:integration-tests:false-claimer                  # just the caller-identity rejection flow
 ```
 
 Selecting a single flow file still runs the globalSetup pipeline first —
@@ -101,7 +119,7 @@ contract addresses:
 3. **Run 2** — every setup step skips (the ERC20 step by finding code
    on-chain, funding by the balances already meeting their targets); every
    flow file runs to the end (happy-day: 17/17, failure-refund: 9/9,
-   claimant-not-caller: 5/5).
+   claimant-not-caller: 6/6, benchmark: 13/13, false-claimer: 6/6).
 
 **Redeploying after a circuit change?** The derived EVM accounts move with
 the vault contract address, and funds on the old ones do not follow. Follow
@@ -129,6 +147,9 @@ it includes the fund-sweep script.
 | `FAILURE_REFUND_DEPOSIT_REQUEST_ID` | Failure-refund: resume the arrange deposit from an existing request id | unset |
 | `FAILURE_REFUND_WITHDRAW_REQUEST_ID` | Failure-refund: resume the doomed withdraw from an existing request id | unset |
 | `DEPOSIT_CLAIMANT_NOT_CALLER_DEPOSIT_REQUEST_ID` | Claimant-not-caller: resume the deposit from an existing request id | unset |
+| `BENCHMARK_DEPOSIT_REQUEST_ID` | Benchmark: resume the timed deposit from an existing request id | unset |
+| `BENCHMARK_WITHDRAW_REQUEST_ID` | Benchmark: resume the timed withdraw from an existing request id | unset |
+| `FALSE_CLAIMER_DEPOSIT_REQUEST_ID` | False-claimer: resume the arrange deposit from an existing request id | unset |
 | `STEP_THROUGH` | `1` pauses before each setup step and each test (hit enter) — interactive debugging only, never unattended | unset |
 
 ## Gotchas

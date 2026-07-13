@@ -21,6 +21,8 @@
     "test:integration-tests:happy-day-e2e": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:happy-day-e2e",
     "test:integration-tests:deposit-withdrawal-failure-refund": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:deposit-withdrawal-failure-refund",
     "test:integration-tests:deposit-claimant-not-caller": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:deposit-claimant-not-caller",
+    "test:integration-tests:benchmark": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:benchmark",
+    "test:integration-tests:false-claimer": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:false-claimer",
     "deploy:vault-contract": "yarn workspace @midnight-erc20-vault/vault-contract run deploy",
     "cli": "yarn workspace @midnight-erc20-vault/cli run cli",
     "compile:signet-contract": "yarn workspace @midnight-erc20-vault/signet-contract run compile",

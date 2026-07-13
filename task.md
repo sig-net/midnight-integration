@@ -165,13 +165,21 @@ only integration path needs Sepolia ETH and a hand-started fakenet server.
       waits on B.2.
       *Done when:* a PR shows green checks from a fresh clone.
 
-## Phase C — Remaining flow tests (work order: `src/flows/TODO.md`)
+## Phase C — Remaining flow tests
 
-- [ ] **C.1 `false-claimer.test.ts`** — prove identity B cannot claim
-      identity A's deposit; leave no stranded funds.
-- [ ] **C.2 `benchmark.test.ts`** — per-leg wall-clock report from the
-      `timings` the flow helpers already emit; reporting only until there is
-      baseline data.
+- [x] **C.1 `false-claimer.test.ts`** — DONE (2026-07-12): identity B's
+      claim rejects in-circuit ("path hex does not match commitment"), the
+      request stays on the ledger, identity A claims it, the drain cycles
+      the EVM funds; 6/6 green. `runDepositRoundTrip` gained a `skipClaim`
+      option for the arrange stage.
+- [x] **C.2 `benchmark.test.ts`** — DONE (2026-07-13): deposit + withdraw
+      round trips driven long-hand, one timed leg per test with an explicit
+      stopwatch bracketing exactly the cli command measured (flow helpers
+      carry NO timing — flows that don't measure must not time in the
+      background, and a narrowed selection can benchmark a single leg);
+      reports per-leg wall clock (banner table + a greppable
+      `BENCHMARK_TIMINGS_JSON` line); reporting only until there is
+      baseline data; 13/13 green.
 
 ## Phase D — Loose ends
 

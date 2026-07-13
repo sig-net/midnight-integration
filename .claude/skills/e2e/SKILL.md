@@ -76,10 +76,10 @@ pinned by `vitest.config.ts`.
    If not: start it — see step 6 of the redeploy flow.
 2. `yarn test:integration-tests > <logfile> 2>&1 &` and watch the log.
    Expect all globalSetup steps to log `SKIPPED: …` and every flow file to
-   pass (happy-day: 17/17, then deposit-withdrawal-failure-refund: 9/9) in
-   ~10–15 min. Single-file scripts:
-   `yarn test:integration-tests:happy-day-e2e`,
-   `yarn test:integration-tests:deposit-withdrawal-failure-refund`
+   pass (happy-day: 17/17, deposit-withdrawal-failure-refund: 9/9,
+   deposit-claimant-not-caller: 6/6, benchmark: 13/13, false-claimer: 6/6).
+   Single-file scripts: `yarn test:integration-tests:<flow-file-name>`,
+   e.g. `yarn test:integration-tests:happy-day-e2e`
    (globalSetup still runs first either way).
 
 ## Redeploy flow (`/e2e redeploy`)
@@ -155,6 +155,16 @@ be swept to the new one.
   contract addresses — redo step 6.
 - `vault is already initialized` on a kept address is informational; the test
   still asserts state and passes.
+- The signature poll timing out on a request the responder DID log as "New
+  request", with `postSignatureResponse … FAILED` + a proof-server transport
+  error in the responder's own log: the responder proves its posts through
+  the SAME proof server (:6300), and a proof-server restart during its post
+  kills it — the responder does not retry, so the request strands
+  unresponded. Recover by restarting the responder (its startup backfill
+  re-discovers unresponded requests and posts the missing signatures), then
+  rerun the flow file with its resume var. Corollary: when restarting the
+  proof server between flow files for OOM headroom, do it only while the
+  responder's log is quiet.
 - `connect ECONNREFUSED 127.0.0.1:6300` mid-claim/settle with
   `docker ps -a` showing the proof server `Exited (137)`: the proof server
   was OOM-killed (it has done this repeatedly at the claim step — a single

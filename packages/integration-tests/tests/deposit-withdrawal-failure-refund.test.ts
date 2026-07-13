@@ -138,15 +138,13 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault deposit → wit
   it(
     "arrange: deposit round trip mints the shielded vault tokens the doomed withdraw will escrow",
     async () => {
-      const { requestId, timings } = await runDepositRoundTrip(session, env, {
+      const { requestId } = await runDepositRoundTrip(session, env, {
         amount: DEPOSIT_AMOUNT,
         reuseRequestId: env.FAILURE_REFUND_DEPOSIT_REQUEST_ID as RequestIdHex | undefined,
       });
 
       banner([
         `Arrange deposit ${requestId} complete — the caller holds ${DEPOSIT_AMOUNT} base units of shielded vault tokens.`,
-        "",
-        `  per-leg wall clock (ms): ${JSON.stringify(timings)}`,
         "",
         "If a later step dies (e.g. proof-server OOM), resume with",
         `  FAILURE_REFUND_DEPOSIT_REQUEST_ID=${requestId}`,
