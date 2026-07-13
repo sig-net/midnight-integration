@@ -51,13 +51,13 @@ export type ImpureCircuits<PS> = {
         pk_0: __compactRuntime.JubjubPoint,
         announcement_0: __compactRuntime.JubjubPoint,
         response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
-  claimRefund(context: __compactRuntime.CircuitContext<PS>,
-              requestId_0: Uint8Array,
-              outputData_0: Uint8Array,
-              mintNonce_0: Uint8Array,
-              pk_0: __compactRuntime.JubjubPoint,
-              announcement_0: __compactRuntime.JubjubPoint,
-              response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  completeWithdraw(context: __compactRuntime.CircuitContext<PS>,
+                   requestId_0: Uint8Array,
+                   outputData_0: Uint8Array,
+                   mintNonce_0: Uint8Array,
+                   pk_0: __compactRuntime.JubjubPoint,
+                   announcement_0: __compactRuntime.JubjubPoint,
+                   response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type ProvableCircuits<PS> = {
@@ -105,13 +105,13 @@ export type ProvableCircuits<PS> = {
         pk_0: __compactRuntime.JubjubPoint,
         announcement_0: __compactRuntime.JubjubPoint,
         response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
-  claimRefund(context: __compactRuntime.CircuitContext<PS>,
-              requestId_0: Uint8Array,
-              outputData_0: Uint8Array,
-              mintNonce_0: Uint8Array,
-              pk_0: __compactRuntime.JubjubPoint,
-              announcement_0: __compactRuntime.JubjubPoint,
-              response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  completeWithdraw(context: __compactRuntime.CircuitContext<PS>,
+                   requestId_0: Uint8Array,
+                   outputData_0: Uint8Array,
+                   mintNonce_0: Uint8Array,
+                   pk_0: __compactRuntime.JubjubPoint,
+                   announcement_0: __compactRuntime.JubjubPoint,
+                   response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type PureCircuits = {
@@ -162,13 +162,13 @@ export type Circuits<PS> = {
         pk_0: __compactRuntime.JubjubPoint,
         announcement_0: __compactRuntime.JubjubPoint,
         response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
-  claimRefund(context: __compactRuntime.CircuitContext<PS>,
-              requestId_0: Uint8Array,
-              outputData_0: Uint8Array,
-              mintNonce_0: Uint8Array,
-              pk_0: __compactRuntime.JubjubPoint,
-              announcement_0: __compactRuntime.JubjubPoint,
-              response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  completeWithdraw(context: __compactRuntime.CircuitContext<PS>,
+                   requestId_0: Uint8Array,
+                   outputData_0: Uint8Array,
+                   mintNonce_0: Uint8Array,
+                   pk_0: __compactRuntime.JubjubPoint,
+                   announcement_0: __compactRuntime.JubjubPoint,
+                   response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type Ledger = {

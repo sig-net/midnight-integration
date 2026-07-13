@@ -670,9 +670,9 @@ export class Contract {
         partialProofData.output = { value: [], alignment: [] };
         return { result: result_0, context: context, proofData: partialProofData, gasCost: context.gasCost };
       },
-      claimRefund: (...args_1) => {
+      completeWithdraw: (...args_1) => {
         if (args_1.length !== 7) {
-          throw new __compactRuntime.CompactError(`claimRefund: expected 7 arguments (as invoked from Typescript), received ${args_1.length}`);
+          throw new __compactRuntime.CompactError(`completeWithdraw: expected 7 arguments (as invoked from Typescript), received ${args_1.length}`);
         }
         const contextOrig_0 = args_1[0];
         const requestId_0 = args_1[1];
@@ -682,37 +682,37 @@ export class Contract {
         const announcement_0 = args_1[5];
         const response_0 = args_1[6];
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
-          __compactRuntime.typeError('claimRefund',
+          __compactRuntime.typeError('completeWithdraw',
                                      'argument 1 (as invoked from Typescript)',
-                                     'erc20-vault.compact line 482 char 1',
+                                     'erc20-vault.compact line 483 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(requestId_0.buffer instanceof ArrayBuffer && requestId_0.BYTES_PER_ELEMENT === 1 && requestId_0.length === 32)) {
-          __compactRuntime.typeError('claimRefund',
+          __compactRuntime.typeError('completeWithdraw',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'erc20-vault.compact line 482 char 1',
+                                     'erc20-vault.compact line 483 char 1',
                                      'Bytes<32>',
                                      requestId_0)
         }
         if (!(outputData_0.buffer instanceof ArrayBuffer && outputData_0.BYTES_PER_ELEMENT === 1 && outputData_0.length === 4096)) {
-          __compactRuntime.typeError('claimRefund',
+          __compactRuntime.typeError('completeWithdraw',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'erc20-vault.compact line 482 char 1',
+                                     'erc20-vault.compact line 483 char 1',
                                      'Bytes<4096>',
                                      outputData_0)
         }
         if (!(mintNonce_0.buffer instanceof ArrayBuffer && mintNonce_0.BYTES_PER_ELEMENT === 1 && mintNonce_0.length === 32)) {
-          __compactRuntime.typeError('claimRefund',
+          __compactRuntime.typeError('completeWithdraw',
                                      'argument 3 (argument 4 as invoked from Typescript)',
-                                     'erc20-vault.compact line 482 char 1',
+                                     'erc20-vault.compact line 483 char 1',
                                      'Bytes<32>',
                                      mintNonce_0)
         }
         if (!(typeof(response_0) === 'bigint' && response_0 >= 0 && response_0 <= __compactRuntime.MAX_FIELD)) {
-          __compactRuntime.typeError('claimRefund',
+          __compactRuntime.typeError('completeWithdraw',
                                      'argument 6 (argument 7 as invoked from Typescript)',
-                                     'erc20-vault.compact line 482 char 1',
+                                     'erc20-vault.compact line 483 char 1',
                                      'Field',
                                      response_0)
         }
@@ -726,14 +726,14 @@ export class Contract {
           publicTranscript: [],
           privateTranscriptOutputs: []
         };
-        const result_0 = this._claimRefund_0(context,
-                                             partialProofData,
-                                             requestId_0,
-                                             outputData_0,
-                                             mintNonce_0,
-                                             pk_0,
-                                             announcement_0,
-                                             response_0);
+        const result_0 = this._completeWithdraw_0(context,
+                                                  partialProofData,
+                                                  requestId_0,
+                                                  outputData_0,
+                                                  mintNonce_0,
+                                                  pk_0,
+                                                  announcement_0,
+                                                  response_0);
         partialProofData.output = { value: [], alignment: [] };
         return { result: result_0, context: context, proofData: partialProofData, gasCost: context.gasCost };
       }
@@ -743,14 +743,14 @@ export class Contract {
       deposit: this.circuits.deposit,
       withdraw: this.circuits.withdraw,
       claim: this.circuits.claim,
-      claimRefund: this.circuits.claimRefund
+      completeWithdraw: this.circuits.completeWithdraw
     };
     this.provableCircuits = {
       initialize: this.circuits.initialize,
       deposit: this.circuits.deposit,
       withdraw: this.circuits.withdraw,
       claim: this.circuits.claim,
-      claimRefund: this.circuits.claimRefund
+      completeWithdraw: this.circuits.completeWithdraw
     };
   }
   initialState(...args_0) {
@@ -816,7 +816,7 @@ export class Contract {
     state_0.setOperation('deposit', new __compactRuntime.ContractOperation());
     state_0.setOperation('withdraw', new __compactRuntime.ContractOperation());
     state_0.setOperation('claim', new __compactRuntime.ContractOperation());
-    state_0.setOperation('claimRefund', new __compactRuntime.ContractOperation());
+    state_0.setOperation('completeWithdraw', new __compactRuntime.ContractOperation());
     const context = __compactRuntime.createCircuitContext(__compactRuntime.dummyContractAddress(), constructorContext_0.initialZswapLocalState.coinPublicKey, state_0.data, constructorContext_0.initialPrivateState);
     const partialProofData = {
       input: { value: [], alignment: [] },
@@ -3530,14 +3530,14 @@ export class Contract {
                                        { ins: { cached: true, n: 2 } }]);
     return [];
   }
-  _claimRefund_0(context,
-                 partialProofData,
-                 requestId_0,
-                 outputData_0,
-                 mintNonce_0,
-                 pk_0,
-                 announcement_0,
-                 response_0)
+  _completeWithdraw_0(context,
+                      partialProofData,
+                      requestId_0,
+                      outputData_0,
+                      mintNonce_0,
+                      pk_0,
+                      announcement_0,
+                      response_0)
   {
     const rid_0 = requestId_0;
     __compactRuntime.assert(this._equal_9(this._persistentHash_7(pk_0),
@@ -3561,19 +3561,19 @@ export class Contract {
     const msg_0 = [__compactRuntime.convertBytesToField(16,
                                                         ((e, i) => e.slice(i, i+16))(rid_0,
                                                                                      Number(0n)),
-                                                        'erc20-vault.compact line 498 char 5'),
+                                                        'erc20-vault.compact line 499 char 5'),
                    __compactRuntime.convertBytesToField(16,
                                                         ((e, i) => e.slice(i, i+16))(rid_0,
                                                                                      Number(16n)),
-                                                        'erc20-vault.compact line 499 char 5'),
-                   __compactRuntime.convertBytesToField(16,
-                                                        ((e, i) => e.slice(i, i+16))(outHash_0,
-                                                                                     Number(0n)),
                                                         'erc20-vault.compact line 500 char 5'),
                    __compactRuntime.convertBytesToField(16,
                                                         ((e, i) => e.slice(i, i+16))(outHash_0,
+                                                                                     Number(0n)),
+                                                        'erc20-vault.compact line 501 char 5'),
+                   __compactRuntime.convertBytesToField(16,
+                                                        ((e, i) => e.slice(i, i+16))(outHash_0,
                                                                                      Number(16n)),
-                                                        'erc20-vault.compact line 501 char 5')];
+                                                        'erc20-vault.compact line 502 char 5')];
     this._schnorrVerify_0(context,
                           partialProofData,
                           msg_0,
@@ -3599,109 +3599,109 @@ export class Contract {
                                                                                        { popeq: { cached: true,
                                                                                                   result: undefined } }]).value),
                             'Withdrawal not found');
-    const sk_0 = this._callerSecretKey_0(context, partialProofData);
-    __compactRuntime.assert(this._equal_10(this._userCommitment_0(sk_0),
-                                           _descriptor_0.fromValue(__compactRuntime.queryLedgerState(context,
-                                                                                                     partialProofData,
-                                                                                                     [
-                                                                                                      { dup: { n: 0 } },
-                                                                                                      { idx: { cached: false,
-                                                                                                               pushPath: false,
-                                                                                                               path: [
-                                                                                                                      { tag: 'value',
-                                                                                                                        value: { value: _descriptor_15.toValue(1n),
-                                                                                                                                 alignment: _descriptor_15.alignment() } },
-                                                                                                                      { tag: 'value',
-                                                                                                                        value: { value: _descriptor_15.toValue(14n),
-                                                                                                                                 alignment: _descriptor_15.alignment() } }] } },
-                                                                                                      { idx: { cached: false,
-                                                                                                               pushPath: false,
-                                                                                                               path: [
-                                                                                                                      { tag: 'value',
-                                                                                                                        value: { value: _descriptor_0.toValue(rid_0),
-                                                                                                                                 alignment: _descriptor_0.alignment() } }] } },
-                                                                                                      { popeq: { cached: false,
-                                                                                                                 result: undefined } }]).value)),
-                            'Not the withdrawer');
     const succeeded_0 = __compactRuntime.convertBytesToField(1,
                                                              ((e, i) => e.slice(i, i+1))(outputData_0,
                                                                                          Number(0n)),
-                                                             'erc20-vault.compact line 519 char 30')
+                                                             'erc20-vault.compact line 516 char 30')
                         ===
                         1n;
-    __compactRuntime.assert(!succeeded_0,
-                            'Withdrawal succeeded; nothing to refund');
-    let tmp_0;
-    const amountBytes_0 = (tmp_0 = this._calldataArgKey_0(rid_0, 1n),
-                           _descriptor_0.fromValue(__compactRuntime.queryLedgerState(context,
-                                                                                     partialProofData,
-                                                                                     [
-                                                                                      { dup: { n: 0 } },
-                                                                                      { idx: { cached: false,
-                                                                                               pushPath: false,
-                                                                                               path: [
-                                                                                                      { tag: 'value',
-                                                                                                        value: { value: _descriptor_15.toValue(0n),
-                                                                                                                 alignment: _descriptor_15.alignment() } },
-                                                                                                      { tag: 'value',
-                                                                                                        value: { value: _descriptor_15.toValue(5n),
-                                                                                                                 alignment: _descriptor_15.alignment() } }] } },
-                                                                                      { idx: { cached: false,
-                                                                                               pushPath: false,
-                                                                                               path: [
-                                                                                                      { tag: 'value',
-                                                                                                        value: { value: _descriptor_0.toValue(tmp_0),
-                                                                                                                 alignment: _descriptor_0.alignment() } }] } },
-                                                                                      { popeq: { cached: false,
-                                                                                                 result: undefined } }]).value));
-    const amount_0 = ((t1) => {
-                       if (t1 > 340282366920938463463374607431768211455n) {
-                         throw new __compactRuntime.CompactError('erc20-vault.compact line 524 char 18: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 340282366920938463463374607431768211455');
-                       }
-                       return t1;
-                     })(__compactRuntime.convertBytesToField(32,
-                                                             amountBytes_0,
-                                                             'erc20-vault.compact line 524 char 18'));
-    const erc20Addr_0 = _descriptor_8.fromValue(__compactRuntime.queryLedgerState(context,
-                                                                                  partialProofData,
-                                                                                  [
-                                                                                   { dup: { n: 0 } },
-                                                                                   { idx: { cached: false,
-                                                                                            pushPath: false,
-                                                                                            path: [
-                                                                                                   { tag: 'value',
-                                                                                                     value: { value: _descriptor_15.toValue(0n),
-                                                                                                              alignment: _descriptor_15.alignment() } },
-                                                                                                   { tag: 'value',
-                                                                                                     value: { value: _descriptor_15.toValue(6n),
-                                                                                                              alignment: _descriptor_15.alignment() } }] } },
-                                                                                   { idx: { cached: false,
-                                                                                            pushPath: false,
-                                                                                            path: [
-                                                                                                   { tag: 'value',
-                                                                                                     value: { value: _descriptor_0.toValue(rid_0),
-                                                                                                              alignment: _descriptor_0.alignment() } }] } },
-                                                                                   { popeq: { cached: false,
-                                                                                              result: undefined } }]).value);
-    const domainSep_0 = this._persistentHash_5([new Uint8Array([101, 114, 99, 50, 48, 58, 118, 97, 117, 108, 116, 58, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-                                                __compactRuntime.convertFieldToBytes(32,
-                                                                                     __compactRuntime.convertBytesToField(20,
-                                                                                                                          erc20Addr_0,
-                                                                                                                          'erc20-vault.compact line 528 char 5'),
-                                                                                     'erc20-vault.compact line 528 char 5')]);
-    const recipient_0 = this._left_0(this._ownPublicKey_0(context,
-                                                          partialProofData));
-    this._mintShieldedToken_0(context,
-                              partialProofData,
-                              domainSep_0,
-                              ((t1) => {
-                                if (t1 > 18446744073709551615n) {
-                                  throw new __compactRuntime.CompactError('erc20-vault.compact line 531 char 32: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
-                                }
-                                return t1;
-                              })(amount_0),
-                              mintNonce_0,
-                              recipient_0);
+    if (!succeeded_0) {
+      const sk_0 = this._callerSecretKey_0(context, partialProofData);
+      __compactRuntime.assert(this._equal_10(this._userCommitment_0(sk_0),
+                                             _descriptor_0.fromValue(__compactRuntime.queryLedgerState(context,
+                                                                                                       partialProofData,
+                                                                                                       [
+                                                                                                        { dup: { n: 0 } },
+                                                                                                        { idx: { cached: false,
+                                                                                                                 pushPath: false,
+                                                                                                                 path: [
+                                                                                                                        { tag: 'value',
+                                                                                                                          value: { value: _descriptor_15.toValue(1n),
+                                                                                                                                   alignment: _descriptor_15.alignment() } },
+                                                                                                                        { tag: 'value',
+                                                                                                                          value: { value: _descriptor_15.toValue(14n),
+                                                                                                                                   alignment: _descriptor_15.alignment() } }] } },
+                                                                                                        { idx: { cached: false,
+                                                                                                                 pushPath: false,
+                                                                                                                 path: [
+                                                                                                                        { tag: 'value',
+                                                                                                                          value: { value: _descriptor_0.toValue(rid_0),
+                                                                                                                                   alignment: _descriptor_0.alignment() } }] } },
+                                                                                                        { popeq: { cached: false,
+                                                                                                                   result: undefined } }]).value)),
+                              'Not the withdrawer');
+      let tmp_0;
+      const amountBytes_0 = (tmp_0 = this._calldataArgKey_0(rid_0, 1n),
+                             _descriptor_0.fromValue(__compactRuntime.queryLedgerState(context,
+                                                                                       partialProofData,
+                                                                                       [
+                                                                                        { dup: { n: 0 } },
+                                                                                        { idx: { cached: false,
+                                                                                                 pushPath: false,
+                                                                                                 path: [
+                                                                                                        { tag: 'value',
+                                                                                                          value: { value: _descriptor_15.toValue(0n),
+                                                                                                                   alignment: _descriptor_15.alignment() } },
+                                                                                                        { tag: 'value',
+                                                                                                          value: { value: _descriptor_15.toValue(5n),
+                                                                                                                   alignment: _descriptor_15.alignment() } }] } },
+                                                                                        { idx: { cached: false,
+                                                                                                 pushPath: false,
+                                                                                                 path: [
+                                                                                                        { tag: 'value',
+                                                                                                          value: { value: _descriptor_0.toValue(tmp_0),
+                                                                                                                   alignment: _descriptor_0.alignment() } }] } },
+                                                                                        { popeq: { cached: false,
+                                                                                                   result: undefined } }]).value));
+      const amount_0 = ((t1) => {
+                         if (t1 > 340282366920938463463374607431768211455n) {
+                           throw new __compactRuntime.CompactError('erc20-vault.compact line 524 char 20: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 340282366920938463463374607431768211455');
+                         }
+                         return t1;
+                       })(__compactRuntime.convertBytesToField(32,
+                                                               amountBytes_0,
+                                                               'erc20-vault.compact line 524 char 20'));
+      const erc20Addr_0 = _descriptor_8.fromValue(__compactRuntime.queryLedgerState(context,
+                                                                                    partialProofData,
+                                                                                    [
+                                                                                     { dup: { n: 0 } },
+                                                                                     { idx: { cached: false,
+                                                                                              pushPath: false,
+                                                                                              path: [
+                                                                                                     { tag: 'value',
+                                                                                                       value: { value: _descriptor_15.toValue(0n),
+                                                                                                                alignment: _descriptor_15.alignment() } },
+                                                                                                     { tag: 'value',
+                                                                                                       value: { value: _descriptor_15.toValue(6n),
+                                                                                                                alignment: _descriptor_15.alignment() } }] } },
+                                                                                     { idx: { cached: false,
+                                                                                              pushPath: false,
+                                                                                              path: [
+                                                                                                     { tag: 'value',
+                                                                                                       value: { value: _descriptor_0.toValue(rid_0),
+                                                                                                                alignment: _descriptor_0.alignment() } }] } },
+                                                                                     { popeq: { cached: false,
+                                                                                                result: undefined } }]).value);
+      const domainSep_0 = this._persistentHash_5([new Uint8Array([101, 114, 99, 50, 48, 58, 118, 97, 117, 108, 116, 58, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                                                  __compactRuntime.convertFieldToBytes(32,
+                                                                                       __compactRuntime.convertBytesToField(20,
+                                                                                                                            erc20Addr_0,
+                                                                                                                            'erc20-vault.compact line 528 char 7'),
+                                                                                       'erc20-vault.compact line 528 char 7')]);
+      const recipient_0 = this._left_0(this._ownPublicKey_0(context,
+                                                            partialProofData));
+      this._mintShieldedToken_0(context,
+                                partialProofData,
+                                domainSep_0,
+                                ((t1) => {
+                                  if (t1 > 18446744073709551615n) {
+                                    throw new __compactRuntime.CompactError('erc20-vault.compact line 531 char 34: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 18446744073709551615');
+                                  }
+                                  return t1;
+                                })(amount_0),
+                                mintNonce_0,
+                                recipient_0);
+    }
     __compactRuntime.queryLedgerState(context,
                                       partialProofData,
                                       [

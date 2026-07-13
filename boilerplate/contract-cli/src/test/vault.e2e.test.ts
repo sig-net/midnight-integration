@@ -714,7 +714,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
 
   // ════════════════════════════════════════════════════════════════
   //  Withdraw flow (outbound): surrender a shielded coin → vault pays
-  //  out the ERC20 on Sepolia → success needs no follow-up; failure → claimRefund.
+  //  out the ERC20 on Sepolia → completeWithdraw finalizes (permissionless on success, refund on failure).
   // ════════════════════════════════════════════════════════════════
 
   // The path withdraw constructs in-circuit is the literal string "vault".
@@ -783,7 +783,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
 
   // ── STEP 6: Withdraw success — surrender the coin, vault pays out, finalize ──
   it(
-    'STEP 6 — withdraw → MPC signs vault→dest transfer → success (no refund needed)',
+    'STEP 6 — withdraw → MPC signs vault→dest transfer → completeWithdraw finalizes (success)',
     async () => {
       section('STEP 6', 'Withdraw from the vault (success)');
       const before = await shieldedVaultBalance();
@@ -804,19 +804,20 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
       expect(out[0] === 0xde && out[1] === 0xad).toBe(false); // expect success, not deadbeef
 
-      // Success: no follow-up. claimRefund would revert (nothing to refund); the request
-      // row is intentionally left in place (successful withdrawals need no completer).
-      ok('withdraw(success) — vault paid out, no refund');
+      // Finalize the successful withdrawal. The success path mints nothing and needs no
+      // identity, so anyone can call it; here the withdrawer does.
+      await deployedContract.callTx.completeWithdraw(wrid, out, api.randomBytes(32), resp.pk, resp.announcement, resp.response);
+      ok('completeWithdraw(success) — withdrawal finalized, no refund');
       expect(await shieldedVaultBalance()).toBe(before - testAmount); // NOT refunded
       const after = await api.getLedgerState(providers, DEPLOYED_CONTRACT_ADDRESS!);
-      expect(after!.refundCommitment.member(wrid)).toBe(true); // left pending (no cleanup on success)
+      expect(after!.refundCommitment.member(wrid)).toBe(false); // cleaned up
     },
     1000 * 60 * 15,
   );
 
   // ── STEP 7: Withdraw failure (stale nonce) → deadbeef → refund ──
   it(
-    'STEP 7 — withdraw with a stale nonce → MPC 0xdeadbeef → claimRefund refunds the coin',
+    'STEP 7 — withdraw with a stale nonce → MPC 0xdeadbeef → completeWithdraw refunds the coin',
     async () => {
       section('STEP 7', 'Withdraw failure → refund');
       await mintFreshCoin(testAmount); // ensure the wallet holds vault-token balance
@@ -835,8 +836,8 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       const resp = await mpcP;
       const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
       expect(out[0]).toBe(0xde); // deadbeef failure
-      await deployedContract.callTx.claimRefund(wrid, out, api.randomBytes(32), resp.pk, resp.announcement, resp.response);
-      ok('claimRefund(deadbeef) — coin refunded to the withdrawer');
+      await deployedContract.callTx.completeWithdraw(wrid, out, api.randomBytes(32), resp.pk, resp.announcement, resp.response);
+      ok('completeWithdraw(deadbeef) — coin refunded to the withdrawer');
       expect(await shieldedVaultBalance()).toBe(before); // restored
     },
     1000 * 60 * 15,
@@ -850,7 +851,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
   // api.fundWalletForFees), so no manual tDUST setup is needed. MIDNIGHT_WALLET_SEED_B
   // can override B's seed; it defaults to ...0002.
   it(
-    'STEP 8 — transfer value A→B: old owner cannot withdraw, new owner can',
+    'STEP 8 — transfer value A→B: old owner cannot withdraw, new owner can; complete is permissionless',
     async () => {
       section('STEP 8', 'Bearer transfer: value moves with the coin');
       await mintFreshCoin(testAmount); // ensure A holds at least testAmount
@@ -901,9 +902,11 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
 
       const resp = await mpcP;
       const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
-      // B's withdrawal succeeds (vault pays out) → no refund follow-up needed.
       expect(out[0] === 0xde && out[1] === 0xad).toBe(false);
       ok('#4 — new owner (B) withdrew successfully from the transferred balance');
+      // #7 — completeWithdraw on a success is permissionless: A (not B) finalizes B's withdrawal.
+      await deployedContract.callTx.completeWithdraw(wrid, out, api.randomBytes(32), resp.pk, resp.announcement, resp.response);
+      ok('#7 — third party (A) finalized B’s successful withdrawal (permissionless)');
 
       await bCtx.wallet.stop();
     },

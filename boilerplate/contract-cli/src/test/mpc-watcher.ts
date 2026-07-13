@@ -17,7 +17,7 @@ export interface MpcWatcher {
  * watcher hasn't seen) is serviced exactly once via `simulateMpcResponse` — read the request,
  * broadcast + observe the EVM tx, Schnorr-sign the result — and the response is cached. The
  * watcher only signs requests it observes on-chain; it does not submit the Midnight call
- * (claim is submitted by the user; claimRefund by the test, which controls forged-sig cases).
+ * (claim is submitted by the user; completeWithdraw by the test, which controls forged-sig cases).
  */
 export const startMpcWatcher = (opts: {
   providers: VaultProviders;

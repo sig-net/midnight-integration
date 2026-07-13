@@ -3,7 +3,7 @@ import { contracts, witnesses } from '@midnight-ntwrk/contract';
 import * as CompiledContract from '@midnight-ntwrk/compact-js/effect/CompiledContract';
 import * as ledger from '@midnight-ntwrk/ledger-v8';
 import { unshieldedToken } from '@midnight-ntwrk/ledger-v8';
-import { deployContract, findDeployedContract, submitCallTx, createCallTxOptions } from '@midnight-ntwrk/midnight-js-contracts';
+import { deployContract, findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
@@ -390,25 +390,6 @@ export const fundWalletForFees = async (
   return dust;
 };
 
-// claimRefund with optional coinPublicKey → encryptionPublicKey mappings. The refund
-// mints to the caller's own key, so mappings are usually unnecessary, but kept optional.
-export const claimRefundWithMappings = async (
-  providers: VaultProviders,
-  contractAddress: string,
-  args: unknown[],
-  coinToEncPk?: ReadonlyMap<string, string>,
-) => {
-  const opts = createCallTxOptions(
-    vaultCompiledContract,
-    'claimRefund',
-    contractAddress as any,
-    'vaultPrivateState',
-    coinToEncPk as any,
-    args as any,
-  );
-  return submitCallTx(providers as any, opts as any);
-};
-
 export const randomBytes = (length: number): Uint8Array => {
   const bytes = new Uint8Array(length);
   webcrypto.getRandomValues(bytes);
@@ -420,7 +401,7 @@ export const buildFreshWallet = async (config: Config): Promise<WalletContext> =
 
 export const configureProviders = async (ctx: WalletContext, config: Config) => {
   const walletAndMidnightProvider = await createWalletAndMidnightProvider(ctx);
-  const zkConfigProvider = new NodeZkConfigProvider<'initialize' | 'deposit' | 'claim' | 'withdraw' | 'claimRefund'>(contractConfig.zkConfigPath);
+  const zkConfigProvider = new NodeZkConfigProvider<'initialize' | 'deposit' | 'claim' | 'withdraw' | 'completeWithdraw'>(contractConfig.zkConfigPath);
   const accountId = walletAndMidnightProvider.getCoinPublicKey();
   const storagePassword = `${Buffer.from(accountId, 'hex').toString('base64')}!`;
   return {

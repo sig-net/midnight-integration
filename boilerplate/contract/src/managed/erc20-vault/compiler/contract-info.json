@@ -362,7 +362,7 @@
       }
     },
     {
-      "name": "claimRefund",
+      "name": "completeWithdraw",
       "pure": false,
       "proof": true,
       "arguments": [
