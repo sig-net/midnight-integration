@@ -17,7 +17,6 @@
   "scripts": {
     "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signet-contract.compact src/managed",
     "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/signet-contract.compact src/managed",
-    "//build": "Typecheck (src+tests, noEmit), emit ./dist, then copy the generated managed/ output in — WITHOUT the prover keys (unshippable at ~273MB; consumers pass zkConfigPath to prove). Requires `yarn compile:zk` first: the verifier-key copy fails loudly on skip-zk-only output.",
     "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig.build.json && mkdir -p dist/managed/keys && cp -R src/managed/contract src/managed/compiler src/managed/zkir dist/managed/ && cp src/managed/keys/*.verifier dist/managed/keys/",
     "prepack": "yarn build",
     "test": "vitest run"
@@ -34,21 +33,13 @@
       "./managed/*": "./dist/managed/*"
     }
   },
+  "//dependencies": "Deliberately minimal — the package is platform-agnostic: compact-runtime is the generated contract's runtime, midnight-js is types-only (the SignetContractProviders alias). Environment bindings (zk-config source, state store, wallet adapter) live with each consumer.",
   "dependencies": {
-    "@midnight-ntwrk/compact-js": "2.5.5-rc.5",
     "@midnight-ntwrk/compact-runtime": "0.18.0-rc.0",
-    "@midnight-ntwrk/midnight-js": "5.0.0-beta.3",
-    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "5.0.0-beta.3",
-    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.3",
-    "@midnight-ntwrk/midnight-js-level-private-state-provider": "5.0.0-beta.3",
-    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "5.0.0-beta.3",
-    "@midnightntwrk/ledger-v9": "1.0.0-rc.3",
-    "@midnightntwrk/wallet-sdk-facade": "5.0.0-beta.2",
-    "@midnightntwrk/wallet-sdk-unshielded-wallet": "4.0.0-beta.2",
-    "@sig-net/midnight": "^0.0.1",
-    "effect": "^3.21.4"
+    "@midnight-ntwrk/midnight-js": "5.0.0-beta.3"
   },
   "devDependencies": {
+    "@sig-net/midnight": "^0.0.1",
     "@types/node": "^26.1.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"

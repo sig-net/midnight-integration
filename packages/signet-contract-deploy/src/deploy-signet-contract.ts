@@ -15,7 +15,10 @@ import {
   type TransactionIdentifier,
 } from "@midnight-erc20-vault/lib";
 import { parseJubjubPublicKey } from "@sig-net/midnight";
-import { createSignetContractPrivateState, signetContractCompiledContract } from "@sig-net/midnight-contract";
+import {
+  createSignetContractPrivateState,
+  signetContractCompiledContract,
+} from "./signet-contract-binding.ts";
 
 /** The outcome of a successful signet-contract deployment. */
 export interface SignetContractDeployment {
