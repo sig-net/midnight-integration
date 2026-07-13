@@ -9,7 +9,7 @@ import { Command, InvalidArgumentError } from "commander";
 import { Transaction } from "ethers";
 
 import { deriveAccountKeys, withSyncedWalletFacade, type EncPublicKey } from "@midnight-erc20-vault/lib";
-import { parseRequestIdHex, type RequestIdHex } from "@midnight-erc20-vault/signet-midnight";
+import { parseRequestIdHex, type RequestIdHex } from "@sig-net/midnight";
 
 import { broadcastEvm } from "./commands/broadcast-evm.ts";
 import { claimDeposit } from "./commands/claim-deposit.ts";

@@ -22,7 +22,7 @@
 //
 // Import from a contract (resolved through node_modules via COMPACT_PATH —
 // see the consuming package's compile script):
-//   import "@midnight-erc20-vault/signet-midnight/src/Schnorr" prefix Schnorr_;
+//   import "@sig-net/midnight/src/Schnorr" prefix Schnorr_;
 //
 // This file must contain ONLY this module (plus comments) so the compiler
 // accepts it as an external module import.

@@ -19,7 +19,7 @@ import {
   TxParamType,
   type RequestIdHex,
   type SignBidirectionalRequest,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
 import {

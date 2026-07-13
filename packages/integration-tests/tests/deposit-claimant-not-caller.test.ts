@@ -38,7 +38,7 @@ import {
   getMidnightNodeConfig,
   withSyncedWalletFacade,
 } from "@midnight-erc20-vault/lib";
-import { requestIdBytes, type RequestIdHex } from "@midnight-erc20-vault/signet-midnight";
+import { requestIdBytes, type RequestIdHex } from "@sig-net/midnight";
 import { formatEther, parseEther, parseUnits } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";

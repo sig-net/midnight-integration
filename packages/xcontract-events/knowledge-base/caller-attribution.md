@@ -44,7 +44,7 @@ The MPC derives the signing key as **`f(requester_contract_address, path)`** (ep
 derivation). In this repo:
 `EVM_VAULT_ADDRESS = deriveEvmAddress(mpcPk, MIDNIGHT_VAULT_CONTRACT_ADDRESS, "vault")` and
 `EVM_USER_ADDRESS = deriveEvmAddress(mpcPk, MIDNIGHT_VAULT_CONTRACT_ADDRESS, userCommitment)`
-(`@midnight-erc20-vault/signet-midnight`; used in `integration-tests/tests/e2e.test.ts`). **The
+(`@sig-net/midnight`; used in `integration-tests/tests/e2e.test.ts`). **The
 requester contract address is a derivation input.**
 
 If the MPC keyed off a `sender` field in a signet-emitted event, a malicious contract `M` could:

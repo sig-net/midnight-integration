@@ -52,7 +52,7 @@ yarn compile:zk
     │   └── src/
     │       └── index.ts
     │
-    ├── signet-midnight/            # @midnight-erc20-vault/signet-midnight
+    ├── signet-midnight/            # @sig-net/midnight
     │   ├── README.md
     │   ├── package.json
     │   ├── tsconfig.json

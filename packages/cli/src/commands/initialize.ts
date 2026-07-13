@@ -2,7 +2,7 @@
 // and the EVM chain it operates on into the contract config. Gated in-circuit
 // to the deployer identity.
 
-import { asciiPadded, CAIP2_ID_BYTES } from "@midnight-erc20-vault/signet-midnight";
+import { asciiPadded, CAIP2_ID_BYTES } from "@sig-net/midnight";
 
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";

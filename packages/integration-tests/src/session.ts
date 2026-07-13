@@ -6,7 +6,7 @@
 
 import { createCliContext, getCliConfig, type CliContext } from "@midnight-erc20-vault/cli";
 import { deriveAccountKeys, getMidnightNodeConfig, initialiseWalletFacade, type WalletFacade } from "@midnight-erc20-vault/lib";
-import { SignetRequestResponseReader } from "@midnight-erc20-vault/signet-midnight";
+import { SignetRequestResponseReader } from "@sig-net/midnight";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { requireEnv } from "./e2e-env.ts";
 

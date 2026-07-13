@@ -4,7 +4,7 @@
 // and every assertion on the decoded event stay in the test bodies.
 
 import { getMidnightNodeConfig } from "@midnight-erc20-vault/lib";
-import { eventNameTag, hexToBytes } from "@midnight-erc20-vault/signet-midnight";
+import { eventNameTag, hexToBytes } from "@sig-net/midnight";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { requireEnv } from "./e2e-env.ts";
 

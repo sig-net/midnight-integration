@@ -31,7 +31,7 @@
 //
 // Import from a contract (resolved through node_modules via COMPACT_PATH —
 // see the consuming package's compile script):
-//   import "@midnight-erc20-vault/signet-midnight/src/Signet";
+//   import "@sig-net/midnight/src/Signet";
 
 module Signet {
   import CompactStandardLibrary;

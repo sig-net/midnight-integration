@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { buildDeployTransaction, makeCompiledContract } from "@midnight-erc20-vault/lib";
-import { deriveJubjubKeypair } from "@midnight-erc20-vault/signet-midnight";
+import { deriveJubjubKeypair } from "@sig-net/midnight";
 
 import {
   Contract,

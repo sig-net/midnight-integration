@@ -17,7 +17,7 @@ import {
   withSyncedWalletFacade,
   type TransactionIdentifier,
 } from "@midnight-erc20-vault/lib";
-import { parseJubjubPublicKey } from "@midnight-erc20-vault/signet-midnight";
+import { parseJubjubPublicKey } from "@sig-net/midnight";
 
 import { Contract, pureCircuits } from "./managed/erc20-vault/contract/index.js";
 import { createVaultPrivateState, witnesses, type VaultPrivateState } from "./witnesses.ts";

@@ -13,7 +13,7 @@ import {
   RESPOND_SERIALIZATION_SCHEMA_BYTES,
   SIGNET_ALGO_ECDSA,
   SIGNET_DEST_ETHEREUM,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 
 /**
  * What the MPC reports back about the EVM call: an ERC20 `transfer` returns

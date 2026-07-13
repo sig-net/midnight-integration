@@ -22,7 +22,7 @@ import {
   executionSucceeded,
   requestIdBytes,
   type RequestIdHex,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 import { requireEnv } from "../e2e-env.ts";
 import { getTransactionNonce } from "../evm.ts";
 import { logSkip } from "../output.ts";

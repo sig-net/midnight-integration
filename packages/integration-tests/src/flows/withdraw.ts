@@ -15,7 +15,7 @@ import {
 import type {
   RequestIdHex,
   RespondBidirectional,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 import type { Transaction } from "ethers";
 import { requireEnv } from "../e2e-env.ts";
 import type { E2eSession } from "../session.ts";

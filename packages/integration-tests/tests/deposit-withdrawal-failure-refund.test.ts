@@ -37,7 +37,7 @@ import {
   requestIdBytes,
   type RequestIdHex,
   type RespondBidirectional,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 import { formatEther, parseEther, parseUnits, type Transaction } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";

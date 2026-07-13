@@ -38,7 +38,7 @@ import {
 import {
   EPSILON_DERIVATION_PREFIX,
   MIDNIGHT_TESTNET_CHAIN_ID,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 
 /** secp256k1 group order — private keys are reduced modulo this. */
 const SECP256K1_ORDER = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;

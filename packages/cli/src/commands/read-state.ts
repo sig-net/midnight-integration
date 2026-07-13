@@ -2,7 +2,7 @@
 // SDK: raw contract state from the indexer provider, decoded with the
 // generated `ledger()`. No proving keys or transactions involved.
 
-import { toSignBidirectionalRequestIndex } from "@midnight-erc20-vault/signet-midnight";
+import { toSignBidirectionalRequestIndex } from "@sig-net/midnight";
 import { ledger } from "@midnight-erc20-vault/vault-contract";
 
 import { requireConfigValue } from "../config.ts";

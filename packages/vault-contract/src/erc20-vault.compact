@@ -5,7 +5,7 @@ import CompactStandardLibrary;
 // Shared signet library: request/response structs, request-id hashing,
 // path<->identity binding, and request construction. See the module header in
 // Signet.compact and https://docs.sig.network/ for the protocol.
-import "@midnight-erc20-vault/signet-midnight/src/Signet";
+import "@sig-net/midnight/src/Signet";
 
 // ---- Signet ledger layout ----------------------------------------------------------
 // MPC locates this index by position so location must stay fixed after first contract deploy.

@@ -24,7 +24,7 @@ import {
   type JubjubKeypair,
   type SignatureResponse,
   type RespondBidirectional,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 
 import {
   Contract,

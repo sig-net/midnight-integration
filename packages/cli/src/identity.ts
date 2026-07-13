@@ -1,7 +1,7 @@
 // The user's vault identity: secret key → commitment → MPC derivation path.
 // Derivation calls the compiled circuits — never a TS re-implementation.
 
-import { bytesToHex, signetPathOfCommitment } from "@midnight-erc20-vault/signet-midnight";
+import { bytesToHex, signetPathOfCommitment } from "@sig-net/midnight";
 import { pureCircuits } from "@midnight-erc20-vault/vault-contract";
 
 import type { CliConfig } from "./config.ts";

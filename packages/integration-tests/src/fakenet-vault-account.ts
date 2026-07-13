@@ -8,7 +8,7 @@
 import {
   EPSILON_DERIVATION_PREFIX,
   MIDNIGHT_TESTNET_CHAIN_ID,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 import { Contract, JsonRpcProvider, keccak256, toUtf8Bytes, Wallet } from "ethers";
 import { requireEnv } from "./e2e-env.ts";
 

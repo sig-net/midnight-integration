@@ -29,7 +29,7 @@ import {
   type JubjubKeypair,
   type RespondBidirectional,
   type SignBidirectionalRequestLedgerIndex,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 
 import {
   Contract,

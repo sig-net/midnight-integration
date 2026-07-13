@@ -13,7 +13,7 @@ import {
   deriveMpcKeys,
   formatJubjubPublicKey,
   generateMpcRootKey,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 import { deploySignetContract } from "@midnight-erc20-vault/signet-contract";
 import { deployVault } from "@midnight-erc20-vault/vault-contract";
 import { formatEther, formatUnits } from "ethers";

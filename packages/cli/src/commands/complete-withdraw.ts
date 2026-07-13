@@ -9,7 +9,7 @@ import {
   requestIdBytes,
   SignetRequestResponseReader,
   type RequestIdHex,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";

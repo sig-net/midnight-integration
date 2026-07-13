@@ -41,7 +41,7 @@ import {
   stripHexPrefix,
   type RequestIdHex,
   type RespondBidirectional,
-} from "@midnight-erc20-vault/signet-midnight";
+} from "@sig-net/midnight";
 import { ledger as vaultContractLedger } from "@midnight-erc20-vault/vault-contract";
 import { formatEther, parseEther, parseUnits, type Transaction } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";

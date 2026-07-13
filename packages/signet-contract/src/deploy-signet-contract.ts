@@ -13,7 +13,7 @@ import {
   withSyncedWalletFacade,
   type TransactionIdentifier,
 } from "@midnight-erc20-vault/lib";
-import { parseJubjubPublicKey } from "@midnight-erc20-vault/signet-midnight";
+import { parseJubjubPublicKey } from "@sig-net/midnight";
 
 import { signetContractCompiledContract } from "./providers.ts";
 import { createSignetContractPrivateState } from "./witnesses.ts";

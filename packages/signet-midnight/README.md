@@ -1,4 +1,4 @@
-# @midnight-erc20-vault/signet-midnight
+# @sig-net/midnight
 
 THE point of the repo: the Midnight-side sig-net integration. Midnight is not
 yet a signet.js chain — this package is the seed of that future adapter.
