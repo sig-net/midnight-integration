@@ -379,7 +379,7 @@ module Signet {
   // length, so neither can be swapped under a reused signature; the 16-byte
   // split is needed because a 32-byte value overflows the BLS scalar field.
   // ONE implementation for everyone: the signet contract verifies posts
-  // against it, requester contracts (claimDeposit) re-verify against it, and
+  // against it, requester contracts (e.g. the vault's claim) re-verify against it, and
   // off-chain signers call the compiled copy (via circuits.compact) — never
   // a TS re-implementation.
   export pure circuit signetAttestationMessage(

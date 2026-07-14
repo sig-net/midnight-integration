@@ -8,7 +8,7 @@ import { broadcastEvm } from "./broadcast-evm.ts";
 import { completeWithdraw } from "./complete-withdraw.ts";
 import { pollRespondBidirectional } from "./poll-respond-bidirectional.ts";
 import { pollSignatureResponse } from "./poll-signature-response.ts";
-import { requestWithdraw } from "./request-withdraw.ts";
+import { withdraw } from "./withdraw.ts";
 
 /** Options for {@link withdrawE2E}. */
 export interface WithdrawE2EOptions {
@@ -26,7 +26,7 @@ export interface WithdrawE2EOptions {
 
 /**
  * Run the withdraw flow end-to-end:
- * 1. `requestWithdraw` surrenders the shielded coin and records the signature
+ * 1. `withdraw` surrenders the shielded coin and records the signature
  *    request (`path = "vault"`).
  * 2. The MPC signs the vault→destination EVM transfer and posts the signed
  *    transaction to the signet contract; poll for it.
@@ -34,7 +34,7 @@ export interface WithdrawE2EOptions {
  * 4. The MPC observes the receipt and posts the Schnorr-signed
  *    `(requestId, serializedOutput)` attestation; poll for it.
  * 5. `completeWithdraw` settles the request: success is final, failure
- *    re-mints the surrendered value to the pinned refund recipient.
+ *    re-mints the surrendered value to the withdrawer (this wallet).
  *
  * @param context - The CLI context.
  * @param options - The withdraw arguments and polling patience.
@@ -42,7 +42,7 @@ export interface WithdrawE2EOptions {
 export async function withdrawE2E(context: CliContext, options: WithdrawE2EOptions): Promise<void> {
   const { amount, destEvmAddress, evmNonce, intervalMs, timeoutMs } = options;
 
-  const requestId = await requestWithdraw(context, { amount, destEvmAddress, evmNonce });
+  const requestId = await withdraw(context, { amount, destEvmAddress, evmNonce });
 
   // Withdraw transactions are signed by the VAULT's derived account, not the
   // user's — verify the MPC's signature against it.

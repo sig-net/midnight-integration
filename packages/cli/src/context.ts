@@ -29,7 +29,7 @@ import { requireConfigValue, type CliConfig } from "./config.ts";
 /**
  * The joined vault contract handle — midnight-js's found-contract shape typed
  * to the vault's generated contract, so `callTx.initialize(...)` /
- * `callTx.requestDeposit(...)` carry the real circuit signatures.
+ * `callTx.deposit(...)` carry the real circuit signatures.
  */
 export type DeployedVaultContract = FoundContract<VaultContract<VaultPrivateState>>;
 

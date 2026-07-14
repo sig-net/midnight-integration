@@ -10,10 +10,10 @@
 
 import {
   broadcastEvm,
-  claimDeposit,
+  claim,
+  deposit,
   pollSignatureResponse,
   pollRespondBidirectional,
-  requestDeposit,
   requireConfigValue,
   readVaultLedger,
   type ShieldedTokenRecipient,
@@ -35,7 +35,7 @@ export interface DepositRoundTripOptions {
   /** Deposit amount in ERC20 base units. */
   readonly amount: bigint;
   /**
-   * Resume from an existing request instead of calling `requestDeposit` —
+   * Resume from an existing request instead of calling `deposit` —
    * for recovering a run that died mid-round-trip (e.g. the proof server
    * OOM-killed at the claim step). Every later leg is naturally idempotent:
    * the signature response and attestation persist on the signet ledger,
@@ -45,7 +45,7 @@ export interface DepositRoundTripOptions {
   readonly reuseRequestId?: RequestIdHex;
   /**
    * The wallet the claim mints the shielded vault tokens to; the caller's
-   * own wallet when omitted. Passed through to `claimDeposit` — only the
+   * own wallet when omitted. Passed through to `claim` — only the
    * depositor (the session wallet) may claim either way.
    */
   readonly claimRecipient?: ShieldedTokenRecipient;
@@ -73,8 +73,8 @@ export interface DepositRoundTripResult {
 
 /**
  * Run the full deposit round trip against the live stack: fetch the user's
- * EVM nonce, `requestDeposit`, poll the MPC's signature, broadcast the sweep,
- * poll the MPC's attestation, and `claimDeposit` — leaving the claim
+ * EVM nonce, `deposit`, poll the MPC's signature, broadcast the sweep,
+ * poll the MPC's attestation, and `claim` — leaving the claim
  * recipient (`opts.claimRecipient`, the caller's own wallet by default)
  * holding `opts.amount` of freshly minted shielded vault tokens.
  *
@@ -100,7 +100,7 @@ export async function runDepositRoundTrip(
   let requestId: RequestIdHex;
   if (opts.reuseRequestId) {
     requestId = opts.reuseRequestId;
-    logSkip("requestDeposit", `resuming deposit round trip from existing request ${requestId}`);
+    logSkip("deposit", `resuming deposit round trip from existing request ${requestId}`);
   } else {
     // The sweep tx sender is the user's derived EVM account; its next nonce
     // comes from the chain, exactly as a wallet would fetch it.
@@ -108,7 +108,7 @@ export async function runDepositRoundTrip(
       requireEnv(env, "EVM_RPC_URL"),
       requireEnv(env, "EVM_USER_ADDRESS"),
     );
-    requestId = await requestDeposit(context, { amount: opts.amount, evmNonce });
+    requestId = await deposit(context, { amount: opts.amount, evmNonce });
   }
   if (!/^[0-9a-f]{64}$/.test(requestId)) {
     throw new Error(`deposit request id is not 64-char lowercase hex: "${requestId}"`);
@@ -142,7 +142,7 @@ export async function runDepositRoundTrip(
 
   let claimed = false;
   if (opts.skipClaim) {
-    logSkip("claimDeposit", `skipClaim set — request ${requestId} left unclaimed on the ledger`);
+    logSkip("claim", `skipClaim set — request ${requestId} left unclaimed on the ledger`);
     return { requestId, claimed };
   }
 
@@ -155,9 +155,9 @@ export async function runDepositRoundTrip(
   );
   const ledger = await readVaultLedger(context, vaultContractAddress);
   if (!ledger.signetRequestsIndex.member(requestIdBytes(requestId))) {
-    logSkip("claimDeposit", `request ${requestId} already claimed (not on the ledger)`);
+    logSkip("claim", `request ${requestId} already claimed (not on the ledger)`);
   } else {
-    await claimDeposit(context, { requestId, recipient: opts.claimRecipient });
+    await claim(context, { requestId, recipient: opts.claimRecipient });
     claimed = true;
   }
 

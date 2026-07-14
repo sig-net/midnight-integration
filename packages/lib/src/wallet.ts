@@ -169,6 +169,75 @@ export async function submitUnprovenTransaction(
 }
 
 /**
+ * Register every NIGHT UTXO not yet registered for dust generation, so the
+ * wallet can pay transaction fees (fees are paid in DUST, which only
+ * generates on registered NIGHT). Registers ONLY unregistered UTXOs — the
+ * node rejects a re-registration of an already-registered one — and submits
+ * nothing when there is nothing new to register.
+ *
+ * @param facade - A started wallet facade for `keys` (builds, proves and submits the registration).
+ * @param keys - The key material of the same wallet; its unshielded keystore signs the registration.
+ * @param state - The synced facade state to read the NIGHT UTXOs from.
+ * @returns How many NIGHT UTXOs this call registered (0 = all were already registered).
+ * @throws If the wallet holds no NIGHT at all, or the node rejects the registration transaction.
+ */
+export async function registerNightForDustGeneration(
+  facade: WalletFacade,
+  keys: AccountKeys,
+  state: FacadeState,
+): Promise<number> {
+  const nightUtxos = state.unshielded.availableCoins;
+  if (nightUtxos.length === 0) {
+    throw new Error(
+      "wallet holds no NIGHT UTXOs — fund it with NIGHT before registering for dust generation.",
+    );
+  }
+  const unregistered = nightUtxos.filter((coin) => !coin.meta.registeredForDustGeneration);
+  if (unregistered.length === 0) return 0;
+
+  // Register → finalize (prove) → submit. The registration segments are
+  // signed inside registerNightUtxosForDustGeneration via the keystore
+  // callback; no separate signRecipe step.
+  const recipe = await facade.registerNightUtxosForDustGeneration(
+    unregistered,
+    keys.unshieldedKeystore.getPublicKey(),
+    keys.unshieldedKeystore.signDataAsync,
+  );
+  const finalized = await facade.finalizeRecipe(recipe);
+  await facade.submitTransaction(finalized);
+  return unregistered.length;
+}
+
+// Dust generates continuously once NIGHT is registered, but a fresh
+// registration takes a few blocks before a spendable balance appears.
+const DUST_POLL_INTERVAL_MS = 5_000;
+
+/**
+ * Wait until the wallet's spendable DUST (fee) balance is positive, polling
+ * the synced facade state. Pair with {@link registerNightForDustGeneration}:
+ * a wallet whose NIGHT was just registered has no dust for a few blocks.
+ *
+ * @param facade - A started wallet facade.
+ * @param timeoutMs - Give-up deadline in milliseconds.
+ * @returns The first positive dust balance observed.
+ * @throws If no dust appears within `timeoutMs`.
+ */
+export async function waitForSpendableDust(facade: WalletFacade, timeoutMs: number = 300_000): Promise<bigint> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const state = await facade.waitForSyncedState();
+    const dust = state.dust.balance(new Date());
+    if (dust > 0n) return dust;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `no spendable DUST after ${timeoutMs} ms — is the wallet's NIGHT registered for dust generation?`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, DUST_POLL_INTERVAL_MS));
+  }
+}
+
+/**
  * Run `fn` against a started-and-synced {@link WalletFacade}, then stop the
  * facade — even when `fn` throws. The one place the start / wait-for-sync /
  * stop boilerplate lives.

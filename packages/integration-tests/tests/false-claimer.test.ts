@@ -1,12 +1,12 @@
 // The false-claimer e2e flow: the vault's in-circuit caller-identity check.
 // A deposit request records the DEPOSITOR's identity commitment as its MPC
-// derivation path; claimDeposit recomputes the caller's commitment from the
+// derivation path; claim recomputes the caller's commitment from the
 // callerSecretKey witness and asserts it matches — so a deposit recorded for
 // identity A must NOT be claimable by identity B, even with the MPC's valid
 // success attestation posted.
 //
 // Arrange: a deposit round trip up to but NOT including the claim
-// (src/flows/deposit.ts with skipClaim). Act: attempt claimDeposit through a
+// (src/flows/deposit.ts with skipClaim). Act: attempt claim through a
 // SECOND session whose USER_SEED and VAULT_USER_SECRET_KEY both differ from
 // the depositor's — both must be overridden together: a changed secret under
 // the SAME seed would hit midnight-js's persisted private state
@@ -28,7 +28,7 @@
 // (AGENTS.md: orchestration lives in the cli, never in tests).
 
 import {
-  claimDeposit,
+  claim,
   ERC20_TRANSFER_GAS_LIMIT,
   ERC20_TRANSFER_MAX_FEE_PER_GAS,
   readVaultLedger,
@@ -175,7 +175,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault false-claimer e
   );
 
   it(
-    "act: claimDeposit under a second identity rejects in-circuit and leaves the request on the ledger",
+    "act: claim under a second identity rejects in-circuit and leaves the request on the ledger",
     async () => {
       expect(depositRequestId).toBeDefined();
       if (!requestOnLedger) {
@@ -190,7 +190,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault false-claimer e
       // hex), and rejects during local transaction building.
       const falseClaimerContext = await falseClaimerSession.cliContext();
       await expect(
-        claimDeposit(falseClaimerContext, { requestId: depositRequestId }),
+        claim(falseClaimerContext, { requestId: depositRequestId }),
       ).rejects.toThrow(/path hex does not match commitment/);
 
       // The rejection happened client-side, so nothing was consumed: the
@@ -222,7 +222,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault false-claimer e
       }
 
       const context = await session.cliContext();
-      await claimDeposit(context, { requestId: depositRequestId });
+      await claim(context, { requestId: depositRequestId });
 
       const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
       const ledger = await readVaultLedger(context, vaultContractAddress);

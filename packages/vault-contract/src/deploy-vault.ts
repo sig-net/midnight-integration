@@ -56,7 +56,7 @@ export interface VaultDeployment {
  * as `deployer`, and the same secret must later answer the `callerSecretKey`
  * witness to pass `initialize`'s gate. The MPC attestation key
  * (`MPC_JUBJUB_PK`, "x,y" decimal or 0x-hex field coordinates) is sealed as
- * `mpcPubKeyHash` — claimDeposit accepts only attestations signed by it.
+ * `mpcPubKeyHash` — claim accepts only attestations signed by it.
  *
  * @param env - Environment map providing `DEPLOYER_SEED`,
  *   `VAULT_DEPLOYER_SECRET_KEY`, `MPC_JUBJUB_PK`,

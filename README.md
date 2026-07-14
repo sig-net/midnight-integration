@@ -98,4 +98,4 @@ yarn compile:zk
 - replace all usages of SignetEVMSignatureRequest with canonical EVMSignatureRequest type from signet.js (if it exists).
 - add V1 to every single struct
 - allow deposit to either normal address or contract address
-- use witness provided nonce randomness in claimDeposit + evolve nonce
+- use witness provided nonce randomness in claim + evolve nonce

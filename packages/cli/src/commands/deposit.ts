@@ -1,4 +1,4 @@
-// `request-deposit` — record a deposit signature request on the vault's
+// `deposit` — record a deposit signature request on the vault's
 // ledger. This is the first half of the deposit flow: it asks the MPC to sign
 // an EVM `transfer(vault, amount)` on the ERC20, sent from the user's derived
 // address. The request id is recomputed off-chain with the library's TS twin
@@ -30,8 +30,8 @@ import { getUserIdentity } from "../identity.ts";
 import { VAULT_MPC_ROUTING } from "../mpc-routing.ts";
 import { readVaultLedger } from "../vault-ledger.ts";
 
-/** Options for {@link requestDeposit}. */
-export interface RequestDepositOptions {
+/** Options for {@link deposit}. */
+export interface DepositOptions {
   /** Deposit amount in ERC20 base units. */
   readonly amount: bigint;
   /** Nonce of the user's derived EVM account (the sweep tx sender). */
@@ -39,7 +39,7 @@ export interface RequestDepositOptions {
 }
 
 /**
- * Call the vault's `requestDeposit` circuit on the deployed contract and
+ * Call the vault's `deposit` circuit on the deployed contract and
  * return the resulting request id.
  *
  * The circuit takes only what the caller genuinely chooses: their derived
@@ -58,7 +58,7 @@ export interface RequestDepositOptions {
  * @throws If required config is missing, the vault is uninitialized, or the
  *   recomputed id does not appear on the ledger.
  */
-export async function requestDeposit(context: CliContext, options: RequestDepositOptions): Promise<RequestIdHex> {
+export async function deposit(context: CliContext, options: DepositOptions): Promise<RequestIdHex> {
   const { config } = context;
   const vaultContractAddress = requireConfigValue(config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
   const erc20Address = requireConfigValue(config.erc20Address, "ERC20_ADDRESS");
@@ -126,7 +126,7 @@ export async function requestDeposit(context: CliContext, options: RequestDeposi
   };
   const expectedIdHex = requestIdHex(calculateRequestId(expectedRecord));
 
-  const result = await context.vault.callTx.requestDeposit(
+  const result = await context.vault.callTx.deposit(
     options.evmNonce,
     gasLimit,
     maxFeePerGas,
@@ -138,7 +138,7 @@ export async function requestDeposit(context: CliContext, options: RequestDeposi
       amount: options.amount,
     },
   );
-  console.log(`requestDeposit finalized in tx ${result.public.txId}`);
+  console.log(`deposit finalized in tx ${result.public.txId}`);
 
   // The ledger map key IS the domain-separated record hash — recomputing it
   // off-chain and finding it on the ledger proves both sides agree on every

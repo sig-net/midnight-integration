@@ -1,8 +1,8 @@
 // `complete-withdraw` — the settle call of the withdraw flow. It settles
-// BOTH branches: on EVM success the withdrawal is final; on failure the
-// surrendered value is re-minted to the pinned refund recipient.
-// Permissionless: anyone may call it, the refund always goes to the pinned
-// recipient.
+// BOTH branches: on EVM success the withdrawal is final and the settle is
+// permissionless (cleanup only); on failure the surrendered value is
+// re-minted to the WITHDRAWER, who must be the caller — the circuit demands
+// proof of the identity commitment pinned at withdraw time.
 
 import {
   executionSucceeded,
@@ -30,8 +30,11 @@ export interface CompleteWithdrawOptions {
  * writes to — then calls the circuit, which verifies the MPC public key hash
  * and the Schnorr signature, consumes the pending withdrawal, and branches on
  * the EVM result: success finalizes the withdrawal (the surrendered value
- * stays burned); failure re-mints it to the refund recipient pinned at
- * request time. The refund's coin handling is midnight-js's job:
+ * stays burned, any caller may settle); failure re-mints it to this wallet,
+ * which must be the withdrawer's — the circuit checks the caller's secret
+ * against the commitment pinned at request time. The refund mints under a
+ * fresh RANDOM nonce, so the refunded coin cannot be linked to the request.
+ * The refund's coin handling is midnight-js's job:
  * `vault.callTx.completeWithdraw(...)` balances the resulting offer like any
  * other call.
  *
@@ -67,12 +70,19 @@ export async function completeWithdraw(context: CliContext, options: CompleteWit
 
   const outcome = executionSucceeded(respondBidirectional.serializedOutput)
     ? "EVM transfer succeeded — settling final"
-    : "EVM transfer failed — settling with a refund to the pinned recipient";
+    : "EVM transfer failed — settling with a refund to this wallet (the withdrawer)";
   console.log(outcome);
+
+  // A fresh random mint nonce per settle: on the refund branch the circuit
+  // threads it into the shielded re-mint verbatim, so randomness HERE is what
+  // keeps the refunded coin unlinkable to the (public) request id. The
+  // success branch mints nothing and ignores it.
+  const mintNonce = crypto.getRandomValues(new Uint8Array(32));
 
   const result = await context.vault.callTx.completeWithdraw(
     requestIdBytes(options.requestId),
     respondBidirectional,
+    mintNonce,
   );
   console.log(`completeWithdraw settled in tx ${result.public.txId}`);
 }

@@ -1,4 +1,4 @@
-// The claimant-is-not-the-recipient e2e flow: claimDeposit takes an OPTIONAL
+// The claimant-is-not-the-recipient e2e flow: claim takes an OPTIONAL
 // mint recipient, so the depositor (the only identity allowed to claim) can
 // direct the freshly minted shielded vault tokens to a DIFFERENT wallet's
 // Zswap coin public key. This flow proves that end to end: a deposit round
@@ -183,7 +183,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault deposit → cla
   let claimExecuted: boolean;
 
   it(
-    "deposit round trip: claimDeposit names the alternate recipient and consumes the request",
+    "deposit round trip: claim names the alternate recipient and consumes the request",
     async () => {
       const { requestId, claimed } = await runDepositRoundTrip(session, env, {
         amount: DEPOSIT_AMOUNT,
@@ -201,7 +201,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault deposit → cla
       const ledger = await readVaultLedger(context, vaultContractAddress);
       expect(
         ledger.signetRequestsIndex.member(requestIdBytes(requestId)),
-        "claimDeposit must consume the request from the ledger",
+        "claim must consume the request from the ledger",
       ).toBe(false);
 
       banner([

@@ -1,7 +1,7 @@
-// `request-withdraw` — the first half of the withdraw flow: surrender a
-// shielded vault coin (burned by the contract) and record a signature request
-// asking the MPC to sign an EVM `transfer(destination, amount)` on the ERC20,
-// sent from the VAULT's derived address (path = "vault"). The request id is
+// `withdraw` — the first half of the withdraw flow: surrender a shielded
+// vault coin (burned by the contract) and record a signature request asking
+// the MPC to sign an EVM `transfer(destination, amount)` on the ERC20, sent
+// from the VAULT's derived address (path = "vault"). The request id is
 // recomputed off-chain with the library's TS twin of the request-id circuit
 // and asserted against the ledger map key before it is returned.
 
@@ -32,8 +32,8 @@ import { VAULT_MPC_ROUTING } from "../mpc-routing.ts";
 import { readVaultLedger } from "../vault-ledger.ts";
 import { vaultTokenType } from "../vault-token.ts";
 
-/** Options for {@link requestWithdraw}. */
-export interface RequestWithdrawOptions {
+/** Options for {@link withdraw}. */
+export interface WithdrawOptions {
   /** Withdraw amount in ERC20 base units. */
   readonly amount: bigint;
   /** Destination EVM address (20-byte 0x hex) receiving the ERC20. */
@@ -43,24 +43,26 @@ export interface RequestWithdrawOptions {
 }
 
 // The MPC derivation path of the vault's own EVM account — mirrors the
-// contract-fixed in-circuit literal `pad(256, "vault")` in requestWithdraw.
+// contract-fixed in-circuit literal `pad(256, "vault")` in withdraw.
 const VAULT_PATH = asciiPadded("vault", PATH_BYTES);
 
 /**
- * Call the vault's `requestWithdraw` circuit on the deployed contract and
- * return the resulting request id.
+ * Call the vault's `withdraw` circuit on the deployed contract and return
+ * the resulting request id.
  *
  * Surrenders a shielded vault coin of exactly `amount` — the coin's color
  * comes from the compiled `vaultTokenDomainSeparator` circuit plus the
  * runtime's `rawTokenType`, and midnight-js funds its value from the caller's
- * shielded balance when it balances the call. This wallet's own coin public
- * key is pinned as the refund recipient. The circuit takes only the vault
- * account's nonce, the key version, the withdraw arguments, the coin and the
- * refund key: the vault pays the withdraw gas, so the whole fee envelope is
- * contract-fixed (mirrored here by the `ERC20_TRANSFER_*` constants — keep
- * in lockstep). The expected request record is reconstructed off-chain, its
- * id computed with the library's `calculateRequestId` TS twin, and asserted
- * present as a ledger map key after the call.
+ * shielded balance when it balances the call. The circuit pins a refund
+ * COMMITMENT of this wallet's identity secret (never a public key), so only
+ * this caller can pull a refund in `completeWithdraw` if the EVM transfer
+ * fails. The circuit takes only the vault account's nonce, the key version,
+ * the withdraw arguments and the coin: the vault pays the withdraw gas, so
+ * the whole fee envelope is contract-fixed (mirrored here by the
+ * `ERC20_TRANSFER_*` constants — keep in lockstep). The expected request
+ * record is reconstructed off-chain, its id computed with the library's
+ * `calculateRequestId` TS twin, and asserted present as a ledger map key
+ * after the call.
  *
  * @param context - The CLI context.
  * @param options - The withdraw arguments.
@@ -68,7 +70,7 @@ const VAULT_PATH = asciiPadded("vault", PATH_BYTES);
  * @throws If required config is missing, an option is invalid, the vault is
  *   uninitialized, or the recomputed id does not appear on the ledger.
  */
-export async function requestWithdraw(context: CliContext, options: RequestWithdrawOptions): Promise<RequestIdHex> {
+export async function withdraw(context: CliContext, options: WithdrawOptions): Promise<RequestIdHex> {
   const { config } = context;
   const vaultContractAddress = requireConfigValue(config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
   const erc20Address = requireConfigValue(config.erc20Address, "ERC20_ADDRESS");
@@ -100,10 +102,6 @@ export async function requestWithdraw(context: CliContext, options: RequestWithd
     color: hexToBytes(vaultTokenType(erc20Address, vaultContractAddress)),
     value: options.amount,
   };
-
-  // On EVM failure the surrendered value is re-minted to this wallet's own
-  // coin key when the withdrawal settles.
-  const refundPk = { bytes: hexToBytes(context.providers.walletProvider.getCoinPublicKey()) };
 
   const keyVersion = SIGNET_DEFAULT_KEY_VERSION;
 
@@ -144,7 +142,7 @@ export async function requestWithdraw(context: CliContext, options: RequestWithd
   };
   const expectedIdHex = requestIdHex(calculateRequestId(expectedRecord));
 
-  const result = await context.vault.callTx.requestWithdraw(
+  const result = await context.vault.callTx.withdraw(
     options.evmNonce,
     keyVersion,
     {
@@ -153,9 +151,8 @@ export async function requestWithdraw(context: CliContext, options: RequestWithd
       destEvmAddress,
     },
     coin,
-    refundPk,
   );
-  console.log(`requestWithdraw finalized in tx ${result.public.txId}`);
+  console.log(`withdraw finalized in tx ${result.public.txId}`);
 
   // The ledger map key IS the domain-separated record hash — recomputing it
   // off-chain and finding it on the ledger proves both sides agree on every

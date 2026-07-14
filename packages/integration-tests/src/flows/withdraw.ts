@@ -10,7 +10,7 @@ import {
   completeWithdraw,
   pollSignatureResponse,
   pollRespondBidirectional,
-  requestWithdraw,
+  withdraw,
 } from "@midnight-erc20-vault/cli";
 import type {
   RequestIdHex,
@@ -22,8 +22,8 @@ import type { E2eSession } from "../session.ts";
 
 const MINUTE = 60_000;
 
-/** Options for {@link requestWithdrawLeg}. */
-export interface RequestWithdrawLegOptions {
+/** Options for {@link withdrawLeg}. */
+export interface WithdrawLegOptions {
   /** Withdraw amount in ERC20 base units (escrowed from the caller's shielded balance). */
   readonly amount: bigint;
   /** Destination EVM address (20-byte 0x hex) receiving the ERC20. */
@@ -34,7 +34,7 @@ export interface RequestWithdrawLegOptions {
 
 /**
  * Leg 1: escrow shielded vault tokens and record the withdraw signature
- * request on the vault's ledger via the cli's `requestWithdraw`.
+ * request on the vault's ledger via the cli's `withdraw`.
  *
  * @param session - The flow file's shared session (wallet + cli context).
  * @param opts - The withdraw arguments.
@@ -42,12 +42,12 @@ export interface RequestWithdrawLegOptions {
  * @throws If the vault is uninitialized, the caller's shielded balance
  *   cannot cover `opts.amount`, or the recomputed id is not on the ledger.
  */
-export async function requestWithdrawLeg(
+export async function withdrawLeg(
   session: E2eSession,
-  opts: RequestWithdrawLegOptions,
+  opts: WithdrawLegOptions,
 ): Promise<RequestIdHex> {
   const context = await session.cliContext();
-  return requestWithdraw(context, {
+  return withdraw(context, {
     amount: opts.amount,
     destEvmAddress: opts.destEvmAddress,
     evmNonce: opts.evmNonce,
@@ -55,8 +55,8 @@ export async function requestWithdrawLeg(
 }
 
 /** Options for the request-id-keyed withdraw legs. */
-export interface WithdrawLegOptions {
-  /** The withdraw request id (from {@link requestWithdrawLeg}). */
+export interface WithdrawRequestLegOptions {
+  /** The withdraw request id (from {@link withdrawLeg}). */
   readonly requestId: RequestIdHex;
 }
 
@@ -74,7 +74,7 @@ export interface WithdrawLegOptions {
 export async function pollSignedWithdrawLeg(
   session: E2eSession,
   env: NodeJS.ProcessEnv,
-  opts: WithdrawLegOptions,
+  opts: WithdrawRequestLegOptions,
 ): Promise<Transaction> {
   const context = await session.cliContext();
   return pollSignatureResponse(context, {
@@ -101,7 +101,7 @@ export async function pollSignedWithdrawLeg(
  */
 export async function pollWithdrawAttestationLeg(
   session: E2eSession,
-  opts: WithdrawLegOptions,
+  opts: WithdrawRequestLegOptions,
 ): Promise<RespondBidirectional> {
   const context = await session.cliContext();
   return pollRespondBidirectional(context, {
@@ -114,8 +114,9 @@ export async function pollWithdrawAttestationLeg(
 /**
  * Leg 4: settle the withdrawal via the cli's `completeWithdraw` — the
  * circuit verifies the posted attestation and branches on the EVM result
- * (success finalizes; failure re-mints the escrowed value to the pinned
- * refund recipient). Asserting the ledger outcome (request + refund-marker
+ * (success finalizes; failure re-mints the escrowed value to the withdrawer
+ * — the session wallet, which placed the withdraw). Asserting the ledger
+ * outcome (request + refund-marker
  * consumption) is the caller's job.
  *
  * @param session - The flow file's shared session (wallet + cli context).
@@ -125,7 +126,7 @@ export async function pollWithdrawAttestationLeg(
  */
 export async function settleWithdrawLeg(
   session: E2eSession,
-  opts: WithdrawLegOptions,
+  opts: WithdrawRequestLegOptions,
 ): Promise<void> {
   const context = await session.cliContext();
   await completeWithdraw(context, { requestId: opts.requestId });

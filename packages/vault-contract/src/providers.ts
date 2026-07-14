@@ -53,7 +53,7 @@ export type VaultProviders = MidnightProviders<
 
 // The compiler output dirs (each holds contract/, keys/, zkir/) — the "zk
 // config roots" the proof + zk-config providers read proving/verifier keys
-// from. requestDeposit cross-contract-calls the signet contract, so proving
+// from. deposit cross-contract-calls the signet contract, so proving
 // spans both: signetManagedPath is a compile-time symlink to the deployed
 // signet contract's managed output (see this package's compile script).
 const managedPath = fileURLToPath(new URL("./managed/erc20-vault", import.meta.url));
@@ -90,7 +90,7 @@ export function buildVaultProviders(
   const zkConfigProvider = new NodeZkConfigProvider<VaultCircuitId>(managedPath);
 
   // The callee (signet contract) circuits, resolved for the cross-contract
-  // proof provider so requestDeposit's whole call tree proves.
+  // proof provider so deposit's whole call tree proves.
   const signetZkConfigProvider = new NodeZkConfigProvider<string>(signetManagedPath);
 
   // The wallet, adapted to midnight-js's balancer + submitter interfaces
@@ -148,7 +148,7 @@ export function buildVaultProviders(
     // transcript). This is NOT the wallet's proving config: the facade's
     // proof server only proves the wallet's own balancing additions when it
     // finalizes a recipe; the call transcript is proven here first. Spans the
-    // vault AND the signet contract so requestDeposit's cross-contract call
+    // vault AND the signet contract so deposit's cross-contract call
     // resolves keys for the whole call tree.
     proofProvider: createCrossContractProofServerProvider(config.proofServerUrl, [
       zkConfigProvider,

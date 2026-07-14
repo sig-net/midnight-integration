@@ -13,9 +13,9 @@ repo touches a network from tests. The pipeline has two halves:
   pinned by `FILE_ORDER` in `vitest.config.ts` — they share chain state, one
   MPC responder, and EVM nonces/funds, so they can never run in parallel:
   - `happy-day-e2e.test.ts` — the full deposit AND withdraw round trip:
-    initialize → `requestDeposit` → the MPC signs → the sweep transaction
+    initialize → `deposit` → the MPC signs → the sweep transaction
     broadcasts on Sepolia → the attestation lands back on Midnight →
-    `claimDeposit` mints shielded vault tokens → `requestWithdraw` escrows
+    `claim` mints shielded vault tokens → `withdraw` escrows
     them → the MPC signs the vault→user transfer → it broadcasts on Sepolia
     (the ERC20 leaves the vault).
   - `deposit-withdrawal-failure-refund.test.ts` — the refund branch: a
@@ -40,7 +40,7 @@ repo touches a network from tests. The pipeline has two halves:
     flow (deposit in, withdraw back out).
   - `false-claimer.test.ts` — the in-circuit caller-identity check: a
     deposit round trip stops before the claim, a SECOND identity (different
-    `USER_SEED` + `VAULT_USER_SECRET_KEY`) attempts `claimDeposit` and must
+    `USER_SEED` + `VAULT_USER_SECRET_KEY`) attempts `claim` and must
     be rejected in-circuit with the request left on the ledger, then the
     rightful identity claims it. Ends with the same fakenet-only drain, so
     EVM funds keep cycling.
@@ -106,7 +106,7 @@ contract addresses:
    block + responder config; the happy-day flow then initializes the vault
    and stops (later flow files are cancelled by `--bail 1`). On Sepolia the
    stop is the funding preflight; on the local chain funding is automatic,
-   so the flow proceeds through `requestDeposit` and stops at the
+   so the flow proceeds through `deposit` and stops at the
    signature-poll timeout (~1 min) instead. Either stop is the hand-off,
    not a bug.
 2. **Between runs** — paste the printed block into `.env`. On Sepolia, fund
@@ -142,8 +142,8 @@ it includes the fund-sweep script.
 | `MPC_JUBJUB_PK`, `MPC_SECP256K1_PUBKEY` | MPC public keys | derived from root key |
 | `EVM_VAULT_ADDRESS` / `EVM_USER_ADDRESS` | Epsilon-derived EVM accounts | derived by run 1 |
 | `ERC20_ADDRESS` | Token for the deposit/withdraw flows | Sepolia USDC `0x1c7D…7238` on Sepolia; auto-deployed TestUSDC on the local chain |
-| `DEPOSIT_REQUEST_ID` | Happy-day: reuse an existing request id, skipping the `requestDeposit` call | unset |
-| `WITHDRAW_REQUEST_ID` | Happy-day: reuse an existing request id, skipping the `requestWithdraw` call | unset |
+| `DEPOSIT_REQUEST_ID` | Happy-day: reuse an existing request id, skipping the `deposit` call | unset |
+| `WITHDRAW_REQUEST_ID` | Happy-day: reuse an existing request id, skipping the `withdraw` call | unset |
 | `FAILURE_REFUND_DEPOSIT_REQUEST_ID` | Failure-refund: resume the arrange deposit from an existing request id | unset |
 | `FAILURE_REFUND_WITHDRAW_REQUEST_ID` | Failure-refund: resume the doomed withdraw from an existing request id | unset |
 | `DEPOSIT_CLAIMANT_NOT_CALLER_DEPOSIT_REQUEST_ID` | Claimant-not-caller: resume the deposit from an existing request id | unset |

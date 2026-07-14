@@ -4,11 +4,11 @@
 // measurement — never inside a flow helper, so timing is visible at the call
 // site and flows that don't measure never time in the background. One leg
 // per test also means a narrowed vitest selection can benchmark the smallest
-// unit on its own (just requestDeposit, just claimDeposit). The measured
-// legs: request/prove (requestDeposit / requestWithdraw), MPC signature
+// unit on its own (just deposit, just claim). The measured
+// legs: request/prove (deposit / withdraw), MPC signature
 // latency (pollSignatureResponse), EVM confirmation (broadcastEvm),
 // attestation latency (pollRespondBidirectional), and claim/settle proving
-// (claimDeposit / completeWithdraw).
+// (claim / completeWithdraw).
 //
 // REPORTING ONLY, by design: there is no assertion budget — a regression
 // gate needs baseline data first. "Report" means (a) a human-readable
@@ -31,15 +31,15 @@
 
 import {
   broadcastEvm,
-  claimDeposit,
+  claim,
   completeWithdraw,
   ERC20_TRANSFER_GAS_LIMIT,
   ERC20_TRANSFER_MAX_FEE_PER_GAS,
   pollRespondBidirectional,
   pollSignatureResponse,
   readVaultLedger,
-  requestDeposit,
-  requestWithdraw,
+  deposit,
+  withdraw,
   requireConfigValue,
 } from "@midnight-erc20-vault/cli";
 import {
@@ -160,11 +160,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault benchmark e2e: 
   let depositRequestId: RequestIdHex;
 
   it(
-    "time requestDeposit: record the deposit request on the vault ledger",
+    "time deposit: record the deposit request on the vault ledger",
     async () => {
       if (env.BENCHMARK_DEPOSIT_REQUEST_ID) {
         depositRequestId = env.BENCHMARK_DEPOSIT_REQUEST_ID as RequestIdHex;
-        logSkip("requestDeposit", `BENCHMARK_DEPOSIT_REQUEST_ID present, resuming deposit '${depositRequestId}'`);
+        logSkip("deposit", `BENCHMARK_DEPOSIT_REQUEST_ID present, resuming deposit '${depositRequestId}'`);
         return;
       }
 
@@ -175,8 +175,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault benchmark e2e: 
       const evmNonce = await getTransactionNonce(requireEnv("EVM_RPC_URL"), requireEnv("EVM_USER_ADDRESS"));
 
       const stop = startTimer();
-      depositRequestId = await requestDeposit(context, { amount: DEPOSIT_AMOUNT, evmNonce });
-      timings.deposit.requestDeposit = stop();
+      depositRequestId = await deposit(context, { amount: DEPOSIT_AMOUNT, evmNonce });
+      timings.deposit.deposit = stop();
 
       expect(depositRequestId).toMatch(/^[0-9a-f]{64}$/);
 
@@ -253,7 +253,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault benchmark e2e: 
   );
 
   it(
-    "time claimDeposit: verify the attestation in-circuit and consume the request",
+    "time claim: verify the attestation in-circuit and consume the request",
     async () => {
       expect(depositRequestId).toBeDefined();
       const context = await session.cliContext();
@@ -261,22 +261,22 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault benchmark e2e: 
       const requestKey = requestIdBytes(depositRequestId);
 
       // Rerun against a kept contract address: if a prior run already
-      // claimed this request the entry is gone and claimDeposit would reject
+      // claimed this request the entry is gone and claim would reject
       // with "Request not found" — skip cleanly instead.
       const before = await readVaultLedger(context, vaultContractAddress);
       if (!before.signetRequestsIndex.member(requestKey)) {
-        logSkip("claimDeposit", `request ${depositRequestId} already claimed (not on the ledger)`);
+        logSkip("claim", `request ${depositRequestId} already claimed (not on the ledger)`);
         return;
       }
 
       const stop = startTimer();
-      await claimDeposit(context, { requestId: depositRequestId });
-      timings.deposit.claimDeposit = stop();
+      await claim(context, { requestId: depositRequestId });
+      timings.deposit.claim = stop();
 
       const after = await readVaultLedger(context, vaultContractAddress);
       expect(
         after.signetRequestsIndex.member(requestKey),
-        "claimDeposit must consume the request from the ledger",
+        "claim must consume the request from the ledger",
       ).toBe(false);
     },
     15 * MINUTE,
@@ -289,11 +289,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault benchmark e2e: 
   let withdrawRequestId: RequestIdHex;
 
   it(
-    "time requestWithdraw: escrow the claimed shielded vault tokens",
+    "time withdraw: escrow the claimed shielded vault tokens",
     async () => {
       if (env.BENCHMARK_WITHDRAW_REQUEST_ID) {
         withdrawRequestId = env.BENCHMARK_WITHDRAW_REQUEST_ID as RequestIdHex;
-        logSkip("requestWithdraw", `BENCHMARK_WITHDRAW_REQUEST_ID present, resuming withdraw '${withdrawRequestId}'`);
+        logSkip("withdraw", `BENCHMARK_WITHDRAW_REQUEST_ID present, resuming withdraw '${withdrawRequestId}'`);
         return;
       }
 
@@ -305,12 +305,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault benchmark e2e: 
       const destEvmAddress = requireEnv("EVM_USER_ADDRESS");
 
       const stop = startTimer();
-      withdrawRequestId = await requestWithdraw(context, {
+      withdrawRequestId = await withdraw(context, {
         amount: WITHDRAW_AMOUNT,
         destEvmAddress,
         evmNonce,
       });
-      timings.withdraw.requestWithdraw = stop();
+      timings.withdraw.withdraw = stop();
 
       expect(withdrawRequestId).toMatch(/^[0-9a-f]{64}$/);
 
@@ -398,7 +398,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault benchmark e2e: 
       // completeWithdraw would reject with "Withdrawal not found" — skip
       // cleanly instead.
       const before = await readVaultLedger(context, vaultContractAddress);
-      if (!before.refundRecipient.member(requestKey)) {
+      if (!before.refundCommitment.member(requestKey)) {
         logSkip(
           "completeWithdraw",
           `withdrawal ${withdrawRequestId} already settled (no pending marker on the ledger)`,

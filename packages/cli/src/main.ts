@@ -12,15 +12,15 @@ import { deriveAccountKeys, withSyncedWalletFacade, type EncPublicKey } from "@m
 import { parseRequestIdHex, type RequestIdHex } from "@sig-net/midnight";
 
 import { broadcastEvm } from "./commands/broadcast-evm.ts";
-import { claimDeposit } from "./commands/claim-deposit.ts";
+import { claim } from "./commands/claim.ts";
 import { completeWithdraw } from "./commands/complete-withdraw.ts";
 import { depositE2E } from "./commands/deposit-e2e.ts";
 import { initialize } from "./commands/initialize.ts";
 import { formatRespondBidirectional, pollRespondBidirectional } from "./commands/poll-respond-bidirectional.ts";
 import { pollSignatureResponse } from "./commands/poll-signature-response.ts";
 import { readState } from "./commands/read-state.ts";
-import { requestDeposit } from "./commands/request-deposit.ts";
-import { requestWithdraw } from "./commands/request-withdraw.ts";
+import { deposit } from "./commands/deposit.ts";
+import { withdraw } from "./commands/withdraw.ts";
 import { withdrawE2E } from "./commands/withdraw-e2e.ts";
 import { getCliConfig, requireConfigValue } from "./config.ts";
 import { createCliContext, type CliContext } from "./context.ts";
@@ -98,13 +98,13 @@ program
   });
 
 program
-  .command("request-deposit")
+  .command("deposit")
   .description("record a deposit signature request on the vault's ledger; prints the request id")
   .requiredOption("--amount <amount>", "deposit amount in ERC20 base units", parseBigintArg)
   .requiredOption("--evm-nonce <nonce>", "nonce of the user's derived EVM account", parseBigintArg)
   .action((options: { amount: bigint; evmNonce: bigint }) => {
     work = async (context) => {
-      console.log(await requestDeposit(context, options));
+      console.log(await deposit(context, options));
     };
   });
 
@@ -150,7 +150,7 @@ program
   });
 
 program
-  .command("claim-deposit")
+  .command("claim")
   .description("claim a completed deposit: verify the MPC attestation in-circuit and mint shielded tokens")
   .requiredOption("--request-id <hex>", "the request id to claim", parseRequestIdArg)
   .option(
@@ -175,7 +175,7 @@ program
         );
       }
       work = (context) =>
-        claimDeposit(context, {
+        claim(context, {
           requestId,
           recipient:
             recipientCoinPublicKey !== undefined && recipientEncryptionPublicKey !== undefined
@@ -196,20 +196,20 @@ withPollingOptions(
 });
 
 program
-  .command("request-withdraw")
+  .command("withdraw")
   .description("escrow a shielded vault coin and record a withdraw signature request; prints the request id")
   .requiredOption("--amount <amount>", "withdraw amount in ERC20 base units", parseBigintArg)
   .requiredOption("--dest-evm-address <address>", "destination EVM address (20-byte 0x hex)")
   .requiredOption("--evm-nonce <nonce>", "nonce of the vault's derived EVM account", parseBigintArg)
   .action((options: { amount: bigint; destEvmAddress: string; evmNonce: bigint }) => {
     work = async (context) => {
-      console.log(await requestWithdraw(context, options));
+      console.log(await withdraw(context, options));
     };
   });
 
 program
   .command("complete-withdraw")
-  .description("settle a withdraw request: success is final, failure re-mints the surrendered value to the refund recipient")
+  .description("settle a withdraw request: success is final (anyone may settle), failure re-mints the surrendered value to the withdrawer (caller must be them)")
   .requiredOption("--request-id <hex>", "the request id to settle", parseRequestIdArg)
   .action((options: { requestId: RequestIdHex }) => {
     work = (context) => completeWithdraw(context, options);

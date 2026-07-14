@@ -5,10 +5,10 @@
 import { requireConfigValue } from "../config.ts";
 import type { CliContext } from "../context.ts";
 import { broadcastEvm } from "./broadcast-evm.ts";
-import { claimDeposit } from "./claim-deposit.ts";
+import { claim } from "./claim.ts";
 import { pollRespondBidirectional } from "./poll-respond-bidirectional.ts";
 import { pollSignatureResponse } from "./poll-signature-response.ts";
-import { requestDeposit } from "./request-deposit.ts";
+import { deposit } from "./deposit.ts";
 
 /** Options for {@link depositE2E}. */
 export interface DepositE2EOptions {
@@ -24,15 +24,15 @@ export interface DepositE2EOptions {
 
 /**
  * Run the deposit flow end-to-end:
- * 1. `requestDeposit` records the signature request on the vault's ledger.
+ * 1. `deposit` records the signature request on the vault's ledger.
  * 2. The MPC (watching the vault via the indexer) signs the EVM sweep and
  *    posts the signed transaction to the signet contract;
  *    poll for it.
  * 3. Broadcast the signed transaction to the EVM chain.
  * 4. The MPC observes the receipt and posts the Schnorr-signed
  *    `(requestId, serializedOutput)` attestation; poll for it.
- * 5. `claimDeposit` verifies the attestation in-circuit and mints shielded
- *    vault tokens.
+ * 5. `claim` verifies the attestation in-circuit and mints shielded vault
+ *    tokens.
  *
  * @param context - The CLI context.
  * @param options - The deposit arguments and polling patience.
@@ -40,7 +40,7 @@ export interface DepositE2EOptions {
 export async function depositE2E(context: CliContext, options: DepositE2EOptions): Promise<void> {
   const { amount, evmNonce, intervalMs, timeoutMs } = options;
 
-  const requestId = await requestDeposit(context, { amount, evmNonce });
+  const requestId = await deposit(context, { amount, evmNonce });
 
   // Deposit sweeps are signed by the USER's derived account — verify the
   // MPC's signature against it.
@@ -49,7 +49,7 @@ export async function depositE2E(context: CliContext, options: DepositE2EOptions
   await broadcastEvm(context, { transaction });
 
   await pollRespondBidirectional(context, { requestId, intervalMs, timeoutMs });
-  await claimDeposit(context, { requestId });
+  await claim(context, { requestId });
 
   console.log(`deposit ${requestId} claimed`);
 }

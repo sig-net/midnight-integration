@@ -1,7 +1,8 @@
-// `claim-deposit` — the second half of the deposit flow: present the MPC's
+// `claim` — the second half of the deposit flow: present the MPC's
 // Schnorr-signed attestation of the EVM sweep to the vault, which verifies it
 // in-circuit and mints shielded tokens to the caller (or a recipient the
-// caller names).
+// caller names) under a fresh RANDOM mint nonce, so the minted coin cannot be
+// linked back to the request.
 
 import { encodeCoinPublicKey, type CoinPublicKey } from "@midnight-ntwrk/compact-runtime";
 import { withContractScopedTransaction } from "@midnight-ntwrk/midnight-js/contracts";
@@ -30,8 +31,8 @@ export interface ShieldedTokenRecipient {
   readonly encryptionPublicKey: EncPublicKey;
 }
 
-/** Options for {@link claimDeposit}. */
-export interface ClaimDepositOptions {
+/** Options for {@link claim}. */
+export interface ClaimOptions {
   /** The request id being claimed. */
   readonly requestId: RequestIdHex;
   /**
@@ -43,7 +44,7 @@ export interface ClaimDepositOptions {
 }
 
 /**
- * Call the vault's `claimDeposit` circuit for a completed deposit request.
+ * Call the vault's `claim` circuit for a completed deposit request.
  *
  * Fetches the MPC's respond-bidirectional attestation (`serializedOutput` +
  * Schnorr signature components) for `requestId` from the signet contract via
@@ -52,7 +53,7 @@ export interface ClaimDepositOptions {
  * the Schnorr signature, the EVM success flag, and the caller identity against
  * the stored request, and mints shielded vault tokens on success — to
  * `options.recipient` when given, otherwise to the caller. The mint's
- * coin handling is midnight-js's job: `vault.callTx.claimDeposit(...)`
+ * coin handling is midnight-js's job: `vault.callTx.claim(...)`
  * balances the resulting offer like any other call.
  *
  * The attestation is authentic by construction: the signet contract verified
@@ -64,7 +65,7 @@ export interface ClaimDepositOptions {
  * @throws If required config is missing, or no attestation has been posted for
  *   `requestId` yet.
  */
-export async function claimDeposit(context: CliContext, options: ClaimDepositOptions): Promise<void> {
+export async function claim(context: CliContext, options: ClaimOptions): Promise<void> {
   const vaultContractAddress = requireConfigValue(context.config.vaultContractAddress, "MIDNIGHT_VAULT_CONTRACT_ADDRESS");
   const signetContractAddress = requireConfigValue(context.config.signetContractAddress, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
   console.log(`vault contract:  ${vaultContractAddress}`);
@@ -87,6 +88,11 @@ export async function claimDeposit(context: CliContext, options: ClaimDepositOpt
         `run poll-respond-bidirectional first (has the MPC attested the sweep?)`,
     );
   }
+
+  // A fresh random mint nonce per claim: the circuit threads it into the
+  // shielded mint verbatim, so randomness HERE is what keeps the minted coin
+  // unlinkable to the (public) request id.
+  const mintNonce = crypto.getRandomValues(new Uint8Array(32));
 
   // The circuit's Maybe<Either<ZswapCoinPublicKey, ContractAddress>> recipient.
   // Compact's Maybe/Either are plain structs: a `none` (and the unused
@@ -114,10 +120,11 @@ export async function claimDeposit(context: CliContext, options: ClaimDepositOpt
       ? await withContractScopedTransaction(
           context.providers,
           async (txCtx) => {
-            await context.vault.callTx.claimDeposit(
+            await context.vault.callTx.claim(
               txCtx,
               requestIdBytes(options.requestId),
               respondBidirectional,
+              mintNonce,
               recipient,
             );
           },
@@ -127,10 +134,11 @@ export async function claimDeposit(context: CliContext, options: ClaimDepositOpt
             ]),
           },
         )
-      : await context.vault.callTx.claimDeposit(
+      : await context.vault.callTx.claim(
           requestIdBytes(options.requestId),
           respondBidirectional,
+          mintNonce,
           recipient,
         );
-  console.log(`claimDeposit finalized in tx ${result.public.txId}`);
+  console.log(`claim finalized in tx ${result.public.txId}`);
 }

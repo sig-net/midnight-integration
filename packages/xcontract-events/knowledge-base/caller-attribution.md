@@ -70,7 +70,7 @@ field 0, `signetNonce` field 1). This gives, **for free and unforgeably**:
 2. **Two circuit-enforced gates the MPC can therefore trust**, both in the vault's proven
    circuit (`erc20-vault.compact`):
    - `witness callerSecretKey()` + `path == canonical-hex(userCommitment)` — only the
-     secret-holder can request *their* path (`requestDeposit`; re-checked in `claimDeposit` via
+     secret-holder can request *their* path (`deposit`; re-checked in `claim` via
      `assertHexOf(caller, signatureRequest.path)`).
    - the EVM transaction is **constrained** (recipient = the vault's EVM address, a transfer) —
      the vault decides what may be signed.

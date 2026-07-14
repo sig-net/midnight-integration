@@ -51,7 +51,7 @@ lives ONCE" and the per-package `AGENTS.md`.
 A deposit/withdraw is a round trip across all four layers. Each stage maps to a
 concrete circuit or command — know this map before touching any stage:
 
-1. **Request** — client circuit (`requestDeposit` / `requestWithdraw`) validates
+1. **Request** — client circuit (`deposit` / `withdraw`) validates
    the app rules, builds the contract-enforced calldata, inserts the request
    into `signetRequestsIndex`, and cross-contract-calls the signet contract to
    emit a `SignBidirectionalEvent`. Driven by the cli `request-*` command, which
@@ -68,11 +68,11 @@ concrete circuit or command — know this map before touching any stage:
    respond-bidirectional attestation of `(requestId, serializedOutput)` to the
    signet contract.
 6. **Poll attestation** — cli `poll-respond-bidirectional` fetches it.
-7. **Settle** — client circuit (`claimDeposit` / `refundWithdraw`) verifies the
+7. **Settle** — client circuit (`claim` / `completeWithdraw`) verifies the
    attestation IN-CIRCUIT (MPC pk hash, Schnorr signature, EVM success flag,
    caller identity against the request's derivation path), then mints/settles
    and **removes the request** (double-claim protection). Driven by the cli
-   `claim-deposit` / `refund-withdraw` command.
+   `claim` / `complete-withdraw` command.
 
 The reader that stages 2–7 lean on (`SignetRequestResponseReader`) reads RAW
 ledger/state exactly as the MPC does — the same view on both sides is the point.
@@ -105,7 +105,7 @@ ledger/state exactly as the MPC does — the same view on both sides is the poin
   derived-address fund sweep + the responder hand-off. Background it.
 
 **4. Reuse completed work to iterate on a late stage.** To exercise only the
-settle leg (e.g. a `claimDeposit` change) without re-driving a whole deposit,
+settle leg (e.g. a `claim` change) without re-driving a whole deposit,
 set `DEPOSIT_REQUEST_ID=<a request whose sweep already confirmed>` before
 `/e2e`: the earlier stages short-circuit (`broadcast-evm` sees the tx already
 mined and returns immediately) and the suite reaches your stage on real state.

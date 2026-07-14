@@ -99,7 +99,7 @@ be swept to the new one.
    then initializes the vault and **fails at the funding preflight — this is
    the expected stopping point** (`--bail 1` cancels any later flow files).
    **Local EVM variant:** funding is automatic, so the run instead proceeds
-   through `requestDeposit` and stops at the signature-poll timeout; skip
+   through `deposit` and stops at the signature-poll timeout; skip
    step 4 entirely (no sweep — the new derived accounts are topped up by
    setup on the next run) and optionally note the printed
    `DEPOSIT_REQUEST_ID` to resume that request in step 7.

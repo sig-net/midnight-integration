@@ -5,7 +5,7 @@
 // Double duty: the gas envelope this cli CHOOSES for deposits (the caller's
 // account pays those), and the TS mirror of the envelope the CONTRACT FIXES
 // for withdrawals (the vault account pays those) — the values MUST stay in
-// lockstep with requestWithdraw in erc20-vault.compact, or the withdraw
+// lockstep with withdraw in erc20-vault.compact, or the withdraw
 // expected-record check fails.
 
 /**

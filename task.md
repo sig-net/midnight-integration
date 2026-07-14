@@ -47,8 +47,8 @@ contract events.
   MVP); MPC key derivation; Schnorr TS side; event codecs, observer,
   request/response feeds and resolver. 14 test files.
 - **vault-contract**: all circuits ported under the new names — `initialize`,
-  `requestDeposit`, `claimDeposit` (optional recipient, incl. contract
-  recipients), `requestWithdraw`, `completeWithdraw` (settle + failure-refund
+  `deposit`, `claim` (optional recipient, incl. contract
+  recipients), `withdraw`, `completeWithdraw` (settle + failure-refund
   branch folded in; the planned `refundWithdraw` name was dropped). Sealed
   `mpcPubKeyHash` + `signetEventEmitter`; emits SignBidirectional events.
   Extensive simulator tests (validation, tamper, replay, identity checks).
@@ -58,8 +58,8 @@ contract events.
 - **lib**: deploy plumbing, WalletFacade→midnight-js providers adapter,
   wallet/seed/network-id/node-config. One copy, consumed everywhere.
 - **cli**: all 11 commands wired, zero stubs (read-state, initialize,
-  request-deposit, poll-signature-response, poll-respond-bidirectional,
-  broadcast-evm, claim-deposit, deposit-e2e, request-withdraw,
+  deposit, poll-signature-response, poll-respond-bidirectional,
+  broadcast-evm, claim, deposit-e2e, withdraw,
   complete-withdraw, withdraw-e2e).
 - **integration-tests**: `happy-day-e2e.test.ts` (17 ordered steps: full
   deposit + withdraw round trip with golden event assertions) and
@@ -234,7 +234,7 @@ redeploys when this lands.
       new row counts measured and logged.
 - [ ] **E.2 Decide the attestation crypto for `respond_bidirectional`.**
       The SGN1 spec assumes secp256k1 ECDSA (off-chain verified);
-      `claimDeposit` needs in-circuit verification, which today means Jubjub
+      `claim` needs in-circuit verification, which today means Jubjub
       Schnorr (`ecdsa-midnight-progress.md`: secp256k1 in-circuit is
       unscheduled). Outcome needed: MPC produces the Jubjub attestation, or
       the claim flow changes.

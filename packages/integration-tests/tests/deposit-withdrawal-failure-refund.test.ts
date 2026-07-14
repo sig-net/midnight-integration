@@ -48,7 +48,7 @@ import { runDepositRoundTrip } from "../src/flows/deposit.ts";
 import {
   pollSignedWithdrawLeg,
   pollWithdrawAttestationLeg,
-  requestWithdrawLeg,
+  withdrawLeg,
   settleWithdrawLeg,
 } from "../src/flows/withdraw.ts";
 import { banner, logSkip } from "../src/output.ts";
@@ -182,11 +182,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault deposit → wit
   let withdrawRequestId: RequestIdHex;
 
   it(
-    "requestWithdrawLeg: escrow shielded vault tokens for a transfer the vault cannot pay",
+    "withdrawLeg: escrow shielded vault tokens for a transfer the vault cannot pay",
     async () => {
       if (env.FAILURE_REFUND_WITHDRAW_REQUEST_ID) {
         withdrawRequestId = env.FAILURE_REFUND_WITHDRAW_REQUEST_ID as RequestIdHex;
-        logSkip("requestWithdrawLeg", `FAILURE_REFUND_WITHDRAW_REQUEST_ID present, resuming withdraw '${withdrawRequestId}'`);
+        logSkip("withdrawLeg", `FAILURE_REFUND_WITHDRAW_REQUEST_ID present, resuming withdraw '${withdrawRequestId}'`);
         return;
       }
 
@@ -194,7 +194,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault deposit → wit
       // signed transfer is the vault account's next expected tx.
       const evmNonce = await getTransactionNonce(requireEnv("EVM_RPC_URL"), requireEnv("EVM_VAULT_ADDRESS"));
 
-      withdrawRequestId = await requestWithdrawLeg(session, {
+      withdrawRequestId = await withdrawLeg(session, {
         amount: WITHDRAW_AMOUNT,
         destEvmAddress: requireEnv("EVM_USER_ADDRESS"),
         evmNonce,
@@ -297,7 +297,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault deposit → wit
       // attestation is posted (previous steps). Settling re-verifies the
       // attestation in-circuit (pk hash, Schnorr signature) and branches on
       // the EVM result — this is the FAILURE path, so the escrowed shielded
-      // value is re-minted to the pinned refund recipient instead of staying
+      // value is re-minted to the withdrawer (this session's wallet, which
+      // proves the pinned refund commitment) instead of staying
       // burned, and the request + its pending-withdrawal marker are consumed
       // (double-settle protection). The refunded shielded balance itself is
       // not publicly observable; the marker consumption is — present before,
@@ -315,7 +316,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault deposit → wit
       // completeWithdraw would reject with "Withdrawal not found" — skip
       // cleanly instead.
       const before = await readVaultLedger(context, vaultContractAddress);
-      if (!before.refundRecipient.member(requestKey)) {
+      if (!before.refundCommitment.member(requestKey)) {
         logSkip(
           "settleWithdrawLeg",
           `withdrawal ${withdrawRequestId} already settled (no pending marker on the ledger)`,
@@ -332,7 +333,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault deposit → wit
         "completeWithdraw must consume the request from the ledger",
       ).toBe(false);
       expect(
-        after.refundRecipient.member(requestKey),
+        after.refundCommitment.member(requestKey),
         "completeWithdraw must consume the pending-withdrawal marker",
       ).toBe(false);
 
@@ -340,7 +341,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault deposit → wit
         `Withdraw ${withdrawRequestId} settled with a REFUND.`,
         "",
         "The vault verified the MPC's failure attestation in-circuit,",
-        "re-minted the escrowed shielded value to the pinned refund recipient,",
+        "re-minted the escrowed shielded value to the withdrawer,",
         "and removed the request and its refund marker from the ledger.",
       ]);
     },

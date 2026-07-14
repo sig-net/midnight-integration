@@ -7,7 +7,14 @@
 // `vitest` imports here — the old expect() checks are plain throws.
 
 import { getCliConfig, getUserIdentity } from "@midnight-erc20-vault/cli";
-import { getDeployConfig, getMidnightNodeConfig } from "@midnight-erc20-vault/lib";
+import {
+  deriveAccountKeys,
+  getDeployConfig,
+  getMidnightNodeConfig,
+  registerNightForDustGeneration,
+  waitForSpendableDust,
+  withSyncedWalletFacade,
+} from "@midnight-erc20-vault/lib";
 import { deriveEvmAddress, formatJubjubPublicKey } from "@sig-net/midnight";
 import { deriveMpcKeys, generateMpcRootKey } from "./mpc-keys.ts";
 import { deploySignetContract } from "@sig-net/midnight-contract-deploy";
@@ -159,6 +166,33 @@ export function ensureMpcSecp256k1Pubkey(env: NodeJS.ProcessEnv): void {
   console.log(`generated a fresh MPC_SECP256K1_PUBKEY=${env.MPC_SECP256K1_PUBKEY}`);
   console.log(` ➜ used by contracts to validate signatures`);
   console.log(` ➜ 💡 Set as MPC_SECP256K1_PUBKEY in the environment to skip this step on the next run`);
+}
+
+// The deploys below pay fees in DUST, which only generates on NIGHT
+// registered for dust generation — a funded-but-unregistered deployer wallet
+// (fresh seed, faucet-funded) would fail the first deploy. Check up front:
+// registered already → skip; unregistered NIGHT → register it and wait for a
+// spendable dust balance; no NIGHT at all → fail with a funding hint.
+export async function ensureDeployerDust(env: NodeJS.ProcessEnv): Promise<void> {
+  if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS && env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
+    logSkip(
+      "deployer dust preflight",
+      "both contract addresses are set — no deploys this run, the deployer wallet pays nothing",
+    );
+    return;
+  }
+  const deployConfig = getDeployConfig(env);
+  const keys = deriveAccountKeys(deployConfig.deployerSeed, deployConfig.midnightNodeConfig.networkId);
+  await withSyncedWalletFacade(keys, deployConfig.midnightNodeConfig, async (facade, state) => {
+    const registered = await registerNightForDustGeneration(facade, keys, state);
+    if (registered === 0) {
+      logSkip("register deployer NIGHT for dust generation", "every NIGHT UTXO is already registered");
+    } else {
+      console.log(`registered ${registered} deployer NIGHT UTXO(s) for dust generation`);
+    }
+    const dust = await waitForSpendableDust(facade);
+    console.log(`deployer dust (fee) balance: ${dust}`);
+  });
 }
 
 // The signet contract is compiled + deployed FIRST: the vault seals its
