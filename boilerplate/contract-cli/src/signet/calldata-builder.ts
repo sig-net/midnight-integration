@@ -81,13 +81,12 @@ export function buildTransactionFromRequest(request: SigningRequest): Uint8Array
  */
 function decodeArgForType(abiType: string, rawArg: Uint8Array): string | bigint {
   if (abiType === 'address') {
-    // Address: stored as Field → Bytes<32> (little-endian field repr).
-    // Extract the address bytes: the original Bytes<20> was cast to Field then to Bytes<32>.
-    // In Compact, "as Field as Bytes<32>" stores the value as a little-endian field element.
-    const value = bytesToBigint(rawArg);
-    // Convert to 20-byte address (take low 160 bits)
-    const addrHex = value.toString(16).padStart(40, '0').slice(-40);
-    return ethers.getAddress('0x' + addrHex);
+    // An EVM address is a fixed 20-byte big-endian value. Compact's
+    // `Bytes<20> as Field as Bytes<32>` writes those 20 bytes verbatim into the low
+    // positions [0..19] of the slot. Copy them straight out as the big-endian address —
+    // do NOT reinterpret the slot as a little-endian integer, which reverses the bytes
+    // and sends funds to the byte-reversed address.
+    return ethers.getAddress('0x' + Buffer.from(rawArg.slice(0, 20)).toString('hex'));
   }
 
   if (abiType.startsWith('uint')) {
