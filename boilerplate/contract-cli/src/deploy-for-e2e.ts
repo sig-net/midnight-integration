@@ -86,10 +86,11 @@ console.log('\n=== E2E Setup Complete ===');
 console.log(`MIDNIGHT_CONTRACT_ADDRESS=${contractAddress}`);
 console.log(`SEPOLIA_VAULT_ADDRESS=${vaultAddress}`);
 console.log(`USER_EVM_ADDRESS=${userEvmAddress}`);
-console.log(`\nBefore running the E2E test:`);
-console.log(`  1. Fund ${userEvmAddress} on Sepolia with ETH (gas) + USDC`);
-console.log(`  2. Set MIDNIGHT_CONTRACT_ADDRESS=${contractAddress} in the MPC's .env`);
-console.log(`  3. Start the MPC response server`);
+console.log(`\nBefore running the E2E test — fund both derived Sepolia addresses:`);
+console.log(`  1. ${userEvmAddress}  — user DEPOSIT address: ETH (gas) + USDC (deposits transfer USDC from here)`);
+console.log(`  2. ${vaultAddress}  — vault PAYOUT address: ETH (gas) only (its USDC is credited by deposits)`);
+console.log(`  3. Set MIDNIGHT_CONTRACT_ADDRESS=${contractAddress} in the MPC's .env`);
+console.log(`  4. Start the MPC response server`);
 
 await walletCtx.wallet.stop();
 process.exit(0);

@@ -24,7 +24,8 @@ import { type VaultPrivateState, type VaultProviders, VaultPrivateStateId } from
 import { currentDir, getConfig } from '../config';
 import { createLogger } from '../logger-utils';
 import { hash2x32, pad32, deriveEvmAddress } from '../crypto-utils';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import { execSync } from 'node:child_process';
 import * as Rx from 'rxjs';
 import { encodeString, encodeLengthPrefixed, bytesToBigint } from '../signet';
 import {
@@ -304,6 +305,21 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       await walletCtx.wallet.stop();
     }
   });
+
+  // Restart the proof server before each heavy proof. A single proof fits in memory, but
+  // proofs accumulate and OOM it — steps that prove multiple times need a reset between
+  // each. Set SKIP_PROOF_SERVER_RESTART=1 to disable.
+  const restartProver = () => {
+    if (process.env.SKIP_PROOF_SERVER_RESTART) return;
+    try {
+      execSync('docker compose -f standalone.yml restart proof-server', { stdio: 'ignore', timeout: 60000 });
+      for (let i = 0; i < 60; i++) {
+        try { execSync('curl -sf -o /dev/null http://127.0.0.1:6300', { stdio: 'ignore' }); return; }
+        catch { execSync('sleep 1', { stdio: 'ignore' }); }
+      }
+    } catch { /* best-effort */ }
+  };
+  beforeEach(restartProver);
 
   // ────────────────────────────────────────────────────────────
   //  STEP 1–3: Deposit → MPC signs → Broadcast → Schnorr
@@ -722,6 +738,10 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
   new TextEncoder().encodeInto('vault', vaultPath);
   // Where the vault sends the ERC20 on withdraw (any address; a burn addr keeps it simple).
   const DEST_EVM = new Uint8Array(Buffer.from('000000000000000000000000000000000000dEaD', 'hex'));
+  // Separate dest for the stale-nonce failure test so its tx differs from a successful
+  // withdrawal's. Identical (nonce, dest, amount) would hash to the same tx, and the MPC
+  // would read back the mined success instead of the 0xdeadbeef failure.
+  const DEST_EVM_STALE = new Uint8Array(Buffer.from('000000000000000000000000000000000000bEEF', 'hex'));
   const sepolia = () => new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
   const vaultEvmAddress = () => deriveEvmAddress(MPC_SECP256K1_PUBKEY, DEPLOYED_CONTRACT_ADDRESS!, 'vault');
 
@@ -732,9 +752,10 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
   // The withdraw coin is a circuit parameter: arbitrary nonce, vault-token color,
   // value == amount. The wallet funds the value from the caller's balance.
   const vaultColorBytes = (): Uint8Array => new Uint8Array(Buffer.from(vaultTokenTypeRaw(), 'hex'));
-  let e2eNonceCtr = 0;
+  // Random per-coin nonce so re-runs against the same chain never recreate a coin
+  // commitment (a duplicate would be rejected by the node — Invalid Transaction 103).
   const vaultCoin = (value: bigint, color: Uint8Array = vaultColorBytes()) =>
-    ({ nonce: new Uint8Array(32).fill((e2eNonceCtr++ % 250) + 1), color, value });
+    ({ nonce: api.randomBytes(32), color, value });
   const shieldedVaultBalance = async (ctx: WalletContext = walletCtx): Promise<bigint> => {
     const s: any = await Rx.firstValueFrom(ctx.wallet.state().pipe(Rx.filter((x: any) => x.isSynced)));
     return s.shielded.balances[vaultTokenTypeRaw()] ?? 0n;
@@ -777,6 +798,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
     const resp = await mpcP;
     const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
     const mn = api.randomBytes(32);
+    restartProver();
     await deployedContract.callTx.claim(rid, out, mn, resp.pk, resp.announcement, resp.response);
     return mn;
   };
@@ -806,6 +828,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
 
       // Finalize the successful withdrawal. The success path mints nothing and needs no
       // identity, so anyone can call it; here the withdrawer does.
+      restartProver();
       await deployedContract.callTx.completeWithdraw(wrid, out, api.randomBytes(32), resp.pk, resp.announcement, resp.response);
       ok('completeWithdraw(success) — withdrawal finalized, no refund');
       expect(await shieldedVaultBalance()).toBe(before - testAmount); // NOT refunded
@@ -826,16 +849,18 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       const led = await api.getLedgerState(providers, DEPLOYED_CONTRACT_ADDRESS!);
       const vaultNonce = BigInt(await sepolia().getTransactionCount(vaultEvmAddress()));
       const staleNonce = vaultNonce > 0n ? vaultNonce - 1n : 0n; // already-used → MPC returns deadbeef
-      const wrid = buildWithdrawRid(led!.signetNonce ?? 0n, staleNonce, DEST_EVM, testAmount);
+      const wrid = buildWithdrawRid(led!.signetNonce ?? 0n, staleNonce, DEST_EVM_STALE, testAmount);
       const wridHex = Buffer.from(wrid).toString('hex');
 
       const mpcP = handleMpcWebSocket(MPC_WS_URL, wridHex, SEPOLIA_RPC_URL);
-      await deployedContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, testEvmChainId, staleNonce, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
+      restartProver();
+      await deployedContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM_STALE, testEvmChainId, staleNonce, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
       expect(await shieldedVaultBalance()).toBe(before - testAmount); // surrendered
 
       const resp = await mpcP;
       const out = new Uint8Array(OUTPUT_DATA_SIZE); out.set(resp.outputData.slice(0, OUTPUT_DATA_SIZE));
       expect(out[0]).toBe(0xde); // deadbeef failure
+      restartProver();
       await deployedContract.callTx.completeWithdraw(wrid, out, api.randomBytes(32), resp.pk, resp.announcement, resp.response);
       ok('completeWithdraw(deadbeef) — coin refunded to the withdrawer');
       expect(await shieldedVaultBalance()).toBe(before); // restored
@@ -871,6 +896,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       const aBalance = await shieldedVaultBalance();
       expect(aBalance).toBeGreaterThanOrEqual(testAmount);
       const bAddr = (await Rx.firstValueFrom(bCtx.wallet.state().pipe(Rx.filter((x: any) => x.isSynced))) as any).shielded.address;
+      restartProver();
       const recipe = await walletCtx.wallet.transferTransaction(
         [{ type: 'shielded', outputs: [{ type: vaultTokenTypeRaw(), receiverAddress: bAddr, amount: aBalance }] }],
         { shieldedSecretKeys: walletCtx.shieldedSecretKeys, dustSecretKey: walletCtx.dustSecretKey },
@@ -897,6 +923,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       const wridHex = Buffer.from(wrid).toString('hex');
 
       const mpcP = handleMpcWebSocket(MPC_WS_URL, wridHex, SEPOLIA_RPC_URL);
+      restartProver();
       await bContract.callTx.withdraw(SEPOLIA_USDC_ADDRESS, testAmount, vaultCoin(testAmount), DEST_EVM, testEvmChainId, vaultNonceB, testEvmGasLimit, testEvmMaxFee, testEvmPriorityFee, testEvmValue, testCaip2Id, testKeyVersion, testAlgo, testDest, testParams, testOutputSchema, testRespondSchema);
       ok('#4 — new owner (B) withdrew from the transferred balance');
 
@@ -905,6 +932,7 @@ describe('ERC20 Vault — Cross-Chain Signing E2E', () => {
       expect(out[0] === 0xde && out[1] === 0xad).toBe(false);
       ok('#4 — new owner (B) withdrew successfully from the transferred balance');
       // #7 — completeWithdraw on a success is permissionless: A (not B) finalizes B's withdrawal.
+      restartProver();
       await deployedContract.callTx.completeWithdraw(wrid, out, api.randomBytes(32), resp.pk, resp.announcement, resp.response);
       ok('#7 — third party (A) finalized B’s successful withdrawal (permissionless)');
 
