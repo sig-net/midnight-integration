@@ -367,16 +367,26 @@ export const fundWalletForFees = async (
     ),
   );
 
-  // 3. register the received NIGHT for dust generation (documented flow; no signRecipe).
-  await target.wallet
-    .registerNightUtxosForDustGeneration(
-      funded.unshielded.availableCoins,
-      target.unshieldedKeystore.getPublicKey(),
-      (p) => target.unshieldedKeystore.signData(p),
-    )
-    .then((r) => target.wallet.finalizeRecipe(r))
-    .then((tx) => target.wallet.submitTransaction(tx));
-  logger.info('Dust registration submitted; waiting for dust to appear...');
+  // 3. register only the NOT-yet-registered NIGHT for dust generation. On a reused
+  //    wallet whose UTXOs are already registered, re-registering is rejected by the
+  //    node (submission error / Custom error 138), so register only fresh coins and
+  //    skip entirely if none — the wallet already has the dust it needs.
+  const toRegister = (funded.unshielded.availableCoins as any[]).filter(
+    (c) => !c.meta?.registeredForDustGeneration,
+  );
+  if (toRegister.length > 0) {
+    await target.wallet
+      .registerNightUtxosForDustGeneration(
+        toRegister,
+        target.unshieldedKeystore.getPublicKey(),
+        (p) => target.unshieldedKeystore.signData(p),
+      )
+      .then((r) => target.wallet.finalizeRecipe(r))
+      .then((tx) => target.wallet.submitTransaction(tx));
+    logger.info(`Dust registration submitted for ${toRegister.length} new NIGHT UTXO(s); waiting for dust...`);
+  } else {
+    logger.info('All NIGHT already registered for dust generation; skipping registration.');
+  }
 
   // 4. wait for a spendable dust (fee) balance to appear.
   const ready: any = await Rx.firstValueFrom(
@@ -388,6 +398,46 @@ export const fundWalletForFees = async (
   const dust = readDust(ready);
   logger.info(`Target wallet dust (fee) balance: ${dust}`);
   return dust;
+};
+
+// Make a faucet-funded wallet fee-ready (Preview/testnet, where nothing endows the genesis
+// seed): wait for its NIGHT to arrive, register those UTXOs for dust generation (register →
+// finalizeRecipe → submit — NO signRecipe, or the node rejects with "Custom error: 192"),
+// then wait for a spendable dust (fee) balance. Returns that balance.
+export const registerWalletForDust = async (target: WalletContext): Promise<bigint> => {
+  const NIGHT = unshieldedToken().raw;
+  const readDust = (s: any): bigint => {
+    const bal = s.dust.balance(new Date());
+    return typeof bal === 'bigint' ? bal : BigInt(bal ?? 0);
+  };
+  const funded: any = await Rx.firstValueFrom(
+    target.wallet.state().pipe(
+      Rx.throttleTime(3000),
+      Rx.filter((s: any) => s.isSynced && (s.unshielded.balances[NIGHT] ?? 0n) > 0n),
+    ),
+  );
+  // Register only NOT-yet-registered NIGHT; re-registering already-registered UTXOs is
+  // rejected by the node (Custom error 138), so skip if the wallet is already set up.
+  const toRegister = (funded.unshielded.availableCoins as any[]).filter(
+    (c) => !c.meta?.registeredForDustGeneration,
+  );
+  if (toRegister.length > 0) {
+    await target.wallet
+      .registerNightUtxosForDustGeneration(
+        toRegister,
+        target.unshieldedKeystore.getPublicKey(),
+        (p: Uint8Array) => target.unshieldedKeystore.signData(p),
+      )
+      .then((r: any) => target.wallet.finalizeRecipe(r))
+      .then((tx: any) => target.wallet.submitTransaction(tx));
+  }
+  const ready: any = await Rx.firstValueFrom(
+    target.wallet.state().pipe(
+      Rx.throttleTime(5000),
+      Rx.filter((s: any) => s.isSynced && readDust(s) > 0n),
+    ),
+  );
+  return readDust(ready);
 };
 
 export const randomBytes = (length: number): Uint8Array => {
