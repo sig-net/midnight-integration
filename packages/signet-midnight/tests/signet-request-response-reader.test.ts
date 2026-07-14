@@ -214,7 +214,8 @@ const signetContractState = (
         value: bytes32.toValue(bytes(32, 0x99)),
         alignment: bytes32.alignment(),
       }),
-    );
+    )
+    .arrayPush(StateValue.newMap(new StateMap())); // field 4: notification registry
 };
 
 // ---- Harness ----

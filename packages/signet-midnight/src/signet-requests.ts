@@ -461,15 +461,15 @@ function decodeAccessList(
  * below both go through it, so the transaction a client broadcasts is
  * provably the one the MPC put its signature over.
  *
- * @param event - The on-ledger request record.
+ * @param request - The on-ledger request record.
  * @returns The unsigned ethers transaction (`unsignedHash` is the digest the
  *   MPC signs).
  * @throws Error if a calldata word carries an unknown kind.
  */
 export function signBidirectionalRequestToUnsignedEVMTransaction(
-  event: SignBidirectionalRequest,
+  request: SignBidirectionalRequest,
 ): Transaction {
-  const { txParams } = event;
+  const { txParams } = request;
   return Transaction.from({
     type: 2,
     chainId: txParams.chainId,
@@ -581,7 +581,7 @@ export function signatureToSignatureResponse(
  * requester's derived address — the response log is unauthenticated, so
  * verify first with `verifySignatureResponse`.
  *
- * @param event - The on-ledger request record.
+ * @param request - The on-ledger request record.
  * @param response - The posted signature record answering it.
  * @returns The signed ethers transaction; `serialized` is the raw payload for
  *   `eth_sendRawTransaction`, `hash` its on-chain hash, `from` the recovered
@@ -591,10 +591,10 @@ export function signatureToSignatureResponse(
  *   is not a decodable signature.
  */
 export function signBidirectionalRequestToSignedEVMTransaction(
-  event: SignBidirectionalRequest,
+  request: SignBidirectionalRequest,
   response: SignatureResponse,
 ): Transaction {
-  const transaction = signBidirectionalRequestToUnsignedEVMTransaction(event);
+  const transaction = signBidirectionalRequestToUnsignedEVMTransaction(request);
   transaction.signature = signatureResponseToSignature(response);
   return transaction;
 }
@@ -653,6 +653,31 @@ export type SignBidirectionalRequestIndex = Map<
  */
 export function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Strip an optional `0x`/`0X` prefix from a hex string.
+ *
+ * @param hex - A hex string, with or without a `0x` prefix.
+ * @returns The bare hex digits.
+ */
+export function stripHexPrefix(hex: string): string {
+  return hex.startsWith("0x") || hex.startsWith("0X") ? hex.slice(2) : hex;
+}
+
+/**
+ * Decode a hex string into bytes — the inverse of {@link bytesToHex}.
+ *
+ * @param hex - Hex digits, with or without a `0x` prefix.
+ * @returns The decoded bytes.
+ */
+export function hexToBytes(hex: string): Uint8Array {
+  const digits = stripHexPrefix(hex);
+  const out = new Uint8Array(digits.length >> 1);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = Number.parseInt(digits.slice(2 * i, 2 * i + 2), 16);
+  }
+  return out;
 }
 
 /**

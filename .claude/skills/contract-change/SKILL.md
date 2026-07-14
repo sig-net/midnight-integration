@@ -25,7 +25,7 @@ and how to prove it. It does not restate what already has a home:
 - **Running / redeploying the stack** (funding preflight, MPC responder
   hand-off, fund-sweep, pacing) → the [`/e2e`](../e2e/SKILL.md) skill.
 - **Invariants worth remembering** (enum ≥2 variants, compact-js symbol
-  identity, response-server dependency boundary, cross-contract events) →
+  identity, response-server dependency boundary, cross-contract calls) →
   the project memory index.
 
 ## The four layers — and the one question that places any change
@@ -36,7 +36,7 @@ central notifier, one application, or the driver?*
 | Layer | Package | Owns | NEVER holds |
 |---|---|---|---|
 | **Seed SDK** | `packages/signet-midnight` | Client-agnostic protocol: request/response structs, request-id hashing, Schnorr, the `CompactType` descriptors and readers, `pureCircuits` (compiled `circuits.compact`) | Anything specific to one client contract |
-| **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to emit `SignBidirectionalEvent`. The MPC discovers requesters by watching ITS events | Application logic; per-client state |
+| **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to register a `SignBidirectionalNotification` in its registry. The MPC discovers requesters by polling ITS state | Application logic; per-client state |
 | **Client contract** | `packages/vault-contract` (example) | One application's circuits + ledger. Seals the signet contract address and the MPC key at deploy; enforces what the MPC may sign | Reusable protocol code — that belongs in the seed |
 | **Driver** | `packages/cli` | Orchestration a UI would do: build circuit args, submit calls, poll the signet contract, broadcast EVM. Tests drive the vault THROUGH these functions | Business rules the contract should enforce |
 
@@ -54,13 +54,13 @@ concrete circuit or command — know this map before touching any stage:
 1. **Request** — client circuit (`deposit` / `withdraw`) validates
    the app rules, builds the contract-enforced calldata, inserts the request
    into `signetRequestsIndex`, and cross-contract-calls the signet contract to
-   emit a `SignBidirectionalEvent`. Driven by the cli `request-*` command, which
-   recomputes the request id off-chain (`calculateRequestId`) and asserts it
-   landed on the ledger.
-2. **Discover + sign** — the MPC responder (external, `/e2e` starts it) watches
-   the **signet contract's** events, resolves the request from the requester's
-   RAW ledger, signs the EVM tx, and posts a signature response to the signet
-   contract.
+   register a `SignBidirectionalNotification` in its registry. Driven by the
+   cli `request-*` command, which recomputes the request id off-chain
+   (`calculateRequestId`) and asserts it landed on the ledger.
+2. **Discover + sign** — the MPC responder (external, `/e2e` starts it) polls
+   the **signet contract's** notification registry, resolves the request from
+   the requester's RAW ledger, signs the EVM tx, and posts a signature
+   response to the signet contract.
 3. **Poll signed tx** — cli `poll-signature-response` reconstructs a typed
    ethers `Transaction` from the request + response.
 4. **Broadcast** — cli `broadcast-evm` sends it to the EVM chain.

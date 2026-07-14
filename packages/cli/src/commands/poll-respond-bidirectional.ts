@@ -1,14 +1,15 @@
-// `poll-respond-bidirectional` — stage 2 of the MPC round trip: watch the
-// central signet contract for the RespondBidirectionalEvent announcing that
+// `poll-respond-bidirectional` — stage 2 of the MPC round trip: poll the
+// central signet contract's respond-bidirectional index by request id until
 // the MPC's Schnorr-signed attestation of a request's remote EVM execution
-// was stored, then read the record back. There is deliberately no
-// push/websocket alternative.
+// appears, and return the record. There is deliberately no push/websocket
+// alternative.
 
 import {
   bytesToHex,
   isExecutionError,
   executionSucceeded,
-  SignetRespondBidirectionalFeed,
+  SignetRequestResponseReader,
+  sleepUnlessAborted,
   type RespondBidirectional,
   type RequestIdHex,
 } from "@sig-net/midnight";
@@ -27,22 +28,20 @@ export interface PollRespondBidirectionalOptions {
 }
 
 /**
- * Watch the signet contract at `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` until the
- * MPC's respond-bidirectional attestation for `requestId` appears, and return
- * it.
+ * Poll the signet contract at `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` until the
+ * MPC's respond-bidirectional attestation for `requestId` appears in its
+ * respond-bidirectional index, and return it.
  *
- * Discovery is delegated to signet-midnight's
- * {@link SignetRespondBidirectionalFeed}: the signet contract emits a
- * RespondBidirectionalEvent when the attestation lands in its
- * respond-bidirectional index, and the feed reads the record back only when
- * an event announces it — the event is the trigger, the ledger the source of
- * truth. No off-chain verification happens here — none is needed: the signet
- * contract verified the attestation IN-CIRCUIT at post time (Schnorr over
- * `(requestId, hash(serializedOutput, outputLen))` against its sealed MPC
- * key), so a stored record is authentic by construction. This command owns
- * only the timeout and the reporting: it decodes and logs the outcome
- * (success flag / MPC error sentinel); acting on it (claiming, refunding) is
- * the caller's job.
+ * The read is delegated to signet-midnight's
+ * {@link SignetRequestResponseReader.getRespondBidirectional}: each tick
+ * reads the single authenticated slot at `requestId`; `undefined` means not
+ * posted yet. No off-chain verification happens here — none is needed: the
+ * signet contract verified the attestation IN-CIRCUIT at post time (Schnorr
+ * over `(requestId, hash(serializedOutput, outputLen))` against its sealed
+ * MPC key), so a stored record is authentic by construction. This command
+ * owns the poll loop, the timeout, and the reporting: it decodes and logs the
+ * outcome (success flag / MPC error sentinel); acting on it (claiming,
+ * refunding) is the caller's job.
  *
  * @param context - The CLI context.
  * @param options - What to poll for and how patiently.
@@ -58,35 +57,42 @@ export async function pollRespondBidirectional(
     context.config.signetContractAddress,
     "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
   );
+  const vaultContractAddress = requireConfigValue(
+    context.config.vaultContractAddress,
+    "MIDNIGHT_VAULT_CONTRACT_ADDRESS",
+  );
   console.log(`signet contract:   ${signetContractAddress}`);
   console.log(`request id:        ${options.requestId}`);
   console.log(`poll:              every ${options.intervalMs}ms, up to ${options.timeoutMs}ms`);
 
-  const feed = new SignetRespondBidirectionalFeed({
+  const reader = new SignetRequestResponseReader({
+    requesterContractAddress: vaultContractAddress,
     signetContractAddress,
-    source: context.midnightProviders.indexerPublicDataProvider,
-    pollIntervalMs: options.intervalMs,
+    publicDataProvider: context.midnightProviders.indexerPublicDataProvider,
   });
 
-  // The feed waits until aborted; the timer turns that into the give-up
+  // The reader is single-shot; this loop owns the cadence and the give-up
   // timeout.
   const giveUp = new AbortController();
   const timer = setTimeout(() => giveUp.abort(), options.timeoutMs);
   try {
-    const respondBidirectional = await feed.attestation(options.requestId, {
-      signal: giveUp.signal,
-    });
-    if (respondBidirectional === undefined) {
-      throw new Error(
-        `timed out after ${options.timeoutMs}ms waiting for a respond-bidirectional attestation to request ${options.requestId}`,
+    while (!giveUp.signal.aborted) {
+      const respondBidirectional = await reader.getRespondBidirectional(
+        options.requestId,
       );
+      if (respondBidirectional !== undefined) {
+        if (isExecutionError(respondBidirectional.serializedOutput)) {
+          console.log("remote execution FAILED (MPC error sentinel)");
+        } else {
+          console.log(`remote execution ${executionSucceeded(respondBidirectional.serializedOutput) ? "succeeded" : "returned false"}`);
+        }
+        return respondBidirectional;
+      }
+      await sleepUnlessAborted(options.intervalMs, giveUp.signal);
     }
-    if (isExecutionError(respondBidirectional.serializedOutput)) {
-      console.log("remote execution FAILED (MPC error sentinel)");
-    } else {
-      console.log(`remote execution ${executionSucceeded(respondBidirectional.serializedOutput) ? "succeeded" : "returned false"}`);
-    }
-    return respondBidirectional;
+    throw new Error(
+      `timed out after ${options.timeoutMs}ms waiting for a respond-bidirectional attestation to request ${options.requestId}`,
+    );
   } finally {
     clearTimeout(timer);
   }

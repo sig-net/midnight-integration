@@ -1,8 +1,10 @@
-// Observer + feed tests over stub sources: a stub SignetEventSource serves
-// constructed Misc events, and a stub state source serves the caller ledgers
-// the resolver reads. No network, no compiled contract. Covers discovery order,
-// resume floor, name filtering, membership-gated yielding, forged-event drops,
-// dedupe, and the optional policy allow-list.
+// Feed tests over a stub state source: the stub serves BOTH the signet
+// contract's raw state (whose field-4 notification registry the feed polls,
+// with records packed by the REAL compiled circuit — lockstep by construction)
+// and the caller ledgers the resolver reads. No network, no docker. Covers
+// discovery, membership-gated yielding, forged-notification drops, dedupe,
+// forget, unsupported-version skips, stable ordering, and the optional policy
+// allow-list.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -12,25 +14,21 @@ import {
   StateValue,
   type StateValue as StateValueType,
 } from "@midnight-ntwrk/compact-runtime";
-import type {
-  ContractEvent,
-  ContractEventQueryFilter,
-} from "@midnight-ntwrk/midnight-js-types";
 
 import {
-  SignetEventObserver,
   SignetRequestFeed,
   TxParamType,
   asciiPadded,
   bytesToHex,
   evmAddressAbiWord,
   numericAbiWordValue,
+  pureCircuits,
   requestIdHex,
   requestIdType,
-  signBidirectionalEventCodec,
+  signBidirectionalNotificationType,
   signBidirectionalRequestDescriptor,
+  type SignBidirectionalNotificationRecord,
   type SignBidirectionalRequest,
-  type SignetEventSource,
 } from "../src/index.ts";
 
 // The ERC20 transfer(address,uint256) selector — a realistic calldata fixture
@@ -103,70 +101,74 @@ const callerStateWith = (requestId: Uint8Array): StateValueType => {
     );
 };
 
-const STATE_TABLE: Record<string, StateValueType> = {
-  [CALLER_A]: callerStateWith(REQUEST_A_ID),
-  [CALLER_B]: callerStateWith(REQUEST_B_ID),
+/**
+ * A V1 notification record, packed by the REAL compiled circuit — the same
+ * packer the vault calls in-circuit, so these fixtures pin the pack↔decode
+ * lockstep by construction.
+ */
+const notification = (
+  caller: Uint8Array,
+  requestId: Uint8Array,
+): SignBidirectionalNotificationRecord =>
+  pureCircuits.constructSignBidirectionalNotificationV1(
+    { bytes: caller },
+    requestId,
+    0n,
+  );
+
+/**
+ * Synthetic SIGNET contract state: the 5-field layout with the notification
+ * registry (field 4) holding the given records, keyed by their request ids.
+ * Fields 0-3 are present (empty / zeroed) so field positions stay honest.
+ */
+const signetStateWith = (
+  entries: Array<{ key: Uint8Array; record: SignBidirectionalNotificationRecord }>,
+): StateValueType => {
+  let registry = new StateMap();
+  for (const { key, record } of entries) {
+    registry = registry.insert(
+      { value: requestIdType.toValue(key), alignment: requestIdType.alignment() },
+      StateValue.newCell({
+        value: signBidirectionalNotificationType.toValue(record),
+        alignment: signBidirectionalNotificationType.alignment(),
+      }),
+    );
+  }
+  return StateValue.newArray()
+    .arrayPush(StateValue.newMap(new StateMap())) // field 0: response counter index
+    .arrayPush(StateValue.newMap(new StateMap())) // field 1: response log
+    .arrayPush(StateValue.newMap(new StateMap())) // field 2: respond-bidirectional index
+    .arrayPush(
+      StateValue.newCell({
+        value: requestIdType.toValue(bytes(32, 0)),
+        alignment: requestIdType.alignment(),
+      }),
+    ) // field 3: mpc key hash
+    .arrayPush(StateValue.newMap(registry)); // field 4: notification registry
 };
 
 /**
- * A `serialize<SignBidirectionalEvent,256>` payload. The frozen envelope tags
- * `version` at byte 0, shifting the V1 fields: caller[1..33], requestId[33..65],
- * requestsIndexField[65].
+ * Stub state source serving the signet contract's registry AND the caller
+ * ledgers from one table, like a real indexer provider would.
  */
-const payloadFor = (caller: Uint8Array, requestId: Uint8Array): Uint8Array => {
-  const payload = new Uint8Array(256);
-  payload[0] = 1; // version
-  payload.set(caller, 1);
-  payload.set(requestId, 33);
-  payload[65] = 0; // requestsIndexField
-  return payload;
+const stubStateSource = (
+  entries: Array<{ key: Uint8Array; record: SignBidirectionalNotificationRecord }>,
+  callers: Record<string, StateValueType> = {
+    [CALLER_A]: callerStateWith(REQUEST_A_ID),
+    [CALLER_B]: callerStateWith(REQUEST_B_ID),
+  },
+) => {
+  const table: Record<string, StateValueType> = {
+    ...callers,
+    [SIGNET_ADDRESS]: signetStateWith(entries),
+  };
+  return {
+    queryContractState: vi.fn(async (address: string) => {
+      const data = table[address];
+      return data ? { data } : null;
+    }),
+  };
 };
-
-/** Build a Misc ContractEvent with a given tag, payload, and cursor id. */
-const miscEvent = (
-  id: number,
-  tag: string,
-  payload: Uint8Array,
-): ContractEvent =>
-  ({
-    eventType: "Misc",
-    name: bytesToHex(asciiPadded(tag, 32)),
-    payload: bytesToHex(payload),
-    id,
-    maxId: 100,
-    version: 1,
-    contractAddress: SIGNET_ADDRESS,
-    transactionId: id,
-    raw: "",
-  }) as ContractEvent;
-
-const signEvent = (
-  id: number,
-  caller: Uint8Array,
-  requestId: Uint8Array,
-): ContractEvent => miscEvent(id, "SignBidirectionalEvent", payloadFor(caller, requestId));
-
-/** Stub event source over a fixed event list; records how it was filtered. */
-const stubEventSource = (
-  events: ContractEvent[],
-): SignetEventSource & { queryContractEvents: ReturnType<typeof vi.fn> } => {
-  const queryContractEvents = vi.fn(
-    async (_filter: ContractEventQueryFilter) => events,
-  );
-  return { queryContractEvents } as never;
-};
-
-/** Combined event + state source for the feed. */
-const stubFeedSource = (
-  events: ContractEvent[],
-  table: Record<string, StateValueType> = STATE_TABLE,
-) => ({
-  queryContractEvents: vi.fn(async () => events),
-  queryContractState: vi.fn(async (address: string) => {
-    const data = table[address];
-    return data ? { data } : null;
-  }),
-});
 
 async function collect<T>(
   iterable: AsyncIterable<T>,
@@ -180,88 +182,11 @@ async function collect<T>(
   return out;
 }
 
-describe("SignetEventObserver", () => {
-  it("decodes SignBidirectionalEvent notifications in ascending id order", async () => {
-    const source = stubEventSource([
-      signEvent(5, CALLER_B_BYTES, REQUEST_B_ID),
-      signEvent(2, CALLER_A_BYTES, REQUEST_A_ID),
-    ]);
-    const observer = new SignetEventObserver({
-      signetContractAddress: SIGNET_ADDRESS,
-      source,
-      codec: signBidirectionalEventCodec,
-    });
-    const events = await observer.currentEvents();
-    expect(events.map((e) => e.callerAddress)).toEqual([CALLER_A, CALLER_B]);
-  });
-
-  it("filters out Misc events with a non-matching name tag", async () => {
-    const source = stubEventSource([
-      miscEvent(1, "deposit", payloadFor(CALLER_A_BYTES, REQUEST_A_ID)),
-      signEvent(2, CALLER_A_BYTES, REQUEST_A_ID),
-    ]);
-    const observer = new SignetEventObserver({
-      signetContractAddress: SIGNET_ADDRESS,
-      source,
-      codec: signBidirectionalEventCodec,
-    });
-    const events = await observer.currentEvents();
-    expect(events).toHaveLength(1);
-    expect(events[0].requestId).toBe(requestIdHex(REQUEST_A_ID));
-  });
-
-  it("queries with the Misc filter for the signet contract", async () => {
-    const source = stubEventSource([]);
-    const observer = new SignetEventObserver({
-      signetContractAddress: SIGNET_ADDRESS,
-      source,
-      codec: signBidirectionalEventCodec,
-    });
-    await observer.currentEvents();
-    expect(source.queryContractEvents).toHaveBeenCalledWith({
-      contractAddress: SIGNET_ADDRESS,
-      types: ["Misc"],
-    });
-  });
-
-  it("watch() yields each event once, in id order", async () => {
-    const source = stubEventSource([
-      signEvent(2, CALLER_A_BYTES, REQUEST_A_ID),
-      signEvent(5, CALLER_B_BYTES, REQUEST_B_ID),
-    ]);
-    const observer = new SignetEventObserver({
-      signetContractAddress: SIGNET_ADDRESS,
-      source,
-      codec: signBidirectionalEventCodec,
-      pollIntervalMs: 1,
-    });
-    const seen = await collect(observer.watch(), 2);
-    expect(seen.map((e) => e.callerAddress)).toEqual([CALLER_A, CALLER_B]);
-  });
-
-  it("watch() honours the resume floor (nothing at/below fromEventId)", async () => {
-    const source = stubEventSource([
-      signEvent(2, CALLER_A_BYTES, REQUEST_A_ID),
-      signEvent(5, CALLER_B_BYTES, REQUEST_B_ID),
-    ]);
-    const observer = new SignetEventObserver({
-      signetContractAddress: SIGNET_ADDRESS,
-      source,
-      codec: signBidirectionalEventCodec,
-      fromEventId: 3,
-      pollIntervalMs: 1,
-    });
-    const seen = await collect(observer.watch(), 1);
-    expect(seen).toHaveLength(1);
-    expect(seen[0].callerAddress).toBe(CALLER_B);
-  });
-});
-
 describe("SignetRequestFeed", () => {
-  it("yields only events that resolve to a member request", async () => {
-    const source = stubFeedSource([
-      signEvent(1, CALLER_A_BYTES, REQUEST_A_ID),
-      signEvent(2, CALLER_B_BYTES, REQUEST_B_ID),
+  it("yields only notifications that resolve to a member request", async () => {
+    const source = stubStateSource([
+      { key: REQUEST_A_ID, record: notification(CALLER_A_BYTES, REQUEST_A_ID) },
+      { key: REQUEST_B_ID, record: notification(CALLER_B_BYTES, REQUEST_B_ID) },
     ]);
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
@@ -275,10 +200,32 @@ describe("SignetRequestFeed", () => {
     ]);
   });
 
-  it("drops a forged event whose caller holds no such request", async () => {
-    const source = stubFeedSource([
-      signEvent(1, FORGED_CALLER_BYTES, REQUEST_A_ID),
-      signEvent(2, CALLER_A_BYTES, REQUEST_A_ID),
+  it("processes registry entries in ascending request-id-hex order", async () => {
+    // Insert B before A; the feed's stable ordering must still yield A first
+    // (0x2f… < 0x31…).
+    const source = stubStateSource([
+      { key: REQUEST_B_ID, record: notification(CALLER_B_BYTES, REQUEST_B_ID) },
+      { key: REQUEST_A_ID, record: notification(CALLER_A_BYTES, REQUEST_A_ID) },
+    ]);
+    const feed = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      source,
+    });
+    const resolved = await feed.poll();
+    expect(resolved.map((r) => r.requestId)).toEqual([
+      requestIdHex(REQUEST_A_ID),
+      requestIdHex(REQUEST_B_ID),
+    ]);
+  });
+
+  it("drops a forged notification whose caller holds no such request, WITHOUT marking it yielded", async () => {
+    const forged = {
+      key: REQUEST_B_ID,
+      record: notification(FORGED_CALLER_BYTES, REQUEST_B_ID),
+    };
+    const source = stubStateSource([
+      forged,
+      { key: REQUEST_A_ID, record: notification(CALLER_A_BYTES, REQUEST_A_ID) },
     ]);
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
@@ -287,10 +234,43 @@ describe("SignetRequestFeed", () => {
     const resolved = await feed.poll();
     expect(resolved).toHaveLength(1);
     expect(resolved[0].callerAddress).toBe(CALLER_A);
+    // Not marked yielded: were CALLER_B's state to appear later under the same
+    // request id, it would still be served (forget() not required).
+    const retry = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      source: stubStateSource([
+        { key: REQUEST_B_ID, record: notification(CALLER_B_BYTES, REQUEST_B_ID) },
+      ]),
+    });
+    expect(await retry.poll()).toHaveLength(1);
+  });
+
+  it("skips an unsupported-version record without marking it yielded", async () => {
+    const v1 = notification(CALLER_A_BYTES, REQUEST_A_ID);
+    const source = stubStateSource([
+      { key: REQUEST_A_ID, record: { ...v1, version: 2n } },
+      { key: REQUEST_B_ID, record: notification(CALLER_B_BYTES, REQUEST_B_ID) },
+    ]);
+    const feed = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      source,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const resolved = await feed.poll();
+      expect(resolved.map((r) => r.requestId)).toEqual([
+        requestIdHex(REQUEST_B_ID),
+      ]);
+      expect(warn).toHaveBeenCalledOnce();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("dedupes a repeated requestId across polls", async () => {
-    const source = stubFeedSource([signEvent(1, CALLER_A_BYTES, REQUEST_A_ID)]);
+    const source = stubStateSource([
+      { key: REQUEST_A_ID, record: notification(CALLER_A_BYTES, REQUEST_A_ID) },
+    ]);
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
       source,
@@ -300,7 +280,9 @@ describe("SignetRequestFeed", () => {
   });
 
   it("re-yields a forgotten requestId (downstream-failure retry)", async () => {
-    const source = stubFeedSource([signEvent(1, CALLER_A_BYTES, REQUEST_A_ID)]);
+    const source = stubStateSource([
+      { key: REQUEST_A_ID, record: notification(CALLER_A_BYTES, REQUEST_A_ID) },
+    ]);
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
       source,
@@ -311,9 +293,9 @@ describe("SignetRequestFeed", () => {
   });
 
   it("applies the allow-list when set (0x/case-insensitive)", async () => {
-    const source = stubFeedSource([
-      signEvent(1, CALLER_A_BYTES, REQUEST_A_ID),
-      signEvent(2, CALLER_B_BYTES, REQUEST_B_ID),
+    const source = stubStateSource([
+      { key: REQUEST_A_ID, record: notification(CALLER_A_BYTES, REQUEST_A_ID) },
+      { key: REQUEST_B_ID, record: notification(CALLER_B_BYTES, REQUEST_B_ID) },
     ]);
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
@@ -325,9 +307,9 @@ describe("SignetRequestFeed", () => {
   });
 
   it("passes all callers when the allow-list is unset", async () => {
-    const source = stubFeedSource([
-      signEvent(1, CALLER_A_BYTES, REQUEST_A_ID),
-      signEvent(2, CALLER_B_BYTES, REQUEST_B_ID),
+    const source = stubStateSource([
+      { key: REQUEST_A_ID, record: notification(CALLER_A_BYTES, REQUEST_A_ID) },
+      { key: REQUEST_B_ID, record: notification(CALLER_B_BYTES, REQUEST_B_ID) },
     ]);
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
@@ -336,10 +318,18 @@ describe("SignetRequestFeed", () => {
     expect(await feed.poll()).toHaveLength(2);
   });
 
+  it("throws when the signet contract has no readable state", async () => {
+    const feed = new SignetRequestFeed({
+      signetContractAddress: "unknown-address",
+      source: stubStateSource([]),
+    });
+    await expect(feed.poll()).rejects.toThrow(/No contract state/);
+  });
+
   it("requests() streams resolved requests then can be stopped", async () => {
-    const source = stubFeedSource([
-      signEvent(1, CALLER_A_BYTES, REQUEST_A_ID),
-      signEvent(2, CALLER_B_BYTES, REQUEST_B_ID),
+    const source = stubStateSource([
+      { key: REQUEST_A_ID, record: notification(CALLER_A_BYTES, REQUEST_A_ID) },
+      { key: REQUEST_B_ID, record: notification(CALLER_B_BYTES, REQUEST_B_ID) },
     ]);
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,

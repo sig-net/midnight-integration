@@ -167,17 +167,17 @@ export function readSignetRequestsLedgerFromState(raw: RawContractState): Signet
 /**
  * Look up ONE request by id in a contract's request index at an arbitrary
  * ledger field — the generalization of {@link readSignetRequestsLedgerFromState}
- * the event path needs: a `SignBidirectionalEvent` names both the requester
- * contract AND which field holds its index, so the field is no longer assumed
- * to be {@link SIGNET_REQUESTS_INDEX_FIELD}.
+ * the discovery path needs: a notification names both the requester contract
+ * AND which field holds its index, so the field is no longer assumed to be
+ * {@link SIGNET_REQUESTS_INDEX_FIELD}.
  *
- * This is the mandatory membership check of the event flow (see
+ * This is the mandatory membership check of the discovery flow (see
  * signet-request-resolver.ts): `undefined` means the id is NOT a member of the
  * index at `fieldIndex` — the notification is forged, stale, points at the
  * wrong field, or the request is not yet indexed — and the caller MUST drop it.
  * Every non-membership case (field out of range, field is not a Map, id absent,
  * a cell that fails to decode) returns `undefined` rather than throwing, so a
- * malformed or adversarial event can never crash the reader.
+ * malformed or adversarial notification can never crash the reader.
  *
  * Only the matched record is decoded (not the whole index), and it is decoded
  * by the same {@link decodeSignBidirectionalRequest} the full reader uses, so

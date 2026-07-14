@@ -5,9 +5,6 @@
 // postRespondBidirectional's in-circuit Schnorr verification is exercised
 // end to end.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -17,8 +14,12 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
+  bytesToHex,
+  decodeSignBidirectionalNotification,
   deriveJubjubKeypair,
   hashJubjubPoint,
+  readSignetContractLedgerFromState,
+  requestIdHex,
   schnorrSign,
   pureCircuits as signetCircuits,
   type JubjubKeypair,
@@ -125,6 +126,111 @@ describe("constructor", () => {
     expect(state.signatureResponseIndex.isEmpty()).toBe(true);
     expect(state.respondBidirectionalIndex.isEmpty()).toBe(true);
     expect(state.mpcPubKeyHash).toEqual(hashJubjubPoint(MPC_KEYS.pk));
+    expect(state.signBidirectionalNotificationIndex.isEmpty()).toBe(true);
+  });
+});
+
+// A caller contract address as the packer consumes it (raw 32 bytes) — the
+// registering client passes kernel.self(); here a fixed fixture suffices.
+const NOTIFYING_CALLER = { bytes: bytes(32, 0xc1) };
+
+describe("notifyBidirectionalSignatureRequest", () => {
+  it("stores the notification under its request id — observable on the ledger", async () => {
+    const { contract, ctx } = await deployContract(
+      "notifyBidirectionalSignatureRequest",
+    );
+    const notification = signetCircuits.constructSignBidirectionalNotificationV1(
+      NOTIFYING_CALLER,
+      REQUEST_A,
+      0n,
+    );
+
+    const next = (
+      await contract.circuits.notifyBidirectionalSignatureRequest(
+        ctx,
+        REQUEST_A,
+        notification,
+      )
+    ).context;
+    const state = ledger(next.callContext.currentQueryContext.state);
+
+    expect(state.signBidirectionalNotificationIndex.size()).toBe(1n);
+    expect(state.signBidirectionalNotificationIndex.lookup(REQUEST_A)).toEqual(
+      notification,
+    );
+  });
+
+  it("overwrites idempotently on a repeat notify for the same request id", async () => {
+    const { contract, ctx } = await deployContract(
+      "notifyBidirectionalSignatureRequest",
+    );
+    const first = signetCircuits.constructSignBidirectionalNotificationV1(
+      NOTIFYING_CALLER,
+      REQUEST_A,
+      0n,
+    );
+    const second = signetCircuits.constructSignBidirectionalNotificationV1(
+      NOTIFYING_CALLER,
+      REQUEST_A,
+      3n, // different index field — latest write must win
+    );
+
+    let next = (
+      await contract.circuits.notifyBidirectionalSignatureRequest(
+        ctx,
+        REQUEST_A,
+        first,
+      )
+    ).context;
+    next = (
+      await contract.circuits.notifyBidirectionalSignatureRequest(
+        next,
+        REQUEST_A,
+        second,
+      )
+    ).context;
+
+    const state = ledger(next.callContext.currentQueryContext.state);
+    expect(state.signBidirectionalNotificationIndex.size()).toBe(1n);
+    expect(state.signBidirectionalNotificationIndex.lookup(REQUEST_A)).toEqual(
+      second,
+    );
+  });
+
+  it("MPC-style raw read decodes the stored notification from real contract state", async () => {
+    const { contract, ctx } = await deployContract(
+      "notifyBidirectionalSignatureRequest",
+    );
+    const notification = signetCircuits.constructSignBidirectionalNotificationV1(
+      NOTIFYING_CALLER,
+      REQUEST_A,
+      0n,
+    );
+    const next = (
+      await contract.circuits.notifyBidirectionalSignatureRequest(
+        ctx,
+        REQUEST_A,
+        notification,
+      )
+    ).context;
+
+    // Read the REAL simulator state the way the MPC reads the indexer's raw
+    // state: by field position, through the hand-composed descriptors. This
+    // pins descriptor↔contract encoding lockstep in-process.
+    const raw = readSignetContractLedgerFromState(
+      next.callContext.currentQueryContext.state,
+    );
+    expect(raw.signBidirectionalNotificationIndex.size).toBe(1);
+    const record = raw.signBidirectionalNotificationIndex.get(
+      requestIdHex(REQUEST_A),
+    );
+    expect(record).toBeDefined();
+    expect(decodeSignBidirectionalNotification(record!)).toEqual({
+      version: 1,
+      callerAddress: bytesToHex(NOTIFYING_CALLER.bytes),
+      requestId: requestIdHex(REQUEST_A),
+      requestsIndexField: 0,
+    });
   });
 });
 
@@ -322,23 +428,6 @@ describe("postRespondBidirectional", () => {
     const state = ledger(next.callContext.currentQueryContext.state);
     expect(state.respondBidirectionalIndex.size()).toBe(1n);
     expect(state.respondBidirectionalIndex.lookup(REQUEST_A)).toEqual(first);
-  });
-
-  it("compiled emit: the circuit lowers to an event (`log`) transcript op", () => {
-    // Event DELIVERY is unobservable in-process — the emitted event lands in
-    // the circuit's public transcript behind an opaque WASM handle; only a
-    // live indexer surfaces it (the golden e2e test pins that, plus the
-    // payload byte layout). What CAN be pinned here: the emit statement was
-    // accepted at compile time — the generated circuit body carries the
-    // event op. Scoped to postRespondBidirectional's own method so the other
-    // circuits' emits cannot mask a regression.
-    const js = readFileSync(
-      fileURLToPath(new URL("../src/managed/contract/index.js", import.meta.url)),
-      "utf8",
-    );
-    const start = js.indexOf("async _postRespondBidirectional_0(");
-    expect(start).toBeGreaterThan(-1);
-    expect(js.slice(start)).toContain("'log'");
   });
 
   it("tracks attestations per request id", async () => {

@@ -72,7 +72,7 @@ pinned by `vitest.config.ts`.
 
 1. Confirm the MPC responder is running against the addresses in `.env`
    (`ps` for a `fakenet-signer` / `yarn response` process; its log prints
-   `check midnight for SignBidirectionalEvents at <vault address>`).
+   `check midnight for SignBidirectionalNotifications at <vault address>`).
    If not: start it — see step 6 of the redeploy flow.
 2. `yarn test:integration-tests > <logfile> 2>&1 &` and watch the log.
    Expect all globalSetup steps to log `SKIPPED: …` and every flow file to
@@ -132,7 +132,7 @@ be swept to the new one.
 6. MPC hand-off — in the `solana-signet-program` checkout:
    - set `MIDNIGHT_SIGNET_CONTRACT_ADDRESS=<new signet contract address>` in
      its `.env` (the responder discovers requester contracts by watching the
-     signet contract's events — no vault address needed);
+     signet contract's notification registry — no vault address needed);
    - the responder proves its posts with the signet contract's PROVER keys,
      which the npm `@sig-net/midnight-contract` package does NOT ship (only
      the small verifiers — provers are 30–135 MB). After any signet
@@ -142,7 +142,7 @@ be swept to the new one.
      (safe iff the verifiers are byte-identical — `shasum` both sides);
    - restart the responder: kill any running one, then `yarn response`
      (background, own log). Healthy startup logs
-     `MidnightMonitor: watching signet contract events at <new signet address>`.
+     `MidnightMonitor: polling signet contract registry at <new signet address>`.
 7. Rerun the suite (rerun flow). All setup steps skip; every flow file
    should pass (happy-day: 17/17).
 

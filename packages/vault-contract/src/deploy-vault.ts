@@ -79,14 +79,14 @@ export async function deployVault(env: Record<string, string | undefined> = proc
   }
   const mpcPk = parseJubjubPublicKey(mpcPkRaw);
 
-  // The signet contract the vault cross-contract-calls to emit signature
-  // requests — sealed into the vault as the SignetEventEmitter reference, so it
-  // must be deployed first.
+  // The signet contract the vault cross-contract-calls to register signature
+  // request notifications — sealed into the vault as the SignetNotifier
+  // reference, so it must be deployed first.
   const signetContractAddress = env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS?.trim();
   if (!signetContractAddress) {
     throw new Error("MIDNIGHT_SIGNET_CONTRACT_ADDRESS is required (deploy the signet contract first)");
   }
-  const signetEventEmitter = contractAddressToReference(signetContractAddress);
+  const signetNotifier = contractAddressToReference(signetContractAddress);
 
   const compiledContract = makeCompiledContract<Contract<VaultPrivateState>, VaultPrivateState>(
     "erc20-vault",
@@ -112,7 +112,7 @@ export async function deployVault(env: Record<string, string | undefined> = proc
         createVaultPrivateState(secretKey),
         deployerCommitment,
         mpcPk,
-        signetEventEmitter,
+        signetNotifier,
       );
       console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
 

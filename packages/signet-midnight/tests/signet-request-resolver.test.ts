@@ -1,8 +1,9 @@
-// Security test for the event → authenticated request resolution. The event is
-// a notification only: the resolver MUST read the request from the named
-// caller's own ledger and MUST reject any id that is not a member of the index
-// at the event's field. A stub state source stands in for the indexer — no
-// network, no compiled contract. See knowledge-base/caller-attribution.md.
+// Security test for the notification → authenticated request resolution. The
+// notification is a pointer only: the resolver MUST read the request from the
+// named caller's own ledger and MUST reject any id that is not a member of the
+// index at the notification's field. A stub state source stands in for the
+// indexer — no network, no compiled contract. See
+// knowledge-base/caller-attribution.md.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -22,7 +23,7 @@ import {
   requestIdHex,
   requestIdType,
   signBidirectionalRequestDescriptor,
-  type SignBidirectionalEvent,
+  type SignBidirectionalNotification,
   type SignBidirectionalRequest,
   type SignetPublicStateSource,
 } from "../src/index.ts";
@@ -104,9 +105,9 @@ const stubSource = (
   return { queryContractState } as never;
 };
 
-const eventFor = (
-  overrides: Partial<SignBidirectionalEvent> = {},
-): SignBidirectionalEvent => ({
+const notificationFor = (
+  overrides: Partial<SignBidirectionalNotification> = {},
+): SignBidirectionalNotification => ({
   version: 1,
   callerAddress: CALLER_ADDRESS,
   requestId: REQUEST_ID_HEX,
@@ -119,7 +120,7 @@ describe("SignetRequestResolver", () => {
     const resolver = new SignetRequestResolver({
       source: stubSource({ [CALLER_ADDRESS]: callerState() }),
     });
-    const resolved = await resolver.resolve(eventFor());
+    const resolved = await resolver.resolve(notificationFor());
     expect(resolved).toEqual({
       callerAddress: CALLER_ADDRESS,
       requestId: REQUEST_ID_HEX,
@@ -127,27 +128,27 @@ describe("SignetRequestResolver", () => {
     });
   });
 
-  it("drops (undefined, no throw) an event whose requestId is not a member", async () => {
+  it("drops (undefined, no throw) a notification whose requestId is not a member", async () => {
     const resolver = new SignetRequestResolver({
       source: stubSource({ [CALLER_ADDRESS]: callerState() }),
     });
     await expect(
-      resolver.resolve(eventFor({ requestId: NON_MEMBER_ID_HEX })),
+      resolver.resolve(notificationFor({ requestId: NON_MEMBER_ID_HEX })),
     ).resolves.toBeUndefined();
   });
 
-  it("drops an event whose callerAddress holds no contract state", async () => {
+  it("drops a notification whose callerAddress holds no contract state", async () => {
     const resolver = new SignetRequestResolver({ source: stubSource({}) });
-    await expect(resolver.resolve(eventFor())).resolves.toBeUndefined();
+    await expect(resolver.resolve(notificationFor())).resolves.toBeUndefined();
   });
 
-  it("drops an event pointing at the wrong requestsIndexField", async () => {
+  it("drops a notification pointing at the wrong requestsIndexField", async () => {
     const resolver = new SignetRequestResolver({
       source: stubSource({ [CALLER_ADDRESS]: callerState() }),
     });
     // Field 1 is the nonce cell, not the request index.
     await expect(
-      resolver.resolve(eventFor({ requestsIndexField: 1 })),
+      resolver.resolve(notificationFor({ requestsIndexField: 1 })),
     ).resolves.toBeUndefined();
   });
 
@@ -158,14 +159,14 @@ describe("SignetRequestResolver", () => {
       }),
     } as unknown as SignetPublicStateSource;
     const resolver = new SignetRequestResolver({ source });
-    await expect(resolver.resolve(eventFor())).resolves.toBeUndefined();
+    await expect(resolver.resolve(notificationFor())).resolves.toBeUndefined();
   });
 
   it("caches a resolved request — re-resolving queries state once", async () => {
     const source = stubSource({ [CALLER_ADDRESS]: callerState() });
     const resolver = new SignetRequestResolver({ source });
-    const first = await resolver.resolve(eventFor());
-    const second = await resolver.resolve(eventFor());
+    const first = await resolver.resolve(notificationFor());
+    const second = await resolver.resolve(notificationFor());
     expect(second).toEqual(first);
     expect(source.queryContractState).toHaveBeenCalledTimes(1);
   });
@@ -175,9 +176,9 @@ describe("SignetRequestResolver", () => {
     const table: Record<string, StateValueType> = {};
     const source = stubSource(table);
     const resolver = new SignetRequestResolver({ source });
-    expect(await resolver.resolve(eventFor())).toBeUndefined();
+    expect(await resolver.resolve(notificationFor())).toBeUndefined();
     table[CALLER_ADDRESS] = callerState();
-    expect(await resolver.resolve(eventFor())).toEqual({
+    expect(await resolver.resolve(notificationFor())).toEqual({
       callerAddress: CALLER_ADDRESS,
       requestId: REQUEST_ID_HEX,
       request: REQUEST,

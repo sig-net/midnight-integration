@@ -48,8 +48,9 @@ export sealed ledger mpcPubKeyHash: Bytes<32>;
 
 // ---- Cross-contract references ----------------------------------------------------
 // The central signet contract, pinned at deploy time: the request circuits
-// cross-contract-call it to emit the SignBidirectionalEvent notification.
-sealed ledger signetEventEmitter: SignetEventEmitter;
+// cross-contract-call it to register the request notification in its
+// registry, which the MPC polls.
+sealed ledger signetNotifier: SignetNotifier;
 
 // ---- Withdraw escrow state ---------------------------------------------------------
 
@@ -147,11 +148,11 @@ export pure circuit withdrawRefundCommitment(sk: Bytes<32>, requestId: RequestId
 constructor(
   deployerCommitment: Bytes<32>,
   mpcPk: JubjubPoint,
-  signetContract: SignetEventEmitter,
+  signetContract: SignetNotifier,
 ) {
   deployer = disclose(deployerCommitment);
   mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
-  signetEventEmitter = disclose(signetContract);
+  signetNotifier = disclose(signetContract);
 }
 
 export circuit initialize(
@@ -264,10 +265,10 @@ export circuit deposit(
   signetNonce.increment(1);
   signetRequestsIndex.insert(requestId, disclose(request));
 
-  // Notify the MPC of the signature request via the signet contract.
-  signetEventEmitter.emitSignBidirectionalEvent(constructSignBidirectionalEventV1(
+  // Notify the MPC of the signature request via the signet contract's registry.
+  signetNotifier.notifyBidirectionalSignatureRequest(requestId, constructSignBidirectionalNotificationV1(
     kernel.self(),
-    requestId as Bytes<32>, // RequestId's raw type: a new-type field crashes the event encoder
+    requestId as Bytes<32>,
     0 as Uint<8>,
   ));
 }
@@ -463,10 +464,10 @@ export circuit withdraw(
   signetRequestsIndex.insert(requestId, disclose(request));
   refundCommitment.insert(requestId, disclose(withdrawRefundCommitment(callerSecretKey(), requestId)));
 
-  // Notify the MPC of the signature request via the signet contract.
-  signetEventEmitter.emitSignBidirectionalEvent(constructSignBidirectionalEventV1(
+  // Notify the MPC of the signature request via the signet contract's registry.
+  signetNotifier.notifyBidirectionalSignatureRequest(requestId, constructSignBidirectionalNotificationV1(
     kernel.self(),
-    requestId as Bytes<32>, // RequestId's raw type: a new-type field crashes the event encoder
+    requestId as Bytes<32>,
     0 as Uint<8>,
   ));
 }

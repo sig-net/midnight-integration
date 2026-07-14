@@ -1,14 +1,14 @@
-// `poll-signature-response` — stage 1 of the MPC round trip: watch the
-// central signet contract for the SignatureRespondedEvent announcing that the
-// MPC posted its ECDSA signature over a request's EVM transaction, then read
-// the posted response back and verify it. There is deliberately no
-// push/websocket alternative.
+// `poll-signature-response` — stage 1 of the MPC round trip: poll the central
+// signet contract's signature response log by request id until the MPC's
+// ECDSA signature over a request's EVM transaction appears, verifying every
+// post on the way. There is deliberately no push/websocket alternative.
 
 import type { Transaction } from "ethers";
 
 import {
-  SignetResponseFeed,
+  SignetRequestResponseReader,
   signBidirectionalRequestToSignedEVMTransaction,
+  sleepUnlessAborted,
   type RequestIdHex,
 } from "@sig-net/midnight";
 
@@ -34,26 +34,25 @@ export interface PollSignatureResponseOptions {
 }
 
 /**
- * Watch the signet contract at `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` until a
- * VALID signature response for `requestId` appears, then reconstruct and
- * return the fully signed EVM transaction as a typed ethers
+ * Poll the signet contract at `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` until a
+ * VALID signature response for `requestId` appears in its response log, then
+ * reconstruct and return the fully signed EVM transaction as a typed ethers
  * {@link Transaction}, ready to hand straight to `broadcast-evm`. Serialize
  * it (`.serialized`) only at the edge — for stdout or
  * `eth_sendRawTransaction`.
  *
- * Discovery, enumeration, and verification are delegated to signet-midnight's
- * {@link SignetResponseFeed}: the signet contract emits a
- * SignatureRespondedEvent per post, the feed reads the response log when an
- * event announces a new post, and — the log being unauthenticated (secp256k1
- * cannot be verified in-circuit) — judges every post by whether its signature
- * recovers to the request's MPC-derived sender (see
+ * Enumeration and verification are delegated to signet-midnight's
+ * {@link SignetRequestResponseReader}: each tick reads the response log at
+ * `requestId` and — the log being unauthenticated (secp256k1 cannot be
+ * verified in-circuit) — judges every post by whether its signature recovers
+ * to the request's MPC-derived sender (see
  * {@link PollSignatureResponseOptions.expectedSigner}) over the requested
  * transaction's signing hash. The first valid post wins. The signed
  * transaction is assembled from the request record and that response via
  * {@link signBidirectionalRequestToSignedEVMTransaction}. This command owns
- * only the timeout and the reporting — the feed yields each post's verdict
- * exactly once, so each rejected post is warned once, not every tick. For the
- * MPC's attestation of the EVM result, see `poll-respond-bidirectional`.
+ * the poll loop, the timeout, and the reporting — each rejected post is
+ * warned once across the loop's lifetime, not every tick. For the MPC's
+ * attestation of the EVM result, see `poll-respond-bidirectional`.
  *
  * @param context - The CLI context.
  * @param options - What to poll for and how patiently.
@@ -77,31 +76,42 @@ export async function pollSignatureResponse(context: CliContext, options: PollSi
   console.log(`expected signer:    ${expectedSigner}`);
   console.log(`poll:               every ${options.intervalMs}ms, up to ${options.timeoutMs}ms`);
 
-  const feed = new SignetResponseFeed({
+  const reader = new SignetRequestResponseReader({
     requesterContractAddress: vaultContractAddress,
     signetContractAddress,
-    source: context.midnightProviders.indexerPublicDataProvider,
-    pollIntervalMs: options.intervalMs,
+    publicDataProvider: context.midnightProviders.indexerPublicDataProvider,
   });
 
-  // The verdict stream only ever ends on abort; the timer turns that into
-  // the give-up timeout.
+  // The reader is single-shot; this loop owns the cadence and the give-up
+  // timeout. Rejected posts are immutable log entries, so warn each count
+  // once across the loop's lifetime, not every tick.
+  const warned = new Set<bigint>();
   const giveUp = new AbortController();
   const timer = setTimeout(() => giveUp.abort(), options.timeoutMs);
   try {
-    for await (const verdict of feed.verdicts(options.requestId, expectedSigner, {
-      signal: giveUp.signal,
-    })) {
-      if (verdict.rejectedReason !== undefined) {
-        console.warn(`ignoring response post ${verdict.count}: ${verdict.rejectedReason}`);
-        continue;
+    while (!giveUp.signal.aborted) {
+      const { verified, verdicts } = await reader.getVerifiedSignatureResponse(
+        options.requestId,
+        expectedSigner,
+      );
+      for (const verdict of verdicts) {
+        if (verdict.rejectedReason !== undefined && !warned.has(verdict.count)) {
+          warned.add(verdict.count);
+          console.warn(`ignoring response post ${verdict.count}: ${verdict.rejectedReason}`);
+        }
       }
-      console.log(`valid response found (post ${verdict.count})`);
-      // Reconstruct the broadcast-ready signed transaction from the request
-      // record and this response. The feed's request fetch is cached (its
-      // verification already fetched it), so this adds no extra query.
-      const request = await feed.getSignatureRequest(options.requestId);
-      return signBidirectionalRequestToSignedEVMTransaction(request, verdict.response);
+      if (verified !== undefined) {
+        const validCount = verdicts.find(
+          (verdict) => verdict.rejectedReason === undefined,
+        )?.count;
+        console.log(`valid response found (post ${validCount})`);
+        // Reconstruct the broadcast-ready signed transaction from the request
+        // record and this response. The reader's request fetch is cached (its
+        // verification already fetched it), so this adds no extra query.
+        const request = await reader.getSignatureRequest(options.requestId);
+        return signBidirectionalRequestToSignedEVMTransaction(request, verified);
+      }
+      await sleepUnlessAborted(options.intervalMs, giveUp.signal);
     }
     throw new Error(
       `timed out after ${options.timeoutMs}ms waiting for a valid response to request ${options.requestId}`,

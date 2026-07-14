@@ -3,29 +3,31 @@
 // requests and responses on Midnight.
 // ============================================================================
 // A signet compliant contract records "please sign this EVM transaction" requests
-// in its public ledger. The sig-net MPC network needs only the contract address:
-// it reads the request index from ledger field 0 (the signet layout convention),
-// re-assembles and signs the EVM transaction with the caller's derived key,
-// and posts its responses to the CENTRAL signet contract for polling — first
-// the signature (the client broadcasts the signed transaction), then, after
-// watching the remote execution, the Schnorr-signed respond-bidirectional
-// attestation of its result. Requests and both response kinds are counterparts
-// and are defined side by side here; the pure circuits that operate on them
-// follow below.
+// in its public ledger and registers a notification in the CENTRAL signet
+// contract's notification registry. The sig-net MPC network polls that one
+// registry: each notification names the requesting contract, so the MPC reads
+// the authenticated request from the requester's ledger field 0 (the signet
+// layout convention), re-assembles and signs the EVM transaction with the
+// caller's derived key, and posts its responses back to the central signet
+// contract — first the signature (the client broadcasts the signed
+// transaction), then, after watching the remote execution, the Schnorr-signed
+// respond-bidirectional attestation of its result. Clients poll the central
+// contract's response indexes by request id. Requests and both response kinds
+// are counterparts and are defined side by side here; the pure circuits that
+// operate on them follow below.
 //
 // Naming follows the MPC's canonical vocabulary (sig-net/mpc
 // chain-signatures/primitives): the SignBidirectionalRequest record mirrors
-// the MPC's SignBidirectionalEvent (with the EVM transaction decomposed — the
-// Canton-adapter precedent) and a client emits a SignBidirectionalEvent to
-// notify the MPC one was stored; the SignatureResponse record mirrors
-// Signature { big_r, s, recovery_id } and the signet contract emits a
-// SignatureRespondedEvent to notify the client one was posted; the execution
-// attestation mirrors RespondBidirectionalEvent / serialized_output.
+// the MPC's canonical bidirectional request primitive (with the EVM
+// transaction decomposed — the Canton-adapter precedent); the
+// SignatureResponse record mirrors Signature { big_r, s, recovery_id }; the
+// execution attestation mirrors the MPC's respond-bidirectional
+// serialized_output.
 //
 // Read more:
 //   - sig-net docs (chain signatures, key derivation): https://docs.sig.network/
 //   - canonical request shape this mirrors: sig-net/mpc
-//     chain-signatures/primitives/src/bidirectional.rs (SignBidirectionalEvent)
+//     chain-signatures/primitives/src/bidirectional.rs
 //   - Compact language reference (modules, types):
 //     https://docs.midnight.network/compact/reference/compact-reference
 //
@@ -47,17 +49,22 @@ module Signet {
   export new type RequestId = Bytes<32>;
 
   // ---- The canonical request/response pair ----------------------------------
-  // 1. Client contract stores a SignBidirectionalRequest and emits a SignBidirectionalEvent, requesting a signature from the MPC
-  // 2. MPC reads the request and posts a SignatureResponse (the requested signature) to the central signet contract, which emits a SignatureRespondedEvent
-  // 3. Client observes SignatureRespondedEvent, verifies the posted SignatureResponse, broadcasts txn to destination chain
-  // 4. MPC observes txn execution on destination chain, responds with RespondBidirectionalEvent
+  // 1. Client contract stores a SignBidirectionalRequest in its own ledger and registers a
+  //    SignBidirectionalNotification in the central signet contract's registry, requesting a
+  //    signature from the MPC
+  // 2. MPC polls the registry, reads the request from the client's ledger, and posts a
+  //    SignatureResponse (the requested signature) to the central signet contract
+  // 3. Client polls the signature response log by request id, verifies the posted
+  //    SignatureResponse, broadcasts txn to destination chain
+  // 4. MPC observes txn execution on destination chain, posts a RespondBidirectional
+  //    attestation to the central signet contract; the client polls it by request id
 
   // TxParamType indiciates which transaction-param decomposition a request
   // contains so an off-chain consumer (e.g. the MPC) knows how to re-assemble it.
   // In-circuit this is redundant as the type is fixed at compile time (i.e. monomorphized).
   export enum TxParamType {
     evmType2, // EVMType2TxParams: an EIP-1559 EVM transaction (envelope + calldata)
-    reserved, // never emitted — exists only to keep the enum at >= 2 variants. A
+    reserved, // never used — exists only to keep the enum at >= 2 variants. A
               // 1-variant enum compiles to a zero-byte value the proof server's
               // field-repr parser reads as ZERO field elements while the compiler
               // allocates ONE, so persistentHash over any struct containing it
@@ -98,50 +105,38 @@ module Signet {
   }
 
   // External contract surface of the central signet contract: a client cross-
-  // contract-calls emitSignBidirectionalEvent to emit the notification event.
-  export contract SignetEventEmitter {
-    circuit emitSignBidirectionalEvent(signBidirectionalEvent: SignBidirectionalEvent): [];
+  // contract-calls notifyBidirectionalSignatureRequest to register the request
+  // in the central notification registry, which the MPC polls.
+  export contract SignetNotifier {
+    circuit notifyBidirectionalSignatureRequest(
+      requestId: RequestId,
+      notification: SignBidirectionalNotification
+    ): [];
   }
 
-  // SignBidirectionalEvent notifies the MPC that a SignBidirectionalRequest has
-  // been stored in the caller's ledger. Attribution comes from whose
-  // authenticated state the MPC reads, never from a field here.
-  export struct SignBidirectionalEvent {
-      version: Uint<8>;
-      payload: Bytes<224>;
+  // SignBidirectionalNotification is the record a client registers in the
+  // central signet contract's notification registry to tell the MPC a
+  // SignBidirectionalRequest was stored in the client's own ledger — and WHERE
+  // to read the authenticated copy. Attribution comes from whose authenticated
+  // state the MPC reads, never from a field here.
+  export struct SignBidirectionalNotification {
+      version: Uint<8>;   // payload layout tag; 1 = the V1 layout below
+      payload: Bytes<65>; // V1: callerAddress (32) ++ requestId (32) ++ requestsIndexField (1)
   }
 
-  // V1 interpretation of SignBidirectionalEvent.payload.
-  export struct SignBidirectionalEventV1Payload {
-      // Address of the calling contract; the MPC reads its request index there.
-      callerAddress: ContractAddress;
-
-      // Representation type (Bytes<32>), NOT the RequestId new type: a `new type`
-      // field crashes the serialize<> event encoder (compiler self-diagnosed bug).
-      requestId: Bytes<32>;
-
-      // Ledger field position of the Map<RequestId, SignBidirectionalRequest> in
-      // the caller contract.
-      signBidirectionalRequestsIndexField: Uint<8>;
-  }
-
-  // Build the V1 event: pack the concrete fields into the opaque payload with
-  // serialize<> and tag version = 1. Client contracts should call
-  // this instead of hand-constructing the envelope.
-  export pure circuit constructSignBidirectionalEventV1(
+  // Build the V1 notification: manually pack the caller's raw address bytes,
+  // the raw request id, and the request-index ledger-field position into the
+  // 65-byte payload (exact, byte-concatenated, no padding) and tag
+  // version = 1. Client contracts call this instead of hand-constructing the
+  // envelope; off-chain readers decode by the same fixed offsets.
+  export pure circuit constructSignBidirectionalNotificationV1(
     callerAddress: ContractAddress,
     requestId: Bytes<32>,
-    signBidirectionalRequestsIndexField: Uint<8>
-  ): SignBidirectionalEvent {
-    return SignBidirectionalEvent {
+    requestsIndexField: Uint<8>
+  ): SignBidirectionalNotification {
+    return SignBidirectionalNotification {
       version: 1,
-      payload: serialize<SignBidirectionalEventV1Payload, 224>(
-        SignBidirectionalEventV1Payload {
-          callerAddress,
-          requestId,
-          signBidirectionalRequestsIndexField
-        }
-      )
+      payload: Bytes[...callerAddress.bytes, ...requestId, requestsIndexField]
     };
   }
 
@@ -157,24 +152,7 @@ module Signet {
     recoveryId: Uint<8>; // parity of R.y for public-key recovery
   }
 
-  // SignatureRespondedEvent notifies the requesting client that a
-  // SignatureResponse has been posted to the central signet contract's
-  // response log — the response-direction counterpart of
-  // SignBidirectionalEvent. A ping, never the source of truth: the client
-  // reads the post back from the log at (requestId, count) and verifies the
-  // signature off-chain — the log is unauthenticated, so verification, not
-  // the event, confers trust.
-  export struct SignatureRespondedEvent {
-      // Representation type (Bytes<32>), NOT the RequestId new type: a `new type`
-      // field crashes the serialize<> event encoder (compiler self-diagnosed bug).
-      requestId: Bytes<32>,
-
-      // 0-based position of the post in the request's response log — the
-      // `count` half of the SignetResponseKey it is stored under.
-      count: Uint<64>,
-  }
-
-  // The counterpart to SignatureResponse, emitted by the MPC after
+  // The counterpart to SignatureResponse, posted by the MPC after
   // it observes execution of the signed transaction on the destination chain.
   // This response contains execution output and an attestation as to its authenticity.
   // TODO: currently contains a Schnorr attestation --> migrate to ECDSA.
@@ -198,22 +176,6 @@ module Signet {
 
     // Schnorr response scalar s.
     response: Field;
-  }
-
-  // RespondBidirectionalEvent notifies the requesting client that the MPC's
-  // RespondBidirectional attestation of a request's remote execution has been
-  // stored in the central signet contract's respond-bidirectional index — the
-  // attestation-direction counterpart of SignatureRespondedEvent. A ping,
-  // never the source of truth: the client reads the record back from the
-  // index at requestId. Unlike signature responses, NO off-chain verification
-  // follows — the contract verified the attestation in-circuit at post time,
-  // so the stored record is authentic by construction. Emitted at most once
-  // per request: the index holds one authenticated slot, first valid write
-  // wins, and a re-post is a no-op that emits nothing.
-  export struct RespondBidirectionalEvent {
-      // Representation type (Bytes<32>), NOT the RequestId new type: a `new type`
-      // field crashes the serialize<> event encoder (compiler self-diagnosed bug).
-      requestId: Bytes<32>;
   }
 
   // The EVM transaction to be signed, decomposed into typed fields
@@ -306,24 +268,31 @@ module Signet {
   export new type SignetNonce = Counter;
 
   // ---- Signet Contract Ledger Layout ------------------------------------------
-  // The CENTRAL signet contract on Midnight stores both MPC response kinds.
+  // The CENTRAL signet contract on Midnight stores both MPC response kinds and
+  // the request notification registry.
   // Its layout convention (find everything knowing only the contract address):
   //   field 0: SignatureResponseCounterIndex
   //   field 1: SignatureResponseIndex
   //   field 2: RespondBidirectionalIndex
   //   field 3: mpcPubKeyHash (sealed Bytes<32>)
+  //   field 4: SignBidirectionalNotificationIndex
   //
-  // The two kinds get different defenses:
+  // Each store gets the defense its contents allow:
   //   - Signature responses are secp256k1 ECDSA — unverifiable in-circuit —
   //     so their log is UNAUTHENTICATED and append-only: each post lands
-  //     under a fresh (requestId, count) key (announced by a
-  //     SignatureRespondedEvent); a rogue poster can add noise
-  //     but never overwrite or block the genuine response. Clients enumerate
-  //     a request's entries and verify each signature off-chain.
+  //     under a fresh (requestId, count) key; a rogue poster can add noise
+  //     but never overwrite or block the genuine response. Clients poll a
+  //     request's entries by request id and verify each signature off-chain.
   //   - Respond-bidirectional attestations are Schnorr on Jubjub — the
   //     embedded curve — so the contract verifies them IN-CIRCUIT at post
   //     time against its sealed MPC key hash. Garbage cannot land; one
   //     authenticated slot per request suffices, first valid write wins.
+  //     Clients poll the slot by request id.
+  //   - Notifications are UNAUTHENTICATED pointers ("contract X stored
+  //     request Y at index field Z"): anyone may register one, so the MPC
+  //     never trusts a notification's content — it authenticates by reading
+  //     the request back from the NAMED caller's own ledger and refusing
+  //     records whose recomputed id does not match.
 
   // Per-request post counter for signature responses (field 0). The counter
   // reads the number of posts made for that request; entries exist for
@@ -346,6 +315,13 @@ module Signet {
   // The on-ledger respond-bidirectional index (field 2): one
   // contract-verified attestation per request.
   export new type RespondBidirectionalIndex = Map<RequestId, RespondBidirectional>;
+
+  // The on-ledger notification registry (field 4): one notification per
+  // request id, append-only (a re-notify is an idempotent overwrite; there is
+  // deliberately no removal circuit). The MPC discovers requests by
+  // enumerating this map and diffing against the request ids it has already
+  // served.
+  export new type SignBidirectionalNotificationIndex = Map<RequestId, SignBidirectionalNotification>;
 
   // ---- Request id -----------------------------------------------------------
 

@@ -7,10 +7,11 @@ import CompactStandardLibrary;
 // in Signet.compact and https://docs.sig.network/ for the protocol.
 import "@sig-net/midnight/src/Signet";
 
-// The CENTRAL signet contract: the MPC delivers all its responses here, and
-// clients poll it — there is deliberately no push/websocket channel. Ledger
-// layout per "Signet Contract Ledger Layout" in Signet.compact, so pollers
-// need only this contract's address.
+// The CENTRAL signet contract: clients register their signature-request
+// notifications here, the MPC delivers all its responses here, and both sides
+// poll it — there is deliberately no push/websocket channel. Ledger layout per
+// "Signet Contract Ledger Layout" in Signet.compact, so pollers need only this
+// contract's address.
 export ledger signatureResponseCounterIndex: SignatureResponseCounterIndex;
 
 export ledger signatureResponseIndex: SignatureResponseIndex;
@@ -21,26 +22,38 @@ export ledger respondBidirectionalIndex: RespondBidirectionalIndex;
 // accepts only responses signed by this key.
 export sealed ledger mpcPubKeyHash: Bytes<32>;
 
+// The notification registry (field 4): clients register "a request was stored
+// in MY ledger at THIS index field" pointers here; the MPC polls by
+// enumerating the map. Append-only, idempotent overwrite, no removal.
+export ledger signBidirectionalNotificationIndex: SignBidirectionalNotificationIndex;
+
 constructor(mpcPk: JubjubPoint) {
     mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
 }
 
-// emitSignBidirectionalEvent should be called by clients after (or within) a
-// transaction that writes a SignBidirectionalRequest to their canonical
-// SignBidirectionalRequestIndex state map.
-export circuit emitSignBidirectionalEvent(signBidirectionalEvent: SignBidirectionalEvent): [] {
-    emit(Misc {
-        name: pad(32, "SignBidirectionalEvent"),
-        payload: serialize<SignBidirectionalEvent, 256>(disclose(signBidirectionalEvent)),
-    });
+// notifyBidirectionalSignatureRequest should be called (cross-contract) by
+// clients after (or within) a transaction that writes a
+// SignBidirectionalRequest to their canonical SignBidirectionalRequestIndex
+// state map. Registers the notification in the registry the MPC polls; a
+// repeat call for the same request id overwrites idempotently. Unauthenticated
+// by design: the notification is a pointer, and the MPC trusts only what it
+// reads back from the named caller's own ledger.
+export circuit notifyBidirectionalSignatureRequest(
+    requestId: RequestId,
+    notification: SignBidirectionalNotification
+): [] {
+    signBidirectionalNotificationIndex.insert(
+        disclose(requestId),
+        disclose(notification),
+    );
 }
 
-// postSignatureResponse appends a signature response for requestId and
-// emits a SignatureRespondedEvent so the requesting client learns a post
-// landed. Unauthenticated by NECESSITY (secp256k1 ECDSA cannot be verified
+// postSignatureResponse appends a signature response for requestId.
+// Unauthenticated by NECESSITY (secp256k1 ECDSA cannot be verified
 // in-circuit): anyone may post, and nothing is ever overwritten — each post
-// lands under the next (requestId, count) key. Callers verify the posted
-// signatures off-chain to pick out the genuine one.
+// lands under the next (requestId, count) key. Callers poll the log by
+// request id and verify the posted signatures off-chain to pick out the
+// genuine one.
 export circuit postSignatureResponse(requestId: RequestId, signatureResponse: SignatureResponse): [] {
     // Everything stored here is public by construction.
     const disclosedRequestId = disclose(requestId);
@@ -51,8 +64,7 @@ export circuit postSignatureResponse(requestId: RequestId, signatureResponse: Si
     }
 
     // Posts so far == this post's 0-based count. Read ONCE into a local so
-    // the stored key, the counter update, and the emitted event cannot
-    // disagree.
+    // the stored key and the counter update cannot disagree.
     const count = signatureResponseCounterIndex.lookup(disclosedRequestId).read();
     signatureResponseCounterIndex.lookup(disclosedRequestId).increment(1);
 
@@ -64,16 +76,6 @@ export circuit postSignatureResponse(requestId: RequestId, signatureResponse: Si
         },
         disclose(signatureResponse),
     );
-
-    // Notify the requesting client which post just landed. A ping only —
-    // clients read the post back from the log and verify it off-chain.
-    emit(Misc {
-        name: pad(32, "SignatureRespondedEvent"),
-        payload: serialize<SignatureRespondedEvent, 256>(SignatureRespondedEvent {
-            requestId: disclosedRequestId as Bytes<32>,
-            count: count,
-        }),
-    });
 }
 
 // postRespondBidirectional records the MPC's attestation of requestId's
@@ -116,20 +118,11 @@ export circuit postRespondBidirectional(
     // First valid write wins. A re-post is a no-op, never an overwrite —
     // Schnorr is randomized, so even the MPC re-signing the same output
     // yields bytewise-different records; asserting equality would misfire.
-    // The no-op also emits nothing: the event fires at most once per request,
-    // exactly when the one authenticated slot is filled.
+    // The no-op leaves the single authenticated slot untouched. Clients poll
+    // the index by request id; no off-chain verification follows — the
+    // in-circuit checks above already authenticated the stored record.
     if (respondBidirectionalIndex.member(disclosedRequestId)) {
         return [];
     }
     respondBidirectionalIndex.insert(disclosedRequestId, disclosedResponse);
-
-    // Notify the requesting client the attestation landed. A ping only —
-    // clients read the record back from the index; no off-chain verification
-    // follows, the in-circuit checks above already authenticated it.
-    emit(Misc {
-        name: pad(32, "RespondBidirectionalEvent"),
-        payload: serialize<RespondBidirectionalEvent, 256>(RespondBidirectionalEvent {
-            requestId: disclosedRequestId as Bytes<32>,
-        }),
-    });
 }

@@ -44,9 +44,9 @@ import {
 } from "../src/index.ts";
 // The signet contract (callee) module — the same one the vault's generated code
 // cross-contract-calls. The request circuits end in a call to its
-// emitSignBidirectionalEvent, so the simulator needs its state (see
+// notifyBidirectionalSignatureRequest, so the simulator needs its state (see
 // signetStateProvider) to execute that path.
-import * as SignetEventEmitter from "../src/managed/SignetEventEmitter/contract/index.js";
+import * as SignetNotifier from "../src/managed/SignetNotifier/contract/index.js";
 
 // ---- Fixtures ----
 
@@ -95,11 +95,11 @@ const BLOCK_HASH = "0".repeat(64);
 /**
  * A ContractStateProvider serving the signet contract's initial state to the
  * simulator's cross-contract call — how the request circuits reach
- * emitSignBidirectionalEvent in-process (no node/indexer). Returns the state
- * for any address: the vault only calls the single sealed signet contract.
+ * notifyBidirectionalSignatureRequest in-process (no node/indexer). Returns the
+ * state for any address: the vault only calls the single sealed signet contract.
  */
 const signetStateProvider = async () => {
-  const signet = new SignetEventEmitter.Contract({});
+  const signet = new SignetNotifier.Contract({});
   const { currentContractState } = await signet.initialState(
     createConstructorContext(undefined, CPK),
     MPC_KEYS.pk,

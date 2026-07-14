@@ -80,7 +80,7 @@ export interface DepositRoundTripResult {
  *
  * Arrange-stage plumbing: it asserts each leg produced what the next one
  * needs (pointed throws, nothing skips silently), but carries none of the
- * golden-event assertions the happy-day file owns. Rerun-tolerant against
+ * golden-notification assertions the happy-day file owns. Rerun-tolerant against
  * kept addresses: an already-claimed request logs a skip instead of failing.
  *
  * @param session - The flow file's shared session (wallet + cli context).

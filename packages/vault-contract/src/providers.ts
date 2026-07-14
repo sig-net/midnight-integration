@@ -57,7 +57,7 @@ export type VaultProviders = MidnightProviders<
 // spans both: signetManagedPath is a compile-time symlink to the deployed
 // signet contract's managed output (see this package's compile script).
 const managedPath = fileURLToPath(new URL("./managed/erc20-vault", import.meta.url));
-const signetManagedPath = fileURLToPath(new URL("./managed/SignetEventEmitter", import.meta.url));
+const signetManagedPath = fileURLToPath(new URL("./managed/SignetNotifier", import.meta.url));
 
 /**
  * The vault's compact-js compiled-contract binding: generated module + real

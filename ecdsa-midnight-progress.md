@@ -120,7 +120,7 @@ which itself needs the `1` constant that crashes the compiler.
 
 **Net:** you can express point arithmetic and scalar multiplication, but you **cannot currently
 compile a complete secp256k1 ECDSA-verify circuit** — you stall on the field-cast compiler bug.
-This is genuinely RC-grade, matching the repo's own note in `events-migration.md:321`
+This is genuinely RC-grade, matching the repo's own long-standing assessment
 ("compactc 0.33 / runtime 0.18 are RC-grade").
 
 ---

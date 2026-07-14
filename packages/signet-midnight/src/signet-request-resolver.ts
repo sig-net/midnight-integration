@@ -1,19 +1,19 @@
-// Turn a SignBidirectionalEvent notification into an AUTHENTICATED request
-// record. This is the security core of the event flow (see
-// knowledge-base/caller-attribution.md and the invariants in this task's
-// brief): the event says only WHERE to look; the request that gets signed is
-// read from the named caller's own authenticated ledger, and the event's
-// `requestId` must be a member of that contract's request index. An attacker
-// cannot write into a contract it does not control, so a forged event can at
-// most re-point at a legitimate request that already exists — never inject one.
+// Turn a SignBidirectionalNotification into an AUTHENTICATED request record.
+// This is the security core of the discovery flow (see
+// knowledge-base/caller-attribution.md): the notification says only WHERE to
+// look; the request that gets signed is read from the named caller's own
+// authenticated ledger, and the notification's `requestId` must be a member
+// of that contract's request index. An attacker cannot write into a contract
+// it does not control, so a forged notification can at most re-point at a
+// legitimate request that already exists — never inject one.
 //
 // Key derivation stays f(callerAddress, path), keyed off the contract whose
-// authenticated state was actually read — exactly today's guarantee, now
-// reached via an event ping instead of per-contract polling.
+// authenticated state was actually read — the notification registry is a
+// pointer board, never an authority.
 
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import type { RawContractState } from "./signature-state-reading.ts";
-import type { SignBidirectionalEvent } from "./signet-events.ts";
+import type { SignBidirectionalNotification } from "./signet-contract-state-reader.ts";
 import type { SignetPublicStateSource } from "./signet-request-response-reader.ts";
 import type {
   RequestIdHex,
@@ -21,15 +21,15 @@ import type {
 } from "./signet-requests.ts";
 
 /**
- * A {@link SignBidirectionalEvent} resolved to the authenticated request it
- * refers to: the request record read from `callerAddress`'s own ledger, with
- * `requestId` confirmed to be a member of that contract's index.
+ * A {@link SignBidirectionalNotification} resolved to the authenticated
+ * request it refers to: the request record read from `callerAddress`'s own
+ * ledger, with `requestId` confirmed to be a member of that contract's index.
  */
 export interface ResolvedSignetRequest {
   /**
    * The contract whose authenticated state the request was read from — the
    * epsilon-derivation predecessor. Key derivation keys off THIS, never off a
-   * field taken from the event on faith.
+   * field taken from the notification on faith.
    */
   callerAddress: string;
   /** The request id, confirmed to be a member of `callerAddress`'s index. */
@@ -45,7 +45,7 @@ export interface SignetRequestResolverConfig {
 }
 
 /**
- * Resolves {@link SignBidirectionalEvent} notifications to authenticated
+ * Resolves {@link SignBidirectionalNotification}s to authenticated
  * {@link ResolvedSignetRequest}s by reading the named caller's ledger and
  * enforcing the membership check. Construct once and reuse: resolved records
  * are immutable (their ledger key is their hash), so they are cached by request
@@ -75,22 +75,22 @@ export class SignetRequestResolver {
    * Resolve a notification to its authenticated request, or `undefined` when it
    * cannot be trusted: the caller contract has no state, or `requestId` is not
    * a member of the index at `requestsIndexField` (forged, stale, wrong field,
-   * or not yet indexed — poll again). Never throws on an untrusted event; a bad
-   * notification is dropped, not surfaced as an error.
+   * or not yet indexed — poll again). Never throws on an untrusted
+   * notification; a bad one is dropped, not surfaced as an error.
    *
-   * @param event - The decoded event notification.
-   * @returns The authenticated request, or `undefined` to drop the event.
+   * @param notification - The decoded notification.
+   * @returns The authenticated request, or `undefined` to drop the notification.
    */
   async resolve(
-    event: SignBidirectionalEvent,
+    notification: SignBidirectionalNotification,
   ): Promise<ResolvedSignetRequest | undefined> {
-    const cached = this.resolvedCache.get(event.requestId);
+    const cached = this.resolvedCache.get(notification.requestId);
     if (cached !== undefined) {
       return cached;
     }
     let state: { data: RawContractState } | null;
     try {
-      state = await this.source.queryContractState(event.callerAddress);
+      state = await this.source.queryContractState(notification.callerAddress);
     } catch {
       return undefined; // caller address not a contract / transient read error
     }
@@ -99,18 +99,18 @@ export class SignetRequestResolver {
     }
     const request = lookupSignetRequestAt(
       state.data,
-      event.requestsIndexField,
-      event.requestId,
+      notification.requestsIndexField,
+      notification.requestId,
     );
     if (request === undefined) {
       return undefined; // membership check failed — drop the notification
     }
     const resolved: ResolvedSignetRequest = {
-      callerAddress: event.callerAddress,
-      requestId: event.requestId,
+      callerAddress: notification.callerAddress,
+      requestId: notification.requestId,
       request,
     };
-    this.resolvedCache.set(event.requestId, resolved);
+    this.resolvedCache.set(notification.requestId, resolved);
     return resolved;
   }
 }

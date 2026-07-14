@@ -1,6 +1,6 @@
 {
   "name": "@sig-net/midnight-contract",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "The central signet Compact contract on Midnight: the MPC posts signature responses (unauthenticated counted log, verified off-chain) and remote execution responses (Schnorr attestations, verified in-circuit at post time) here; clients poll it. src/index.ts is the curated export surface.",
   "exports": {
@@ -36,7 +36,7 @@
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.3"
   },
   "devDependencies": {
-    "@sig-net/midnight": "^0.0.1",
+    "@sig-net/midnight": "^0.0.2",
     "@types/node": "^26.1.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"

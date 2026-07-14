@@ -30,14 +30,8 @@ import {
 } from "@midnight-erc20-vault/cli";
 import {
   bytesToBigint,
-  decodeRespondBidirectionalEvent,
-  decodeSignatureRespondedEvent,
-  decodeSignBidirectionalEvent,
   executionSucceeded,
   requestIdBytes,
-  RESPOND_BIDIRECTIONAL_EVENT_TAG,
-  SIGN_BIDIRECTIONAL_EVENT_TAG,
-  SIGNATURE_RESPONDED_EVENT_TAG,
   stripHexPrefix,
   type RequestIdHex,
   type RespondBidirectional,
@@ -50,7 +44,7 @@ import { getErc20Balance, getEthBalance, getTransactionNonce, isTransactionMined
 import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
 import { banner, logSkip } from "../src/output.ts";
 import { createE2eSession } from "../src/session.ts";
-import { pollDecodedSignetEvent } from "../src/signet-events.ts";
+import { pollSignetNotification } from "../src/signet-notifications.ts";
 
 const MINUTE = 60_000;
 
@@ -181,46 +175,44 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
         `  request id: ${depositTransactionSignatureRequestId}`,
         "",
         "The response server (yarn response, MIDNIGHT_SIGNET_CONTRACT_ADDRESS set)",
-        "watches the signet contract's events and should pick it up on its next",
-        "poll — resolving it from THIS vault's ledger — and sign the EVM tx.",
+        "polls the signet contract's notification registry and should pick it up",
+        "on its next poll — resolving it from THIS vault's ledger — and sign the EVM tx.",
       ]);
     },
     5 * MINUTE,
   );
 
   it(
-    "golden event: signet contract emitted a decodable SignBidirectionalEvent pointing at the vault",
+    "golden notification: the vault's deposit registered a decodable notification in the signet registry",
     async () => {
-      // Pins the SignBidirectionalEvent byte layout against a LIVE indexer —
-      // the codec offsets (§signet-events.ts) depend on it, and gotcha #5 means
-      // this cannot be exercised in the in-process simulator. The vault's
-      // deposit cross-contract-called the signet contract to emit this.
+      // Pins the SignBidirectionalNotification payload layout against a LIVE
+      // indexer, read exactly the way the MPC reads it — raw signet state by
+      // field position through the hand-composed descriptors. The vault's
+      // deposit cross-contract-called notifyBidirectionalSignatureRequest to
+      // register this.
       expect(depositTransactionSignatureRequestId).toBeDefined();
       const vaultAddress = requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS");
 
-      const { decoded, rawPayloadHex } = await pollDecodedSignetEvent({
+      const decoded = await pollSignetNotification({
         env,
-        tag: SIGN_BIDIRECTIONAL_EVENT_TAG,
-        decode: decodeSignBidirectionalEvent,
-        match: (candidate) => candidate.requestId === depositTransactionSignatureRequestId,
+        requestId: depositTransactionSignatureRequestId,
         description: `for request ${depositTransactionSignatureRequestId}`,
       });
 
       // callerAddress points at the vault (the contract whose authenticated
       // ledger holds the request); requestId matches; the index is at field 0.
+      expect(decoded.version).toBe(1);
       expect(decoded.callerAddress).toBe(stripHexPrefix(vaultAddress).toLowerCase());
       expect(decoded.requestId).toBe(depositTransactionSignatureRequestId);
       expect(decoded.requestsIndexField).toBe(0);
 
       banner([
-        "Golden SignBidirectionalEvent decoded from the live indexer:",
+        "Golden SignBidirectionalNotification decoded from the live indexer:",
         "",
+        `  version:            ${decoded.version}`,
         `  callerAddress:      ${decoded.callerAddress}`,
         `  requestId:          ${decoded.requestId}`,
         `  requestsIndexField: ${decoded.requestsIndexField}`,
-        "",
-        `  raw payload (capture as the unit fixture if the layout ever drifts):`,
-        `  ${rawPayloadHex}`,
       ]);
     },
     2 * MINUTE,
@@ -251,44 +243,6 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
       ]);
     },
     5 * MINUTE,
-  );
-
-  it(
-    "golden event: signet contract emitted a decodable SignatureRespondedEvent for the posted response",
-    async () => {
-      // Pins the SignatureRespondedEvent byte layout against a LIVE indexer —
-      // the codec offsets (§signet-events.ts) depend on it, and gotcha #5 means
-      // this cannot be exercised in the in-process simulator. The MPC's
-      // postSignatureResponse emitted this; pollSignatureResponse already
-      // consumed it through the SignetResponseFeed, so it must be indexed —
-      // still poll briefly to be robust against indexer lag (gotcha #15).
-      expect(depositTransactionSignatureRequestId).toBeDefined();
-
-      const { decoded, rawPayloadHex } = await pollDecodedSignetEvent({
-        env,
-        tag: SIGNATURE_RESPONDED_EVENT_TAG,
-        decode: decodeSignatureRespondedEvent,
-        // Take the request's FIRST post (count 0) so the assertion is stable
-        // on reruns even if noise posts were added later.
-        match: (candidate) =>
-          candidate.requestId === depositTransactionSignatureRequestId && candidate.count === 0n,
-        description: `for request ${depositTransactionSignatureRequestId} (count 0)`,
-      });
-
-      expect(decoded.requestId).toBe(depositTransactionSignatureRequestId);
-      expect(decoded.count).toBe(0n);
-
-      banner([
-        "Golden SignatureRespondedEvent decoded from the live indexer:",
-        "",
-        `  requestId: ${decoded.requestId}`,
-        `  count:     ${decoded.count}`,
-        "",
-        `  raw payload (capture as the unit fixture if the layout ever drifts):`,
-        `  ${rawPayloadHex}`,
-      ]);
-    },
-    2 * MINUTE,
   );
 
   it(
@@ -332,43 +286,6 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
       ]);
     },
     5 * MINUTE,
-  );
-
-  it(
-    "golden event: signet contract emitted a decodable RespondBidirectionalEvent for the stored attestation",
-    async () => {
-      // Pins the RespondBidirectionalEvent byte layout against a LIVE indexer —
-      // the codec offsets (§signet-events.ts) depend on it, and gotcha #5 means
-      // this cannot be exercised in the in-process simulator. The MPC's
-      // postRespondBidirectional emitted this; pollRespondBidirectional already
-      // consumed it through the SignetRespondBidirectionalFeed, so it must be
-      // indexed — still poll briefly to be robust against indexer lag
-      // (gotcha #15).
-      expect(depositTransactionSignatureRequestId).toBeDefined();
-
-      const { decoded, rawPayloadHex, observedCount } = await pollDecodedSignetEvent({
-        env,
-        tag: RESPOND_BIDIRECTIONAL_EVENT_TAG,
-        decode: decodeRespondBidirectionalEvent,
-        match: (candidate) => candidate.requestId === depositTransactionSignatureRequestId,
-        description: `for request ${depositTransactionSignatureRequestId}`,
-      });
-
-      expect(decoded.requestId).toBe(depositTransactionSignatureRequestId);
-      // At most once per request: the index holds one authenticated slot
-      // (first valid write wins; a re-post is a no-op that emits nothing).
-      expect(observedCount).toBe(1);
-
-      banner([
-        "Golden RespondBidirectionalEvent decoded from the live indexer:",
-        "",
-        `  requestId: ${decoded.requestId}`,
-        "",
-        `  raw payload (capture as the unit fixture if the layout ever drifts):`,
-        `  ${rawPayloadHex}`,
-      ]);
-    },
-    2 * MINUTE,
   );
 
   it(
@@ -513,18 +430,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
   );
 
   it(
-    "watch withdraw signature request: signet contract emitted a SignBidirectionalEvent for the withdraw request",
+    "watch withdraw signature request: the withdraw registered a notification in the signet registry",
     async () => {
-      // The same watch the MPC runs for discovery: withdraw
-      // cross-contract-called the signet contract to emit this.
+      // The same registry poll the MPC runs for discovery: withdraw
+      // cross-contract-called notifyBidirectionalSignatureRequest to register
+      // this.
       expect(withdrawTransactionSignatureRequestId).toBeDefined();
       const vaultAddress = requireEnv("MIDNIGHT_VAULT_CONTRACT_ADDRESS");
 
-      const { decoded } = await pollDecodedSignetEvent({
+      const decoded = await pollSignetNotification({
         env,
-        tag: SIGN_BIDIRECTIONAL_EVENT_TAG,
-        decode: decodeSignBidirectionalEvent,
-        match: (candidate) => candidate.requestId === withdrawTransactionSignatureRequestId,
+        requestId: withdrawTransactionSignatureRequestId,
         description: `for withdraw request ${withdrawTransactionSignatureRequestId}`,
       });
 
@@ -532,7 +448,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
       expect(decoded.requestsIndexField).toBe(0);
 
       banner([
-        "SignBidirectionalEvent observed for the withdraw request:",
+        "Notification observed for the withdraw request:",
         "",
         `  callerAddress: ${decoded.callerAddress}`,
         `  requestId:     ${decoded.requestId}`,

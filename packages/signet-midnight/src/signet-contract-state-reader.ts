@@ -6,8 +6,9 @@
 // layout convention (see "Signet Contract Ledger Layout" in Signet.compact):
 // signature response counter index (field 0), signature response log
 // (field 1), respond-bidirectional index (field 2), sealed MPC key hash
-// (field 3). The generic state-tree walk (RawContractState, signetFieldNode)
-// and the shared base descriptors live in signature-state-reading.ts.
+// (field 3), notification registry (field 4). The generic state-tree walk
+// (RawContractState, signetFieldNode) and the shared base descriptors live in
+// signature-state-reading.ts.
 
 import {
   CompactTypeBytes,
@@ -19,6 +20,7 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
+  bytesToHex,
   requestIdHex,
   type RequestId,
   type RequestIdHex,
@@ -42,6 +44,9 @@ export const RESPOND_BIDIRECTIONAL_INDEX_FIELD = 2;
 
 /** Signet contract layout: the sealed MPC attestation key hash is ledger field 3. */
 export const MPC_PUB_KEY_HASH_FIELD = 3;
+
+/** Signet contract layout: the request notification registry is ledger field 4. */
+export const SIGN_BIDIRECTIONAL_NOTIFICATION_INDEX_FIELD = 4;
 
 // ---- Type descriptors (must mirror Signet.compact field-for-field) ----
 // As in the requests reader, fromValue consumes the aligned value
@@ -232,6 +237,150 @@ export const respondBidirectionalType: CompactType<RespondBidirectional> = {
   },
 };
 
+/** Descriptor for the notification's packed V1 payload (`Bytes<65>`). */
+const bytes65 = new CompactTypeBytes(65);
+
+/**
+ * Raw twin of the Compact `SignBidirectionalNotification` struct as stored
+ * on-ledger: the version tag plus the still-packed 65-byte payload. Decode
+ * the payload with {@link decodeSignBidirectionalNotification}.
+ */
+export interface SignBidirectionalNotificationRecord {
+  /** Payload layout tag (Compact `Uint<8>`); 1 = the V1 layout. */
+  version: bigint;
+  /** The packed payload bytes, exactly as the registering circuit built them. */
+  payload: Uint8Array;
+}
+
+/**
+ * Hand-composed descriptor for {@link SignBidirectionalNotificationRecord}.
+ * Field order (version, payload) must match the Compact struct.
+ */
+export const signBidirectionalNotificationType: CompactType<SignBidirectionalNotificationRecord> =
+  {
+    /** @returns Compound alignment of the struct's fields in declaration order. */
+    alignment() {
+      return u8.alignment().concat(bytes65.alignment());
+    },
+    /**
+     * Decode one notification record from an aligned value, consuming it
+     * field by field.
+     *
+     * @param value - Mutable aligned value cursor; pass a copy.
+     * @returns The decoded record.
+     */
+    fromValue(value) {
+      return {
+        version: u8.fromValue(value),
+        payload: bytes65.fromValue(value),
+      };
+    },
+    /**
+     * Encode a notification record into its aligned on-ledger representation.
+     *
+     * @param record - The record to encode.
+     * @returns The aligned value, fields concatenated in declaration order.
+     */
+    toValue(record) {
+      return u8.toValue(record.version).concat(bytes65.toValue(record.payload));
+    },
+  };
+
+/** Offset of the V1 `callerAddress` in the packed payload (`Bytes<32>` at the front). */
+const NOTIFICATION_CALLER_ADDRESS_OFFSET = 0;
+
+/** Offset of the V1 `requestId` (after the 32 callerAddress bytes). */
+const NOTIFICATION_REQUEST_ID_OFFSET = 32;
+
+/** Offset of the V1 `requestsIndexField` (after callerAddress + requestId). */
+const NOTIFICATION_REQUESTS_INDEX_FIELD_OFFSET = 64;
+
+/** The only payload interpretation {@link decodeSignBidirectionalNotification} understands today. */
+const SUPPORTED_NOTIFICATION_VERSION = 1n;
+
+/**
+ * A decoded V1 notification from the signet contract's registry: the flat
+ * pointer a client registered to tell the MPC a request was stored — and
+ * WHERE to read the authenticated copy. Never trusted on its own: the
+ * resolver authenticates by reading the request back from
+ * {@link callerAddress}'s own ledger (see signet-request-resolver.ts).
+ */
+export interface SignBidirectionalNotification {
+  /** Payload layout tag; this decoder only produces version 1. */
+  version: number;
+  /**
+   * Address of the contract whose request index holds the request, rendered
+   * as lowercase hex, no `0x` prefix — directly usable as a
+   * `queryContractState` argument. The MPC reads the request from THIS
+   * contract's authenticated state; the field itself confers no authority.
+   */
+  callerAddress: string;
+  /** Which request in {@link callerAddress}'s index this notification is about. */
+  requestId: RequestIdHex;
+  /**
+   * Ledger field position of the `Map<RequestId, SignBidirectionalRequest>`
+   * request index in {@link callerAddress} (the signet layout convention puts
+   * it at field 0, but the notification carries it so the reader never assumes).
+   */
+  requestsIndexField: number;
+}
+
+/**
+ * Unpack a stored {@link SignBidirectionalNotificationRecord}'s payload by
+ * the fixed V1 offsets — the decode twin of the compiled
+ * `constructSignBidirectionalNotificationV1` circuit (byte plumbing only; the
+ * pack↔decode lockstep is pinned by the state-reader unit test that round-trips
+ * through the real circuit).
+ *
+ * Fails closed on an unrecognised `version`: a future payload layout adds a
+ * branch here rather than silently misinterpreting bytes under the V1 offsets.
+ *
+ * @param record - The raw on-ledger record.
+ * @returns The decoded flat notification.
+ * @throws Error if the record's `version` is not one this decoder understands.
+ */
+export function decodeSignBidirectionalNotification(
+  record: SignBidirectionalNotificationRecord,
+): SignBidirectionalNotification {
+  if (record.version !== SUPPORTED_NOTIFICATION_VERSION) {
+    throw new Error(
+      `SignBidirectionalNotification version ${record.version} is not supported ` +
+        `(this decoder understands version ${SUPPORTED_NOTIFICATION_VERSION})`,
+    );
+  }
+  const callerAddress = bytesToHex(
+    record.payload.slice(
+      NOTIFICATION_CALLER_ADDRESS_OFFSET,
+      NOTIFICATION_REQUEST_ID_OFFSET,
+    ),
+  );
+  const requestId = requestIdHex(
+    record.payload.slice(
+      NOTIFICATION_REQUEST_ID_OFFSET,
+      NOTIFICATION_REQUESTS_INDEX_FIELD_OFFSET,
+    ),
+  );
+  const requestsIndexField =
+    record.payload[NOTIFICATION_REQUESTS_INDEX_FIELD_OFFSET];
+  return {
+    version: Number(record.version),
+    callerAddress,
+    requestId,
+    requestsIndexField,
+  };
+}
+
+/**
+ * Plain-JS notification registry parsed out of the ledger: hex request id
+ * (the map KEY under which the notification was registered) to the raw
+ * stored record. Decode each record with
+ * {@link decodeSignBidirectionalNotification}.
+ */
+export type SignBidirectionalNotificationIndex = Map<
+  RequestIdHex,
+  SignBidirectionalNotificationRecord
+>;
+
 /**
  * Plain-JS signature response counter index parsed out of the ledger: hex
  * request id (see {@link requestIdHex}) to the number of responses posted for
@@ -272,10 +421,49 @@ export function signetResponseIndexKey(
 }
 
 /**
+ * Read ONLY the notification registry (ledger field
+ * {@link SIGN_BIDIRECTIONAL_NOTIFICATION_INDEX_FIELD}) out of raw signet
+ * contract state — the poll-loop primitive of {@link SignetRequestFeed},
+ * which cycles frequently and has no use for the response fields.
+ *
+ * @param raw - Raw contract state, e.g. `queryContractState(address).data`
+ *   from the indexer or `ctx.currentQueryContext.state` from the simulator.
+ * @returns The registry, keyed by the hex request id each record was
+ *   registered under.
+ * @throws Error if the field is missing or is not a Map.
+ */
+export function readSignBidirectionalNotificationIndexFromState(
+  raw: RawContractState,
+): SignBidirectionalNotificationIndex {
+  const notificationMap = signetFieldNode(
+    raw,
+    SIGN_BIDIRECTIONAL_NOTIFICATION_INDEX_FIELD,
+  ).asMap();
+  if (notificationMap === undefined) {
+    throw new Error(
+      `Ledger field ${SIGN_BIDIRECTIONAL_NOTIFICATION_INDEX_FIELD} is not a Map`,
+    );
+  }
+  const index: SignBidirectionalNotificationIndex = new Map();
+  for (const key of notificationMap.keys()) {
+    // fromValue consumes its input, so hand each descriptor a copy.
+    const requestId = requestIdType.fromValue([...key.value]);
+    const cell = notificationMap.get(key)?.asCell();
+    if (cell === undefined) continue;
+    index.set(
+      requestIdHex(requestId),
+      signBidirectionalNotificationType.fromValue([...cell.value]),
+    );
+  }
+  return index;
+}
+
+/**
  * The decoded ledger fields of the signet contract: the signature response
  * counter (field 0) and log (field 1), the respond-bidirectional index
- * (field 2), and the sealed MPC attestation key hash (field 3). Together
- * they give a client everything the MPC ever delivers for a request.
+ * (field 2), the sealed MPC attestation key hash (field 3), and the request
+ * notification registry (field 4). Together they give a poller everything
+ * the contract ever records about a request.
  */
 export interface SignetContractLedger {
   /**
@@ -299,6 +487,12 @@ export interface SignetContractLedger {
    * {@link MPC_PUB_KEY_HASH_FIELD}) posts are verified against.
    */
   mpcPubKeyHash: Uint8Array;
+  /**
+   * The request notification registry (ledger field
+   * {@link SIGN_BIDIRECTIONAL_NOTIFICATION_INDEX_FIELD}), keyed by hex
+   * request id.
+   */
+  signBidirectionalNotificationIndex: SignBidirectionalNotificationIndex;
 }
 
 /**
@@ -387,5 +581,7 @@ export function readSignetContractLedgerFromState(
     signatureResponseIndex,
     respondBidirectionalIndex,
     mpcPubKeyHash,
+    signBidirectionalNotificationIndex:
+      readSignBidirectionalNotificationIndexFromState(raw),
   };
 }

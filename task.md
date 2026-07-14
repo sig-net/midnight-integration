@@ -12,9 +12,10 @@ This file was rewritten 2026-07-12 after a full old-repo ↔ refactor
 comparison. The original 800-line version (full context, Phases 0–10,
 Decision Log D1–D19) is in git history: `git log --follow -- task.md`.
 Detailed sub-plans that outgrew this file live next to it:
-`events-migration.md` (polling → MIP-0002 events), `alignment.md`
-(struct alignment with the MPC team), `ecdsa-midnight-progress.md`
-(secp256k1-in-circuit status). Operational knowledge moved to skills:
+`alignment.md` (struct alignment with the MPC team),
+`ecdsa-midnight-progress.md` (secp256k1-in-circuit status);
+`events-migration.md` was retired (A.4/D26 — discovery reverted to
+registry polling). Operational knowledge moved to skills:
 `.claude/skills/e2e`, `.claude/skills/contract-change`, and
 `packages/xcontract-events/knowledge-base/`.
 
@@ -24,7 +25,8 @@ Bit-by-bit rewrite of the MVP at
 `~/Projects/github.com/sig-net/midnight-erc20-vault` (reference; do not
 modify): an ERC20 vault on an EVM chain driven by MPC-signed transactions
 requested from a Midnight Compact contract. Requests are recorded on the
-vault's ledger and emitted as events; the MPC (response server in
+vault's ledger and registered in the central signet contract's notification
+registry; the MPC (response server in
 `~/Projects/github.com/sig-net/solana-signet-program`,
 `clients/response-server`) signs with epsilon-derived keys and posts
 responses/attestations to the central signet contract; clients poll it and
@@ -37,49 +39,51 @@ settle in-circuit (Jubjub Schnorr attestation verify). No websockets.
 All MVP functionality is ported and running end-to-end. Beyond the original
 Phase 0–10 plan, the repo also moved to the ledger-9 toolchain line
 (compactc 0.33.0-rc / midnight-js 5.0.0-beta.3), generic request structs
-(`SignBidirectionalRequestIndex<EVMType2TxParams<...>>`), and MIP-0002
-contract events.
+(`SignBidirectionalRequestIndex<EVMType2TxParams<...>>`), and
+registry-based request discovery (the singleton's notification registry,
+polled by the MPC — D26).
 
 - **signet-midnight** (the library, seed of a signet.js Midnight adapter):
   shared Compact modules (`Signet.compact`, `Schnorr.compact`) + compiled
   pure circuits; TS twins + tripwire tests; raw state readers (requests +
   signet contract); epsilon derivation (v1.0.0, golden-vectored against the
-  MVP); MPC key derivation; Schnorr TS side; event codecs, observer,
-  request/response feeds and resolver. 14 test files.
+  MVP); MPC key derivation; Schnorr TS side; notification descriptor +
+  decoder, the registry-polling request feed and resolver. 11 test files.
 - **vault-contract**: all circuits ported under the new names — `initialize`,
   `deposit`, `claim` (optional recipient, incl. contract
   recipients), `withdraw`, `completeWithdraw` (settle + failure-refund
   branch folded in; the planned `refundWithdraw` name was dropped). Sealed
-  `mpcPubKeyHash` + `signetEventEmitter`; emits SignBidirectional events.
+  `mpcPubKeyHash` + `signetNotifier`; registers SignBidirectional
+  notifications on the singleton.
   Extensive simulator tests (validation, tamper, replay, identity checks).
 - **signet-contract**: the central contract — unauthenticated counted
   signature-response log, in-circuit-Schnorr-verified
-  `postRespondBidirectional` (first-write-wins), event emission. Tested.
+  `postRespondBidirectional` (first-write-wins), the notification
+  registry (`notifyBidirectionalSignatureRequest`). Tested.
 - **lib**: deploy plumbing, WalletFacade→midnight-js providers adapter,
   wallet/seed/network-id/node-config. One copy, consumed everywhere.
 - **cli**: all 11 commands wired, zero stubs (read-state, initialize,
   deposit, poll-signature-response, poll-respond-bidirectional,
   broadcast-evm, claim, deposit-e2e, withdraw,
   complete-withdraw, withdraw-e2e).
-- **integration-tests**: `happy-day-e2e.test.ts` (17 ordered steps: full
-  deposit + withdraw round trip with golden event assertions) and
+- **integration-tests**: `happy-day-e2e.test.ts` (ordered steps: full
+  deposit + withdraw round trip with golden notification assertions) and
   `deposit-withdrawal-failure-refund.test.ts` (forced EVM revert → refund
   branch), both resumable via env request-ids, run against the local
   docker-compose Midnight stack + Sepolia + the fakenet response server.
 - **response server** (cross-repo, solana-signet-program
   `bernard/add-response-contract`): MidnightMonitor rewritten for the new
-  layout, event-driven request discovery, responses written to the signet
-  contract, ledger-9 bump. Old Phase 5 is done except the dependency
+  layout, registry-polling request discovery, responses written to the
+  signet contract, ledger-9 bump. Old Phase 5 is done except the dependency
   question (task D.1 below).
-- **Event-driven end to end — no blind ledger polling remains.** Requests
-  are discovered via SignBidirectionalEvent (signet-request-feed), responses
-  via SignatureRespondedEvent / RespondBidirectionalEvent
-  (signet-response-feed); the response server consumes the same feeds.
-  "Poll" in the code means (1) interval-polling the indexer's
-  queryContractEvents endpoint — transport, not protocol (websockets are
-  banned) — and (2) events acting as TRIGGERS for an authenticated state
-  read, deliberate because the response log is unauthenticated and
-  event/state indexing skew must be tolerated.
+- **Polling end to end — one registry, no per-requester scanning.**
+  Requests are discovered by polling the singleton's notification registry
+  (signet-request-feed); each notification is authenticated by reading the
+  request back from the named caller's own ledger. Responses are polled
+  from the singleton's response indexes by request id
+  (signet-request-response-reader, consumed by the cli poll commands and
+  the response server alike). Websockets remain banned; indexer state lag
+  must be tolerated (poll loops, never one-shot reads).
 - **Docs/ops**: `docs/architecture.md`, `docs/e2e-sepolia-runbook.md`,
   root docker-compose stack, /e2e and /contract-change skills,
   xcontract-events spike + knowledge base.
@@ -97,15 +101,17 @@ ids); that is an accepted cost while the protocol is still moving.
 
 This repo is becoming the source of truth for the final protocol wire
 types (the old repo's SGN1 spec + `signer/` prototype are inputs, not the
-destination). Discovery is already fully event-driven (see Part 1) — what
+destination). Discovery is registry-polling (see Part 1, D26) — what
 is missing is versioning, so that future encoding changes (compiler/runtime
 value-encoding shifts, struct evolution) can coexist with deployed
 consumers instead of breaking them.
 
-- [ ] **A.1 Version the event wire format.** Adopt/adapt SGN1's
-      event-name version grammar + coexistence rule ("layout change ⇒ new
-      tag, old tag keeps decoding"). Codecs in `signet-events.ts` dispatch
-      on tag; unknown versions surface loudly, never silently skipped.
+- [ ] **A.1 Version the notification wire format.** Partially landed with
+      D26: `SignBidirectionalNotification` is a `{ version, payload }`
+      envelope, the payload manually packed, and the decoder
+      (signet-contract-state-reader.ts) fails closed on unknown versions.
+      Remaining: the coexistence rule ("layout change ⇒ new version, old
+      version keeps decoding") once a V2 exists.
 - [ ] **A.2 Version the request-id preimage and domain tags.** Domain
       strings carry a version; a struct/layout change mints a new version
       while old ids stay resolvable.
@@ -114,10 +120,11 @@ consumers instead of breaking them.
       contracts, pinnable by the MPC/Rust consumer.
       *Done when (A.1–A.3):* a simulated "v2" encoding change lands
       alongside v1 with both decodable in tests.
-- [ ] **A.4 Absorb/retire `events-migration.md`.** Its Phase 1 (toolchain
-      bump) is done and Phases 2–4 have largely landed; fold what is still
-      live (contract topology, raw `sign` request kind, open Phase-0
-      decisions) into this phase or Phase E, then delete the file.
+- [x] **A.4 Absorb/retire `events-migration.md`.** DONE with D26: the
+      file is deleted; discovery reverted from events to the singleton's
+      notification registry, so its remaining live content (contract
+      topology) is superseded by the registry design recorded in
+      Signet.compact's ledger-layout comment.
 
 ## Phase B — Hermetic test loop + CI
 
@@ -343,5 +350,33 @@ docker-compose.yaml comments and the old-repo commands in
 `docs/e2e-sepolia-runbook.md` intentionally still say "npm". Verified: fresh
 install, compile/build/test green (225 tests), solana-signet-program symlinks
 into this tree still resolve.
+
+### D26 — Events purged; discovery via a singleton notification registry (2026-07-14)
+**Decision:** Per Bernard: contract event emission is removed ENTIRELY (the
+`serialize<T,256>` emit path proved too slow — heavy serialization into a
+forced-large payload). The singleton gained ledger field 4,
+`Map<RequestId, SignBidirectionalNotification>`; clients cross-contract-call
+`notifyBidirectionalSignatureRequest(requestId, notification)` (rename of the
+emit circuit) and the MPC discovers requests by polling that registry,
+still authenticating each notification against the named caller's own
+ledger. `SignBidirectionalNotification` is `{ version: Uint<8>, payload:
+Bytes<65> }`, the payload manually packed in-circuit via `Bytes[...spread]`
+(callerAddress ++ requestId ++ requestsIndexField — exact, no padding, no
+`serialize<>` anywhere). The registry is keyed by requestId, append-only
+(idempotent overwrite, no removal); the feed's in-memory yielded set is the
+diff cursor. The response-side ping events were deleted with no replacement
+store — clients poll the response indexes by request id through
+`SignetRequestResponseReader` (the cli poll commands switched to it).
+External surface renamed `SignetEventEmitter` → `SignetNotifier`;
+`signet-events.ts`, `signet-event-observer.ts`, `signet-response-feed.ts`
+deleted; `events-migration.md` deleted (A.4). `packages/xcontract-events`
+is kept as the cross-contract-call knowledge base.
+**Why:** event emission cost dominated request-circuit latency; the ledger
+write is cheaper, and a registry read via `queryContractState` needs no
+special MIP-0002 indexer build.
+**Impact:** singleton + vault proving keys changed ⇒ full redeploy;
+`@sig-net/midnight` / `@sig-net/midnight-contract` republished as 0.0.2 and
+the fakenet responder's pins bumped (its `SignetRequestFeed` interface is
+unchanged — only construction lost `fromEventId`).
 
 <!-- Append new decisions below this line. -->

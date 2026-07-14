@@ -8,8 +8,10 @@ pragma language_version >= 0.25;
 // emits them as pureCircuits in managed/contract/index.js — giving the
 // package an in-process, provable-logic-identical reference implementation:
 // unit tests exercise the REAL circuits, and off-chain code (path checks,
-// Schnorr challenges, attestation messages) reuses them instead of
-// hand-porting the algorithms.
+// Schnorr challenges, attestation messages, notification packing) reuses them
+// instead of hand-porting the algorithms. Off-chain code only ever DECODES a
+// SignBidirectionalNotification (fixed-offset byte reads), but tests build
+// fixtures with the compiled packer to pin the pack<->decode lockstep.
 //
 // ONLY the non-generic circuits are exported here. The request circuits
 // (calculateRequestId, constructSignBidirectionalRequest) are generic over the
@@ -31,6 +33,7 @@ export {
   signetAttestationMessage,
   assertHexOf,
   assertPathCommitment,
+  constructSignBidirectionalNotificationV1,
   evmAddressAbiValue,
   schnorrChallenge
 };
