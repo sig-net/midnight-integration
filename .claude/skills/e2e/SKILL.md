@@ -130,12 +130,19 @@ be swept to the new one.
    gas.
 5. Write the four new values into `.env` (uncomment + replace).
 6. MPC hand-off — in the `solana-signet-program` checkout:
-   - set `MIDNIGHT_CONTRACT_ADDRESSES=<new vault contract address>` and
-     `MIDNIGHT_SIGNET_CONTRACT_ADDRESS=<new signet contract address>` in its
-     `.env`;
+   - set `MIDNIGHT_SIGNET_CONTRACT_ADDRESS=<new signet contract address>` in
+     its `.env` (the responder discovers requester contracts by watching the
+     signet contract's events — no vault address needed);
+   - the responder proves its posts with the signet contract's PROVER keys,
+     which the npm `@sig-net/midnight-contract` package does NOT ship (only
+     the small verifiers — provers are 30–135 MB). After any signet
+     `compile:zk` + redeploy, copy them in or every post dies with
+     `ENOENT … postSignatureResponse.prover`:
+     `cp packages/signet-contract/src/managed/keys/*.prover <solana-signet-program>/node_modules/@sig-net/midnight-contract/dist/managed/keys/`
+     (safe iff the verifiers are byte-identical — `shasum` both sides);
    - restart the responder: kill any running one, then `yarn response`
      (background, own log). Healthy startup logs
-     `MidnightMonitor: nonce (none) -> 0 on <new vault address>`.
+     `MidnightMonitor: watching signet contract events at <new signet address>`.
 7. Rerun the suite (rerun flow). All setup steps skip; every flow file
    should pass (happy-day: 17/17).
 
@@ -164,7 +171,19 @@ be swept to the new one.
   re-discovers unresponded requests and posts the missing signatures), then
   rerun the flow file with its resume var. Corollary: when restarting the
   proof server between flow files for OOM headroom, do it only while the
-  responder's log is quiet.
+  responder's log is quiet — and "quiet" means no in-flight post (every
+  `postSignatureResponse/postRespondBidirectional … started` line has its
+  `took Ns`/`FAILED` twin), NOT an unchanged log: the idle poll loop writes
+  every few seconds, so raw log growth never stops.
+- Expect the OOM at the CLAIM leg of every flow file that runs a full
+  deposit round trip in one pass (arrange or long-hand alike): by the time
+  the claim proves, the same proof server has already served the deposit
+  proof plus the responder's two posts, and the claim tips it over even from
+  a fresh restart at file start. The reliable cadence on a 16 GB Docker VM
+  is: let the file OOM at claim, `docker restart midnight-proof-server`,
+  rerun the SAME file with its resume var — the claim is then the FIRST
+  proof on a fresh server and the rest of the file (withdraw, settle)
+  fits in the remaining headroom.
 - `connect ECONNREFUSED 127.0.0.1:6300` mid-claim/settle with
   `docker ps -a` showing the proof server `Exited (137)`: the proof server
   was OOM-killed (it has done this repeatedly at the claim step — a single
