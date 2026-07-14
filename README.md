@@ -99,3 +99,4 @@ yarn compile:zk
 - add V1 to every single struct
 - allow deposit to either normal address or contract address
 - use witness provided nonce randomness in claim + evolve nonce
+- TODO: add integration test that tests using the common library.
