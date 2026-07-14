@@ -178,21 +178,17 @@ export async function submitUnprovenTransaction(
  * @param facade - A started wallet facade for `keys` (builds, proves and submits the registration).
  * @param keys - The key material of the same wallet; its unshielded keystore signs the registration.
  * @param state - The synced facade state to read the NIGHT UTXOs from.
- * @returns How many NIGHT UTXOs this call registered (0 = all were already registered).
- * @throws If the wallet holds no NIGHT at all, or the node rejects the registration transaction.
+ * @returns How many NIGHT UTXOs this call registered (0 = nothing unregistered, including no NIGHT at all).
+ * @throws If the node rejects the registration transaction.
  */
 export async function registerNightForDustGeneration(
   facade: WalletFacade,
   keys: AccountKeys,
   state: FacadeState,
 ): Promise<number> {
-  const nightUtxos = state.unshielded.availableCoins;
-  if (nightUtxos.length === 0) {
-    throw new Error(
-      "wallet holds no NIGHT UTXOs — fund it with NIGHT before registering for dust generation.",
-    );
-  }
-  const unregistered = nightUtxos.filter((coin) => !coin.meta.registeredForDustGeneration);
+  const unregistered = state.unshielded.availableCoins.filter(
+    (coin) => !coin.meta.registeredForDustGeneration,
+  );
   if (unregistered.length === 0) return 0;
 
   // Register → finalize (prove) → submit. The registration segments are

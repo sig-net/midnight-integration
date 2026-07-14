@@ -186,9 +186,24 @@ export async function ensureDeployerDust(env: NodeJS.ProcessEnv): Promise<void> 
   await withSyncedWalletFacade(keys, deployConfig.midnightNodeConfig, async (facade, state) => {
     const registered = await registerNightForDustGeneration(facade, keys, state);
     if (registered === 0) {
-      logSkip("register deployer NIGHT for dust generation", "every NIGHT UTXO is already registered");
+      logSkip("register deployer NIGHT for dust generation", "no unregistered NIGHT UTXOs");
     } else {
       console.log(`registered ${registered} deployer NIGHT UTXO(s) for dust generation`);
+    }
+
+    // A balance visible right now settles it; otherwise dust may still be
+    // generating from a (possibly just-submitted) registration — but only if
+    // there is registered NIGHT to generate FROM, so fail fast when the
+    // wallet is flat-out unfunded instead of polling into a timeout.
+    const dustNow = state.dust.balance(new Date());
+    if (dustNow > 0n) {
+      console.log(`deployer dust (fee) balance: ${dustNow}`);
+      return;
+    }
+    if (state.unshielded.availableCoins.length === 0) {
+      throw new Error(
+        "deployer wallet holds neither DUST nor NIGHT — fund it with NIGHT (see DEPLOYER_SEED) before deploying",
+      );
     }
     const dust = await waitForSpendableDust(facade);
     console.log(`deployer dust (fee) balance: ${dust}`);
