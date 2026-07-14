@@ -8,9 +8,7 @@
     "./managed/*": "./src/managed/*"
   },
   "files": [
-    "dist",
-    "src",
-    "!src/managed"
+    "dist"
   ],
   "scripts": {
     "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signet-contract.compact src/managed",

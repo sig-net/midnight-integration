@@ -9,7 +9,7 @@
   },
   "files": [
     "dist",
-    "src"
+    "src/*.compact"
   ],
   "scripts": {
     "compile": "compact compile --skip-zk src/circuits.compact src/managed",
