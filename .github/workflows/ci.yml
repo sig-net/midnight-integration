@@ -82,11 +82,13 @@ jobs:
               https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
           fi
           compact update
-          # The xcontract-events spike is written against language version
-          # 0.23 (compiler 0.31.1) — the launcher picks the toolchain per
-          # file pragma, so both versions must be installed. Dies with the
-          # spike (task.md D.4).
-          compact update 0.31.1
+          # The workspace tracks the ledger-9 toolchain line: latest STABLE
+          # (0.31.1) still speaks language version 0.23 and rejects the
+          # contracts' `pragma language_version >= 0.25`, so install +
+          # default the rc explicitly until a stable release catches up.
+          # This is part of the ledger-9 MATCHED SET (see the image-tag
+          # comment in docker-compose.yaml) — move it with the npm stack.
+          compact update 0.33.0-rc.0
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
@@ -155,11 +157,13 @@ jobs:
               https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
           fi
           compact update
-          # The xcontract-events spike is written against language version
-          # 0.23 (compiler 0.31.1) — the launcher picks the toolchain per
-          # file pragma, so both versions must be installed. Dies with the
-          # spike (task.md D.4).
-          compact update 0.31.1
+          # The workspace tracks the ledger-9 toolchain line: latest STABLE
+          # (0.31.1) still speaks language version 0.23 and rejects the
+          # contracts' `pragma language_version >= 0.25`, so install +
+          # default the rc explicitly until a stable release catches up.
+          # This is part of the ledger-9 MATCHED SET (see the image-tag
+          # comment in docker-compose.yaml) — move it with the npm stack.
+          compact update 0.33.0-rc.0
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
@@ -248,11 +252,13 @@ jobs:
           curl --proto '=https' --tlsv1.2 -LsSf \
             https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
           compact update
-          # The xcontract-events spike is written against language version
-          # 0.23 (compiler 0.31.1) — the launcher picks the toolchain per
-          # file pragma, so both versions must be installed. Dies with the
-          # spike (task.md D.4).
-          compact update 0.31.1
+          # The workspace tracks the ledger-9 toolchain line: latest STABLE
+          # (0.31.1) still speaks language version 0.23 and rejects the
+          # contracts' `pragma language_version >= 0.25`, so install +
+          # default the rc explicitly until a stable release catches up.
+          # This is part of the ledger-9 MATCHED SET (see the image-tag
+          # comment in docker-compose.yaml) — move it with the npm stack.
+          compact update 0.33.0-rc.0
           compact compile --version
       - name: Install dependencies (no lockfile by design — installs float to latest)
         run: yarn install --no-immutable
