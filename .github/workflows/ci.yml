@@ -82,6 +82,11 @@ jobs:
               https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
           fi
           compact update
+          # The xcontract-events spike is written against language version
+          # 0.23 (compiler 0.31.1) — the launcher picks the toolchain per
+          # file pragma, so both versions must be installed. Dies with the
+          # spike (task.md D.4).
+          compact update 0.31.1
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
@@ -150,6 +155,11 @@ jobs:
               https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
           fi
           compact update
+          # The xcontract-events spike is written against language version
+          # 0.23 (compiler 0.31.1) — the launcher picks the toolchain per
+          # file pragma, so both versions must be installed. Dies with the
+          # spike (task.md D.4).
+          compact update 0.31.1
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
@@ -238,6 +248,11 @@ jobs:
           curl --proto '=https' --tlsv1.2 -LsSf \
             https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
           compact update
+          # The xcontract-events spike is written against language version
+          # 0.23 (compiler 0.31.1) — the launcher picks the toolchain per
+          # file pragma, so both versions must be installed. Dies with the
+          # spike (task.md D.4).
+          compact update 0.31.1
           compact compile --version
       - name: Install dependencies (no lockfile by design — installs float to latest)
         run: yarn install --no-immutable
