@@ -174,7 +174,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("erc20-vault happy-day e2e",
         "",
         `  request id: ${depositTransactionSignatureRequestId}`,
         "",
-        "The response server (yarn response, MIDNIGHT_SIGNET_CONTRACT_ADDRESS set)",
+        "The response server (fakenet compose service, MIDNIGHT_SIGNET_CONTRACT_ADDRESS set)",
         "polls the signet contract's notification registry and should pick it up",
         "on its next poll — resolving it from THIS vault's ledger — and sign the EVM tx.",
       ]);

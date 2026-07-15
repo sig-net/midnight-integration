@@ -60,22 +60,85 @@ own funding + vault-initialized preflight tests.
   (anvil, :8545, chain id 31337).
 - **compact compiler** on PATH, then `yarn install` + `yarn compile` from
   the root.
-- **An EVM chain via `EVM_RPC_URL`** (repo-root `.env` — the suite loads it
-  itself; real environment variables win over the file). Two options:
-  - **Sepolia** — a real endpoint (e.g. Infura); derived accounts need
-    manual funding (see Running).
-  - **The local `evm` compose service** — set
-    `EVM_RPC_URL=http://127.0.0.1:8545`; that is the ONLY required change.
-    Setup detects the local chain (id 31337), deploys
-    `contracts/TestUSDC.sol` when `ERC20_ADDRESS` has no code (hardhat is
-    the Solidity compiler; the node is anvil — interchangeable for these
-    flows), and auto-funds both derived accounts (10 ETH + 1000 USDC each).
+- **An EVM chain via `VITE_TEST_EVM_RPC_URL`** (repo-root `.env` — the suite
+  loads it itself; real environment variables win over the file). Three
+  modes — see [EVM run modes](#evm-run-modes) below.
 - For every step from the deposit signature poll onward: the fakenet MPC
-  responder from
-  [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)
-  (`yarn response`) — the suite prints the exact config it needs. On the
-  local loop, set `EVM_RPC_URL=http://127.0.0.1:8545` in the responder's
-  env too, so it signs/verifies against the SAME local chain.
+  responder — the `fakenet` compose service (`ghcr.io/sig-net/fakenet:latest`,
+  built from
+  [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)).
+  It is profile-gated because it can only start after run 1 has printed
+  `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` into `.env`:
+
+  ```sh
+  docker compose --profile fakenet up -d --force-recreate fakenet
+  docker logs -f fakenet-responder     # responder log
+  docker compose pull fakenet          # refresh :latest after a fakenet-v* release
+  ```
+
+  The container's config interpolates from the same repo-root `.env`
+  (`MIDNIGHT_*`, `MPC_ROOT_KEY`, … with in-network defaults when unset), so
+  pointing the stack at another environment (Sepolia, a future preview
+  network) is a `.env` change. The EVM endpoint is the one deliberate
+  duplicate — `VITE_TEST_EVM_RPC_URL` (host/tests) + `FAKENET_EVM_RPC_URL`
+  (container), see EVM run modes. Fallback for responder development:
+  `yarn response` in a checkout of the solana-signet-program repo (set
+  `EVM_RPC_URL=http://127.0.0.1:8545` in its env for the local loop).
+
+## EVM run modes
+
+The EVM endpoint is the one deliberately duplicated `.env` variable: the
+tests and the fakenet container talk to the SAME chain, but from different
+places — the tests from the host (where `127.0.0.1` is your machine), the
+container from inside Docker (where `127.0.0.1` is the container itself).
+So the pair must always point at the same chain:
+
+- `VITE_TEST_EVM_RPC_URL` — the endpoint as reachable FROM THE HOST (tests).
+- `FAKENET_EVM_RPC_URL` — the endpoint as reachable FROM THE CONTAINER
+  (defaults to the in-network `http://evm:8545` when unset).
+
+After changing either, recreate the responder:
+`docker compose --profile fakenet up -d --force-recreate fakenet`.
+
+**1. Anvil, dockerised (default).** The `evm` compose service — already part
+of `docker compose up -d`:
+
+```sh
+# .env — the fakenet needs no entry (in-network default http://evm:8545)
+VITE_TEST_EVM_RPC_URL=http://127.0.0.1:8545
+```
+
+Chain id 31337. Setup deploys `contracts/TestUSDC.sol` when `ERC20_ADDRESS`
+has no code and auto-funds both derived accounts (10 ETH + 1000 USDC each).
+
+**2. Hardhat, on the host (outside docker).** Start it on a port that does
+not clash with the anvil container (or stop the `evm` service and use 8545):
+
+```sh
+cd packages/integration-tests && npx hardhat node --port 8546
+# .env — same chain, two perspectives (host.docker.internal is Docker's
+# name for the host machine):
+VITE_TEST_EVM_RPC_URL=http://127.0.0.1:8546
+FAKENET_EVM_RPC_URL=http://host.docker.internal:8546
+```
+
+Hardhat's node is interchangeable with anvil for these flows: same chain id
+(31337), same pre-funded dev-mnemonic accounts, so the same auto-deploy and
+auto-fund path applies. A restart wipes the chain, exactly like restarting
+the anvil container (see Gotchas).
+
+**3. Sepolia.** A real endpoint, e.g. Infura — reachable from host and
+container alike, so both vars carry the same value:
+
+```sh
+# .env
+VITE_TEST_EVM_RPC_URL=https://sepolia.infura.io/v3/<api-key-here>
+FAKENET_EVM_RPC_URL=https://sepolia.infura.io/v3/<api-key-here>
+```
+
+Chain id 11155111; `ERC20_ADDRESS` defaults to the canonical Sepolia USDC.
+No auto-funding — fund the derived accounts manually between runs (see
+Running, step 2).
 
 ## Running
 
@@ -113,12 +176,13 @@ contract addresses:
    `EVM_USER_ADDRESS` (≥ 0.009 ETH, ≥ 0.1 USDC) and `EVM_VAULT_ADDRESS`
    with ETH for the withdraw gas (≥ 0.003 ETH — the vault's derived account
    sends the withdraw transfer itself); on the local chain skip funding
-   entirely. Configure and start the responder. On the local chain,
+   entirely. Start the responder container (`docker compose --profile
+   fakenet up -d --force-recreate fakenet`). On the local chain,
    optionally set `DEPOSIT_REQUEST_ID` from run 1's printout so run 2
    resumes the already-recorded request instead of creating a fresh one.
 3. **Run 2** — every setup step skips (the ERC20 step by finding code
    on-chain, funding by the balances already meeting their targets); every
-   flow file runs to the end (happy-day: 17/17, failure-refund: 9/9,
+   flow file runs to the end (happy-day: 15/15, failure-refund: 9/9,
    claimant-not-caller: 6/6, benchmark: 13/13, false-claimer: 6/6).
 
 **Redeploying after a circuit change?** The derived EVM accounts move with
@@ -132,7 +196,8 @@ it includes the fund-sweep script.
 | Variable | Purpose | Default |
 |---|---|---|
 | `RUN_INTEGRATION_TESTS` | Opt-in gate (real env only, not `.env`); `test:integration-tests` sets it | unset (suite skips) |
-| `EVM_RPC_URL` | EVM JSON-RPC endpoint (Sepolia or the local hardhat node) | — (required) |
+| `VITE_TEST_EVM_RPC_URL` | EVM JSON-RPC endpoint as reachable from the HOST (anvil, hardhat, or Sepolia — see EVM run modes); mapped onto the pipeline's internal `EVM_RPC_URL` key at env load | — (required) |
+| `FAKENET_EVM_RPC_URL` | The SAME chain as reachable from the fakenet CONTAINER (compose-only; not read by the tests) | `http://evm:8545` |
 | `EVM_CHAIN_ID` | Chain id, sealed into the vault at initialize | resolved from the RPC; verified when set |
 | `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (lib config) | local stack defaults |
 | `DEPLOYER_SEED` / `VAULT_DEPLOYER_SECRET_KEY` | Deployer wallet / identity | genesis seed `00…01` |

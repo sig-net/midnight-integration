@@ -60,23 +60,31 @@ pinned by `vitest.config.ts`.
 2. `compact --version` works; `yarn install` and `yarn compile` have run.
 3. `.env` at the repo root exists (it also holds the fakenet
    `MPC_ROOT_KEY` and, in a comment, the Sepolia funding-wallet seed).
-4. If `EVM_RPC_URL` points at the local EVM (`http://127.0.0.1:8545`): the
-   `evm` compose service (anvil) is up — part of the same
-   `docker compose up -d` as the Midnight stack (probe with
-   `curl -s http://127.0.0.1:8545`). Setup then deploys TestUSDC when
-   missing and auto-funds the derived accounts; the MPC responder must set
-   its own `EVM_RPC_URL` to the SAME node. Restarting the container wipes
-   the EVM chain (in-memory state); setup detects that and redeploys.
+4. If the EVM endpoint is the local chain: the `evm` compose service
+   (anvil) is up — part of the same `docker compose up -d` as the Midnight
+   stack (probe with `curl -s http://127.0.0.1:8545`). The endpoint is the
+   one deliberately duplicated `.env` pair, both pointing at the SAME
+   chain: `VITE_TEST_EVM_RPC_URL` (host-side tests; mapped onto the
+   pipeline's internal `EVM_RPC_URL` key at env load) and
+   `FAKENET_EVM_RPC_URL` (the fakenet container; defaults to the in-network
+   `http://evm:8545` when unset — loopback in-container is the container
+   itself, hence the split). Local anvil needs only
+   `VITE_TEST_EVM_RPC_URL=http://127.0.0.1:8545`. Setup then deploys
+   TestUSDC when missing and auto-funds the derived accounts. Restarting
+   the container wipes the EVM chain (in-memory state); setup detects that
+   and redeploys.
 
 ## Rerun flow (`/e2e`)
 
 1. Confirm the MPC responder is running against the addresses in `.env`
-   (`ps` for a `fakenet-signer` / `yarn response` process; its log prints
-   `check midnight for SignBidirectionalNotifications at <vault address>`).
-   If not: start it — see step 6 of the redeploy flow.
+   (`docker ps` for the `fakenet-responder` container;
+   `docker logs fakenet-responder` prints
+   `MidnightMonitor: polling signet contract registry at <signet address>`.
+   A locally run `yarn response` process — `ps` — also counts, for responder
+   development). If not: start it — see step 6 of the redeploy flow.
 2. `yarn test:integration-tests > <logfile> 2>&1 &` and watch the log.
    Expect all globalSetup steps to log `SKIPPED: …` and every flow file to
-   pass (happy-day: 17/17, deposit-withdrawal-failure-refund: 9/9,
+   pass (happy-day: 15/15, deposit-withdrawal-failure-refund: 9/9,
    deposit-claimant-not-caller: 6/6, benchmark: 13/13, false-claimer: 6/6).
    Single-file scripts: `yarn test:integration-tests:<flow-file-name>`,
    e.g. `yarn test:integration-tests:happy-day-e2e`
@@ -129,22 +137,36 @@ be swept to the new one.
    **≥ 0.003 ETH** from the funding wallet — the withdraw leg needs it for
    gas.
 5. Write the four new values into `.env` (uncomment + replace).
-6. MPC hand-off — in the `solana-signet-program` checkout:
-   - set `MIDNIGHT_SIGNET_CONTRACT_ADDRESS=<new signet contract address>` in
-     its `.env` (the responder discovers requester contracts by watching the
-     signet contract's notification registry — no vault address needed);
-   - the responder proves its posts with the signet contract's PROVER keys,
-     which the npm `@sig-net/midnight-contract` package does NOT ship (only
-     the small verifiers — provers are 30–135 MB). After any signet
-     `compile:zk` + redeploy, copy them in or every post dies with
-     `ENOENT … postSignatureResponse.prover`:
-     `cp packages/signet-contract/src/managed/keys/*.prover <solana-signet-program>/node_modules/@sig-net/midnight-contract/dist/managed/keys/`
-     (safe iff the verifiers are byte-identical — `shasum` both sides);
-   - restart the responder: kill any running one, then `yarn response`
-     (background, own log). Healthy startup logs
-     `MidnightMonitor: polling signet contract registry at <new signet address>`.
+6. MPC hand-off — the `fakenet` compose service
+   (`ghcr.io/sig-net/fakenet:latest`, built from
+   sig-net/solana-signet-program, running Midnight-only via
+   `DISABLE_SOLANA`):
+   - step 5 already put the new `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` (and
+     `MPC_ROOT_KEY`) in this repo's `.env` — compose interpolates the
+     service's environment from it (the responder discovers requester
+     contracts by watching the signet contract's notification registry — no
+     vault address needed);
+   - start/recreate the container:
+     `docker compose --profile fakenet up -d --force-recreate fakenet`.
+     `--force-recreate` is required after a redeploy: it re-reads `.env` AND
+     resets the container-local LevelDB private state. Healthy startup
+     (`docker logs -f fakenet-responder`) prints
+     `MidnightMonitor: polling signet contract registry at <new signet address>`;
+   - prover/verifier parity: the image proves its posts with the signet
+     zk keys from the published `@sig-net/midnight-contract` npm package
+     (the tarball DOES ship the provers). That is correct as long as the
+     deployed signet contract came from the same published package. If you
+     recompiled `packages/signet-contract` with DIFFERENT keys and deployed
+     that, every post fails verification — publish the package and re-release
+     the image, or (local iteration) uncomment the `volumes:` bind-mount on
+     the `fakenet` service in `docker-compose.yaml` to overlay
+     `./packages/signet-contract/src/managed` (verify verifier shasums match
+     the deployed contract);
+   - fallback for responder development: `yarn response` in a
+     `solana-signet-program` checkout with the new signet address in its
+     `.env`.
 7. Rerun the suite (rerun flow). All setup steps skip; every flow file
-   should pass (happy-day: 17/17).
+   should pass (happy-day: 15/15).
 
 ## Reading failures
 
@@ -164,10 +186,12 @@ be swept to the new one.
   still asserts state and passes.
 - The signature poll timing out on a request the responder DID log as "New
   request", with `postSignatureResponse … FAILED` + a proof-server transport
-  error in the responder's own log: the responder proves its posts through
-  the SAME proof server (:6300), and a proof-server restart during its post
-  kills it — the responder does not retry, so the request strands
-  unresponded. Recover by restarting the responder (its startup backfill
+  error in the responder's own log (`docker logs fakenet-responder`): the
+  responder proves its posts through the SAME proof server (:6300), and a
+  proof-server restart during its post kills it — the responder does not
+  retry, so the request strands unresponded. Recover by restarting the
+  responder (`docker compose --profile fakenet restart fakenet` — a plain
+  restart is enough here, no recreate needed; its startup backfill
   re-discovers unresponded requests and posts the missing signatures), then
   rerun the flow file with its resume var. Corollary: when restarting the
   proof server between flow files for OOM headroom, do it only while the

@@ -15,9 +15,22 @@ import { loadRepoDotEnv } from "./env-file.ts";
  * handed to the test workers via vitest's provide/inject. EVM-side values
  * (`EVM_CHAIN_ID`, `ERC20_ADDRESS`) are NOT defaulted here — the
  * `resolveEvmChain` setup step fills them chain-aware from `EVM_RPC_URL`.
+ *
+ * The operator-facing `.env` name for the EVM endpoint is
+ * `VITE_TEST_EVM_RPC_URL` — the HOST-side twin of the fakenet container's
+ * `FAKENET_EVM_RPC_URL` (see docker-compose.yaml). The two exist because the
+ * same chain needs two addresses: the tests reach it via the host
+ * (`127.0.0.1`), the container cannot (loopback there is the container
+ * itself). It is mapped here, once, onto the pipeline/cli's internal
+ * `EVM_RPC_URL` key; an explicit real-env `EVM_RPC_URL` still wins for
+ * one-off overrides.
  */
 export function buildBaseEnv(): NodeJS.ProcessEnv {
-  return { ...loadRepoDotEnv(), ...process.env };
+  const base = { ...loadRepoDotEnv(), ...process.env };
+  if (!process.env.EVM_RPC_URL && base.VITE_TEST_EVM_RPC_URL) {
+    base.EVM_RPC_URL = base.VITE_TEST_EVM_RPC_URL;
+  }
+  return base;
 }
 
 /**

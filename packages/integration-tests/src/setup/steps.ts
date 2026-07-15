@@ -326,20 +326,27 @@ export async function fundLocalEvmAccounts(env: NodeJS.ProcessEnv): Promise<void
 export function printMpcServerConfig(env: NodeJS.ProcessEnv): void {
   const rootKey = env.MPC_ROOT_KEY ?? "(not derived here — already held by the server operator)";
   banner([
-    "MPC (fakenet) server configuration — github.com/sig-net/solana-signet-program:",
+    "MPC (fakenet) responder configuration:",
     "",
     `  MPC_ROOT_KEY=${rootKey}`,
     `  MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${requireEnv(env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS")}`,
     "  # 💡 The responder DISCOVERS requesters by polling this signet",
     "  #    contract's notification registry — no requester contract list needed.",
     "",
-    "Set those in the server's .env, then START THE SERVER: `yarn response`",
-    "in the solana-signet-program repo. The e2e deposit/withdraw flows need",
-    "it running.",
+    "Make sure those two are in THIS repo's .env (docker compose reads it),",
+    "then START THE RESPONDER container:",
+    "",
+    "  docker compose --profile fakenet up -d --force-recreate fakenet",
+    "",
+    "(--force-recreate re-reads .env and resets the responder's private state",
+    "after a redeploy; watch it with `docker logs -f fakenet-responder`.",
+    "Fallback for responder development: `yarn response` in a checkout of",
+    "github.com/sig-net/solana-signet-program.) The e2e deposit/withdraw",
+    "flows need it running.",
     "",
     "Minimal .env block for THIS suite:",
     "",
     ...PIPELINE_KEYS.map((key) => `  ${key}=${env[key] ?? ""}`),
-    `  EVM_RPC_URL=${env.EVM_RPC_URL ?? ""}`,
+    `  VITE_TEST_EVM_RPC_URL=${env.EVM_RPC_URL ?? ""}`,
   ]);
 }

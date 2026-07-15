@@ -141,30 +141,29 @@ only integration path needs Sepolia ETH and a hand-started fakenet server.
       long-running (the `evm` docker compose service — anvil, chain id
       31337; hardhat is the Solidity compiler only); setup resolves the
       chain id from `EVM_RPC_URL`, deploys the token when the address has no
-      code, and auto-funds both derived accounts on chain id 31337. Until B.2
-      lands, a fresh local run 1 stops at the deposit signature-poll timeout
-      (the fakenet responder hand-off) instead of the funding preflight.
-      Commit a98256b.
-- [ ] **B.2 Dockerize the real fakenet responder** (D24 — replaces the old
-      "port the MPC simulator/watcher" task: a ported simulator would be a
-      third implementation of the MPC logic, and CI would verify the copy
-      instead of the artifact everyone runs). Ship the solana-signet-program
-      response server as a compose service next to node/indexer/proof-server.
-      **PAUSED until the common lib is published (D.1)** — the responder
-      consumes `signet-midnight`/`signet-contract`/`lib` via cross-repo
-      `link:` deps today, so an image build would have to span both repos and
-      would bake in that layout. Known upstream gaps to fix in the responder
-      when this resumes: (1) ~~no `EVM_RPC_URL`~~ DONE — the responder now
-      honors an `EVM_RPC_URL` env override for all eip155 chains
-      (solana-signet-program, bernard/add-response-contract), so the
-      hand-run fakenet can already target the local EVM; (2) the Solana leg is
-      unconditional at boot (`ensureInitialized()` crashes without reachable
-      Solana RPC + `SOLANA_PRIVATE_KEY`/`PROGRAM_ID`/`INFURA_API_KEY`) —
-      needs a Midnight-only switch for a hermetic loop; (3) the signet
-      contract's gitignored zk `managed/` output (~85 MB prover key) must be
-      compiled in the image or mounted from the host.
-      *Done when:* a `local-loop` flow file runs deposit→claim and
-      withdraw→settle green with no external network and no manual steps.
+      code, and auto-funds both derived accounts on chain id 31337. A fresh
+      local run 1 stops at the deposit signature-poll timeout — the fakenet
+      responder hand-off (start the B.2 `fakenet` compose service) — instead
+      of the funding preflight. Commit a98256b.
+- [x] **B.2 Dockerize the real fakenet responder** — DONE (2026-07-15, D24 —
+      replaces the old "port the MPC simulator/watcher" task: a ported
+      simulator would be a third implementation of the MPC logic, and CI
+      would verify the copy instead of the artifact everyone runs). The
+      solana-signet-program responder ships as `ghcr.io/sig-net/fakenet`
+      (multi-arch, published on `fakenet-v*` tags by that repo's
+      `fakenet-docker-publish.yml`) and runs here as the profile-gated
+      `fakenet` compose service (`docker compose --profile fakenet up -d
+      --force-recreate fakenet` after run 1 writes `MPC_ROOT_KEY` +
+      `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to `.env`). The former blockers
+      resolved: (1) `EVM_RPC_URL` override — done earlier; (2) Solana leg —
+      upstream `DISABLE_SOLANA` flag skips all Solana construction/RPC and
+      relaxes `SOLANA_PRIVATE_KEY`/`PROGRAM_ID`/`INFURA_API_KEY`; (3) zk
+      artifacts — the published `@sig-net/midnight-contract` tarball ships
+      the signet prover keys (the ~85 MB-must-be-mounted concern was stale),
+      so the image needs no Compact compile; a commented `volumes:` overlay
+      in `docker-compose.yaml` covers locally recompiled keys. D.1 turned
+      out to be already satisfied: the responder consumes published
+      `@sig-net/midnight*@0.0.3` npm packages, not `link:` deps.
 - [ ] **B.3 GitHub Actions:** compile (skip-zk) → build → unit tests on
       every push; the hermetic loop as the integration job (crib the old
       repo's workflow); zk compile as a manual/weekly row-count canary.
@@ -190,12 +189,11 @@ only integration path needs Sepolia ETH and a hand-started fakenet server.
 
 ## Phase D — Loose ends
 
-- [ ] **D.1 Publish the common lib** (old 5.1, upgraded from "decide" to
-      the B.2 prerequisite per D24): the response server consumes
-      signet-midnight / signet-contract / lib via cross-repo `link:` deps
-      today. Publish them (or settle an equivalent consumable form) so the
-      responder can depend on released versions; record in both repos' logs.
-      B.2 (dockerized fakenet) is paused until this lands.
+- [x] **D.1 Publish the common lib** — DONE in practice (verified
+      2026-07-15; old 5.1, upgraded from "decide" to the B.2 prerequisite
+      per D24): the responder now consumes the published
+      `@sig-net/midnight@0.0.3` + `@sig-net/midnight-contract@0.0.3` npm
+      packages (no cross-repo `link:` deps), which is what unblocked B.2.
 - [ ] **D.2 Deployment manifest — keep or drop** (old 2.3/4.5): env-var
       resume (`DEPOSIT_REQUEST_ID` etc.) replaced it in practice. Either
       implement `deployments/<network>.json` + an ensure-deployed helper, or

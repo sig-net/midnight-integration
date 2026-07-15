@@ -1,33 +1,14 @@
-# Local development stack: Midnight (node + indexer + proof server) plus a
-# local EVM dev chain. Bring it up with `docker compose up -d`; the
-# integration tests (packages/integration-tests) expect these endpoints on
-# localhost.
+# Local development stack for the integration tests: Midnight (node +
+# indexer + proof server), a local EVM dev chain, and the fakenet MPC
+# responder. `docker compose up -d`.
 #
-# Ledger-9 / contract-events line, matching the workspace's npm stack
-# (midnight-js 5.0.0-beta.3 / @midnightntwrk/ledger-v9 1.0.0-rc.3 /
-# compact-runtime 0.18.0-rc.0 / compactc 0.33.0-rc.0). The official
-# reference compose (midnightntwrk/midnight-local-dev standalone.yml) is
-# still on the ledger-8 era — until it catches up, the pairing here is
-# derived from the images' own compatibility encoding and release timing:
-#   - the indexer tag embeds its compatible set: `l91r3-n2r3` =
-#     ledger-v9 1.0.0-rc.3 + midnight-node 2.0.0-rc.3;
-#   - proof-server 9.0.0-rc.3 and @midnightntwrk/ledger-v9@1.0.0-rc.3 were
-#     released together (2026-06-22) — later proof-server RCs track ledger
-#     RCs that have no published npm counterpart, so do NOT bump it alone.
-# When bumping, move the whole set together and keep it aligned with the
-# npm ledger-v9 version the workspace resolves.
-#
-# Source repositories for the three images:
-#   - proof-server       -> proof-server crate in https://github.com/midnightntwrk/midnight-ledger
-#   - indexer-standalone -> https://github.com/midnightntwrk/midnight-indexer
-#   - midnight-node      -> https://github.com/midnightntwrk/midnight-node
+# The three midnight image tags are a MATCHED SET on the ledger-9 line,
+# paired with the npm @midnightntwrk/ledger-v9 version the workspace
+# resolves (the indexer tag encodes it: `l91r3-n2r3` = ledger-v9 1.0.0-rc.3
+# + node 2.0.0-rc.3). Never bump one alone — move the set together with the
+# npm stack.
 services:
   proof-server:
-    # Zero-knowledge proof generation service. Wallets/dApps offload the
-    # expensive ZK proving for shielded (Zswap) transactions to this server.
-    # 9.x is the ledger-9 proving line; rc.3 pairs with the npm
-    # @midnightntwrk/ledger-v9@1.0.0-rc.3 the workspace builds
-    # transactions with.
     container_name: 'midnight-proof-server'
     image: 'midnightntwrk/proof-server:9.0.0-rc.3'
     command: ['midnight-proof-server -v']
@@ -37,40 +18,23 @@ services:
       RUST_BACKTRACE: 'full'
 
   indexer:
-    # "Standalone" indexer = Chain Indexer + Indexer API + Wallet Indexer
-    # bundled into one executable with an in-process SQLite DB. It reads
-    # blocks from the node and exposes a GraphQL API on port 8088 that
-    # wallets/dApps query. This 4.4 line serves the API at
-    # /api/v4/graphql (+ /ws) and aliases /api/v3 to v4, so existing v3
-    # client URLs keep working.
-    #
-    # The tag is a pre-alpha from the indexer's contract-events line — the
-    # first PUBLISHED builds that decode MIP-0002 `Misc` events (the fix
-    # tracked as midnight-indexer#1279 closed 2026-06-26; this build is
-    # newer). No stable ledger-9 indexer release exists yet.
+    # Pre-alpha tag on purpose: the first published builds that decode
+    # MIP-0002 `Misc` events — no stable ledger-9 indexer release exists yet.
     container_name: 'midnight-indexer'
     image: 'midnightntwrk/indexer-standalone:4.4.0-pre-alpha.16-l91r3-n2r3-bridge-and-events-epics-contract-zswap-16c656df'
-    # Dev-only secrets for the indexer's internal stores; the file is
-    # committed because these are local-only defaults.
+    # Committed dev-only secrets (local defaults, nothing sensitive).
     env_file: standalone.env.example
     ports:
       - '127.0.0.1:8088:8088'
     environment:
       RUST_LOG: 'indexer_standalone=info,chain_indexer=info,indexer_api=info,info'
-    # No healthcheck / service_healthy gate: the 4.4 pre-alpha images ship
-    # neither the 4.3-era /var/run/indexer-standalone/running marker nor a
-    # health endpoint probe-able without extra tooling; the
+    # No healthcheck: this image ships nothing probe-able; the
     # integration-tests preflight checks the GraphQL endpoint instead.
     depends_on:
       node:
         condition: service_started
 
   node:
-    # The Midnight blockchain node (Substrate / Cardano Partner Chains based).
-    # Produces blocks and exposes the RPC/WS endpoint on 9944 that the
-    # indexer follows and wallets connect to. CFG_PRESET 'dev' = single-node
-    # local chain with instant block production and dev keys. 2.0.0-rc.3 is
-    # the ledger-9 node line (`n2r3` in the indexer tag above).
     container_name: 'midnight-node'
     image: 'midnightntwrk/midnight-node:2.0.0-rc.3'
     ports:
@@ -80,23 +44,60 @@ services:
       THRESHOLD: '0'
       SHOW_CONFIG: 'false'
       RUST_BACKTRACE: '1'
-      # Beneficiary of block-production rewards; arbitrary-but-valid hex on a
-      # local dev chain.
+      # Block-reward beneficiary; arbitrary-but-valid hex on a dev chain.
       SIDECHAIN_BLOCK_BENEFICIARY: '04bcf7ad3be7a5c790460be82a713af570f22e0f801f6659ab8e84a52be6969e'
 
   evm:
-    # Local EVM dev chain (anvil, Foundry's node): chain id 31337, automine,
-    # the universal pre-funded dev-mnemonic accounts. Point EVM_RPC_URL at
-    # http://127.0.0.1:8545 and the integration-test setup deploys TestUSDC
-    # and auto-funds the derived accounts (see
-    # packages/integration-tests/README.md). anvil rather than `hardhat
-    # node` because Foundry publishes an official image while hardhat has
-    # none — for our flows they are interchangeable local EVM nodes (same
-    # chain id, same dev accounts); hardhat remains solely the Solidity
-    # compiler for contracts/TestUSDC.sol. State is in-memory: a restart
-    # wipes the chain (setup detects this and redeploys the token).
+    # anvil dev chain (id 31337, pre-funded dev-mnemonic accounts). State is
+    # in-memory: a restart wipes the chain (the test setup detects this and
+    # redeploys the token).
     container_name: 'local-evm'
     image: 'ghcr.io/foundry-rs/foundry:v1.5.1'
     entrypoint: ['anvil', '--host', '0.0.0.0']
     ports:
       - '127.0.0.1:8545:8545'
+
+  fakenet:
+    # The MPC fakenet responder (sig-net/solana-signet-program, fakenet-signer
+    # workspace) in Midnight-only mode (DISABLE_SOLANA). Polls the signet contract's
+    # notification registry via the indexer, signs with keys derived from MPC_ROOT_KEY,
+    # and posts responses through the proof server.
+    #
+    # Only runs with `--profile fakenet` as it needs:
+    # MPC_ROOT_KEY and MIDNIGHT_SIGNET_CONTRACT_ADDRESS.
+    #
+    # These are generated and printed out by the setup phase of the integration tests.
+    #
+    # 1. Run that and then copy paste the values into the repo-root .env file.
+    # 2. Then run: `docker compose --profile fakenet up -d --force-recreate fakenet`
+    container_name: 'fakenet-responder'
+    image: 'ghcr.io/sig-net/fakenet:latest'
+    profiles: ['fakenet']
+    depends_on:
+      indexer:
+        condition: service_started
+      proof-server:
+        condition: service_started
+      evm:
+        condition: service_started
+    extra_hosts: # To let the container reach services on the HOST (e.g. a hardhat node)
+      - 'host.docker.internal:host-gateway'
+
+    environment:
+      VERBOSE: '${VERBOSE:-false}'
+      DISABLE_SOLANA: '${DISABLE_SOLANA:-true}'
+      # Container-side twin of the tests' VITE_TEST_EVM_RPC_URL — both must
+      # point at the SAME chain; see "EVM run modes" in
+      # packages/integration-tests/README.md.
+      EVM_RPC_URL: '${FAKENET_EVM_RPC_URL:-http://evm:8545}'
+      MIDNIGHT_NETWORK_ID: '${MIDNIGHT_NETWORK_ID:-undeployed}'
+      MIDNIGHT_INDEXER_URL: '${MIDNIGHT_INDEXER_URL:-http://indexer:8088/api/v3/graphql}'
+      MIDNIGHT_INDEXER_WS_URL: '${MIDNIGHT_INDEXER_WS_URL:-ws://indexer:8088/api/v3/graphql/ws}'
+      MIDNIGHT_NODE_URL: '${MIDNIGHT_NODE_URL:-http://node:9944}'
+      MIDNIGHT_PROOF_SERVER_URL: '${MIDNIGHT_PROOF_SERVER_URL:-http://proof-server:6300}'
+      MIDNIGHT_WALLET_SEED: '${MIDNIGHT_WALLET_SEED:-0000000000000000000000000000000000000000000000000000000000000001}'
+      # Both of these come from:
+      # 1. running the e2e setup which prints them out
+      # 2. copy & pasting them into the .env file in the repository root
+      MPC_ROOT_KEY: '${MPC_ROOT_KEY:-}'
+      MIDNIGHT_SIGNET_CONTRACT_ADDRESS: '${MIDNIGHT_SIGNET_CONTRACT_ADDRESS:-}'
