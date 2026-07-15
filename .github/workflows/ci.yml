@@ -56,6 +56,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*
+          # corepack owns yarn here; the action's cache probe would run
+          # yarn 1.x against the yarn-4 packageManager field and die
+          package-manager-cache: false
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
       - name: Cache period stamp (the compact toolchain floats on latest — refresh weekly)
@@ -121,6 +124,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*
+          # corepack owns yarn here; the action's cache probe would run
+          # yarn 1.x against the yarn-4 packageManager field and die
+          package-manager-cache: false
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
       - name: Cache period stamp (the compact toolchain floats on latest — refresh weekly)
@@ -219,6 +225,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*
+          # corepack owns yarn here; the action's cache probe would run
+          # yarn 1.x against the yarn-4 packageManager field and die
+          package-manager-cache: false
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
       - name: Install the compact toolchain (always fresh — the canary exists to catch upstream drift)
