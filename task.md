@@ -206,9 +206,23 @@ gates a PR.
             marginal). The integration job runs on `ubuntu-latest` until
             then (an unknown label queues forever) — accepted OOM risk,
             TODO in ci.yml.
-      - [ ] First green run: verify the compact installer path assumptions
-            (`~/.local/bin` + `~/.compact`) and the proving-time budget on
-            the chosen runner.
+      - [ ] **BLOCKER — no public compactc 0.33 (2026-07-15, PR #16):** the
+            contracts' `pragma language_version >= 0.25` needs the ledger-9
+            compiler, but the launcher's release channel
+            (midnightntwrk/compact GitHub releases) tops out at 0.31.1
+            (language 0.23), and the local `0.33.0-rc.0` toolchain is a
+            privately-shared **aarch64-darwin-only** binary (extracted
+            2026-07-08, epoch timestamps — not from any public channel).
+            CI on Linux runners cannot compile. Unblock paths: (a) upstream
+            publishes compactc ≥ 0.33, or (b) obtain a Linux x86_64 build
+            of 0.33.0-rc.0 and host it CI-accessibly (e.g. a release asset
+            on this repo, downloaded with GITHUB_TOKEN — the workflow's
+            install step is the single place to extend). Everything BEFORE
+            compile is verified green on CI: checkout, corepack/yarn 4,
+            installer paths (`~/.local/bin` + `~/.compact`), launcher
+            install, dependency install without a lockfile.
+      - [ ] First green run: proving-time budget on the chosen runner
+            (blocked behind the toolchain item).
       *Done when:* a PR shows green checks from a fresh clone.
 
 ## Phase C — Remaining flow tests
