@@ -69,6 +69,13 @@ circuit userCommitment(sk: Bytes<32>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([pad(32, "vault:user:"), sk]);
 }
 
+// ---- Helper: per-withdrawal refund tag (domain-separated + rid-salted) ----
+// Unlinkable from the depositor's userCommitment and from the same caller's other
+// withdrawals; only the sk-holder can reproduce it, keeping the refund recipient-only.
+circuit withdrawerTag(sk: Bytes<32>, rid: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([pad(32, "vault:refund:"), sk, rid]);
+}
+
 // ---- Hex helpers: verify a path holds the canonical hex of a commitment ----
 // Compact cannot ENCODE bytes->hex in-circuit (nibble extraction needs integer
 // div/mod/shift, which the prime field has no native op for). But it CAN DECODE
@@ -329,9 +336,10 @@ export circuit withdraw(
     caip2Id, keyVersion, path, algo, dest, params, outputSchema, respondSchema
   ));
 
-  // Commit to the withdrawer's identity so only they can pull a refund later.
+  // Per-withdrawal tag so only this caller can pull a refund later, unlinkable to
+  // their deposit or other withdrawals.
   const refundSk = callerSecretKey();
-  const refundCom = disclose(userCommitment(refundSk));
+  const refundCom = disclose(withdrawerTag(refundSk, requestId));
 
   receiveShielded(disclose(coin));
 
@@ -519,7 +527,7 @@ export circuit completeWithdraw(
     // of the committed secret, then re-mint the surrendered amount to the caller with their
     // own random nonce so the coin is unlinkable. (Success skips all of this: cleanup only.)
     const sk = callerSecretKey();
-    assert(userCommitment(sk) == refundCommitment.lookup(rid), "Not the withdrawer");
+    assert(withdrawerTag(sk, rid) == refundCommitment.lookup(rid), "Not the withdrawer");
     const amountBytes = signetCalldataArgs.lookup(calldataArgKey(rid, 1 as Field));
     const amount = amountBytes as Field as Uint<128>;
     const erc20Addr = signetEvmTo.lookup(rid);
