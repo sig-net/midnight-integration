@@ -20,11 +20,14 @@ import { deriveMpcKeys, generateMpcRootKey } from "./mpc-keys.ts";
 import { deploySignetContract } from "@sig-net/midnight-contract-deploy";
 import { deployVault } from "@midnight-erc20-vault/vault-contract";
 import { formatEther, formatUnits } from "ethers";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { PIPELINE_KEYS, requireEnv } from "../e2e-env.ts";
+import { appendRepoDotEnv, loadRepoDotEnv } from "../env-file.ts";
 import { getDeployedCode, getEvmChainId, SEPOLIA_USDC_ADDRESS } from "../evm.ts";
 import { banner, logSkip } from "../output.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../preflight.ts";
-import { runRootScript } from "../subprocess.ts";
+import { REPO_ROOT, runCommand, runRootScript } from "../subprocess.ts";
 import { deployTestUsdc, isLocalEvmChain, topUpLocalAccount, WellKnownEvmChainId } from "./local-evm.ts";
 
 const MINUTE = 60_000;
@@ -214,9 +217,40 @@ export async function ensureDeployerDust(env: NodeJS.ProcessEnv): Promise<void> 
 // address as the cross-contract emitter, and the vault compile symlinks the
 // signet's managed output (its ZK keys) for the cross-contract proof.
 
+/**
+ * True when the CI zk-key cache contract is in force: `TRUST_PREBUILT_ZK_KEYS=1`
+ * AND the given managed keys directory already holds prover keys. Local runs
+ * never set the variable — key PRESENCE alone is not FRESHNESS (a circuit
+ * edit leaves stale keys behind; locally the contract-address env vars are
+ * the skip signal instead). Only a cache keyed on the contract sources can
+ * assert freshness, so trusting prebuilt keys is an explicit opt-in by the
+ * environment that restored them (see .github/workflows/ci.yml).
+ *
+ * @param env - The suite's env accumulator.
+ * @param keysDir - The managed keys directory, relative to the repo root.
+ * @returns Whether the zk compile step may be skipped.
+ */
+function trustsPrebuiltZkKeys(env: NodeJS.ProcessEnv, keysDir: string): boolean {
+  if (env.TRUST_PREBUILT_ZK_KEYS !== "1") {
+    return false;
+  }
+  try {
+    return readdirSync(join(REPO_ROOT, keysDir)).some((file) => file.endsWith(".prover"));
+  } catch {
+    return false; // cache miss — the directory does not exist yet
+  }
+}
+
 export async function compileSignetContract(env: NodeJS.ProcessEnv): Promise<void> {
   if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
     logSkip("compile:signet-contract:zk", `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is set (${env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS})`);
+    return;
+  }
+  if (trustsPrebuiltZkKeys(env, "packages/signet-contract/src/managed/keys")) {
+    logSkip(
+      "compile:signet-contract:zk",
+      "TRUST_PREBUILT_ZK_KEYS=1 and prover keys are present (restored from a cache keyed on the contract sources)",
+    );
     return;
   }
   await runRootScript("compile:signet-contract:zk", env, 14 * MINUTE);
@@ -234,9 +268,123 @@ export async function deploySignetContractStep(env: NodeJS.ProcessEnv): Promise<
   console.log(` ➜ 💡 Set as MIDNIGHT_SIGNET_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
 }
 
+// The fakenet responder hand-off, automated. docker compose interpolates the
+// fakenet service's environment from the repo-root .env, so the responder can
+// only start once MPC_ROOT_KEY and MIDNIGHT_SIGNET_CONTRACT_ADDRESS are IN
+// THAT FILE — the two steps below persist them (append-only) and start the
+// container, right after the signet deploy so the responder boots and syncs
+// while the (long) vault zk compile runs. Set FAKENET_MANAGED=0 to run the
+// responder yourself (e.g. `yarn response` in a solana-signet-program
+// checkout for responder development) — both steps then skip.
+
+/** The env keys docker compose interpolates into the fakenet service — the hand-off payload. */
+const FAKENET_HANDOFF_KEYS = ["MPC_ROOT_KEY", "MIDNIGHT_SIGNET_CONTRACT_ADDRESS"] as const;
+
+/**
+ * Whether {@link persistFakenetHandoffToDotEnv} appended hand-off values to
+ * `.env` THIS run. Read by {@link startFakenetResponder} to decide between a
+ * plain `up -d` (values were already in the file — a running responder is
+ * already correct) and `--force-recreate` (values newly landed — the
+ * responder must re-read `.env` and reset its private state).
+ */
+let fakenetHandoffAppended = false;
+
+/**
+ * Persist the fakenet hand-off values to the repo-root `.env`, append-only.
+ * Each key is checked against the FILE (not the process env): already there
+ * with the run's value → nothing to do; absent → appended under a provenance
+ * comment; present with a DIFFERENT value → hard error, because docker
+ * compose reads the file and would start the responder against the stale
+ * value while this run uses another.
+ *
+ * @param env - The suite's env accumulator (holds the run's values).
+ * @throws If a hand-off key in `.env` conflicts with the run's value.
+ */
+export function persistFakenetHandoffToDotEnv(env: NodeJS.ProcessEnv): void {
+  if (env.FAKENET_MANAGED === "0") {
+    logSkip("persist fakenet hand-off to .env", "FAKENET_MANAGED=0 — you manage the responder and its config yourself");
+    return;
+  }
+  const fileEnv = loadRepoDotEnv();
+  const toAppend: Record<string, string> = {};
+  for (const key of FAKENET_HANDOFF_KEYS) {
+    const runValue = requireEnv(env, key);
+    const fileValue = fileEnv[key];
+    if (fileValue === runValue) {
+      continue;
+    }
+    if (fileValue !== undefined) {
+      throw new Error(
+        `${key} conflicts: this run uses ${runValue} (from your shell environment) but .env holds ${fileValue}.` +
+          ` docker compose reads .env, so the fakenet responder would start against the stale value.` +
+          ` Reconcile the two (usually: update .env and unset the shell override), then rerun.`,
+      );
+    }
+    toAppend[key] = runValue;
+  }
+  if (Object.keys(toAppend).length === 0) {
+    logSkip("persist fakenet hand-off to .env", `${FAKENET_HANDOFF_KEYS.join(" and ")} are already in .env`);
+    return;
+  }
+  appendRepoDotEnv(toAppend, `appended by the integration-tests setup (${new Date().toISOString()}) — fakenet responder hand-off`);
+  fakenetHandoffAppended = true;
+  for (const [key, value] of Object.entries(toAppend)) {
+    console.log(`appended ${key}=${value} to .env`);
+  }
+  console.log(` ➜ docker compose interpolates the fakenet service's environment from .env`);
+  console.log(` ➜ append-only: existing .env lines are never modified`);
+}
+
+/**
+ * Start (or recreate) the fakenet responder compose service. Recreates the
+ * container only when {@link persistFakenetHandoffToDotEnv} appended values
+ * this run — a recreate re-reads `.env` and resets the responder's private
+ * state, which is required after a fresh key/deploy and disruptive otherwise.
+ * Container readiness here means `running`; hard readiness is confirmed by
+ * the first signature poll in the flows (poll loops tolerate startup lag).
+ *
+ * @param env - The suite's env accumulator (passed to docker compose, whose
+ *   interpolation lets process env win over `.env` — same values by the time
+ *   this runs, so the two sources agree).
+ * @throws If docker compose fails or the container is not `running` after `up`.
+ */
+export async function startFakenetResponder(env: NodeJS.ProcessEnv): Promise<void> {
+  if (env.FAKENET_MANAGED === "0") {
+    logSkip(
+      "start fakenet responder",
+      "FAKENET_MANAGED=0 — start it yourself: `docker compose --profile fakenet up -d --force-recreate fakenet`," +
+        " or `yarn response` in a solana-signet-program checkout (responder development)",
+    );
+    return;
+  }
+  await assertCommandAvailable("docker", ["compose", "version"]);
+  console.log(
+    fakenetHandoffAppended
+      ? "hand-off values newly landed in .env — recreating the responder so it re-reads .env and resets its private state"
+      : "hand-off values were already in .env — plain up: a running responder is left untouched",
+  );
+  const args = ["compose", "--profile", "fakenet", "up", "-d", ...(fakenetHandoffAppended ? ["--force-recreate"] : []), "fakenet"];
+  console.log(`$ docker ${args.join(" ")}   (cwd: repo root)`);
+  await runCommand("docker", args, env, 10 * MINUTE);
+  const status = (await runCommand("docker", ["inspect", "-f", "{{.State.Status}}", "fakenet-responder"], env, MINUTE)).trim();
+  if (status !== "running") {
+    throw new Error(`fakenet-responder container is "${status}", expected "running" — check \`docker logs fakenet-responder\``);
+  }
+  console.log("fakenet-responder container is running");
+  console.log(" ➜ watch it: `docker logs -f fakenet-responder` — healthy startup prints");
+  console.log('   "MidnightMonitor: polling signet contract registry at <signet address>"');
+}
+
 export async function compileVaultContract(env: NodeJS.ProcessEnv): Promise<void> {
   if (env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
     logSkip("compile:vault-contract:zk", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
+    return;
+  }
+  if (trustsPrebuiltZkKeys(env, "packages/vault-contract/src/managed/erc20-vault/keys")) {
+    logSkip(
+      "compile:vault-contract:zk",
+      "TRUST_PREBUILT_ZK_KEYS=1 and prover keys are present (restored from a cache keyed on the contract sources)",
+    );
     return;
   }
   await runRootScript("compile:vault-contract:zk", env, 14 * MINUTE);
@@ -325,6 +473,7 @@ export async function fundLocalEvmAccounts(env: NodeJS.ProcessEnv): Promise<void
 
 export function printMpcServerConfig(env: NodeJS.ProcessEnv): void {
   const rootKey = env.MPC_ROOT_KEY ?? "(not derived here — already held by the server operator)";
+  const managed = env.FAKENET_MANAGED !== "0";
   banner([
     "MPC (fakenet) responder configuration:",
     "",
@@ -333,16 +482,27 @@ export function printMpcServerConfig(env: NodeJS.ProcessEnv): void {
     "  # 💡 The responder DISCOVERS requesters by polling this signet",
     "  #    contract's notification registry — no requester contract list needed.",
     "",
-    "Make sure those two are in THIS repo's .env (docker compose reads it),",
-    "then START THE RESPONDER container:",
-    "",
-    "  docker compose --profile fakenet up -d --force-recreate fakenet",
-    "",
-    "(--force-recreate re-reads .env and resets the responder's private state",
-    "after a redeploy; watch it with `docker logs -f fakenet-responder`.",
-    "Fallback for responder development: `yarn response` in a checkout of",
-    "github.com/sig-net/solana-signet-program.) The e2e deposit/withdraw",
-    "flows need it running.",
+    ...(managed
+      ? [
+          "The setup already persisted these to .env (append-only) and started",
+          "the responder container — see the two hand-off steps above. Watch it",
+          "with `docker logs -f fakenet-responder`; recreate it manually with",
+          "`docker compose --profile fakenet up -d --force-recreate fakenet`.",
+          "(Set FAKENET_MANAGED=0 to run the responder yourself, e.g.",
+          "`yarn response` in a checkout of sig-net/solana-signet-program.)",
+        ]
+      : [
+          "FAKENET_MANAGED=0 — make sure those two are in THIS repo's .env",
+          "(docker compose reads it), then START THE RESPONDER container:",
+          "",
+          "  docker compose --profile fakenet up -d --force-recreate fakenet",
+          "",
+          "(--force-recreate re-reads .env and resets the responder's private state",
+          "after a redeploy; watch it with `docker logs -f fakenet-responder`.",
+          "Fallback for responder development: `yarn response` in a checkout of",
+          "github.com/sig-net/solana-signet-program.) The e2e deposit/withdraw",
+          "flows need it running.",
+        ]),
     "",
     "Minimal .env block for THIS suite:",
     "",

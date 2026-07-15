@@ -63,13 +63,13 @@ services:
     # notification registry via the indexer, signs with keys derived from MPC_ROOT_KEY,
     # and posts responses through the proof server.
     #
-    # Only runs with `--profile fakenet` as it needs:
-    # MPC_ROOT_KEY and MIDNIGHT_SIGNET_CONTRACT_ADDRESS.
-    #
-    # These are generated and printed out by the setup phase of the integration tests.
-    #
-    # 1. Run that and then copy paste the values into the repo-root .env file.
-    # 2. Then run: `docker compose --profile fakenet up -d --force-recreate fakenet`
+    # Only runs with `--profile fakenet` as it needs MPC_ROOT_KEY and
+    # MIDNIGHT_SIGNET_CONTRACT_ADDRESS, which exist only once the
+    # integration-tests setup has derived the key and deployed the contract.
+    # The setup does the whole hand-off itself: it appends the two values to
+    # the repo-root .env (append-only — existing lines are never touched) and
+    # starts this service. Manual equivalent (and the FAKENET_MANAGED=0 path):
+    #   docker compose --profile fakenet up -d --force-recreate fakenet
     container_name: 'fakenet-responder'
     image: 'ghcr.io/sig-net/fakenet:latest'
     profiles: ['fakenet']
@@ -96,8 +96,8 @@ services:
       MIDNIGHT_NODE_URL: '${MIDNIGHT_NODE_URL:-http://node:9944}'
       MIDNIGHT_PROOF_SERVER_URL: '${MIDNIGHT_PROOF_SERVER_URL:-http://proof-server:6300}'
       MIDNIGHT_WALLET_SEED: '${MIDNIGHT_WALLET_SEED:-0000000000000000000000000000000000000000000000000000000000000001}'
-      # Both of these come from:
-      # 1. running the e2e setup which prints them out
-      # 2. copy & pasting them into the .env file in the repository root
+      # Both are appended to the repo-root .env by the integration-tests
+      # setup (which also starts this service) — see
+      # packages/integration-tests/README.md.
       MPC_ROOT_KEY: '${MPC_ROOT_KEY:-}'
       MIDNIGHT_SIGNET_CONTRACT_ADDRESS: '${MIDNIGHT_SIGNET_CONTRACT_ADDRESS:-}'

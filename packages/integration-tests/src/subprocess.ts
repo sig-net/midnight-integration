@@ -1,6 +1,7 @@
 // Subprocess plumbing for pipeline steps that must shell out (the compact
-// compiler is an external CLI). Deploys and circuit calls are in-process
-// imports — only the compile step should need this.
+// compiler and docker compose are external CLIs). Deploys and circuit calls
+// are in-process imports — only the compile and fakenet-responder steps
+// should need this.
 
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -25,8 +26,31 @@ export async function runRootScript(
   env: Record<string, string | undefined>,
   timeoutMs: number,
 ): Promise<string> {
+  return await runCommand("yarn", ["run", script], env, timeoutMs);
+}
+
+/**
+ * Run an arbitrary command at {@link REPO_ROOT}, streaming its output live
+ * to the console and capturing stdout. {@link runRootScript} is the yarn
+ * specialization of this.
+ *
+ * @param command - The executable to spawn (e.g. `docker`).
+ * @param args - Arguments passed verbatim (no shell interpretation).
+ * @param env - Full environment for the child process (pass the suite's env
+ *   accumulator, not `process.env`).
+ * @param timeoutMs - Kill the child and fail after this many milliseconds.
+ * @returns The captured stdout.
+ * @throws If the command exits non-zero, is killed by a signal, or times
+ *   out; the error message includes the tail of the combined output.
+ */
+export async function runCommand(
+  command: string,
+  args: string[],
+  env: Record<string, string | undefined>,
+  timeoutMs: number,
+): Promise<string> {
   return await new Promise((resolve, reject) => {
-    const child = spawn("yarn", ["run", script], {
+    const child = spawn(command, args, {
       cwd: REPO_ROOT,
       env: env as NodeJS.ProcessEnv,
       stdio: ["ignore", "pipe", "pipe"],
@@ -56,7 +80,7 @@ export async function runRootScript(
       const tail = combined.split("\n").slice(-20).join("\n");
       reject(
         new Error(
-          `yarn run ${script} ${signal ? `killed by ${signal} (timeout ${timeoutMs}ms?)` : `exited with code ${code}`}\n--- output tail ---\n${tail}`,
+          `${command} ${args.join(" ")} ${signal ? `killed by ${signal} (timeout ${timeoutMs}ms?)` : `exited with code ${code}`}\n--- output tail ---\n${tail}`,
         ),
       );
     });

@@ -1,0 +1,243 @@
+# CI runs the SAME commands a developer types — there is exactly one test
+# stream (see packages/integration-tests/README.md). Three jobs:
+#
+#   unit         — yarn compile && yarn build && yarn test  (every push/PR)
+#   integration  — docker compose up -d + the integration suite; the suite's
+#                  own setup deploys the contracts, appends the fakenet
+#                  hand-off values to .env and starts the responder container
+#                  (PR gate: happy-day only; nightly + manual: full suite)
+#   zk-canary    — fresh full keygen, row counts in the log (weekly + manual)
+#
+# Caches (both weekly-keyed or source-keyed, never version-pinned — the repo
+# floats on latest):
+#   compact-*  — the compact toolchain (~/.compact + the launcher binary)
+#   zk-keys-*  — prover/verifier keys, keyed on compiler version + every
+#                .compact source; a hit lets the setup skip ~2×10 min of
+#                keygen via TRUST_PREBUILT_ZK_KEYS (fresh by construction:
+#                the key changes whenever a contract changes). Only the
+#                integration job SAVES this cache (it generates both
+#                contracts' keys); the unit job restores read-only.
+#
+# The integration job pulls ghcr.io/sig-net/fakenet — that image must be
+# public (tracked in task.md B.3).
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 3 * * *" # nightly: full integration suite
+    - cron: "41 4 * * 1" # weekly (Mon): zk row-count canary
+  workflow_dispatch:
+    inputs:
+      full-integration:
+        description: "Run the FULL integration suite (all flow files), not just happy-day"
+        type: boolean
+        default: false
+      zk-canary:
+        description: "Run the zk compile canary (fresh keygen, no cache)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  unit:
+    name: compile (skip-zk) → build → unit tests
+    if: github.event_name != 'schedule' || github.event.schedule == '17 3 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+      - name: Enable corepack (yarn 4 via the packageManager field)
+        run: corepack enable
+      - name: Cache period stamp (the compact toolchain floats on latest — refresh weekly)
+        id: stamp
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: Restore the compact toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.compact
+            ~/.local/bin/compact
+          key: compact-${{ runner.os }}-${{ steps.stamp.outputs.week }}
+          restore-keys: compact-${{ runner.os }}-
+      - name: Install / update the compact toolchain (unpinned, per AGENTS.md)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
+          if ! command -v compact >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -LsSf \
+              https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+          fi
+          compact update
+          compact compile --version
+      - name: Read the compact compiler version (part of the zk cache key)
+        id: compact
+        run: echo "version=$(compact compile --version | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies (no lockfile by design — installs float to latest)
+        run: yarn install --no-immutable
+      - name: Compile (skip-zk)
+        run: yarn compile
+      - name: Restore prebuilt zk proving keys (read-only; the integration job saves)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            packages/signet-contract/src/managed
+            packages/vault-contract/src/managed
+          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
+      - name: Ensure signet-contract prover keys (its build's publish-safety check needs them)
+        run: |
+          if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
+            echo "prover keys present (restored from the cache) — skipping keygen"
+          else
+            yarn compile:signet-contract:zk
+          fi
+      - name: Build (typecheck, no emit)
+        run: yarn build
+      - name: Unit tests (simulator-only; the integration suites self-skip without RUN_INTEGRATION_TESTS)
+        run: yarn test
+
+  integration:
+    name: integration (compose stack + fakenet + flows)
+    if: github.event_name != 'schedule' || github.event.schedule == '17 3 * * *'
+    # TODO(B.3): switch to a larger hosted runner (e.g. ubuntu-latest-8-cores,
+    # provisioned under Org Settings → Actions → Runners) — a single
+    # claim/settle proof peaks at ~8–10 GiB inside the proof server, so the
+    # default 4-core/16 GB runner is marginal. Kept on ubuntu-latest until the
+    # label exists: an unknown label queues forever instead of failing.
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.full-integration) && 300 || 150 }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+      - name: Enable corepack (yarn 4 via the packageManager field)
+        run: corepack enable
+      - name: Cache period stamp (the compact toolchain floats on latest — refresh weekly)
+        id: stamp
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: Restore the compact toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.compact
+            ~/.local/bin/compact
+          key: compact-${{ runner.os }}-${{ steps.stamp.outputs.week }}
+          restore-keys: compact-${{ runner.os }}-
+      - name: Install / update the compact toolchain (unpinned, per AGENTS.md)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
+          if ! command -v compact >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -LsSf \
+              https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+          fi
+          compact update
+          compact compile --version
+      - name: Read the compact compiler version (part of the zk cache key)
+        id: compact
+        run: echo "version=$(compact compile --version | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies (no lockfile by design — installs float to latest)
+        run: yarn install --no-immutable
+      - name: Compile (skip-zk)
+        run: yarn compile
+      - name: Restore prebuilt zk proving keys
+        id: zk
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            packages/signet-contract/src/managed
+            packages/vault-contract/src/managed
+          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
+      - name: zk keygen (both contracts; cache miss only)
+        if: steps.zk.outputs.cache-hit != 'true'
+        run: yarn compile:zk
+      - name: Save zk proving keys (immediately — a later flow failure must not lose them)
+        if: steps.zk.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            packages/signet-contract/src/managed
+            packages/vault-contract/src/managed
+          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
+      - name: Start the local stack (midnight node, indexer, proof server, anvil)
+        run: docker compose up -d
+      - name: Wait for the stack
+        run: |
+          timeout 180 bash -c 'until curl -fsS http://127.0.0.1:9944/health >/dev/null 2>&1; do sleep 3; done'
+          timeout 60 bash -c 'until curl -s -o /dev/null http://127.0.0.1:6300; do sleep 3; done'
+          timeout 180 bash -c 'until curl -fs -X POST -H "content-type: application/json" -d "{\"query\":\"{__typename}\"}" http://127.0.0.1:8088/api/v3/graphql >/dev/null 2>&1; do sleep 3; done'
+          curl -fsS -X POST -H 'content-type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' http://127.0.0.1:8545
+      # The suite's own setup does the rest: deploys both contracts, appends
+      # MPC_ROOT_KEY + MIDNIGHT_SIGNET_CONTRACT_ADDRESS to .env (the file
+      # does not exist on a fresh runner — it gets created), starts the
+      # fakenet responder container, funds the derived accounts on anvil.
+      - name: Integration suite — happy-day (PR gate)
+        if: github.event_name != 'schedule' && inputs.full-integration != true
+        env:
+          VITE_TEST_EVM_RPC_URL: http://127.0.0.1:8545
+          TRUST_PREBUILT_ZK_KEYS: "1"
+        run: yarn test:integration-tests:happy-day-e2e
+      - name: Integration suite — full (nightly / manual)
+        if: github.event_name == 'schedule' || inputs.full-integration == true
+        env:
+          VITE_TEST_EVM_RPC_URL: http://127.0.0.1:8545
+          TRUST_PREBUILT_ZK_KEYS: "1"
+        run: yarn test:integration-tests
+      - name: Collect service logs
+        if: failure()
+        run: |
+          mkdir -p ci-logs
+          docker compose --profile fakenet logs --no-color > ci-logs/compose.log 2>&1 || true
+          docker ps -a > ci-logs/docker-ps.txt 2>&1 || true
+      - name: Upload service logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs
+          path: ci-logs/
+
+  zk-canary:
+    name: zk compile canary (fresh keygen, row counts)
+    if: (github.event_name == 'schedule' && github.event.schedule == '41 4 * * 1') || (github.event_name == 'workflow_dispatch' && inputs.zk-canary == true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+      - name: Enable corepack (yarn 4 via the packageManager field)
+        run: corepack enable
+      - name: Install the compact toolchain (always fresh — the canary exists to catch upstream drift)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+          compact update
+          compact compile --version
+      - name: Install dependencies (no lockfile by design — installs float to latest)
+        run: yarn install --no-immutable
+      - name: Full zk compile (no cache — fresh keygen is the point)
+        run: yarn compile:zk 2>&1 | tee zk-compile.log
+      - name: Surface circuit row counts
+        run: grep -iE 'rows|circuit' zk-compile.log || echo "no row-count lines found — inspect the full log artifact"
+      - name: Upload the compile log
+        uses: actions/upload-artifact@v4
+        with:
+          name: zk-compile-log
+          path: zk-compile.log

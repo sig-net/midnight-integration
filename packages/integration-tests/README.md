@@ -5,10 +5,13 @@ repo touches a network from tests. The pipeline has two halves:
 
 - **Setup** (`src/setup/`, run by vitest **globalSetup** — see
   `vitest.config.ts`): environment preflight → MPC key derivation →
-  zk-compile + deploy the signet and vault contracts → derive the EVM
-  addresses → print the MPC hand-off banner. Runs ONCE in vitest's main
-  process before ANY test file, including single-file runs. Every step skips
-  itself when its env var is already set.
+  zk-compile + deploy the signet contract → persist the fakenet hand-off
+  values to `.env` (append-only) + start the responder container →
+  zk-compile + deploy the vault contract → derive the EVM addresses →
+  print the MPC hand-off banner. Runs ONCE in vitest's main process before
+  ANY test file, including single-file runs. Every step skips itself when
+  its env var is already set (the hand-off steps: when the values are
+  already in `.env` / the responder already runs with them).
 - **Flow files** (`tests/*.test.ts`, `--bail 1`), one at a time in the order
   pinned by `FILE_ORDER` in `vitest.config.ts` — they share chain state, one
   MPC responder, and EVM nonces/funds, so they can never run in parallel:
@@ -67,8 +70,14 @@ own funding + vault-initialized preflight tests.
   responder — the `fakenet` compose service (`ghcr.io/sig-net/fakenet:latest`,
   built from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)).
-  It is profile-gated because it can only start after run 1 has printed
-  `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` into `.env`:
+  **The setup starts it for you**: right after deploying the signet contract
+  it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to `.env`
+  (append-only — existing lines are never touched; a conflicting value is a
+  hard error, never an overwrite) and runs the compose command below —
+  `--force-recreate` only when the values newly landed in `.env`, plain
+  `up -d` (a no-op on a running responder) otherwise. Set `FAKENET_MANAGED=0`
+  to manage the responder yourself (e.g. responder development via
+  `yarn response` in a solana-signet-program checkout). Manual commands:
 
   ```sh
   docker compose --profile fakenet up -d --force-recreate fakenet
@@ -158,32 +167,26 @@ the naming convention: `tests/<name>.test.ts` ↔ root script
 
 Every setup step is **skippable via `.env`**: when its variable is set, the
 step verifies it and logs `SKIPPED`, so a populated `.env` goes straight to
-the contract calls (~2–3 min total). Unset, the step does the work and
-prints the value to save. A fresh deployment is therefore **two runs by
-design** — the MPC responder can only be configured after run 1 prints the
-contract addresses:
+the contract calls (~2–3 min total). Unset, the step does the work, prints
+the value to save — and for the fakenet hand-off pair
+(`MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`) **appends it to
+`.env` itself and starts the responder container**, so nothing blocks on a
+human between deploy and the flows.
 
-1. **Run 1** — globalSetup compiles with proving keys (~10 min: background
-   it), deploys both contracts (and, on the local chain, the TestUSDC
-   token), derives keys and EVM addresses, and prints the complete `.env`
-   block + responder config; the happy-day flow then initializes the vault
-   and stops (later flow files are cancelled by `--bail 1`). On Sepolia the
-   stop is the funding preflight; on the local chain funding is automatic,
-   so the flow proceeds through `deposit` and stops at the
-   signature-poll timeout (~1 min) instead. Either stop is the hand-off,
-   not a bug.
-2. **Between runs** — paste the printed block into `.env`. On Sepolia, fund
-   `EVM_USER_ADDRESS` (≥ 0.009 ETH, ≥ 0.1 USDC) and `EVM_VAULT_ADDRESS`
-   with ETH for the withdraw gas (≥ 0.003 ETH — the vault's derived account
-   sends the withdraw transfer itself); on the local chain skip funding
-   entirely. Start the responder container (`docker compose --profile
-   fakenet up -d --force-recreate fakenet`). On the local chain,
-   optionally set `DEPOSIT_REQUEST_ID` from run 1's printout so run 2
-   resumes the already-recorded request instead of creating a fresh one.
-3. **Run 2** — every setup step skips (the ERC20 step by finding code
-   on-chain, funding by the balances already meeting their targets); every
-   flow file runs to the end (happy-day: 15/15, failure-refund: 9/9,
-   claimant-not-caller: 6/6, benchmark: 13/13, false-claimer: 6/6).
+- **On the local chain a fresh deployment is ONE run**: globalSetup
+  zk-compiles both contracts (~10+ min: background it), deploys them (and
+  the TestUSDC token), hands off to the responder mid-setup, auto-funds the
+  derived accounts, and every flow file runs to the end (happy-day: 15/15,
+  failure-refund: 9/9, claimant-not-caller: 6/6, benchmark: 13/13,
+  false-claimer: 6/6).
+- **On Sepolia it is still two runs**, but only because of manual funding:
+  run 1 stops at the funding preflight (the hand-off already happened
+  during setup). Between runs, paste the printed `.env` block (the
+  non-hand-off values: contract/EVM addresses — so run 2 skips
+  compile+deploy), fund `EVM_USER_ADDRESS` (≥ 0.009 ETH, ≥ 0.1 USDC) and
+  `EVM_VAULT_ADDRESS` with ETH for the withdraw gas (≥ 0.003 ETH — the
+  vault's derived account sends the withdraw transfer itself). Run 2 then
+  skips every setup step and runs the flows to the end.
 
 **Redeploying after a circuit change?** The derived EVM accounts move with
 the vault contract address, and funds on the old ones do not follow. Follow
@@ -202,8 +205,10 @@ it includes the fund-sweep script.
 | `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (lib config) | local stack defaults |
 | `DEPLOYER_SEED` / `VAULT_DEPLOYER_SECRET_KEY` | Deployer wallet / identity | genesis seed `00…01` |
 | `USER_SEED` / `VAULT_USER_SECRET_KEY` | User wallet / identity (cli) | genesis seed `00…01` |
-| `MIDNIGHT_VAULT_CONTRACT_ADDRESS`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | printed by run 1 |
-| `MPC_ROOT_KEY` | Fakenet signer root key | derived by run 1 |
+| `MIDNIGHT_VAULT_CONTRACT_ADDRESS`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | deployed by setup (signet appended to `.env` automatically; vault printed — save it to skip redeploys) |
+| `MPC_ROOT_KEY` | Fakenet signer root key | derived by setup, appended to `.env` |
+| `FAKENET_MANAGED` | `0` = setup neither writes the hand-off values to `.env` nor touches the responder container — you run the responder yourself (responder development) | unset (setup manages the responder) |
+| `TRUST_PREBUILT_ZK_KEYS` | `1` = setup skips `compile:*:zk` when prover keys are already present. CI-only: the CI cache is keyed on the contract sources, so present ⇒ fresh; locally stale keys would poison deploys — never set it by hand | unset |
 | `MPC_JUBJUB_PK`, `MPC_SECP256K1_PUBKEY` | MPC public keys | derived from root key |
 | `EVM_VAULT_ADDRESS` / `EVM_USER_ADDRESS` | Epsilon-derived EVM accounts | derived by run 1 |
 | `ERC20_ADDRESS` | Token for the deposit/withdraw flows | Sepolia USDC `0x1c7D…7238` on Sepolia; auto-deployed TestUSDC on the local chain |

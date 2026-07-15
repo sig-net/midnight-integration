@@ -24,8 +24,10 @@ import {
   ensureUserEvmAddress,
   ensureVaultEvmAddress,
   fundLocalEvmAccounts,
+  persistFakenetHandoffToDotEnv,
   printMpcServerConfig,
   resolveEvmChain,
+  startFakenetResponder,
 } from "./steps.ts";
 
 /** Step names match the original suite's test names — they are what the
@@ -40,6 +42,8 @@ const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void
   ["setup: deployer dust preflight (register NIGHT for dust generation if needed)", ensureDeployerDust],
   ["setup: compile signet-contract contract with proving keys", compileSignetContract],
   ["setup: deploy signet-contract", deploySignetContractStep],
+  ["setup: persist fakenet hand-off values to .env (append-only)", persistFakenetHandoffToDotEnv],
+  ["setup: start the fakenet responder (docker compose)", startFakenetResponder],
   ["setup: compile vault contract with proving keys", compileVaultContract],
   ["setup: deploy vault contract", deployVaultContractStep],
   ["setup: check/derive vault EVM address", ensureVaultEvmAddress],
