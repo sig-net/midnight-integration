@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@midnight-erc20-vault/caller-contract": "*",
+    "@midnight-ntwrk/midnight-js": "5.0.0-beta.3",
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.3",
     "@sig-net/midnight": "*",
     "@sig-net/midnight-contract-deploy": "*",
