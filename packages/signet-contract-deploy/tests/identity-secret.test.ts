@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { ParseError, generateMnemonic, parseIdentitySecretKey } from "../src/index.ts";
 
-const ENV_VAR = "VAULT_USER_SECRET_KEY";
+const ENV_VAR = "USER_SECRET_KEY";
 
 const SECRET_HEX = "00000000000000000000000000000000000000000000000000000000000000aa";
 const SEED_HEX = "0000000000000000000000000000000000000000000000000000000000000001";

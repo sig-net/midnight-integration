@@ -62,7 +62,7 @@ selection or authorization.
 Current design (no cross-contract call): the vault stores each request in **its own** ledger at
 field 0, and the MPC reads it straight from the vault's contract state
 (`SIGNET_REQUESTS_INDEX_FIELD = 0`, `packages/signet-midnight/src/signature-requests-state-reader.ts`;
-layout declared in `packages/vault-contract/src/erc20-vault.compact` — `signetRequestsIndex`
+layout declared in each requester contract, e.g. `packages/caller-contract/src/signet-caller.compact` — `signetRequestsIndex`
 field 0, `signetNonce` field 1). This gives, **for free and unforgeably**:
 
 1. **Requester attribution** — "requester = vault" is guaranteed by *whose authenticated state

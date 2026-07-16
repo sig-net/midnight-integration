@@ -1,9 +1,9 @@
 /**
  * Sweep ETH + ERC20 from a fakenet-derived EVM account to another address.
  *
- * After a vault-contract redeploy the epsilon-derived user account moves
- * (the derivation path includes the vault contract address), stranding any
- * Sepolia funds on the OLD derived address. This script recovers them: it
+ * After a requester-contract redeploy the epsilon-derived accounts move
+ * (the derivation path includes the requester's contract address), stranding
+ * any Sepolia funds on the OLD derived address. This script recovers them: it
  * re-derives the old account's private key from the fakenet `MPC_ROOT_KEY`
  * (`priv = rootKey + keccak256(epsilonString) mod n` — the private-key twin
  * of signet-midnight's public-key-only `deriveEvmAddress`), verifies the
@@ -15,8 +15,8 @@
  *
  * Usage (from the repo root, env from .env):
  *   set -a && source .env && set +a
- *   yarn tsx .claude/skills/e2e/scripts/sweep-derived-funds.ts \
- *     --old-contract <midnight vault contract address the account derives from> \
+ *   yarn tsx scripts/sweep-derived-funds.ts \
+ *     --old-contract <midnight contract address the account derives from> \
  *     --path <derivation path: "vault" or the user commitment hex> \
  *     --expect <the derived address you believe you are sweeping> \
  *     --to <recipient address>

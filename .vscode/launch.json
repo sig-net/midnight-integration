@@ -12,7 +12,7 @@
   "configurations": [
     {
       // Equivalent of: yarn test:integration-tests
-      "name": "Debug e2e.test.ts",
+      "name": "Debug signet-caller-e2e.test.ts",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}",
@@ -23,16 +23,15 @@
       "env": {
         // Optional toggles — uncomment / fill in as needed:
         // "STEP_THROUGH": "1",
-        // "DEPOSIT_REQUEST_ID": "0x<request-id-hex>",
+        // "CALLER_REQUEST_ID": "0x<request-id-hex>",
         // Anything from .env can be overridden per-session too, e.g.:
-        // "MIDNIGHT_VAULT_CONTRACT_ADDRESS": "0200...",
-        // "EVM_RPC_URL": "https://sepolia.infura.io/v3/<key>"
+        // "MIDNIGHT_CALLER_CONTRACT_ADDRESS": "0200..."
       }
     },
     {
       // Equivalent of: STEP_THROUGH=1 yarn test:integration-tests
       // Pauses before each step; press Enter in the terminal to continue.
-      "name": "Debug e2e.test.ts (step-through)",
+      "name": "Debug signet-caller-e2e.test.ts (step-through)",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}",

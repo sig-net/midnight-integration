@@ -7,11 +7,21 @@ node-modules`). Its members live under `packages/`:
   (the midnight-js provider adapters). The ONLY copy of these files.
 - **`packages/signet-midnight`** — the Midnight-side sig-net integration; the point
   of the repo, and the basis for a signet.js Midnight adapter.
-- **`packages/vault-contract`** / **`packages/signet-contract`** — one
-  package per Compact contract, no contract/sdk split. See "Contract packages" below.
+- **`packages/signet-contract`** / **`packages/caller-contract`** — one
+  package per Compact contract, no contract/sdk split: the central signet
+  singleton, and the minimal client that exercises it generically. See
+  "Contract packages" below.
 - **`packages/signet-contract-deploy`** — the published, self-contained deploy
   tooling: the signet-contract deploy flow plus the generic deploy/wallet/config
   plumbing (`src/plumbing/`) every contract package's deploy script composes.
+- **`packages/integration-tests`** — everything that needs a running stack:
+  the generic signet-caller e2e and its setup pipeline.
+- **`packages/xcontract-events`** — Compact cross-contract-call research;
+  its knowledge base informs protocol work (see its `knowledge-base/`).
+
+Example applications built on these packages (e.g. the ERC20 vault) live in
+`sig-net/midnight-examples`, consuming the published `@sig-net/*` packages
+from npm.
 
 Run `yarn install` from the repo root — never from inside a member.
 Run `yarn compile` once before `build`/`test`: the contract packages AND
@@ -23,15 +33,15 @@ Member-specific rules live in that member's own `AGENTS.md`.
 
 # Running the integration e2e suite
 
-The operational runbook for `yarn test:integration-tests` lives in
+The operational runbook for `yarn test:integration-tests` — the generic
+signet-caller e2e — lives in
 [`.claude/skills/e2e/SKILL.md`](.claude/skills/e2e/SKILL.md) — read it BEFORE
 running or re-deploying the e2e stack. It covers what the test pipeline docs
-(`packages/integration-tests/README.md`) do not: clean redeploys, why the
-derived EVM accounts move with the vault contract address (and the fund-sweep
-script for recovering their Sepolia balances), the fakenet MPC responder
-hand-off, and pacing (zk keygen runs ~10 minutes — background the run).
-It is packaged as a Claude Code skill (`/e2e`), but it is plain markdown
-written for ANY agent or human to follow.
+(`packages/integration-tests/README.md`) do not: the fresh-clone path, clean
+redeploys after a circuit change, the fakenet MPC responder hand-off, the
+proof-server OOM playbook, and pacing (zk keygen runs ~10 minutes —
+background the run). It is packaged as a Claude Code skill (`/e2e`), but it
+is plain markdown written for ANY agent or human to follow.
 
 # NEVER BREAK rules
 
@@ -174,15 +184,14 @@ exception for that specific case.
   first consumer. This applies to every language in the repo: TypeScript,
   Compact contracts, test files, all of it.
 - **Root scripts that target one member are named `<task>:<package-dir>` — the
-  member's directory name in full, never a shorthand.** `compile:vault-contract`,
+  member's directory name in full, never a shorthand.** `compile:caller-contract`,
   `deploy:signet-contract`, `test:integration-tests` — never
-  `compile:vault` or `deploy:responses`: abbreviations save keystrokes once and
-  cost a which-package-was-that lookup forever. (A script named exactly after its
-  package, like `cli`, is fine; aggregate scripts like `compile` / `build` /
-  `test` take no suffix.) When adding or renaming a root script, grep the WHOLE
-  repo for the old name before finishing — script names are load-bearing outside
-  package.json: integration tests shell out to root scripts by name (see
-  `runRootScript`), and task.md/READMEs quote them.
+  `compile:caller` or `deploy:signet`: abbreviations save keystrokes once and
+  cost a which-package-was-that lookup forever. (Aggregate scripts like
+  `compile` / `build` / `test` take no suffix.) When adding or renaming a root
+  script, grep the WHOLE repo for the old name before finishing — script names
+  are load-bearing outside package.json: integration tests shell out to root
+  scripts by name (see `runRootScript`), and workflows/READMEs quote them.
 
 # Contract packages (`packages/*-contract`)
 

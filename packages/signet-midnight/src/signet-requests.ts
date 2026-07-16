@@ -5,7 +5,7 @@
 // so ledger reads assign to them without casts.
 //
 // The lockstep is enforced by each consuming contract's simulator tests: the
-// "erc20-vault ledger shape" test in packages/vault-contract/tests/
+// "signet-caller ledger shape" test in packages/caller-contract/tests/
 // contract.test.ts assigns the generated `ledger().signetRequestsIndex` to the
 // named SignBidirectionalRequestLedgerIndex type — the assignment itself is
 // the assertion, so any structural drift between the generated managed types
@@ -173,9 +173,9 @@ export interface SignBidirectionalRequest {
 // `_calculateRequestId_0` in any consuming contract's
 // managed/contract/index.js). What must stay in lockstep with Signet.compact
 // is exactly what this file already keeps in lockstep — the struct shapes,
-// field by field, in declaration order. Enforced by vault-contract's
-// "deposit round-trip" test, which asserts the id computed here equals the
-// ledger map key minted by the REAL compiled contract.
+// field by field, in declaration order. Enforced by caller-contract's
+// "submitSignatureRequest round-trip" test, which asserts the id computed
+// here equals the ledger map key minted by the REAL compiled contract.
 
 // Runtime descriptors of the Compact base types the request record uses.
 // CompactTypeUnsignedInteger takes (maxValue, byte length) — same literals

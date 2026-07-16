@@ -1,58 +1,55 @@
-# Sig Network Midnight ERC20 Vault Demo
+# Sig Network on Midnight
 
-An end to end demo showing how Sig Network chain signature technology can be used to deposit ERC20 assets on Ethereum for use as shielded UTXOs on the Midnight Blockchain.
+The Midnight-side integration of [Sig Network](https://sig.network) chain
+signature technology: the central **signet contract** (the singleton every
+client contract cross-contract-calls to request MPC signatures), the
+client-agnostic **protocol SDK**, the published **deploy tooling**, and a
+minimal **caller contract** whose generic e2e drives the whole
+request → sign → verify pipeline against a local stack.
 
-<!-- TEMPORARY — remove before merge to main -->
-> **⚠️ Porting context (temporary — remove before merge to `main`).**
->
-> This repo is a **bit-by-bit rewrite** of the old
-> `~/Projects/github.com/sig-net/midnight-erc20-vault` checkout (its `repo-layout.md`
-> is the design doc). Code is *ported*, not bulk-copied: each ported piece lands with
-> its tests, and stale parts (dead env vars, websocket code, counter-scaffold
-> leftovers) are stripped in the process, never carried along.
-<!-- END TEMPORARY -->
+Example applications built on these packages — such as the ERC20 vault demo —
+live in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples),
+consuming the published `@sig-net/*` npm packages.
 
-## Quick Start
-Start by running an end to end integration test driving a CLI application.
+## Quick start
 
-### Criteria
-To run the 
-
-### Setup For the End to End Tests
-This demo comprises of 3 processes: the Midnight Stack, the MPC Server, and the test.
-
-#### **Step 0**: Install Dependencies and Compile Midnight Contracts
 ```sh
-cd <repo>
+corepack enable
 yarn install
-compact update 0.31.1
-yarn compile:zk
+compact update 0.33.0-rc.0        # the rc toolchain matching the ledger-9 stack
+yarn compile                      # generates each contract package's src/managed/ (skip-zk)
+yarn compile:signet-contract:zk   # signet-contract's build gates on its prover keys
+yarn build && yarn test           # typecheck + unit tests (simulator-only, offline)
 ```
 
+To run the end-to-end suite against the local docker stack, follow
+[`.claude/skills/e2e/SKILL.md`](.claude/skills/e2e/SKILL.md) — the
+operational runbook from a fresh clone to a green suite:
+
+```sh
+docker compose up -d
+yarn test:integration-tests
+```
+
+## Layout
 
 ```
 ├── README.md                       # this readme
 ├── AGENTS.md                       # non-negotiable workspace rules (CLAUDE.md points here)
-├── .gitignore                      # node_modules/, dist/, logs/, midnight-level-db/, .env, *scratch*, …
-├── .env.example
-├── standalone.env.example          # env template for the docker-compose standalone stack
-├── docker-compose.yaml             # local midnight stack + anvil EVM + fakenet MPC server
+├── .env.example                    # operator config template (the e2e setup fills most of it)
+├── standalone.env.example          # env template for the docker-compose indexer
+├── docker-compose.yaml             # local midnight stack + anvil EVM + fakenet MPC responder
 ├── package.json                    # yarn workspaces root
 ├── tsconfig.base.json              # shared no-emit TS config; packages extend this
 │
-├── .github/workflows/ci.yml
-├── .claude/skills/                 # contract-change + e2e agent skills
-│   └── e2e/scripts/sweep-derived-funds.ts
+├── .github/workflows/ci.yml        # unit + integration (signet-caller e2e) + zk canary
+├── .claude/skills/                 # contract-change + e2e agent skills (plain markdown runbooks)
 │
 ├── docs/
-│   ├── architecture.md             # full flow: fund derived account → deposit() → MPC signs →
-│   │                               #   postSignatureResponse() on signet contract → watcher
-│   │                               #   submits EVM tx → MPC confirms → Schnorr response → claim()
-│   ├── demo-architecture.drawio.svg
-│   └── e2e-sepolia-runbook.md
+│   └── e2e-sepolia-runbook.md      # parked: running against real Sepolia + sweeping derived funds
 │
-├── scripts/                        # repo-level orchestration only (bash / plain node, no build step)
-│   └── placeholder.sh
+├── scripts/
+│   └── sweep-derived-funds.ts      # recover Sepolia funds stranded on old derived accounts
 │
 └── packages/
     ├── lib/                        # @midnight-erc20-vault/lib — repo-private shared plumbing
@@ -69,8 +66,7 @@ yarn compile:zk
     │   │   └── index.ts
     │   └── tests/                  # one test file per src module
     │
-    ├── signet-contract/            # @sig-net/midnight-contract
-    │   ├── .gitignore              # src/managed/  (generated — never committed)
+    ├── signet-contract/            # @sig-net/midnight-contract — the central singleton
     │   ├── src/
     │   │   ├── signet-contract.compact
     │   │   ├── witnesses.ts        # localSecretKey (owner proof)
@@ -86,32 +82,21 @@ yarn compile:zk
     │   │                           #   deploy.ts, wallet.ts, seed.ts, midnight-node-config.ts, network-id.ts
     │   └── tests/
     │
-    ├── vault-contract/             # @midnight-erc20-vault/vault-contract
+    ├── caller-contract/            # @midnight-erc20-vault/caller-contract — the minimal client
     │   ├── src/
-    │   │   ├── erc20-vault.compact
-    │   │   ├── witnesses.ts        # handwritten witnesses live beside the contract they serve
-    │   │   ├── deploy-vault.ts / providers.ts / index.ts
+    │   │   ├── signet-caller.compact   # submit a fixed request; verify the Schnorr response
+    │   │   ├── witnesses.ts / providers.ts / deploy-caller.ts / index.ts
     │   │   └── managed/            # generated by compactc; gitignored
-    │   ├── tests/
-    │   │   ├── contract.test.ts    # simulator-level unit tests, no network
-    │   │   └── deploy.test.ts      # builds a deploy tx from the real managed output (needs compile:zk)
-    │   └── deploy.ts               # deploy script: constructor args + witnesses live here; the
-    │                               #   generic build/submit plumbing comes from @sig-net/midnight-contract-deploy
+    │   ├── tests/                  # simulator tests + deploy-tx tests (needs compile:zk)
+    │   └── deploy.ts               # deploy script: constructor args live here; the generic
+    │                               #   build/submit plumbing comes from @sig-net/midnight-contract-deploy
     │
-    ├── cli/                        # @midnight-erc20-vault/cli — drives the whole flow by hand
-    │   ├── src/
-    │   │   ├── commands/           # initialize, deposit, claim, withdraw, complete-withdraw,
-    │   │   │                       #   broadcast-evm, poll-*, read-state, {deposit,withdraw}-e2e
-    │   │   └── …                   # config, context, evm, identity, mpc-routing, vault-{ledger,token}
+    ├── integration-tests/          # @midnight-erc20-vault/integration-tests — the generic e2e
+    │   ├── vitest.config.ts        # globalSetup = the caller pipeline
+    │   ├── src/                    # setup/ (caller pipeline, shared steps, mpc-keys),
+    │   │                           #   caller-session, env/env-file/output/preflight helpers
     │   └── tests/
-    │
-    ├── integration-tests/          # @midnight-erc20-vault/integration-tests — e2e suite
-    │   ├── contracts/TestUSDC.sol  # hardhat-compiled test token
-    │   ├── hardhat.config.ts / vitest.config.ts
-    │   ├── src/                    # flows/ (deposit, withdraw), setup/ (global-setup, local-evm,
-    │   │                           #   mpc-keys, steps), session / env-file / subprocess helpers
-    │   └── tests/                  # happy-day-e2e, benchmark, false-claimer,
-    │                               #   deposit-withdrawal-failure-refund, deposit-claimant-not-caller, …
+    │       └── signet-caller-e2e.test.ts   # submit → notification → signature → verify
     │
     └── xcontract-events/           # cross-contract calls + events experiments (MIP-0002)
         ├── knowledge-base/         # read this first for cross-contract / event questions
@@ -120,12 +105,11 @@ yarn compile:zk
 ```
 
 ## TODOs
+
 - extend deploy scripts to allow rejoining and upgrading of existing contract deployments
 - remove all the unnecessary padding from the signet signing request to reduce circuit size and proving time
 - move generic types into signet.js
-- use generics to allows client contracts to specify argument count.
-- replace all usages of SignetEVMSignatureRequest with canonical EVMSignatureRequest type from signet.js (if it exists).
+- use generics to allow client contracts to specify argument count
+- replace all usages of SignetEVMSignatureRequest with canonical EVMSignatureRequest type from signet.js (if it exists)
 - add V1 to every single struct
-- allow deposit to either normal address or contract address
-- use witness provided nonce randomness in claim + evolve nonce
-- TODO: add integration test that tests using the common library.
+- use witness provided nonce randomness in requests + evolve nonce

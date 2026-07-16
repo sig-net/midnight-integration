@@ -54,7 +54,8 @@ export const REQUEST_FIXED_VALUE_ATOMS = 21;
  * maxAccessListEntries, maxStorageKeysPerEntry) from its aligned-value atom
  * count and decode it. Unlike the old single-vector layout, one atom count no
  * longer determines the capacities uniquely, so candidates are enumerated —
- * access-list-free first (today's only producer, the vault, is <2, 0, 0>) —
+ * access-list-free first (today's producers — the caller contract <1, 0, 0>,
+ * the erc20-vault example <2, 0, 0> — all are) —
  * and validated by the decode itself: the descriptors' Bytes length checks
  * and the enum range check reject wrong splits, and a decode that leaves
  * atoms unconsumed is rejected here.

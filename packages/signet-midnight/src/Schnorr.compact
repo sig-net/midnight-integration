@@ -16,7 +16,7 @@
 // The sig-net MPC attests remote EVM execution by Schnorr-signing a message
 // on Jubjub (see signetAttestationMessage in Signet.compact); contracts
 // verify that signature in-circuit — the signet contract at post time, the
-// vault again at claim time. The challenge is Poseidon (transientHash), so
+// requester again at settle time. The challenge is Poseidon (transientHash), so
 // off-chain signers MUST compute it through the COMPILED schnorrChallenge
 // pure circuit (re-exported via circuits.compact).
 //

@@ -66,7 +66,7 @@ export function generateMnemonic(): string {
  * Resolve a 32-byte identity secret key from the environment: `env[envVar]`
  * (hex, optional 0x prefix) when set, else the bytes of `fallbackSeed` (the
  * wallet seed doubling as the identity). Contract packages use this for the
- * secret whose commitment gates a circuit (e.g. the vault deployer identity),
+ * secret whose commitment gates a circuit (e.g. a deployer identity),
  * and clients use it for the caller identity answering a secret-key witness.
  *
  * @param envVar - Name of the environment variable holding the hex secret.
