@@ -171,16 +171,27 @@ export function ensureMpcSecp256k1Pubkey(env: NodeJS.ProcessEnv): void {
   console.log(` ➜ 💡 Set as MPC_SECP256K1_PUBKEY in the environment to skip this step on the next run`);
 }
 
-// The deploys below pay fees in DUST, which only generates on NIGHT
-// registered for dust generation — a funded-but-unregistered deployer wallet
-// (fresh seed, faucet-funded) would fail the first deploy. Check up front:
-// registered already → skip; unregistered NIGHT → register it and wait for a
-// spendable dust balance; no NIGHT at all → fail with a funding hint.
-export async function ensureDeployerDust(env: NodeJS.ProcessEnv): Promise<void> {
-  if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS && env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
+/**
+ * The deploys pay fees in DUST, which only generates on NIGHT registered for
+ * dust generation — a funded-but-unregistered deployer wallet (fresh seed,
+ * faucet-funded) would fail the first deploy. Check up front: registered
+ * already → skip; unregistered NIGHT → register it and wait for a spendable
+ * dust balance; no NIGHT at all → fail with a funding hint.
+ *
+ * @param env - The suite's env accumulator.
+ * @param contractAddressEnvVars - The env-var names of every contract address
+ *   the calling pipeline deploys; when ALL are already set the run deploys
+ *   nothing and the preflight skips.
+ * @throws If the deployer wallet holds neither DUST nor NIGHT.
+ */
+export async function ensureDeployerDust(
+  env: NodeJS.ProcessEnv,
+  contractAddressEnvVars: readonly string[],
+): Promise<void> {
+  if (contractAddressEnvVars.every((name) => env[name])) {
     logSkip(
       "deployer dust preflight",
-      "both contract addresses are set — no deploys this run, the deployer wallet pays nothing",
+      `all contract addresses are set (${contractAddressEnvVars.join(", ")}) — no deploys this run, the deployer wallet pays nothing`,
     );
     return;
   }
@@ -230,7 +241,7 @@ export async function ensureDeployerDust(env: NodeJS.ProcessEnv): Promise<void> 
  * @param keysDir - The managed keys directory, relative to the repo root.
  * @returns Whether the zk compile step may be skipped.
  */
-function trustsPrebuiltZkKeys(env: NodeJS.ProcessEnv, keysDir: string): boolean {
+export function trustsPrebuiltZkKeys(env: NodeJS.ProcessEnv, keysDir: string): boolean {
   if (env.TRUST_PREBUILT_ZK_KEYS !== "1") {
     return false;
   }
@@ -270,7 +281,7 @@ export async function compileSignetContract(env: NodeJS.ProcessEnv): Promise<voi
  * @throws The last error when attempts are exhausted, or immediately for
  *   any error that is not the transient insufficient-dust failure.
  */
-async function retryDeployWhileDustGenerates<T>(what: string, deploy: () => Promise<T>): Promise<T> {
+export async function retryDeployWhileDustGenerates<T>(what: string, deploy: () => Promise<T>): Promise<T> {
   const RETRY_DELAY_MS = 15_000;
   const MAX_ATTEMPTS = 24; // ~6 minutes — a young dev chain generates plenty by then
   for (let attempt = 1; ; attempt++) {

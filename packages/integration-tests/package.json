@@ -7,8 +7,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "compile:evm": "hardhat compile",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --passWithNoTests && vitest run --passWithNoTests --config vitest.caller.config.ts",
     "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run --disable-console-intercept --bail 1",
+    "test:integration:signet-caller-e2e": "RUN_INTEGRATION_TESTS=1 vitest run --disable-console-intercept --bail 1 --config vitest.caller.config.ts",
     "test:integration:happy-day-e2e": "yarn test:integration tests/happy-day-e2e.test.ts",
     "test:integration:deposit-withdrawal-failure-refund": "yarn test:integration tests/deposit-withdrawal-failure-refund.test.ts",
     "test:integration:deposit-claimant-not-caller": "yarn test:integration tests/deposit-claimant-not-caller.test.ts",
@@ -16,6 +17,7 @@
     "test:integration:false-claimer": "yarn test:integration tests/false-claimer.test.ts"
   },
   "dependencies": {
+    "@midnight-erc20-vault/caller-contract": "*",
     "@midnight-erc20-vault/cli": "*",
     "@midnight-erc20-vault/vault-contract": "*",
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.3",

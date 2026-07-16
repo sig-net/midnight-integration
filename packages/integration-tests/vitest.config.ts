@@ -8,7 +8,7 @@
 //   orders by results cache (failed/slowest first), not by name.
 // - bail + --disable-console-intercept stay on the test:integration script.
 import { basename } from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 
 // Explicit flow order. New flow files must be appended here (see the
@@ -39,6 +39,10 @@ class PipelineSequencer extends BaseSequencer {
 export default defineConfig({
   test: {
     globalSetup: "./src/setup/global-setup.ts",
+    // The generic signet-caller flow runs under its OWN config
+    // (vitest.caller.config.ts) with the EVM-free caller pipeline as
+    // globalSetup — excluded here so the vault pipeline never picks it up.
+    exclude: [...configDefaults.exclude, "tests/signet-caller-e2e.test.ts"],
     fileParallelism: false,
     sequence: { sequencer: PipelineSequencer },
   },

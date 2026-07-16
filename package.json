@@ -26,6 +26,7 @@
     "test:integration-tests:deposit-claimant-not-caller": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:deposit-claimant-not-caller",
     "test:integration-tests:benchmark": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:benchmark",
     "test:integration-tests:false-claimer": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:false-claimer",
+    "test:integration-tests:signet-caller-e2e": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:signet-caller-e2e",
     "deploy:vault-contract": "yarn workspace @midnight-erc20-vault/vault-contract run deploy",
     "cli": "yarn workspace @midnight-erc20-vault/cli run cli",
     "compile:signet-contract": "yarn workspace @sig-net/midnight-contract run compile",

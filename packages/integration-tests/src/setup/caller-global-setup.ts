@@ -1,58 +1,52 @@
-// vitest globalSetup (see vitest.config.ts): runs the setup pipeline ONCE in
-// the main process before ANY test file — including single-file selections —
-// then hands the populated env accumulator to the flow-test workers via
-// project.provide. A throw here aborts the whole run before any test starts.
-// Without RUN_INTEGRATION_TESTS this is a no-op so plain `yarn test`
-// stays offline (the flow suites then skip via describe.skipIf and see an
-// empty injected env).
+// vitest globalSetup for the generic signet-caller e2e (see
+// vitest.caller.config.ts): the EVM-free sibling of global-setup.ts. Runs the
+// caller pipeline ONCE in the main process before the flow file, then hands
+// the populated env accumulator to the worker via project.provide. A throw
+// here aborts the whole run before any test starts. Without
+// RUN_INTEGRATION_TESTS this is a no-op so plain `yarn test` stays offline.
+//
+// The pipeline is exactly what the caller e2e needs and nothing more: stack
+// checks, MPC keys, the dust preflight, signet compile/deploy, the fakenet
+// hand-off, caller compile/deploy. No EVM chain, no token, no derived-account
+// funding — the caller's request exists to be SIGNED, never broadcast.
 
 import type { TestProject } from "vitest/node";
 import { buildBaseEnv } from "../e2e-env.ts";
 import { testHeader } from "../output.ts";
 import { waitForGo } from "../waitForGo.ts";
 import {
-  assertEnvironment,
+  assertCallerEnvironment,
+  compileCallerContract,
+  deployCallerContractStep,
+} from "./caller-steps.ts";
+import {
   compileSignetContract,
-  compileVaultContract,
   deploySignetContractStep,
-  deployVaultContractStep,
   ensureDeployerDust,
-  ensureErc20Deployed,
   ensureMpcJubjubPk,
   ensureMpcRootKey,
   ensureMpcSecp256k1Pubkey,
-  ensureUserEvmAddress,
-  ensureVaultEvmAddress,
-  fundLocalEvmAccounts,
   persistFakenetHandoffToDotEnv,
-  printMpcServerConfig,
-  resolveEvmChain,
   startFakenetResponder,
 } from "./steps.ts";
 
-/** Step names match the original suite's test names — they are what the
+/** Step names match the vault pipeline's conventions — they are what the
  * operator greps for and what STEP_THROUGH prompts show. */
 const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void>][] = [
-  ["environment: midnight stack reachable, compact on PATH, EVM_RPC_URL set", assertEnvironment],
-  ["setup: resolve EVM chain id from EVM_RPC_URL", resolveEvmChain],
-  ["setup: check/deploy ERC20 token on the EVM chain", ensureErc20Deployed],
+  ["environment: midnight stack reachable, compact on PATH", assertCallerEnvironment],
   ["setup: check/derive MPC root key", ensureMpcRootKey],
   ["setup: check/derive MPC_JUBJUB_PK public key", ensureMpcJubjubPk],
   ["setup: check/derive MPC_SECP256K1_PUBKEY public key", ensureMpcSecp256k1Pubkey],
   [
     "setup: deployer dust preflight (register NIGHT for dust generation if needed)",
-    (env) => ensureDeployerDust(env, ["MIDNIGHT_SIGNET_CONTRACT_ADDRESS", "MIDNIGHT_VAULT_CONTRACT_ADDRESS"]),
+    (env) => ensureDeployerDust(env, ["MIDNIGHT_SIGNET_CONTRACT_ADDRESS", "MIDNIGHT_CALLER_CONTRACT_ADDRESS"]),
   ],
   ["setup: compile signet-contract contract with proving keys", compileSignetContract],
   ["setup: deploy signet-contract", deploySignetContractStep],
   ["setup: persist fakenet hand-off values to .env (append-only)", persistFakenetHandoffToDotEnv],
   ["setup: start the fakenet responder (docker compose)", startFakenetResponder],
-  ["setup: compile vault contract with proving keys", compileVaultContract],
-  ["setup: deploy vault contract", deployVaultContractStep],
-  ["setup: check/derive vault EVM address", ensureVaultEvmAddress],
-  ["setup: check/derive user EVM address", ensureUserEvmAddress],
-  ["setup: fund derived EVM accounts (local chain only)", fundLocalEvmAccounts],
-  ["setup: print MPC server configuration", printMpcServerConfig],
+  ["setup: compile caller contract with proving keys", compileCallerContract],
+  ["setup: deploy caller contract", deployCallerContractStep],
 ];
 
 export async function setup(project: TestProject): Promise<void> {
@@ -70,7 +64,7 @@ export async function setup(project: TestProject): Promise<void> {
     await run(env);
   }
 
-  // Hand the accumulator to the flow-test workers. provide() requires
+  // Hand the accumulator to the flow-test worker. provide() requires
   // structured-cloneable values, so keep only the string entries (which is
   // everything a ProcessEnv legitimately holds anyway).
   project.provide(
