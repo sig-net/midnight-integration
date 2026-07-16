@@ -6,8 +6,8 @@
 // proving/verifier keys for BOTH contracts, because a call to
 // `depositViaVault` produces a transaction whose call tree also contains the
 // token's `deposit` — each call carries its own proof. So we build it with
-// lib's `createCrossContractProofServerProvider([vaultZk, tokenZk])` rather
-// than the single-contract `createProofServerProvider`.
+// lib's `createCrossContractProofServerProvider([vaultZk, tokenZk])` — both
+// contracts' zk-config providers, not just the caller's.
 
 import { fileURLToPath } from "node:url";
 

@@ -13,8 +13,8 @@ here too. Member-specific rules:
   that copy is a bug; move it to the right shared home instead.
 - **Nothing contract-specific, nothing app-specific.** lib is runtime plumbing:
   today, the midnight-js provider adapters (`midnight-providers.ts`). If it
-  mentions the vault, a circuit name, or signet semantics, it belongs in a
-  contract package or signet-midnight.
+  mentions a specific contract, a circuit name, or signet semantics, it belongs
+  in a contract package or signet-midnight.
 - **Config is parsed once, in the deploy package.** Environment variables and
   network endpoints (indexer / node / proof server URLs) are parsed by
   `@sig-net/midnight-contract-deploy`'s `getMidnightNodeConfig` /
@@ -24,7 +24,6 @@ here too. Member-specific rules:
 - **Keep the dependency footprint honest.** A dep added to lib is paid by every
   consumer. Heavy deps (wallet SDK, ledger WASM) are fine — that's what lib is for
   — but don't add a dep only one consumer's feature needs.
-- **Port source:** the old repo's `boilerplate/contract-cli/src/api.ts` (the
-  provider wiring half). The proof-provider wrapper exists to graft `lookupKey`
+- **The proof-provider wrapper is a stopgap.** It exists to graft `lookupKey`
   onto midnight-js's proving provider — see the JSDoc in
   `src/midnight-providers.ts` for when it can be deleted.

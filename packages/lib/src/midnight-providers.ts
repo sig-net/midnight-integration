@@ -64,8 +64,13 @@ export function createWalletAndMidnightProvider(
 
 /**
  * Build the {@link ProofProvider} for a contract's provider set: proving via
- * the proof server's /check + /prove endpoints, with ZK key material resolved
- * from the contract's compiled assets through `zkConfigProvider`.
+ * the proof server's /check + /prove endpoints, with proving/verifier keys
+ * resolved across a *set* of compiled-contract sources — what a
+ * **cross-contract call** needs: one transaction whose call tree spans
+ * several deployed contracts, each carrying its own proof, so proving must
+ * find artifacts for every contract in the tree (the root and each callee).
+ * A single-contract call is the one-element case: pass just that contract's
+ * provider.
  *
  * Exists instead of midnight-js's own `httpClientProofProvider` because that
  * one (5.0.0-beta.3) builds a circuit-level `ProvingProvider` with only
@@ -78,24 +83,6 @@ export function createWalletAndMidnightProvider(
  * resolution its `check`/`prove` use. Delete in favor of
  * `httpClientProofProvider` once midnight-js ships a beta aligned with
  * ledger-v9 1.0.0-rc.3.
- *
- * @param proofServerUrl - The proof server's HTTP endpoint.
- * @param zkConfigProvider - Provider of the contract's compiled ZK artifacts (prover/verifier keys + ZKIR).
- * @returns The proof provider to place in a contract's midnight-js provider set.
- */
-export function createProofServerProvider<K extends string>(
-  proofServerUrl: string,
-  zkConfigProvider: ZKConfigProvider<K>,
-): ProofProvider {
-  return createCrossContractProofServerProvider(proofServerUrl, [zkConfigProvider]);
-}
-
-/**
- * Like {@link createProofServerProvider}, but resolves proving/verifier keys
- * across a *set* of compiled-contract sources — what a **cross-contract call**
- * needs: one transaction whose call tree spans several deployed contracts, each
- * carrying its own proof, so proving must find artifacts for every contract in
- * the tree (the root and each callee).
  *
  * The `ZKConfigRegistry` joins each call's canonical key location
  * (`contract:<addr>/<circuitId>?vk=<sha-256 of the deployed verifier key>`) to
