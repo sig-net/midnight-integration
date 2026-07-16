@@ -94,7 +94,7 @@ describe("custom event (MIP-0002 Misc + serialized struct) — token.compact", (
   });
 
   it("compiled emit → a `log` transcript op over the serialized payload", () => {
-    const js = managed("token/contract/index.js");
+    const js = managed("Token/contract/index.js");
     expect(js).toContain("'log'");
   });
 });
