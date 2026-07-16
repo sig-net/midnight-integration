@@ -1,0 +1,160 @@
+pragma language_version >= 0.25;
+
+import CompactStandardLibrary;
+
+// Shared signet library: request/response structs, request-id hashing,
+// request construction, and the attestation message. See the module header in
+// Signet.compact and https://docs.sig.network/ for the protocol.
+import "@sig-net/midnight/src/Signet";
+
+// The minimal signet caller: the SMALLEST contract that exercises the central
+// signet contract generically. It does exactly two things — submit a
+// signature request (with contract-fixed, minimal calldata) and verify the
+// MPC's Schnorr-signed respond-bidirectional attestation of that request. No
+// token, no application semantics: every line here is what ANY signet caller
+// needs, nothing more.
+
+// ---- Signet ledger layout ----------------------------------------------------------
+// MPC locates this index by position so location must stay fixed after first
+// contract deploy. Type configured for EVM Type 2 transactions with
+// <1 calldata word, 0 access-list entries, 0 storage keys> — the fixed
+// minimal calldata submitSignatureRequest composes.
+export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParams<1, 0, 0>>;
+
+// Contract-local request counter: used to keep signature request hashes different between identical calls.
+export ledger signetNonce: SignetNonce;
+
+// ---- Contract state ----------------------------------------------------------------
+
+// The MPC attestation key, pinned at deploy time: verifyResponse accepts only
+// respond-bidirectional attestations signed by this key.
+export sealed ledger mpcPubKeyHash: Bytes<32>;
+
+// ---- Cross-contract references ----------------------------------------------------
+// The central signet contract, pinned at deploy time: submitSignatureRequest
+// cross-contract-calls it to register the request notification in its
+// registry, which the MPC polls.
+sealed ledger signetNotifier: SignetNotifier;
+
+constructor(mpcPk: JubjubPoint, signetContract: SignetNotifier) {
+  mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
+  signetNotifier = disclose(signetContract);
+}
+
+// ---- Submit ------------------------------------------------------------------------
+// Records the smallest well-formed signet request and notifies the MPC of it.
+// EVERYTHING about the transaction is a contract constant below — recipient,
+// calldata, chain, gas envelope, derivation path, MPC routing — so the request
+// surface carries no application semantics at all. The caller supplies only
+// what no contract can know: the derived sender account's nonce (chain state)
+// and the MPC key version. The MPC signs with the CONTRACT's own derived
+// account (path = the contract-fixed literal "caller" — see
+// constructContractPathSignBidirectionalRequest), so no caller identity is
+// involved anywhere.
+export circuit submitSignatureRequest(
+  evmNonce: Uint<64>,
+  keyVersion: Uint<32>
+): [] {
+  // -- contract-fixed minimal calldata: a placeholder selector + one word --
+  // Fixed constants, never caller input: the point is a syntactically valid,
+  // deterministic payload for the MPC to sign, not a meaningful call.
+  const calldata = EVMCalldata<1> {
+    selector: Bytes [0xca, 0x11, 0xab, 0x1e],
+    noWords: 1 as Uint<16>,
+    words: [pad(32, "signet-caller:fixed-word")]
+  };
+
+  // The full transaction decomposition the MPC will sign: a call to a fixed
+  // placeholder recipient on the local dev chain (anvil, id 31337 — this
+  // request exists to be SIGNED, not broadcast), carrying no ETH, with a
+  // contract-fixed gas envelope and a structurally empty access list.
+  const txParams = EVMType2TxParams<1, 0, 0> {
+    to: pad(20, "signet-caller-e2e-to"),
+    chainId: 31337 as Uint<64>,
+    nonce: evmNonce,
+    gasLimit: 100000 as Uint<64>,
+    maxFeePerGas: 30000000000 as Uint<128>,       // 30 gwei
+    maxPriorityFeePerGas: 1000000000 as Uint<128>, // 1 gwei
+    value: 0 as Uint<128>,
+    accessListEntryCount: 0,
+    accessList: [],
+    calldata: some<EVMCalldata<1>>(calldata)
+  };
+
+  // -- construct and key the request under the contract's OWN derivation path --
+  // Routing: ECDSA over an EVM ("ethereum") destination, no extras, and a
+  // single-bool result schema in both directions.
+  const schema = pad(128, "[{\"name\":\"success\",\"type\":\"bool\"}]");
+  const requestNonce = signetNonce as Uint<64>;
+  const request = constructContractPathSignBidirectionalRequest<EVMType2TxParams<1, 0, 0>>(
+    requestNonce,
+    TxParamType.evmType2,
+    txParams,
+    pad(32, "eip155:31337"),
+    keyVersion,
+    pad(256, "caller"),
+    pad(32, "ecdsa"),
+    pad(32, "ethereum"),
+    pad(64, ""),
+    schema,
+    schema
+  );
+  // Circuit arguments are private inputs; the request record is public ledger
+  // state by design, so disclose it (and its id) explicitly at the write site.
+  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>>(request));
+
+  assert(!signetRequestsIndex.member(requestId), "Request already exists");
+  signetNonce.increment(1);
+  signetRequestsIndex.insert(requestId, disclose(request));
+
+  // Notify the MPC of the signature request via the signet contract's registry.
+  signetNotifier.notifyBidirectionalSignatureRequest(requestId, constructSignBidirectionalNotificationV1(
+    kernel.self(),
+    requestId as Bytes<32>,
+    0 as Uint<8>,
+  ));
+}
+
+// ---- Verify response -----------------------------------------------------------------
+// Verifies the MPC's Schnorr-signed respond-bidirectional attestation of a
+// pending request and consumes the request. The attestation key check + the
+// in-circuit Schnorr verification over (requestId, output) are the whole
+// point: they prove the response answers THIS request and comes from the
+// pinned MPC key. Consuming the request is the observable effect (and the
+// double-verify protection). Permissionless on purpose — a valid attestation
+// is self-authenticating, so anyone holding it may settle.
+export circuit verifyResponse(
+  requestId: RequestId,
+  respondBidirectional: RespondBidirectional
+): [] {
+  // requestId keys the ledger operations, so it is public; the response is
+  // only verified, never written.
+  const disclosedRequestId = disclose(requestId);
+
+  // -- attestation key: pk must be the MPC's registered key --
+  assert(
+    persistentHash<JubjubPoint>(respondBidirectional.pk) == mpcPubKeyHash,
+    "Unauthorized: attestation pk is not the MPC key"
+  );
+
+  // -- attestation signature: the MPC signed THIS request and THIS output --
+  assert(
+    jubjubSchnorrVerify<4>(
+      signetAttestationMessage(
+        disclosedRequestId,
+        respondBidirectional.serializedOutput,
+        respondBidirectional.outputLen
+      ),
+      JubjubSchnorrSignature {
+        announcement: respondBidirectional.announcement,
+        response: respondBidirectional.response,
+      },
+      respondBidirectional.pk
+    ),
+    "Invalid attestation signature"
+  );
+
+  // -- double-verify protection: the request must exist and is consumed here --
+  assert(signetRequestsIndex.member(disclosedRequestId), "Request not found");
+  signetRequestsIndex.remove(disclosedRequestId);
+}

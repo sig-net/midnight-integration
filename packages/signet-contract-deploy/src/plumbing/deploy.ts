@@ -99,6 +99,28 @@ export function makeVacantCompiledContract<C extends Contract.Contract<PS>, PS>(
   return CompiledContract.withCompiledFileAssets(vacant, managedDirPath);
 }
 
+/**
+ * Convert a contract address (hex, optional `0x`) into the reference shape a
+ * Compact contract-typed constructor arg expects: `{ bytes: Uint8Array(32) }`.
+ * Deploy scripts use this to seal a cross-contract reference (e.g. the
+ * central signet contract) read from the environment.
+ *
+ * @param contractAddress - The 32-byte contract address in hex.
+ * @returns The `{ bytes }` reference.
+ * @throws If the address is not 32 bytes of hex.
+ */
+export function contractAddressToReference(contractAddress: string): { bytes: Uint8Array } {
+  const hex = contractAddress.startsWith("0x") ? contractAddress.slice(2) : contractAddress;
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+    throw new Error(`not a 32-byte contract address in hex: "${contractAddress}"`);
+  }
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return { bytes };
+}
+
 // How long the deploy intent stays valid before it must be re-built.
 const DEPLOY_TTL_MS = 30 * 60 * 1000;
 

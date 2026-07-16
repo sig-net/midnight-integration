@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
   assertDeployerFunded,
   buildDeployTransaction,
+  contractAddressToReference,
   deriveAccountKeys,
   getDeployConfig,
   makeCompiledContract,
@@ -21,22 +22,6 @@ import { parseJubjubPublicKey } from "@sig-net/midnight";
 
 import { Contract, pureCircuits } from "./managed/erc20-vault/contract/index.js";
 import { createVaultPrivateState, witnesses, type VaultPrivateState } from "./witnesses.ts";
-
-/**
- * Convert a contract address (hex, optional `0x`) into the reference shape a
- * Compact contract-typed constructor arg expects: `{ bytes: Uint8Array(32) }`.
- *
- * @param contractAddress - The 32-byte contract address in hex.
- * @returns The `{ bytes }` reference.
- * @throws If the address is not 32 bytes of hex.
- */
-function contractAddressToReference(contractAddress: string): { bytes: Uint8Array } {
-  const hex = contractAddress.startsWith("0x") ? contractAddress.slice(2) : contractAddress;
-  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
-    throw new Error(`not a 32-byte contract address in hex: "${contractAddress}"`);
-  }
-  return { bytes: Uint8Array.from(Buffer.from(hex, "hex")) };
-}
 
 /** The outcome of a successful vault deployment. */
 export interface VaultDeployment {
