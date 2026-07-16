@@ -1,9 +1,9 @@
 // vitest globalSetup for the generic signet-caller e2e (see
-// vitest.caller.config.ts): the EVM-free sibling of global-setup.ts. Runs the
-// caller pipeline ONCE in the main process before the flow file, then hands
-// the populated env accumulator to the worker via project.provide. A throw
-// here aborts the whole run before any test starts. Without
-// RUN_INTEGRATION_TESTS this is a no-op so plain `yarn test` stays offline.
+// vitest.config.ts). Runs the caller pipeline ONCE in the main process before
+// the flow file, then hands the populated env accumulator to the worker via
+// project.provide. A throw here aborts the whole run before any test starts.
+// Without RUN_INTEGRATION_TESTS this is a no-op so plain `yarn test` stays
+// offline.
 //
 // The pipeline is exactly what the caller e2e needs and nothing more: stack
 // checks, MPC keys, the dust preflight, signet compile/deploy, the fakenet
@@ -30,8 +30,8 @@ import {
   startFakenetResponder,
 } from "./steps.ts";
 
-/** Step names match the vault pipeline's conventions — they are what the
- * operator greps for and what STEP_THROUGH prompts show. */
+/** Step names are what the operator greps for and what STEP_THROUGH
+ * prompts show. */
 const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void>][] = [
   ["environment: midnight stack reachable, compact on PATH", assertCallerEnvironment],
   ["setup: check/derive MPC root key", ensureMpcRootKey],

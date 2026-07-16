@@ -2,9 +2,8 @@
 // caller-global-setup.ts). Deliberately EVM-free: the caller's request is
 // composed entirely from contract constants and exists to be SIGNED, never
 // broadcast, so this pipeline needs no EVM chain, token, or funded derived
-// accounts. Everything shared with the vault pipeline (MPC keys, dust
-// preflight, signet compile/deploy, fakenet hand-off) is reused from
-// steps.ts as-is.
+// accounts. The generic steps (MPC keys, dust preflight, signet
+// compile/deploy, fakenet hand-off) live in steps.ts.
 
 import { deployCaller } from "@midnight-erc20-vault/caller-contract";
 import { getDeployConfig, getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
@@ -18,9 +17,8 @@ const MINUTE = 60_000;
 
 /**
  * Assert the Midnight stack is reachable and the compact CLI is on PATH.
- * The caller pipeline's counterpart of the vault pipeline's
- * `assertEnvironment` — minus every EVM requirement, which this pipeline
- * does not have.
+ * Deliberately checks no EVM endpoint — this pipeline has no EVM
+ * requirement.
  *
  * @param env - The suite's env accumulator.
  * @throws If a stack endpoint is unreachable or `compact` is missing.

@@ -13,7 +13,7 @@ export const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
  * Run a root-level package script (`yarn run <script>` at {@link REPO_ROOT}),
  * streaming its output live to the console and capturing stdout.
  *
- * @param script - Name of the root package.json script (e.g. `compile:vault-contract:zk`).
+ * @param script - Name of the root package.json script (e.g. `compile:signet-contract:zk`).
  * @param env - Full environment for the child process (pass the suite's env
  *   accumulator, not `process.env`).
  * @param timeoutMs - Kill the child and fail after this many milliseconds.

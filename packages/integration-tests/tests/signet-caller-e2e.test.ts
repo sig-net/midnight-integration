@@ -4,17 +4,18 @@
 // singleton's registry, poll the MPC's signature response and verify it
 // against the caller's derived account, then verify a Schnorr attestation
 // in-circuit — against contracts the caller globalSetup pipeline
-// (src/setup/caller-global-setup.ts, wired by vitest.caller.config.ts) has
+// (src/setup/caller-global-setup.ts, wired by vitest.config.ts) has
 // already compiled/deployed. Tests in THIS file run in source order and feed
 // each other through module-scoped state, so the file is one ordered
-// pipeline on purpose. Run with `yarn test:integration-tests:signet-caller-e2e`
-// from the repo root; without RUN_INTEGRATION_TESTS the whole suite skips so
-// plain `yarn test` stays offline. Set STEP_THROUGH=1 to pause before each
+// pipeline on purpose. Run with `yarn test:integration-tests` (or the
+// file-scoped `yarn test:integration-tests:signet-caller-e2e`) from the repo
+// root; without RUN_INTEGRATION_TESTS the whole suite skips so plain
+// `yarn test` stays offline. Set STEP_THROUGH=1 to pause before each
 // test (after the first) until you hit Enter in the terminal.
 //
 // Deliberately EVM-free: the request exists to be SIGNED, never broadcast.
-// The fakenet's own Schnorr attestation only follows an observed broadcast
-// (vault semantics), so the in-circuit verification leg is driven with an
+// The fakenet's own Schnorr attestation only follows a broadcast it observed
+// on the target chain, so the in-circuit verification leg is driven with an
 // attestation signed from the suite's shared MPC_ROOT_KEY — the same key
 // material the fakenet signs with.
 
@@ -199,8 +200,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
 
       // The caller's requests are keyed under its contract-fixed path
       // ("caller"), so the MPC signs with the account epsilon-derived from
-      // the CALLER CONTRACT's address + that path — recomputed here, exactly
-      // as the vault pipeline derives its own accounts.
+      // the CALLER CONTRACT's address + that path — recomputed here with the
+      // same derivation the MPC uses.
       const expectedSigner = deriveEvmAddress(
         requireEnv("MPC_SECP256K1_PUBKEY"),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),

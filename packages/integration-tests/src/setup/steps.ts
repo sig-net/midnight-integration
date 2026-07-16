@@ -1,122 +1,29 @@
-// The ordered setup pipeline: environment check → MPC key derivation →
-// compile + deploy (signet, then vault) → derived EVM addresses → MPC
-// hand-off printout. Bodies moved verbatim from the original single-file
-// suite; each step keeps its skip-if-env-var-set semantics (presence of the
-// canonical env var doubles as the skip signal) and mutates the shared env
-// accumulator. Run by setup/global-setup.ts in vitest's main process, so no
-// `vitest` imports here — the old expect() checks are plain throws.
+// The generic setup steps shared by the caller pipeline: MPC key derivation,
+// the deployer dust preflight, signet compile + deploy, and the fakenet
+// responder hand-off. Each step keeps its skip-if-env-var-set semantics
+// (presence of the canonical env var doubles as the skip signal) and mutates
+// the shared env accumulator. Run by setup/caller-global-setup.ts in vitest's
+// main process, so no `vitest` imports here — failed checks are plain throws.
 
-import { getCliConfig, getUserIdentity } from "@midnight-erc20-vault/cli";
 import {
   deriveAccountKeys,
+  deploySignetContract,
   getDeployConfig,
-  getMidnightNodeConfig,
   registerNightForDustGeneration,
   waitForSpendableDust,
   withSyncedWalletFacade,
 } from "@sig-net/midnight-contract-deploy";
-import { deriveEvmAddress, formatJubjubPublicKey } from "@sig-net/midnight";
-import { deriveMpcKeys, generateMpcRootKey } from "./mpc-keys.ts";
-import { deploySignetContract } from "@sig-net/midnight-contract-deploy";
-import { deployVault } from "@midnight-erc20-vault/vault-contract";
-import { formatEther, formatUnits } from "ethers";
+import { formatJubjubPublicKey } from "@sig-net/midnight";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { PIPELINE_KEYS, requireEnv } from "../e2e-env.ts";
+import { requireEnv } from "../e2e-env.ts";
 import { appendRepoDotEnv, loadRepoDotEnv } from "../env-file.ts";
-import { getDeployedCode, getEvmChainId, SEPOLIA_USDC_ADDRESS } from "../evm.ts";
-import { banner, logSkip } from "../output.ts";
-import { assertCommandAvailable, assertHttpReachable } from "../preflight.ts";
+import { logSkip } from "../output.ts";
+import { assertCommandAvailable } from "../preflight.ts";
 import { REPO_ROOT, runCommand, runRootScript } from "../subprocess.ts";
-import { deployTestUsdc, isLocalEvmChain, topUpLocalAccount, WellKnownEvmChainId } from "./local-evm.ts";
+import { deriveMpcKeys, generateMpcRootKey } from "./mpc-keys.ts";
 
 const MINUTE = 60_000;
-
-export async function assertEnvironment(env: NodeJS.ProcessEnv): Promise<void> {
-  const nodeConfig = getMidnightNodeConfig(env);
-  await assertHttpReachable("midnight node", new URL("/health", nodeConfig.nodeUrl).href);
-  await assertHttpReachable("indexer", nodeConfig.indexerUrl);
-  await assertHttpReachable("proof server", nodeConfig.proofServerUrl);
-  await assertCommandAvailable("compact", ["--version"]);
-  requireEnv(env, "EVM_RPC_URL");
-
-  const deployConfig = getDeployConfig(env);
-  const cliConfig = getCliConfig(env);
-  console.log(`DEPLOYER_SEED in effect: ${deployConfig.deployerSeed}`);
-  console.log(`USER_SEED in effect:     ${cliConfig.userSeed}`);
-  console.log();
-  console.log(`DEPLOYER_SEED: derives midnight wallet that pays for contract deploys.`);
-  console.log(` ➜ seeds midnight wallet that pays for contract deploys.`);
-  console.log(`USER_SEED:`);
-  console.log(` ➜ seeds midnight wallet that interacts with deployed contracts.`);
-  console.log(` ➜ seeds EVM_USER_ADDRESS generation`);
-}
-
-export async function resolveEvmChain(env: NodeJS.ProcessEnv): Promise<void> {
-  const rpcUrl = requireEnv(env, "EVM_RPC_URL");
-  let chainId: bigint;
-  try {
-    chainId = await getEvmChainId(rpcUrl);
-  } catch (error) {
-    throw new Error(
-      `EVM_RPC_URL (${rpcUrl}) is not answering — is the EVM node up?` +
-        ` For the local loop it is the \`evm\` docker compose service: \`docker compose up -d\` at the repo root`,
-      { cause: error },
-    );
-  }
-  if (env.EVM_CHAIN_ID) {
-    console.log(`Found EVM_CHAIN_ID in the environment as ${env.EVM_CHAIN_ID}`);
-    if (BigInt(env.EVM_CHAIN_ID) !== chainId) {
-      throw new Error(
-        `EVM_CHAIN_ID must match the chain EVM_RPC_URL serves (it is sealed into the vault at` +
-          ` initialize): the RPC reports ${chainId}, found ${env.EVM_CHAIN_ID}`,
-      );
-    }
-    logSkip("resolve EVM chain id", `EVM_CHAIN_ID is set correctly`);
-  } else {
-    env.EVM_CHAIN_ID = chainId.toString();
-    console.log(`resolved EVM_CHAIN_ID=${env.EVM_CHAIN_ID} from EVM_RPC_URL`);
-    console.log(` ➜ sealed into the vault at initialize as CAIP-2 eip155:${env.EVM_CHAIN_ID}`);
-    console.log(` ➜ 💡 Set as EVM_CHAIN_ID in the environment to pin it explicitly`);
-  }
-  // Chain-aware ERC20 defaulting: only Sepolia has a canonical token. On the
-  // local dev chain the next step deploys one; on any other chain the next
-  // step demands an explicit ERC20_ADDRESS.
-  if (!env.ERC20_ADDRESS && chainId === BigInt(WellKnownEvmChainId.Sepolia)) {
-    env.ERC20_ADDRESS = SEPOLIA_USDC_ADDRESS;
-    console.log(`defaulted ERC20_ADDRESS=${SEPOLIA_USDC_ADDRESS} (canonical Sepolia USDC)`);
-  }
-}
-
-export async function ensureErc20Deployed(env: NodeJS.ProcessEnv): Promise<void> {
-  const rpcUrl = requireEnv(env, "EVM_RPC_URL");
-  const chainId = BigInt(requireEnv(env, "EVM_CHAIN_ID"));
-  const local = isLocalEvmChain(chainId);
-  if (env.ERC20_ADDRESS) {
-    // The skip signal is the ON-CHAIN code check, not env presence: a kept
-    // ERC20_ADDRESS can outlive a wiped local chain.
-    const code = await getDeployedCode(rpcUrl, env.ERC20_ADDRESS);
-    if (code !== "0x") {
-      logSkip("check/deploy ERC20 token", `ERC20_ADDRESS (${env.ERC20_ADDRESS}) has code on chain ${chainId}`);
-      return;
-    }
-    if (!local) {
-      throw new Error(
-        `ERC20_ADDRESS (${env.ERC20_ADDRESS}) has no code on chain ${chainId} — wrong address, or wrong EVM_RPC_URL?`,
-      );
-    }
-    console.log(`ERC20_ADDRESS (${env.ERC20_ADDRESS}) has no code — the local chain was wiped; redeploying`);
-  } else if (!local) {
-    throw new Error(
-      `ERC20_ADDRESS is not set and chain ${chainId} is not the local dev chain — set the token to use in the environment`,
-    );
-  }
-  await runRootScript("compile:integration-tests:evm", env, 2 * MINUTE);
-  env.ERC20_ADDRESS = await deployTestUsdc(rpcUrl);
-  console.log(`deployed a fresh TestUSDC as ERC20_ADDRESS=${env.ERC20_ADDRESS}`);
-  console.log(` ➜ the token the deposit/withdraw flows move; open mint funds the derived accounts`);
-  console.log(` ➜ 💡 Set as ERC20_ADDRESS in the environment to pin it for the next run`);
-}
 
 export function ensureMpcRootKey(env: NodeJS.ProcessEnv): void {
   if (env.MPC_ROOT_KEY) {
@@ -127,7 +34,6 @@ export function ensureMpcRootKey(env: NodeJS.ProcessEnv): void {
   console.log(`generated a fresh MPC_ROOT_KEY=${env.MPC_ROOT_KEY}`);
   console.log(` ➜ seeds MPC key generation`);
   console.log(` ➜ 💡 Set as MPC_ROOT_KEY in the environment to skip this step on the next run`);
-  console.log("(printed again in the MPC server configuration step)");
 }
 
 // Derive MPC keys for setting or checking public keys. Must be called INSIDE
@@ -224,9 +130,9 @@ export async function ensureDeployerDust(
   });
 }
 
-// The signet contract is compiled + deployed FIRST: the vault seals its
-// address as the cross-contract emitter, and the vault compile symlinks the
-// signet's managed output (its ZK keys) for the cross-contract proof.
+// The signet contract is compiled + deployed FIRST: a client contract seals
+// its address as the cross-contract emitter, and the client compile symlinks
+// the signet's managed output (its ZK keys) for the cross-contract proof.
 
 /**
  * True when the CI zk-key cache contract is in force: `TRUST_PREBUILT_ZK_KEYS=1`
@@ -321,7 +227,7 @@ export async function deploySignetContractStep(env: NodeJS.ProcessEnv): Promise<
 // only start once MPC_ROOT_KEY and MIDNIGHT_SIGNET_CONTRACT_ADDRESS are IN
 // THAT FILE — the two steps below persist them (append-only) and start the
 // container, right after the signet deploy so the responder boots and syncs
-// while the (long) vault zk compile runs. Set FAKENET_MANAGED=0 to run the
+// while the (long) caller zk compile runs. Set FAKENET_MANAGED=0 to run the
 // responder yourself (e.g. `yarn response` in a solana-signet-program
 // checkout for responder development) — both steps then skip.
 
@@ -421,140 +327,4 @@ export async function startFakenetResponder(env: NodeJS.ProcessEnv): Promise<voi
   console.log("fakenet-responder container is running");
   console.log(" ➜ watch it: `docker logs -f fakenet-responder` — healthy startup prints");
   console.log('   "MidnightMonitor: polling signet contract registry at <signet address>"');
-}
-
-export async function compileVaultContract(env: NodeJS.ProcessEnv): Promise<void> {
-  if (env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
-    logSkip("compile:vault-contract:zk", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
-    return;
-  }
-  if (trustsPrebuiltZkKeys(env, "packages/vault-contract/src/managed/erc20-vault/keys")) {
-    logSkip(
-      "compile:vault-contract:zk",
-      "TRUST_PREBUILT_ZK_KEYS=1 and prover keys are present (restored from a cache keyed on the contract sources)",
-    );
-    return;
-  }
-  await runRootScript("compile:vault-contract:zk", env, 14 * MINUTE);
-}
-
-export async function deployVaultContractStep(env: NodeJS.ProcessEnv): Promise<void> {
-  if (env.MIDNIGHT_VAULT_CONTRACT_ADDRESS) {
-    logSkip("deploy:vault-contract", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
-    return;
-  }
-  const { contractAddress } = await retryDeployWhileDustGenerates("deploy:vault-contract", () => deployVault(env));
-  env.MIDNIGHT_VAULT_CONTRACT_ADDRESS = contractAddress;
-  console.log(`deployed a fresh MIDNIGHT_VAULT_CONTRACT_ADDRESS=${contractAddress}`);
-  console.log(` ➜ the vault contract on Midnight — holds deposits and authorizes withdrawals`);
-  console.log(` ➜ 💡 Set as MIDNIGHT_VAULT_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
-}
-
-export function ensureVaultEvmAddress(env: NodeJS.ProcessEnv): void {
-  const expectedAddress = deriveEvmAddress(
-    requireEnv(env, "MPC_SECP256K1_PUBKEY"),
-    requireEnv(env, "MIDNIGHT_VAULT_CONTRACT_ADDRESS"),
-    "vault",
-  );
-  if (env.EVM_VAULT_ADDRESS) {
-    console.log(`Found EVM_VAULT_ADDRESS in the environment as ${env.EVM_VAULT_ADDRESS}`);
-    if (env.EVM_VAULT_ADDRESS !== expectedAddress) {
-      throw new Error(
-        `EVM_VAULT_ADDRESS should be derived from MPC_SECP256K1_PUBKEY + vault contract address: expected ${expectedAddress}, found ${env.EVM_VAULT_ADDRESS}`,
-      );
-    }
-    logSkip("check/derive vault EVM address", `EVM_VAULT_ADDRESS is set correctly`);
-    return;
-  }
-  env.EVM_VAULT_ADDRESS = expectedAddress;
-  console.log(`derived a fresh EVM_VAULT_ADDRESS=${expectedAddress}`);
-  console.log(` ➜ the vault's own EVM account (path "vault")`);
-  console.log(` ➜ fund it with ETH for gas before running withdrawals (automatic on the local dev chain)`);
-  console.log(` ➜ 💡 Set as EVM_VAULT_ADDRESS in the environment to skip this step on the next run`);
-}
-
-export function ensureUserEvmAddress(env: NodeJS.ProcessEnv): void {
-  const identity = getUserIdentity(getCliConfig(env));
-  const expectedAddress = deriveEvmAddress(
-    requireEnv(env, "MPC_SECP256K1_PUBKEY"),
-    requireEnv(env, "MIDNIGHT_VAULT_CONTRACT_ADDRESS"),
-    identity.commitmentHex,
-  );
-  if (env.EVM_USER_ADDRESS) {
-    console.log(`Found EVM_USER_ADDRESS in the environment as ${env.EVM_USER_ADDRESS}`);
-    if (env.EVM_USER_ADDRESS !== expectedAddress) {
-      throw new Error(
-        `EVM_USER_ADDRESS should be derived from MPC_SECP256K1_PUBKEY + vault contract + user identity: expected ${expectedAddress}, found ${env.EVM_USER_ADDRESS}`,
-      );
-    }
-    logSkip("check/derive user EVM address", `EVM_USER_ADDRESS is set correctly`);
-    return;
-  }
-  env.EVM_USER_ADDRESS = expectedAddress;
-  console.log(`derived a fresh EVM_USER_ADDRESS=${expectedAddress}`);
-  console.log(` ➜ the user's derived EVM account (path = identity commitment hex)`);
-  console.log(
-    ` ➜ FUND IT ON EVM before the deposit test: >= 0.01 ETH (gas) and >= 0.1 USDC (deposit) — automatic on the local dev chain`,
-  );
-  console.log(` ➜ 💡 Set as EVM_USER_ADDRESS in the environment to skip this step on the next run`);
-}
-
-export async function fundLocalEvmAccounts(env: NodeJS.ProcessEnv): Promise<void> {
-  const rpcUrl = requireEnv(env, "EVM_RPC_URL");
-  const chainId = BigInt(requireEnv(env, "EVM_CHAIN_ID"));
-  if (!isLocalEvmChain(chainId)) {
-    logSkip(
-      "fund derived EVM accounts",
-      `chain ${chainId} is not the local dev chain — fund the derived accounts manually (see the printed hints)`,
-    );
-    return;
-  }
-  const erc20Address = requireEnv(env, "ERC20_ADDRESS");
-  for (const name of ["EVM_USER_ADDRESS", "EVM_VAULT_ADDRESS"] as const) {
-    const address = requireEnv(env, name);
-    const { ethBalance, tokenBalance } = await topUpLocalAccount(rpcUrl, erc20Address, address);
-    console.log(
-      `topped up ${name}=${address} to ${formatEther(ethBalance)} ETH and ${formatUnits(tokenBalance, 6)} USDC`,
-    );
-  }
-}
-
-export function printMpcServerConfig(env: NodeJS.ProcessEnv): void {
-  const rootKey = env.MPC_ROOT_KEY ?? "(not derived here — already held by the server operator)";
-  const managed = env.FAKENET_MANAGED !== "0";
-  banner([
-    "MPC (fakenet) responder configuration:",
-    "",
-    `  MPC_ROOT_KEY=${rootKey}`,
-    `  MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${requireEnv(env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS")}`,
-    "  # 💡 The responder DISCOVERS requesters by polling this signet",
-    "  #    contract's notification registry — no requester contract list needed.",
-    "",
-    ...(managed
-      ? [
-          "The setup already persisted these to .env (append-only) and started",
-          "the responder container — see the two hand-off steps above. Watch it",
-          "with `docker logs -f fakenet-responder`; recreate it manually with",
-          "`docker compose --profile fakenet up -d --force-recreate fakenet`.",
-          "(Set FAKENET_MANAGED=0 to run the responder yourself, e.g.",
-          "`yarn response` in a checkout of sig-net/solana-signet-program.)",
-        ]
-      : [
-          "FAKENET_MANAGED=0 — make sure those two are in THIS repo's .env",
-          "(docker compose reads it), then START THE RESPONDER container:",
-          "",
-          "  docker compose --profile fakenet up -d --force-recreate fakenet",
-          "",
-          "(--force-recreate re-reads .env and resets the responder's private state",
-          "after a redeploy; watch it with `docker logs -f fakenet-responder`.",
-          "Fallback for responder development: `yarn response` in a checkout of",
-          "github.com/sig-net/solana-signet-program.) The e2e deposit/withdraw",
-          "flows need it running.",
-        ]),
-    "",
-    "Minimal .env block for THIS suite:",
-    "",
-    ...PIPELINE_KEYS.map((key) => `  ${key}=${env[key] ?? ""}`),
-    `  VITE_TEST_EVM_RPC_URL=${env.EVM_RPC_URL ?? ""}`,
-  ]);
 }

@@ -49,8 +49,9 @@ services:
 
   evm:
     # anvil dev chain (id 31337, pre-funded dev-mnemonic accounts). State is
-    # in-memory: a restart wipes the chain (the test setup detects this and
-    # redeploys the token).
+    # in-memory: a restart wipes the chain. The integration suite itself is
+    # EVM-free; this service exists because the fakenet responder's config
+    # requires a reachable EVM_RPC_URL to boot.
     container_name: 'local-evm'
     image: 'ghcr.io/foundry-rs/foundry:v1.5.1'
     entrypoint: ['anvil', '--host', '0.0.0.0']
@@ -86,9 +87,9 @@ services:
     environment:
       VERBOSE: '${VERBOSE:-false}'
       DISABLE_SOLANA: '${DISABLE_SOLANA:-true}'
-      # Container-side twin of the tests' VITE_TEST_EVM_RPC_URL — both must
-      # point at the SAME chain; see "EVM run modes" in
-      # packages/integration-tests/README.md.
+      # The fakenet requires a reachable EVM endpoint to boot; defaults to
+      # the in-network `evm` service above (loopback in-container would be
+      # the container itself, hence the dedicated variable).
       EVM_RPC_URL: '${FAKENET_EVM_RPC_URL:-http://evm:8545}'
       MIDNIGHT_NETWORK_ID: '${MIDNIGHT_NETWORK_ID:-undeployed}'
       MIDNIGHT_INDEXER_URL: '${MIDNIGHT_INDEXER_URL:-http://indexer:8088/api/v3/graphql}'

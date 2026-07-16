@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Demonstrates sig-net cross-chain interactions from Midnight: an ERC20 vault driven by MPC-signed EVM transactions. Run `yarn compile` once before `build`/`test` — the contract packages and signet-midnight typecheck against the generated managed/ output.",
+  "description": "Sig Network on Midnight: the central signet contract, the client-agnostic protocol SDK, and a minimal caller contract that exercises them end to end. Run `yarn compile` once before `build`/`test` — the contract packages and signet-midnight typecheck against the generated managed/ output.",
   "packageManager": "yarn@4.17.1",
   "workspaces": [
     "packages/*"
@@ -11,24 +11,14 @@
   "scripts": {
     "compile": "yarn workspaces foreach --all --exclude midnight-erc20-vault --topological run compile",
     "compile:zk": "yarn workspaces foreach --all --exclude midnight-erc20-vault --topological run compile:zk",
-    "compile:vault-contract": "yarn workspace @midnight-erc20-vault/vault-contract run compile",
-    "compile:vault-contract:zk": "yarn workspace @midnight-erc20-vault/vault-contract run compile:zk",
     "compile:caller-contract": "yarn workspace @midnight-erc20-vault/caller-contract run compile",
     "compile:caller-contract:zk": "yarn workspace @midnight-erc20-vault/caller-contract run compile:zk",
     "deploy:caller-contract": "yarn workspace @midnight-erc20-vault/caller-contract run deploy",
     "compile:signet-midnight": "yarn workspace @sig-net/midnight run compile",
     "build": "yarn workspaces foreach --all --exclude midnight-erc20-vault --topological run build",
     "test": "yarn workspaces foreach --all --exclude midnight-erc20-vault --topological run test",
-    "compile:integration-tests:evm": "yarn workspace @midnight-erc20-vault/integration-tests run compile:evm",
     "test:integration-tests": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration",
-    "test:integration-tests:happy-day-e2e": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:happy-day-e2e",
-    "test:integration-tests:deposit-withdrawal-failure-refund": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:deposit-withdrawal-failure-refund",
-    "test:integration-tests:deposit-claimant-not-caller": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:deposit-claimant-not-caller",
-    "test:integration-tests:benchmark": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:benchmark",
-    "test:integration-tests:false-claimer": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:false-claimer",
     "test:integration-tests:signet-caller-e2e": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:signet-caller-e2e",
-    "deploy:vault-contract": "yarn workspace @midnight-erc20-vault/vault-contract run deploy",
-    "cli": "yarn workspace @midnight-erc20-vault/cli run cli",
     "compile:signet-contract": "yarn workspace @sig-net/midnight-contract run compile",
     "compile:signet-contract:zk": "yarn workspace @sig-net/midnight-contract run compile:zk",
     "deploy:signet-contract": "yarn workspace @sig-net/midnight-contract-deploy run deploy"
