@@ -92,6 +92,7 @@ jobs:
           # image-tag comment) — move it together with the npm stack.
           RC_DIR="$HOME/.compact/versions/0.33.0-rc.0/x86_64-unknown-linux-musl"
           if [ ! -x "$RC_DIR/compactc" ]; then
+            mkdir -p "$RC_DIR"
             curl -fsSL -o /tmp/compactc-rc.zip \
               https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.0/compactc_v0.33.0-rc.0_x86_64-unknown-linux-musl.zip
             unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
@@ -179,6 +180,7 @@ jobs:
           # image-tag comment) — move it together with the npm stack.
           RC_DIR="$HOME/.compact/versions/0.33.0-rc.0/x86_64-unknown-linux-musl"
           if [ ! -x "$RC_DIR/compactc" ]; then
+            mkdir -p "$RC_DIR"
             curl -fsSL -o /tmp/compactc-rc.zip \
               https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.0/compactc_v0.33.0-rc.0_x86_64-unknown-linux-musl.zip
             unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
@@ -286,6 +288,7 @@ jobs:
           # image-tag comment) — move it together with the npm stack.
           RC_DIR="$HOME/.compact/versions/0.33.0-rc.0/x86_64-unknown-linux-musl"
           if [ ! -x "$RC_DIR/compactc" ]; then
+            mkdir -p "$RC_DIR"
             curl -fsSL -o /tmp/compactc-rc.zip \
               https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.0/compactc_v0.33.0-rc.0_x86_64-unknown-linux-musl.zip
             unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
