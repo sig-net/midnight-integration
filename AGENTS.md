@@ -3,12 +3,15 @@
 This repository is a single **Yarn workspace** (Yarn 4 via corepack, `nodeLinker:
 node-modules`). Its members live under `packages/`:
 
-- **`packages/lib`** — shared runtime plumbing (config, network, providers, wallet,
-  logging). The ONLY copy of these files.
+- **`packages/lib`** — shared runtime plumbing that stays private to the repo
+  (the midnight-js provider adapters). The ONLY copy of these files.
 - **`packages/signet-midnight`** — the Midnight-side sig-net integration; the point
   of the repo, and the basis for a signet.js Midnight adapter.
 - **`packages/vault-contract`** / **`packages/signet-contract`** — one
   package per Compact contract, no contract/sdk split. See "Contract packages" below.
+- **`packages/signet-contract-deploy`** — the published, self-contained deploy
+  tooling: the signet-contract deploy flow plus the generic deploy/wallet/config
+  plumbing (`src/plumbing/`) every contract package's deploy script composes.
 
 Run `yarn install` from the repo root — never from inside a member.
 Run `yarn compile` once before `build`/`test`: the contract packages AND
@@ -72,6 +75,12 @@ exception for that specific case.
   No `dist/`, no `tsc --outDir`, no ts-node loaders, no copy steps. Tests run under
   vitest; entrypoints run under `tsx`. If you think you need a build step, stop and
   ask — a build step is a defect in this workspace, not a missing feature.
+  **The one exception is publishing:** the npm-published packages
+  (`@sig-net/midnight`, `@sig-net/midnight-contract`,
+  `@sig-net/midnight-contract-deploy`) additionally emit `dist/` via a
+  `tsconfig.build.json`, ship ONLY `dist/` (`files: ["dist"]`), and swap their
+  entry to it through `publishConfig.exports` at pack time — the monorepo itself
+  still resolves their raw `src/index.ts`, never `dist/`.
 - **ALWAYS finish a change with `yarn build && yarn test`** in the member you
   touched (or from the root). `tsx` and vitest execute without typechecking — "it
   runs" is NOT verification. If you add a new top-level TS directory to a member,
@@ -81,8 +90,11 @@ exception for that specific case.
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
   compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run
   `compile:zk` only when proving keys are actually needed (real deploys).
-- **Shared plumbing lives ONCE, in `packages/lib`.** The moment a second package
-  needs a helper, it moves to lib and both import it. Never copy
+- **Shared plumbing lives ONCE.** Generic deploy/wallet/config plumbing lives in
+  `packages/signet-contract-deploy/src/plumbing/` (published, so external
+  consumers get it too); repo-private shared helpers (the midnight-js provider
+  adapters) live in `packages/lib`. The moment a second package needs a helper,
+  it moves to the right one of those homes and both import it. Never copy
   config/wallet/provider/logging code between packages — per-package copies drift
   apart and are a defect, not a shortcut.
 - **Unit tests are simulator-only.** A contract package's `tests/` run entirely
@@ -192,8 +204,9 @@ both (and to any additional contract package):
   `ledger(ctx.callContext.currentQueryContext.state)`. Circuit failures reject the
   promise (`await expect(...).rejects.toThrow(...)`). Pure circuits are synchronous,
   called directly via `pureCircuits.<name>(...)`.
-- **The deploy split: generic plumbing in lib, everything contract-specific in
-  this package's `deploy.ts`.** `packages/lib`'s deploy/wallet helpers
+- **The deploy split: generic plumbing in `@sig-net/midnight-contract-deploy`,
+  everything contract-specific in this package's `deploy.ts`.** The deploy
+  package's deploy/wallet helpers
   (`buildDeployTransaction`, `makeCompiledContract`, `submitUnprovenTransaction`,
   …) know no contract; the deploy script owns the constructor args, witnesses,
   private state and post-deploy circuit calls, statically importing its own

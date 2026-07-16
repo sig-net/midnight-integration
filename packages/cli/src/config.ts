@@ -1,5 +1,5 @@
 // CLI configuration — composes the shared Midnight node config from
-// @midnight-erc20-vault/lib with the CLI-specific environment: the user's
+// @sig-net/midnight-contract-deploy with the CLI-specific environment: the user's
 // wallet seed + vault identity secret, the deployed contract addresses, and
 // the EVM chain the vault operates on. This is the ONLY file in the package
 // that reads the environment.
@@ -8,10 +8,10 @@ import {
   getMidnightNodeConfig,
   parseIdentitySecretKey,
   type MidnightNodeConfig,
-} from "@midnight-erc20-vault/lib";
+} from "@sig-net/midnight-contract-deploy";
 
 // The pre-funded genesis mint wallet of the local standalone stack — the
-// documented default when USER_SEED is unset (same convention as lib's
+// documented default when USER_SEED is unset (same convention as the deploy package's
 // DEPLOYER_SEED default).
 const DEFAULT_USER_SEED = "0000000000000000000000000000000000000000000000000000000000000001";
 
@@ -53,7 +53,7 @@ export interface CliConfig {
 /**
  * Read the {@link CliConfig} from the environment.
  *
- * Midnight endpoints come from lib's `getMidnightNodeConfig` (`NETWORK_ID`,
+ * Midnight endpoints come from the deploy package's `getMidnightNodeConfig` (`NETWORK_ID`,
  * `MIDNIGHT_NODE_*`). CLI-specific variables:
  * - `USER_SEED` — wallet seed (default: the genesis mint wallet of the local stack).
  * - `VAULT_USER_SECRET_KEY` — 32-byte hex identity secret (default: the seed bytes).

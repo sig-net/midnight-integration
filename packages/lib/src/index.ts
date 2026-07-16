@@ -1,8 +1,4 @@
-// Public surface of @midnight-erc20-vault/lib code shared by the contract
-// packages' deploy scripts & integration tests.
-export * from "./network-id.ts";
-export * from "./midnight-node-config.ts";
-export * from "./seed.ts";
-export * from "./wallet.ts";
+// Public surface of @midnight-erc20-vault/lib — the midnight-js provider
+// adapters shared by the contract packages' provider sets. Generic deploy /
+// wallet / config plumbing lives in @sig-net/midnight-contract-deploy.
 export * from "./midnight-providers.ts";
-export * from "./deploy.ts";

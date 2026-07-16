@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Shared runtime plumbing — the ONLY copy of these files; deploy, integration-tests and testing all import from here.",
+  "description": "Shared runtime plumbing — the ONLY copy of these files; the contract packages' provider sets import the midnight-js adapters from here.",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -17,21 +17,10 @@
     "vitest": "^4.1.9"
   },
   "dependencies": {
-    "@effect/platform-node": "^0.107.0",
-    "@midnight-ntwrk/compact-js": "2.5.5-rc.5",
-    "@midnight-ntwrk/compact-js-node": "2.5.5-rc.5",
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.3",
     "@midnight-ntwrk/midnight-js-http-client-proof-provider": "5.0.0-beta.3",
-    "@midnight-ntwrk/platform-js": "^3.0.0",
     "@midnightntwrk/ledger-v9": "1.0.0-rc.3",
-    "@midnightntwrk/wallet-sdk-abstractions": "3.0.0-beta.0",
-    "@midnightntwrk/wallet-sdk-address-format": "4.0.0-beta.2",
-    "@midnightntwrk/wallet-sdk-dust-wallet": "5.0.0-beta.2",
     "@midnightntwrk/wallet-sdk-facade": "5.0.0-beta.2",
-    "@midnightntwrk/wallet-sdk-hd": "3.1.0-beta.1",
-    "@midnightntwrk/wallet-sdk-shielded": "4.0.0-beta.2",
-    "@midnightntwrk/wallet-sdk-unshielded-wallet": "4.0.0-beta.2",
-    "@scure/bip39": "^2.2.0",
-    "effect": "^3.21.4"
+    "@sig-net/midnight-contract-deploy": "*"
   }
 }

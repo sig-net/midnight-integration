@@ -7,7 +7,7 @@
 import { encodeCoinPublicKey, type CoinPublicKey } from "@midnight-ntwrk/compact-runtime";
 import { withContractScopedTransaction } from "@midnight-ntwrk/midnight-js/contracts";
 
-import type { EncPublicKey } from "@midnight-erc20-vault/lib";
+import type { EncPublicKey } from "@sig-net/midnight-contract-deploy";
 import {
   requestIdBytes,
   SignetRequestResponseReader,

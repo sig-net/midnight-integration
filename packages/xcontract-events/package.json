@@ -27,7 +27,8 @@
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.3",
     "@midnight-ntwrk/midnight-js-level-private-state-provider": "5.0.0-beta.3",
     "@midnight-ntwrk/midnight-js-node-zk-config-provider": "5.0.0-beta.3",
-    "@midnightntwrk/ledger-v9": "1.0.0-rc.3"
+    "@midnightntwrk/ledger-v9": "1.0.0-rc.3",
+    "@sig-net/midnight-contract-deploy": "*"
   },
   "devDependencies": {
     "@midnight-ntwrk/compact-runtime": "0.18.0-rc.0",

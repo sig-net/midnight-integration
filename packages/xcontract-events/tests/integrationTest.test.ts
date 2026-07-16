@@ -16,7 +16,7 @@
 //
 // Env-gated exactly like the vault e2e: skips entirely unless
 // RUN_INTEGRATION_TESTS is set, so the offline `yarn test` stays green. Needs a
-// running node + indexer + proof server (lib's Midnight node config env) and a
+// running node + indexer + proof server (the deploy package's Midnight node config env) and a
 // funded DEPLOYER_SEED wallet. One file on purpose: vitest runs same-file
 // tests sequentially and the steps feed each other through the `env`
 // accumulator (set XC_TOKEN_CONTRACT_ADDRESS / XC_VAULT_CONTRACT_ADDRESS to
@@ -28,7 +28,7 @@ import {
   getMidnightNodeConfig,
   initialiseWalletFacade,
   type WalletFacade,
-} from "@midnight-erc20-vault/lib";
+} from "@sig-net/midnight-contract-deploy";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { findDeployedContract } from "@midnight-ntwrk/midnight-js/contracts";
 import { setNetworkId } from "@midnight-ntwrk/midnight-js/network-id";

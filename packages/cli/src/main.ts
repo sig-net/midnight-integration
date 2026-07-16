@@ -8,7 +8,7 @@ import { encodeCoinPublicKey, type CoinPublicKey } from "@midnight-ntwrk/compact
 import { Command, InvalidArgumentError } from "commander";
 import { Transaction } from "ethers";
 
-import { deriveAccountKeys, withSyncedWalletFacade, type EncPublicKey } from "@midnight-erc20-vault/lib";
+import { deriveAccountKeys, withSyncedWalletFacade, type EncPublicKey } from "@sig-net/midnight-contract-deploy";
 import { parseRequestIdHex, type RequestIdHex } from "@sig-net/midnight";
 
 import { broadcastEvm } from "./commands/broadcast-evm.ts";

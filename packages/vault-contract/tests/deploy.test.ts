@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { buildDeployTransaction, makeCompiledContract } from "@midnight-erc20-vault/lib";
+import { buildDeployTransaction, makeCompiledContract } from "@sig-net/midnight-contract-deploy";
 import { deriveJubjubKeypair } from "@sig-net/midnight";
 
 import {

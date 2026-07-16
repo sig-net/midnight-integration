@@ -13,11 +13,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@midnight-erc20-vault/lib": "*",
     "@midnight-erc20-vault/vault-contract": "*",
     "@midnight-ntwrk/compact-runtime": "0.18.0-rc.0",
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.3",
     "@sig-net/midnight": "*",
+    "@sig-net/midnight-contract-deploy": "*",
     "commander": "^15.0.0",
     "ethers": "^6.17.0"
   },

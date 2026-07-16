@@ -55,15 +55,10 @@ yarn compile:zk
 │   └── placeholder.sh
 │
 └── packages/
-    ├── lib/                        # @midnight-erc20-vault/lib
-    │   ├── src/                    # shared runtime plumbing — the ONLY copy of these files;
-    │   │   ├── deploy.ts           #   every other package imports from here
-    │   │   ├── midnight-node-config.ts
-    │   │   ├── midnight-providers.ts
-    │   │   ├── network-id.ts
-    │   │   ├── seed.ts / wallet.ts
-    │   │   └── index.ts
-    │   └── tests/
+    ├── lib/                        # @midnight-erc20-vault/lib — repo-private shared plumbing
+    │   └── src/                    #   the midnight-js provider adapters — the ONLY copy;
+    │       ├── midnight-providers.ts   # contract packages' provider sets import from here
+    │       └── index.ts
     │
     ├── signet-midnight/            # @sig-net/midnight — client-agnostic signet protocol library
     │   ├── src/
@@ -84,9 +79,12 @@ yarn compile:zk
     │   └── tests/
     │       └── contract.test.ts    # simulator-level unit tests, no network
     │
-    ├── signet-contract-deploy/     # @sig-net/midnight-contract-deploy
+    ├── signet-contract-deploy/     # @sig-net/midnight-contract-deploy — published deploy tooling
     │   ├── deploy.ts               # deploy script entrypoint
-    │   └── src/                    # deploy-signet-contract.ts, signet-contract-binding.ts
+    │   ├── src/                    # deploy-signet-contract.ts, signet-contract-binding.ts
+    │   │   └── plumbing/           # generic deploy/wallet/config plumbing — the ONLY copy;
+    │   │                           #   deploy.ts, wallet.ts, seed.ts, midnight-node-config.ts, network-id.ts
+    │   └── tests/
     │
     ├── vault-contract/             # @midnight-erc20-vault/vault-contract
     │   ├── src/
@@ -98,7 +96,7 @@ yarn compile:zk
     │   │   ├── contract.test.ts    # simulator-level unit tests, no network
     │   │   └── deploy.test.ts      # builds a deploy tx from the real managed output (needs compile:zk)
     │   └── deploy.ts               # deploy script: constructor args + witnesses live here; the
-    │                               #   generic build/submit plumbing comes from @.../lib
+    │                               #   generic build/submit plumbing comes from @sig-net/midnight-contract-deploy
     │
     ├── cli/                        # @midnight-erc20-vault/cli — drives the whole flow by hand
     │   ├── src/

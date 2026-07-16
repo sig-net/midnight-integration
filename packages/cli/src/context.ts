@@ -2,7 +2,7 @@
 // vault contract handle. Built once per command invocation (inside a synced
 // wallet session) and handed to commands the same way config is. The pieces
 // come from where they belong: generic wallet construction from
-// @midnight-erc20-vault/lib (as in vault-contract's deploy.ts), the
+// @sig-net/midnight-contract-deploy (as in vault-contract's deploy.ts), the
 // vault-specific providers / witnesses / compiled-contract binding from the
 // vault package itself — the "SDK" generated from the contract.
 
@@ -13,7 +13,7 @@ import { findDeployedContract, type FoundContract } from "@midnight-ntwrk/midnig
 // takes it explicitly). createCliContext sets it once per invocation.
 import { setNetworkId } from "@midnight-ntwrk/midnight-js/network-id";
 
-import type { AccountKeys, WalletFacade } from "@midnight-erc20-vault/lib";
+import type { AccountKeys, WalletFacade } from "@sig-net/midnight-contract-deploy";
 import {
   buildVaultProviders,
   createVaultPrivateState,
@@ -68,7 +68,7 @@ export interface CliContext {
  * with the configured identity as private state.
  *
  * @param config - The resolved CLI configuration.
- * @param wallet - The started wallet (main.ts opens it via lib's `withSyncedWalletFacade`).
+ * @param wallet - The started wallet (main.ts opens it via `withSyncedWalletFacade`).
  * @returns The context to hand to a command function.
  * @throws If `MIDNIGHT_VAULT_CONTRACT_ADDRESS` is unset or no contract answers there.
  */

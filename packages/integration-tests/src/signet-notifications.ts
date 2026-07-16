@@ -3,7 +3,7 @@
 // means polling (gotcha #15) — this module owns only that plumbing; every
 // assertion on the decoded notification stays in the test bodies.
 
-import { getMidnightNodeConfig } from "@midnight-erc20-vault/lib";
+import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 import {
   decodeSignBidirectionalNotification,
   readSignBidirectionalNotificationIndexFromState,

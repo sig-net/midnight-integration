@@ -1,20 +1,22 @@
 // Signet-contract deploy flow: builds, balances, proves and submits the
-// contract's deploy transaction using the generic plumbing in
-// @midnight-erc20-vault/lib. Everything contract-specific lives HERE: the
-// MPC attestation key constructor arg and the (empty) private state.
-// Requires `yarn compile:zk` output (verifier keys) in the contract
-// package's src/managed.
+// contract's deploy transaction using the generic plumbing in ./plumbing.
+// Everything contract-specific lives HERE: the MPC attestation key
+// constructor arg and the (empty) private state. Requires the contract
+// package's compiled assets to carry keys (its published dist/managed
+// always does; an in-repo checkout needs `yarn compile:zk`).
 
+import { parseJubjubPublicKey } from "@sig-net/midnight";
 import {
   assertDeployerFunded,
   buildDeployTransaction,
-  deriveAccountKeys,
   getDeployConfig,
+} from "./plumbing/deploy.ts";
+import {
+  deriveAccountKeys,
   submitUnprovenTransaction,
   withSyncedWalletFacade,
   type TransactionIdentifier,
-} from "@midnight-erc20-vault/lib";
-import { parseJubjubPublicKey } from "@sig-net/midnight";
+} from "./plumbing/wallet.ts";
 import {
   createSignetContractPrivateState,
   signetContractCompiledContract,
@@ -37,7 +39,7 @@ export interface SignetContractDeployment {
  * by it. Any funded wallet can deploy; nothing about the deployer is sealed.
  *
  * @param env - Environment map providing `DEPLOYER_SEED`,
- *   `MPC_JUBJUB_PK` and lib's Midnight node configuration.
+ *   `MPC_JUBJUB_PK` and the shared Midnight node configuration (see `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
  * @throws If `MPC_JUBJUB_PK` is missing/malformed, the deployer
  *   wallet holds no funds, or submission fails.

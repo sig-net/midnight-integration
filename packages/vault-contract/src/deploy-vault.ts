@@ -1,5 +1,5 @@
 // Vault deploy flow: builds, balances, proves and submits the vault's deploy
-// transaction using the generic plumbing in @midnight-erc20-vault/lib.
+// transaction using the generic plumbing in @sig-net/midnight-contract-deploy.
 // Everything contract-specific lives HERE: the constructor arg
 // (deployerCommitment), the witnesses, and the private state. Requires
 // `yarn compile:zk` output (verifier keys) in src/managed.
@@ -16,7 +16,7 @@ import {
   submitUnprovenTransaction,
   withSyncedWalletFacade,
   type TransactionIdentifier,
-} from "@midnight-erc20-vault/lib";
+} from "@sig-net/midnight-contract-deploy";
 import { parseJubjubPublicKey } from "@sig-net/midnight";
 
 import { Contract, pureCircuits } from "./managed/erc20-vault/contract/index.js";
@@ -61,7 +61,7 @@ export interface VaultDeployment {
  * @param env - Environment map providing `DEPLOYER_SEED`,
  *   `VAULT_DEPLOYER_SECRET_KEY`, `MPC_JUBJUB_PK`,
  *   `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` (the signet contract to seal as the
- *   cross-contract emitter) and lib's Midnight node configuration.
+ *   cross-contract emitter) and the shared Midnight node configuration (see `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
  * @throws If `MPC_JUBJUB_PK` or `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` is
  *   missing/malformed, the deployer wallet holds no funds, or submission fails.

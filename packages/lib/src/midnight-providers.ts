@@ -22,7 +22,7 @@ import { httpClientProvingProvider } from "@midnight-ntwrk/midnight-js-http-clie
 import type { ProvingKeyMaterial, ProvingProvider } from "@midnightntwrk/ledger-v9";
 import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
 
-import type { AccountKeys } from "./wallet.ts";
+import type { AccountKeys } from "@sig-net/midnight-contract-deploy";
 
 // Balancing recipes expire 30 min out (same TTL as submitUnprovenTransaction).
 const BALANCE_TTL_MS = 30 * 60 * 1000;

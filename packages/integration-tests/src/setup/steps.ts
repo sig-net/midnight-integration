@@ -14,7 +14,7 @@ import {
   registerNightForDustGeneration,
   waitForSpendableDust,
   withSyncedWalletFacade,
-} from "@midnight-erc20-vault/lib";
+} from "@sig-net/midnight-contract-deploy";
 import { deriveEvmAddress, formatJubjubPublicKey } from "@sig-net/midnight";
 import { deriveMpcKeys, generateMpcRootKey } from "./mpc-keys.ts";
 import { deploySignetContract } from "@sig-net/midnight-contract-deploy";

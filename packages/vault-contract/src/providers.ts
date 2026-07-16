@@ -2,8 +2,9 @@
 // talking to a deployed instance: the compiled-contract binding (generated
 // module + witnesses + this package's managed assets), the zk-config path the
 // proof provider reads keys from, the circuit-id union, and the private-state
-// store id. The generic wallet + adapter come from @midnight-erc20-vault/lib;
-// clients compose the two and call `findDeployedContract(providers, ...)`.
+// store id. The generic wallet comes from @sig-net/midnight-contract-deploy,
+// the provider adapters from @midnight-erc20-vault/lib; clients compose the
+// pieces and call `findDeployedContract(providers, ...)`.
 
 import { fileURLToPath } from "node:url";
 
@@ -16,10 +17,12 @@ import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
 import {
   createCrossContractProofServerProvider,
   createWalletAndMidnightProvider,
+} from "@midnight-erc20-vault/lib";
+import {
   makeCompiledContract,
   type AccountKeys,
   type MidnightNodeConfig,
-} from "@midnight-erc20-vault/lib";
+} from "@sig-net/midnight-contract-deploy";
 
 import { Contract } from "./managed/erc20-vault/contract/index.js";
 import { witnesses, type VaultPrivateState } from "./witnesses.ts";
@@ -74,7 +77,7 @@ export const vaultCompiledContract = makeCompiledContract<Contract<VaultPrivateS
 /**
  * Build the midnight-js provider set for the vault.
  *
- * @param facade - A started (and synced) wallet facade — see lib's `withSyncedWalletFacade`.
+ * @param facade - A started (and synced) wallet facade — see `withSyncedWalletFacade`.
  * @param keys - The key material of the same wallet, for balancing and signing.
  * @param config - The Midnight network endpoints to run against.
  * @returns The provider set to hand to `findDeployedContract` / `deployContract`.

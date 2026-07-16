@@ -20,10 +20,12 @@ import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
 import {
   createCrossContractProofServerProvider,
   createWalletAndMidnightProvider,
+} from "@midnight-erc20-vault/lib";
+import {
   makeVacantCompiledContract,
   type AccountKeys,
   type MidnightNodeConfig,
-} from "@midnight-erc20-vault/lib";
+} from "@sig-net/midnight-contract-deploy";
 
 import { Contract as TokenContract } from "./managed/Token/contract/index.js";
 import { Contract as VaultContract } from "./managed/vault/contract/index.js";

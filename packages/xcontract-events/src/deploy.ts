@@ -1,5 +1,5 @@
 // Deploy flows for the two spike contracts, using the generic plumbing in
-// @midnight-erc20-vault/lib (same shape as vault-contract / signet-contract
+// @sig-net/midnight-contract-deploy (same shape as vault-contract / signet-contract
 // deploy scripts). Requires `yarn compile:zk` output (verifier keys) in
 // src/managed/{token,vault}.
 //
@@ -15,7 +15,7 @@ import {
   submitUnprovenTransaction,
   withSyncedWalletFacade,
   type TransactionIdentifier,
-} from "@midnight-erc20-vault/lib";
+} from "@sig-net/midnight-contract-deploy";
 
 import { tokenCompiledContract, vaultCompiledContract } from "./providers.ts";
 import { createTokenPrivateState, createVaultPrivateState } from "./witnesses.ts";
@@ -43,7 +43,7 @@ export function contractAddressToReference(contractAddress: string): { bytes: Ui
 /**
  * Deploy the token contract (B, the callee). No constructor args.
  *
- * @param env - Environment map providing `DEPLOYER_SEED` and lib's Midnight node config.
+ * @param env - Environment map providing `DEPLOYER_SEED` and the shared Midnight node config (see `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
  */
 export async function deployToken(env: Record<string, string | undefined> = process.env): Promise<Deployment> {
@@ -79,7 +79,7 @@ export async function deployToken(env: Record<string, string | undefined> = proc
  * already-deployed token as its constructor argument.
  *
  * @param tokenContractAddress - Address of the token deployed by {@link deployToken}.
- * @param env - Environment map providing `DEPLOYER_SEED` and lib's Midnight node config.
+ * @param env - Environment map providing `DEPLOYER_SEED` and the shared Midnight node config (see `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
  */
 export async function deployVault(

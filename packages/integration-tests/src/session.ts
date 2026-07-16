@@ -5,7 +5,7 @@
 // path (RUN_INTEGRATION_TESTS unset) from ever touching the network.
 
 import { createCliContext, getCliConfig, type CliContext } from "@midnight-erc20-vault/cli";
-import { deriveAccountKeys, getMidnightNodeConfig, initialiseWalletFacade, type WalletFacade } from "@midnight-erc20-vault/lib";
+import { deriveAccountKeys, getMidnightNodeConfig, initialiseWalletFacade, type WalletFacade } from "@sig-net/midnight-contract-deploy";
 import { SignetRequestResponseReader } from "@sig-net/midnight";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { requireEnv } from "./e2e-env.ts";

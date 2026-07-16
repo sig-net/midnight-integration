@@ -37,7 +37,7 @@ import {
   deriveAccountKeys,
   getMidnightNodeConfig,
   withSyncedWalletFacade,
-} from "@midnight-erc20-vault/lib";
+} from "@sig-net/midnight-contract-deploy";
 import { requestIdBytes, type RequestIdHex } from "@sig-net/midnight";
 import { formatEther, parseEther, parseUnits } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
