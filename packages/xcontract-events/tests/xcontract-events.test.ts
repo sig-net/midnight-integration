@@ -32,7 +32,7 @@ import {
   sampleContractAddress,
 } from "@midnight-ntwrk/compact-runtime";
 
-import * as Token from "../src/managed/token/contract/index.js";
+import * as Token from "../src/managed/Token/contract/index.js";
 import * as Vault from "../src/managed/vault/contract/index.js";
 
 // Dummy coin public key (32-byte hex). Required by the API, unused here.

@@ -256,12 +256,49 @@ export async function compileSignetContract(env: NodeJS.ProcessEnv): Promise<voi
   await runRootScript("compile:signet-contract:zk", env, 14 * MINUTE);
 }
 
+/**
+ * Run a deploy, retrying while the deployer wallet cannot yet pay the fee.
+ * On a freshly started dev chain DUST generates block by block from the
+ * genesis NIGHT, so the first deploy can race the chain's first minutes —
+ * `Wallet.InsufficientFunds` ("could not balance dust") is transient there.
+ * A genuinely unfunded wallet fails fast in {@link ensureDeployerDust}
+ * instead, so the bounded retry here cannot mask real underfunding.
+ *
+ * @param what - Step label for the retry log lines.
+ * @param deploy - The deploy call to (re)attempt.
+ * @returns Whatever `deploy` resolves to.
+ * @throws The last error when attempts are exhausted, or immediately for
+ *   any error that is not the transient insufficient-dust failure.
+ */
+async function retryDeployWhileDustGenerates<T>(what: string, deploy: () => Promise<T>): Promise<T> {
+  const RETRY_DELAY_MS = 15_000;
+  const MAX_ATTEMPTS = 24; // ~6 minutes — a young dev chain generates plenty by then
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await deploy();
+    } catch (error) {
+      const message = String(error);
+      const transient = message.includes("InsufficientFunds") || message.includes("could not balance dust");
+      if (!transient || attempt >= MAX_ATTEMPTS) {
+        throw error;
+      }
+      console.log(
+        `${what}: deployer cannot pay the fee yet (dust still generating on a young chain?)` +
+          ` — retrying in ${RETRY_DELAY_MS / 1000}s (attempt ${attempt}/${MAX_ATTEMPTS})`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    }
+  }
+}
+
 export async function deploySignetContractStep(env: NodeJS.ProcessEnv): Promise<void> {
   if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
     logSkip("deploy:signet-contract", `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is set (${env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS})`);
     return;
   }
-  const { contractAddress } = await deploySignetContract(env);
+  const { contractAddress } = await retryDeployWhileDustGenerates("deploy:signet-contract", () =>
+    deploySignetContract(env),
+  );
   env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS = contractAddress;
   console.log(`deployed a fresh MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${contractAddress}`);
   console.log(` ➜ the central signet contract on Midnight — records signature requests and authenticated MPC responses`);
@@ -395,7 +432,7 @@ export async function deployVaultContractStep(env: NodeJS.ProcessEnv): Promise<v
     logSkip("deploy:vault-contract", `MIDNIGHT_VAULT_CONTRACT_ADDRESS is set (${env.MIDNIGHT_VAULT_CONTRACT_ADDRESS})`);
     return;
   }
-  const { contractAddress } = await deployVault(env);
+  const { contractAddress } = await retryDeployWhileDustGenerates("deploy:vault-contract", () => deployVault(env));
   env.MIDNIGHT_VAULT_CONTRACT_ADDRESS = contractAddress;
   console.log(`deployed a fresh MIDNIGHT_VAULT_CONTRACT_ADDRESS=${contractAddress}`);
   console.log(` ➜ the vault contract on Midnight — holds deposits and authorizes withdrawals`);

@@ -3,7 +3,7 @@
 // an (empty) private-state value + a witnesses object to bind via
 // makeVacantCompiledContract, mirroring signet-contract's witness-less setup.
 
-import type { Witnesses as TokenWitnesses } from "./managed/token/contract/index.js";
+import type { Witnesses as TokenWitnesses } from "./managed/Token/contract/index.js";
 import type { Witnesses as VaultWitnesses } from "./managed/vault/contract/index.js";
 
 /** Private state carried through token circuit calls: none. */

@@ -9,10 +9,10 @@
   },
   "scripts": {
     "compile": "yarn compile:token && yarn compile:vault",
-    "compile:token": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/token.compact src/managed/token",
+    "compile:token": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/token.compact src/managed/Token",
     "compile:vault": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/vault.compact src/managed/vault",
     "compile:zk": "yarn compile:token:zk && yarn compile:vault:zk",
-    "compile:token:zk": "COMPACT_PATH=../../node_modules compact compile src/token.compact src/managed/token",
+    "compile:token:zk": "COMPACT_PATH=../../node_modules compact compile src/token.compact src/managed/Token",
     "compile:vault:zk": "COMPACT_PATH=../../node_modules compact compile src/vault.compact src/managed/vault",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests",

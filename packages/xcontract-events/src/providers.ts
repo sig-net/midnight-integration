@@ -25,7 +25,7 @@ import {
   type MidnightNodeConfig,
 } from "@midnight-erc20-vault/lib";
 
-import { Contract as TokenContract } from "./managed/token/contract/index.js";
+import { Contract as TokenContract } from "./managed/Token/contract/index.js";
 import { Contract as VaultContract } from "./managed/vault/contract/index.js";
 import {
   tokenWitnesses,
@@ -47,7 +47,7 @@ export const VAULT_PRIVATE_STATE_ID: VaultPrivateStateId = "xc-vault";
 export type VaultProviders = MidnightProviders<VaultCircuitId, VaultPrivateStateId, VaultPrivateState>;
 
 // Compiler output dirs (contract/, keys/, zkir/) — the zk-config roots.
-const tokenManagedPath = fileURLToPath(new URL("./managed/token", import.meta.url));
+const tokenManagedPath = fileURLToPath(new URL("./managed/Token", import.meta.url));
 const vaultManagedPath = fileURLToPath(new URL("./managed/vault", import.meta.url));
 
 /** Compiled-contract bindings (witness-less → vacant witnesses). */
