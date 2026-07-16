@@ -2,10 +2,10 @@
 # stream (see packages/integration-tests/README.md). Three jobs:
 #
 #   unit         — yarn compile && yarn build && yarn test  (every push/PR)
-#   integration  — docker compose up -d + the integration suite; the suite's
-#                  own setup deploys the contracts, appends the fakenet
-#                  hand-off values to .env and starts the responder container
-#                  (PR gate: happy-day only; nightly + manual: full suite)
+#   integration  — docker compose up -d + the generic signet-caller e2e; the
+#                  suite's own setup deploys the contracts, appends the
+#                  fakenet hand-off values to .env and starts the responder
+#                  container
 #   zk-canary    — fresh full keygen, row counts in the log (weekly + manual)
 #
 # Caches (both weekly-keyed or source-keyed, never version-pinned — the repo
@@ -28,14 +28,10 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    - cron: "17 3 * * *" # nightly: full integration suite
+    - cron: "17 3 * * *" # nightly: integration suite
     - cron: "41 4 * * 1" # weekly (Mon): zk row-count canary
   workflow_dispatch:
     inputs:
-      full-integration:
-        description: "Run the FULL integration suite (all flow files), not just happy-day"
-        type: boolean
-        default: false
       zk-canary:
         description: "Run the zk compile canary (fresh keygen, no cache)"
         type: boolean
@@ -115,7 +111,7 @@ jobs:
         with:
           path: |
             packages/signet-contract/src/managed
-            packages/vault-contract/src/managed
+            packages/caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
       - name: Ensure signet-contract prover keys (its build's publish-safety check needs them)
         run: |
@@ -130,15 +126,10 @@ jobs:
         run: yarn test
 
   integration:
-    name: integration (compose stack + fakenet + flows)
+    name: integration (compose stack + fakenet + signet-caller e2e)
     if: github.event_name != 'schedule' || github.event.schedule == '17 3 * * *'
-    # TODO(B.3): switch to a larger hosted runner (e.g. ubuntu-latest-8-cores,
-    # provisioned under Org Settings → Actions → Runners) — a single
-    # claim/settle proof peaks at ~8–10 GiB inside the proof server, so the
-    # default 4-core/16 GB runner is marginal. Kept on ubuntu-latest until the
-    # label exists: an unknown label queues forever instead of failing.
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.full-integration) && 300 || 150 }}
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -204,7 +195,7 @@ jobs:
         with:
           path: |
             packages/signet-contract/src/managed
-            packages/vault-contract/src/managed
+            packages/caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
       - name: zk keygen (both contracts; cache miss only)
         if: steps.zk.outputs.cache-hit != 'true'
@@ -215,7 +206,7 @@ jobs:
         with:
           path: |
             packages/signet-contract/src/managed
-            packages/vault-contract/src/managed
+            packages/caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
       - name: Start the local stack (midnight node, indexer, proof server, anvil)
         run: docker compose up -d
@@ -228,18 +219,12 @@ jobs:
             -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' http://127.0.0.1:8545
       # The suite's own setup does the rest: deploys both contracts, appends
       # MPC_ROOT_KEY + MIDNIGHT_SIGNET_CONTRACT_ADDRESS to .env (the file
-      # does not exist on a fresh runner — it gets created), starts the
-      # fakenet responder container, funds the derived accounts on anvil.
-      - name: Integration suite — happy-day (PR gate)
-        if: github.event_name != 'schedule' && inputs.full-integration != true
+      # does not exist on a fresh runner — it gets created), and starts the
+      # fakenet responder container. The pipeline itself is EVM-free; anvil
+      # is up only because the responder's config needs a reachable EVM
+      # endpoint to boot.
+      - name: Integration suite — generic signet-caller e2e
         env:
-          VITE_TEST_EVM_RPC_URL: http://127.0.0.1:8545
-          TRUST_PREBUILT_ZK_KEYS: "1"
-        run: yarn test:integration-tests:happy-day-e2e
-      - name: Integration suite — full (nightly / manual)
-        if: github.event_name == 'schedule' || inputs.full-integration == true
-        env:
-          VITE_TEST_EVM_RPC_URL: http://127.0.0.1:8545
           TRUST_PREBUILT_ZK_KEYS: "1"
         run: yarn test:integration-tests
       - name: Collect service logs
