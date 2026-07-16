@@ -83,16 +83,24 @@ jobs:
           fi
           compact update
           # The workspace tracks the ledger-9 toolchain line: latest STABLE
-          # (0.31.1) still speaks language version 0.23 and rejects the
-          # contracts' `pragma language_version >= 0.25`. The 0.33.0-rc.0
-          # toolchain is NOT in the public release channel yet (it exists
-          # locally only as a privately-shared binary) — this step fails
-          # loudly until upstream publishes it or a Linux build is hosted
-          # for CI. Tracked in task.md B.3.
-          compact update 0.33.0-rc.0 || {
-            echo "::error::compactc 0.33.0-rc.0 is not in the public release channel — the ledger-9 contracts need language_version >= 0.25, which no released compiler provides. See task.md B.3."
-            exit 1
-          }
+          # (0.31.1) speaks language 0.23 and rejects the contracts'
+          # `pragma language_version >= 0.25`. compactc 0.33.0-rc.0 is a
+          # PRERELEASE published on the toolchain's LF home
+          # (LFDT-Minokawa/compact), which the launcher's channel does not
+          # list — download it directly and let the launcher adopt it.
+          # Part of the ledger-9 MATCHED SET (see docker-compose.yaml's
+          # image-tag comment) — move it together with the npm stack.
+          RC_DIR="$HOME/.compact/versions/0.33.0-rc.0/x86_64-unknown-linux-musl"
+          if [ ! -x "$RC_DIR/compactc" ]; then
+            curl -fsSL -o /tmp/compactc-rc.zip \
+              https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.0/compactc_v0.33.0-rc.0_x86_64-unknown-linux-musl.zip
+            unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
+            chmod +x "$RC_DIR"/*
+          fi
+          # `compact update <ver>` adopts an already-on-disk version without
+          # downloading; if the launcher refuses (version not in its
+          # channel), wire the default symlinks it would have created.
+          compact update 0.33.0-rc.0 || ln -sfn "$RC_DIR"/* "$HOME/.compact/bin/"
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
@@ -162,16 +170,24 @@ jobs:
           fi
           compact update
           # The workspace tracks the ledger-9 toolchain line: latest STABLE
-          # (0.31.1) still speaks language version 0.23 and rejects the
-          # contracts' `pragma language_version >= 0.25`. The 0.33.0-rc.0
-          # toolchain is NOT in the public release channel yet (it exists
-          # locally only as a privately-shared binary) — this step fails
-          # loudly until upstream publishes it or a Linux build is hosted
-          # for CI. Tracked in task.md B.3.
-          compact update 0.33.0-rc.0 || {
-            echo "::error::compactc 0.33.0-rc.0 is not in the public release channel — the ledger-9 contracts need language_version >= 0.25, which no released compiler provides. See task.md B.3."
-            exit 1
-          }
+          # (0.31.1) speaks language 0.23 and rejects the contracts'
+          # `pragma language_version >= 0.25`. compactc 0.33.0-rc.0 is a
+          # PRERELEASE published on the toolchain's LF home
+          # (LFDT-Minokawa/compact), which the launcher's channel does not
+          # list — download it directly and let the launcher adopt it.
+          # Part of the ledger-9 MATCHED SET (see docker-compose.yaml's
+          # image-tag comment) — move it together with the npm stack.
+          RC_DIR="$HOME/.compact/versions/0.33.0-rc.0/x86_64-unknown-linux-musl"
+          if [ ! -x "$RC_DIR/compactc" ]; then
+            curl -fsSL -o /tmp/compactc-rc.zip \
+              https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.0/compactc_v0.33.0-rc.0_x86_64-unknown-linux-musl.zip
+            unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
+            chmod +x "$RC_DIR"/*
+          fi
+          # `compact update <ver>` adopts an already-on-disk version without
+          # downloading; if the launcher refuses (version not in its
+          # channel), wire the default symlinks it would have created.
+          compact update 0.33.0-rc.0 || ln -sfn "$RC_DIR"/* "$HOME/.compact/bin/"
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
@@ -261,16 +277,24 @@ jobs:
             https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
           compact update
           # The workspace tracks the ledger-9 toolchain line: latest STABLE
-          # (0.31.1) still speaks language version 0.23 and rejects the
-          # contracts' `pragma language_version >= 0.25`. The 0.33.0-rc.0
-          # toolchain is NOT in the public release channel yet (it exists
-          # locally only as a privately-shared binary) — this step fails
-          # loudly until upstream publishes it or a Linux build is hosted
-          # for CI. Tracked in task.md B.3.
-          compact update 0.33.0-rc.0 || {
-            echo "::error::compactc 0.33.0-rc.0 is not in the public release channel — the ledger-9 contracts need language_version >= 0.25, which no released compiler provides. See task.md B.3."
-            exit 1
-          }
+          # (0.31.1) speaks language 0.23 and rejects the contracts'
+          # `pragma language_version >= 0.25`. compactc 0.33.0-rc.0 is a
+          # PRERELEASE published on the toolchain's LF home
+          # (LFDT-Minokawa/compact), which the launcher's channel does not
+          # list — download it directly and let the launcher adopt it.
+          # Part of the ledger-9 MATCHED SET (see docker-compose.yaml's
+          # image-tag comment) — move it together with the npm stack.
+          RC_DIR="$HOME/.compact/versions/0.33.0-rc.0/x86_64-unknown-linux-musl"
+          if [ ! -x "$RC_DIR/compactc" ]; then
+            curl -fsSL -o /tmp/compactc-rc.zip \
+              https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.0/compactc_v0.33.0-rc.0_x86_64-unknown-linux-musl.zip
+            unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
+            chmod +x "$RC_DIR"/*
+          fi
+          # `compact update <ver>` adopts an already-on-disk version without
+          # downloading; if the launcher refuses (version not in its
+          # channel), wire the default symlinks it would have created.
+          compact update 0.33.0-rc.0 || ln -sfn "$RC_DIR"/* "$HOME/.compact/bin/"
           compact compile --version
       - name: Install dependencies (no lockfile by design — installs float to latest)
         run: yarn install --no-immutable
