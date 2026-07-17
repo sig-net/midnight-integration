@@ -32,13 +32,17 @@ golden-vectored crypto tests in `packages/signet-midnight/tests`), and its
 
 ## 1 — Docs & identity cleanup (the merge gate: do these, then PR `bernard/repo-refactor` → `main`)
 
-- [ ] **1.1 Repo identity rename** (started: `66c7dd8` README updates). Root
-      `package.json` `name: midnight-erc20-vault` + the two
-      `workspaces foreach --exclude midnight-erc20-vault` scripts; workspace
-      scopes `@midnight-erc20-vault/{lib,caller-contract,integration-tests}`
-      (+ `packages/lib/AGENTS.md` heading); `AGENTS.md` H1; `README.md` title
-      + package tree. Pick the scope to match `midnight-protocol`. Update
-      `origin` after the GitHub rename.
+- [x] **1.1 Repo identity rename: DONE (2026-07-17, `dcc4d37`;** started
+      `66c7dd8` README updates**).** Root `package.json` name + the
+      `workspaces foreach --exclude` scripts renamed to `midnight-protocol`;
+      workspace scopes now
+      `@midnight-protocol/{lib,caller-contract,integration-tests}` (imports,
+      `packages/lib/AGENTS.md` heading and `AGENTS.md` H1 updated with them).
+      README title/tree carried no old identity after `66c7dd8`. The two
+      `erc20-vault` mentions left in `signet-midnight` comments refer to the
+      examples repo / MPC responder, not this repo. STILL PENDING: update
+      `origin` once the GitHub rename to `midnight-protocol` happens (user
+      action; still `sig-net/midnight-integration` as of 2026-07-17).
 - [x] **1.2 Sepolia runbook + sweep script — DONE (2026-07-17).** The parked
       Sepolia derived-account funds were swept back to the funding wallet
       `0xFBdC76c2aaB313484d1b8E63B75D38efD0537680` (~0.0142 ETH + 4.4 USDC
