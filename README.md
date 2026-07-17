@@ -1,11 +1,10 @@
-# Sig Network on Midnight
+# Sig Network Midnight Integration
 
-The Midnight-side integration of [Sig Network](https://sig.network) chain
-signature technology: the central **signet contract** (the singleton every
-client contract cross-contract-calls to request MPC signatures), the
-client-agnostic **protocol SDK**, the published **deploy tooling**, and a
-minimal **caller contract** whose generic e2e drives the whole
-request → sign → verify pipeline against a local stack.
+The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-net/mpc) [Midnight Blockchain](https://midnight.network) Integration allows contracts on Midnight to execute arbitrary transactions on foreign blockchains.
+
+This repository contains the Sig Network protocol singleton contract and associated SDK that enable contract builders on Midnight to leverage this chain signature technology.
+
+Example applications demonstrating how contract builds
 
 Example applications built on these packages — such as the ERC20 vault demo —
 live in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples),
