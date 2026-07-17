@@ -101,7 +101,17 @@ jobs:
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
-        run: echo "version=$(compact compile --version | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
+        run: |
+          # The zk-key cache must bust whenever the compiler BUILD changes,
+          # but `compact compile --version` drops the -rc suffix (rc.0 and
+          # rc.2 both print 0.33.0), so an rc bump would silently reuse the
+          # old rc's cached managed/ output against a newer runtime. Read the
+          # rc-qualified version from the default compiler's version directory
+          # (…/versions/<version>/<arch>/compactc) instead.
+          target="$(readlink -f "$(command -v compactc)")"
+          version="$(basename "$(dirname "$(dirname "$target")")")"
+          case "$version" in [0-9]*) ;; *) version="$(compact compile --version)" ;; esac
+          echo "version=$(printf '%s' "$version" | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
       - name: Install dependencies (no lockfile by design — installs float to latest)
         run: yarn install --no-immutable
       - name: Compile (skip-zk)
@@ -184,7 +194,17 @@ jobs:
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
-        run: echo "version=$(compact compile --version | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
+        run: |
+          # The zk-key cache must bust whenever the compiler BUILD changes,
+          # but `compact compile --version` drops the -rc suffix (rc.0 and
+          # rc.2 both print 0.33.0), so an rc bump would silently reuse the
+          # old rc's cached managed/ output against a newer runtime. Read the
+          # rc-qualified version from the default compiler's version directory
+          # (…/versions/<version>/<arch>/compactc) instead.
+          target="$(readlink -f "$(command -v compactc)")"
+          version="$(basename "$(dirname "$(dirname "$target")")")"
+          case "$version" in [0-9]*) ;; *) version="$(compact compile --version)" ;; esac
+          echo "version=$(printf '%s' "$version" | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
       - name: Install dependencies (no lockfile by design — installs float to latest)
         run: yarn install --no-immutable
       - name: Compile (skip-zk)
