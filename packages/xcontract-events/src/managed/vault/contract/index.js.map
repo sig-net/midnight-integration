@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "index.js",
+  "sourceRoot": "../../../../",
+  "sources": ["src/vault.compact"],
+  "names": [],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;EA8BA;;;;;;;;;;MAMA,AAAA,eAMC;;;;;cAN8B,QAAiB;;;;;;;;;;;;;;;;;;yCAAjB,QAAiB;;;;;;;;;uDAAjB,QAAiB;;;;OAM/C;;;;GAVA;EAFD;;;;;UAAY,GAAQ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;IAPpB;;;;;;;;;yEAAkC;IAClC;;;;;;;;;yEAAsC;IAItC;;;;;;;;;;yEAA4C;IAG1C;;;;;;;2HAAiB,GAAC;;yEAAb;;;;;;;GACN;EAID,AAAA,wBAMC,4BAN8B,QAAiB;UAC9C,KAAc;IAAd;;;;;;;;;;6FAAA,KAAc;;;;wEAAA;UACR,IAAkB,2BAAb;;;;;;;;;;;8GAAM;UACX,WAA+C;;;iIAAnC;;;;;;;;;;;sMAAK;;;iEAAkB,QAAM;iEAAG,IAAE;IACpD;;;;;;;;;;2HAAqB,WAAS;;;;;wEAAjB;WACN,WAAS;GACjB;;;;;;;;;;;;;;;;IAnBD;qCAAA;;;;;;;;;;;0GAAkC;KAAA;IAClC;qCAAA;;;;;;;;;;;0GAAsC;KAAA;IAItC;;;;;uCAAA;;;;;;;;;;;;;;;;4GAA4C;;;;;;uCAA5C;;;;;;;;;;;;4GAA4C;;;;;;;;;;;;;;uCAA5C;;;;;;;;;;;;;;;4GAA4C;;;;;;;;;KAAA;;;;;;;;;;;;;;;;;;;;;;;;"
+}

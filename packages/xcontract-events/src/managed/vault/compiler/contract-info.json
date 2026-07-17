@@ -1,0 +1,118 @@
+{
+  "compiler-version": "0.33.0",
+  "language-version": "0.25.0",
+  "runtime-version": "0.18.0-rc.0",
+  "circuits": [
+    {
+      "name": "depositViaVault",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "amount",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 340282366920938463463374607431768211455
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    }
+  ],
+  "witnesses": [
+  ],
+  "contracts": [
+    {
+      "name": "Token",
+      "circuits": [
+        {
+          "name": "deposit",
+          "pure": false,
+          "argument-types": [
+            {
+              "type-name": "Uint",
+              "maxval": 340282366920938463463374607431768211455
+            },
+            {
+              "type-name": "Struct",
+              "name": "ContractAddress",
+              "elements": [
+                {
+                  "name": "bytes",
+                  "type": {
+                    "type-name": "Bytes",
+                    "length": 32
+                  }
+                }
+              ]
+            }
+          ],
+          "result-type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ]
+    }
+  ],
+  "ledger": [
+    {
+      "name": "token",
+      "index": 0,
+      "exported": true,
+      "storage": "Cell",
+      "type": {
+        "type-name": "Contract",
+        "name": "Token",
+        "circuits": [
+          {
+            "name": "deposit",
+            "pure": false,
+            "argument-types": [
+              {
+                "type-name": "Uint",
+                "maxval": 340282366920938463463374607431768211455
+              },
+              {
+                "type-name": "Struct",
+                "name": "ContractAddress",
+                "elements": [
+                  {
+                    "name": "bytes",
+                    "type": {
+                      "type-name": "Bytes",
+                      "length": 32
+                    }
+                  }
+                ]
+              }
+            ],
+            "result-type": {
+              "type-name": "Bytes",
+              "length": 32
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "vaultCallCount",
+      "index": 1,
+      "exported": true,
+      "storage": "Counter"
+    },
+    {
+      "name": "vaultDeposits",
+      "index": 2,
+      "exported": true,
+      "storage": "Set",
+      "type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    }
+  ]
+}

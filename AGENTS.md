@@ -16,9 +16,6 @@ node-modules`). Its members live under `packages/`:
   plumbing (`src/plumbing/`) every contract package's deploy script composes.
 - **`packages/integration-tests`** — everything that needs a running stack:
   the generic signet-caller e2e and its setup pipeline.
-- **`packages/xcontract-events`** — Compact cross-contract-call research;
-  its knowledge base informs protocol work (see its `knowledge-base/`).
-
 Example applications built on these packages (e.g. the ERC20 vault) live in
 `sig-net/midnight-examples`, consuming the published `@sig-net/*` packages
 from npm.

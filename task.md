@@ -9,9 +9,10 @@ package you touch.
 Rewritten 2026-07-17 (twice — first the post-split merge-gate version with the
 full main↔refactor↔examples coverage recon, commit `3ad0ade`; then this slim
 version). The refactor itself is DONE: this repo is the Signature Network
-singleton + SDK + a minimal generic caller with its e2e suite (+ the
-`xcontract-events` knowledge-base exception); the erc20-vault example moved to
-`sig-net/midnight-examples` (PR #1). The coverage recon confirmed merging
+singleton + SDK + a minimal generic caller with its e2e suite; the erc20-vault
+example moved to `sig-net/midnight-examples` (PR #1), and the
+`xcontract-events` research spike (+ its knowledge-base) moved to
+`BRBussy/midnight-experiments` (2026-07-17). The coverage recon confirmed merging
 `bernard/repo-refactor` → `main` loses no test coverage; the two substantive
 findings (bearer-handoff test, withdraw segment-safety verification) are
 tracked in the EXAMPLES repo's TASK.md, not here. Full history — original
@@ -49,9 +50,9 @@ golden-vectored crypto tests in `packages/signet-midnight/tests`), and its
       into main.
 - [x] **1.4 README `## TODOs` block** — DONE (README tidy, 2026-07-17): block
       removed; its items live in §3 / task.md §2.
-- [ ] **1.5 `--passWithNoTests`:** drop from `signet-midnight` (11 test files)
-      and `xcontract-events` (2); keep on `lib` (tests were pruned with its
-      surface) with a one-line comment, or give lib a minimal test.
+- [ ] **1.5 `--passWithNoTests`:** drop from `signet-midnight` (11 test
+      files); keep on `lib` (tests were pruned with its surface) with a
+      one-line comment, or give lib a minimal test.
 - [ ] **1.6 Open the PR** `bernard/repo-refactor` → `main`; after merge:
       retire the old-MVP worktree and delete stale branches (including the
       dead `feat/signet-signer-ledger9`).
@@ -135,5 +136,18 @@ field widths, calldata-arg generics) if possible → freeze/republish. The
 former Phase A/E material (wire versioning, MPC alignment sign-off,
 attestation-crypto question) moved to the §3 backlog — recorded, unscheduled.
 **Impact:** none on code; frees the post-merge branch cleanup.
+
+### D32 — xcontract-events moved to BRBussy/midnight-experiments (2026-07-17)
+**Decision:** Per Bernard: the `packages/xcontract-events` research spike
+(cross-contract calls + MIP-0002 events, incl. its `knowledge-base/`) moved
+out of the protocol repo into the `BRBussy/midnight-experiments` workspace
+(commit `3c5cee6` there: rescoped to `@midnight-experiments/xcontract-events`,
+lib dep redirected to `@midnight-experiments/lib` — same provider helpers —
+deploy dep pinned to npm `@sig-net/midnight-contract-deploy@^0.0.3`; compile,
+build and 6 unit tests green in the new home). The old D27-era "documented
+exception" keeping it here is void; this repo is now exactly singleton + SDK
++ caller + e2e. `packages/lib` keeps both provider helpers — caller-contract
+still consumes them.
+**Impact:** workspace member removed; README/AGENTS.md rows dropped.
 
 <!-- Append new decisions below this line. -->

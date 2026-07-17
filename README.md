@@ -41,7 +41,6 @@ yarn test:integration-tests
 | [`packages/caller-contract`](packages/caller-contract) | repo-private | The minimal client contract: submit a signature request, verify the Schnorr response — the smallest thing that drives the protocol |
 | [`packages/integration-tests`](packages/integration-tests) | repo-private | The generic e2e suite: submit → notification → MPC signature → in-circuit verify, against the local docker stack (`docker-compose.yaml`: midnight node/indexer/proof server + anvil EVM + fakenet MPC responder) |
 | [`packages/lib`](packages/lib) | repo-private | Shared midnight-js provider adapters (the only copy) |
-| [`packages/xcontract-events`](packages/xcontract-events) | repo-private | Cross-contract call + event research (MIP-0002); start with its `knowledge-base/` |
 
 Workspace-wide rules live in [AGENTS.md](AGENTS.md) (CLAUDE.md points there);
 CI is [.github/workflows/ci.yml](.github/workflows/ci.yml) (unit + signet-caller
