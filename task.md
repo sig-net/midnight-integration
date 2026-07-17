@@ -68,7 +68,7 @@ Every test on `origin/main` (tip `99ee0c6`, includes PR #3) mapped to a twin:
 | `counter.api.test.ts` | — | ✅ boilerplate, deliberately dropped |
 | `deserialize.test.ts` | — | ✅ superseded (output schema is a single bool word) |
 | `.github/workflows/integration-tests.yml` | this repo's `ci.yml`; examples' workflows | ✅ covered |
-| `setup-preview-wallet.ts` (new in PR #3; a utility, not a test) | none | ❌ unported → D.7 |
+| `setup-preview-wallet.ts` (new in PR #3; a utility, not a test) | its primitives (unregistered-only NIGHT dust registration, dust-wait, fund-and-register deploy error) are ported in both repos' wallet plumbing | ✅ only the interactive faucet-wait wrapper is missing → D.7 (low) |
 | `kernel.checkpoint()` in withdraw (PR #3 segment-safety fix) | examples vault has NO checkpoint and a fallible cross-contract notify after the coin take | ❌ open question → R.2 |
 | distinct stale-nonce dest (`f97f50b`, test hygiene) | n/a — examples forces the failure by draining the vault, so the same-tx-hash trap can't occur | ✅ n/a |
 | unlinkable withdraw refund tag (`281ea8f`) | examples `withdrawRefundCommitment` domain-separation test | ✅ covered |
@@ -128,11 +128,6 @@ examples-repo work.
   log the outcome. The caller contract is exempt (no coin take).
 - **R.3 Over-balance live withdraw assert** (old #10 — wallet-level, no
   simulator twin): cheap rider on an existing examples e2e spec.
-- **R.4 `setup-preview-wallet.ts`** (Preview-network wallet onboarding: print
-  address, wait for faucet NIGHT, register dust, confirm fee balance). Exists
-  only in main's history (`git show origin/main:boilerplate/contract-cli/src/setup-preview-wallet.ts`).
-  Port to the examples repo if Preview/testnet onboarding is a target — see
-  D.7 for this repo's half.
 
 ## Phase A — Wire-format versioning
 
@@ -164,11 +159,13 @@ coexist with deployed consumers.
       lib prune):** caip2Id↔chainId consistency enforcement point; TS branding
       for request ids.
 - [ ] **D.7 Dev-convenience / non-local onboarding — decide or port (low).**
-      generate-key / check-balance / request-faucet wrappers, plus this repo's
-      half of `setup-preview-wallet.ts` (R.4): the caller e2e also needs a
-      funded wallet on any non-local network. Matters only if Preview/testnet
-      is a target (the local loop auto-funds). Either add thin commands or log
-      that the local flow covers it.
+      generate-key / check-balance / request-faucet wrappers, plus a thin
+      interactive faucet-wait wrapper à la main's `setup-preview-wallet.ts`
+      (print seed + NIGHT address + faucet URL, block until funded, register
+      dust — the primitives are all ported already; only the wrapper is
+      missing). Matters only if Preview/testnet is a target (the local loop
+      auto-funds). Either add thin commands or log that the local flow covers
+      it.
 - [ ] **D.8 Onboarding doc decision.** The old `READING-GUIDE.md` (on
       `feat/signet-signer-ledger9`) has no successor — write this repo's own
       reading guide or log that it dies with the old layout.
@@ -242,10 +239,12 @@ singleton + SDK + minimal caller + xcontract-events (its split Phases 7–8).
 `origin/main` merged into the branch at `eab05a3` keeping the deletions —
 main's PR #3 lives in history only. A final test-coverage check (table in
 Part 1) confirmed no coverage is lost by the merge; the four findings were
-recorded as R.1–R.4 (examples-repo work): bearer-handoff test, withdraw
+recorded as R.1–R.3 (examples-repo work): bearer-handoff test, withdraw
 segment-safety verification (main's checkpoint fix does not transplant across
-the cross-contract notify), over-balance live assert, `setup-preview-wallet`
-port. task.md was rewritten to the merge gate (M.1–M.6) + Phases A/D/E;
+the cross-contract notify), over-balance live assert. (`setup-preview-wallet`
+was initially listed too, then verified redundant — its dust-registration and
+wait primitives are ported in both repos; only the interactive faucet-wait
+wrapper is missing, folded into D.7.) task.md was rewritten to the merge gate (M.1–M.6) + Phases A/D/E;
 B.3 (CI) ticked done (PR #16 merged, green fresh-chain run); C.1/C.2 done in
 suites that since moved; old D.4 hygiene items verified done en route
 (placeholder.sh gone, README banner + truncated Criteria gone, AGENTS.md
