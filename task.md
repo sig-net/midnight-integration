@@ -18,12 +18,14 @@ tracked in the EXAMPLES repo's TASK.md, not here. Full history — original
 plan, phases, coverage table, Decision Log D1–D29 — via
 `git log --follow -- task.md`.
 
-Two facts that must survive until used:
-- The GitHub repo is `sig-net/midnight-integration`; the intended final name
-  is **`midnight-protocol`** (rename = user action on GitHub).
-- Branch `feat/signet-signer-ledger9` holds the signer golden vectors
-  (`signer/goldens/*.json`, `signer/README.md`) and `READING-GUIDE.md` — do
-  NOT delete it before task 2.3 ports the goldens.
+One fact that must survive until used: the GitHub repo is
+`sig-net/midnight-integration`; the intended final name is
+**`midnight-protocol`** (rename = user action on GitHub).
+
+Branch `feat/signet-signer-ledger9` is DEAD (confirmed with its author,
+2026-07-17): the golden vectors this branch needs are already here (the
+golden-vectored crypto tests in `packages/signet-midnight/tests`), and its
+`READING-GUIDE.md` dies with it. It can be deleted in the post-merge cleanup.
 
 ---
 
@@ -49,45 +51,30 @@ Two facts that must survive until used:
       and `xcontract-events` (2); keep on `lib` (tests were pruned with its
       surface) with a one-line comment, or give lib a minimal test.
 - [ ] **1.6 Open the PR** `bernard/repo-refactor` → `main`; after merge:
-      retire the old-MVP worktree, archive stale branches (KEEP
-      `feat/signet-signer-ledger9` until 2.3), and decide whether the old
-      `READING-GUIDE.md` gets a successor here or dies with the old layout.
+      retire the old-MVP worktree and delete stale branches (including the
+      dead `feat/signet-signer-ledger9`).
 
-## 2 — Freeze the protocol types (joint work with the MPC/signer side; every deployment before this is throwaway)
+## 2 — Finalisation: shrink the signing requests (if possible), then freeze
 
-Versioning first, so future encoding changes can coexist with deployed
-consumers; then alignment + freeze. The old `alignment.md` /
-`ecdsa-midnight-progress.md` checklists were deleted (`d68c830`) — resurrect
-from git history as needed.
+Per Bernard (2026-07-17) this is the required finalisation: try to REDUCE THE
+SIZE of the signing requests — smaller structs ⇒ smaller circuits, faster
+proving. Struct changes change all request ids, so redeploys are the accepted
+cost until this lands; freeze after it.
 
-- [ ] **2.1 Version the wire formats.** The notification envelope
-      (`{ version, payload }`, fail-closed decoder) is in; add the coexistence
-      rule ("layout change ⇒ new version, old version keeps decoding") and
-      version the request-id preimage / domain tags so a struct change mints a
-      new version while old ids stay resolvable.
-- [ ] **2.2 Align request/response structs with the MPC-canonical shapes.**
-      Request-id scheme (whole-struct `persistentHash` vs tails-hash),
-      `SignetMPCRoutingParams` (`path` → `commitment: Bytes<32>`?),
-      `EVMCalldata` field order, response struct names, commitment domain
-      string; field right-sizing (path 256→64 etc.) in the same pass. Confirm
-      the two intentional divergences from the MVP in the same sign-off: the
-      attestation-message preimage (`hash(hash(output: Bytes<128>),
-      outputLen)`) and the Schnorr challenge reduction (`as JubjubScalar`
-      cast) — both must match the MPC signer exactly. Also settle the
-      attestation crypto for `respond_bidirectional`: SGN1 assumes secp256k1
-      ECDSA, but in-circuit verification today means Jubjub Schnorr — either
-      the MPC produces the Jubjub attestation, or the claim flow changes.
-- [ ] **2.3 Golden vectors per wire version.** Port the `signer/goldens`
-      approach from `feat/signet-signer-ledger9`: vectors regenerated from the
-      compiled contracts, pinnable by the MPC/Rust consumer.
-- [ ] **2.4 Freeze + publish the versioned wire spec**, co-signed by both
-      sides, with golden vectors regenerable by this repo's harness and the
-      MPC's Rust consumer. First long-lived deployment happens after this;
-      that pass also documents non-local network bring-up (the repo is
-      local-only by design until then).
-      *Done when (2.1–2.4):* shapes signed off and logged; structs + TS twins
-      + readers updated in one change; new row counts measured; a simulated
-      "v2" encoding change lands alongside v1 with both decodable in tests.
+- [ ] **2.1 Baseline measurement.** Record circuit rows + prove time per
+      request circuit before touching anything (row counts print at keygen —
+      the zk-canary CI job logs them; the examples repo's `benchmark.test.ts`
+      times the live legs; the BRBussy/midnight-experiments bench repo has the
+      circuit/proof-size study method).
+- [ ] **2.2 Reduce.** Remove unnecessary padding from the request structs and
+      right-size fields (e.g. `path` 256→64, the padded func-sig/schema
+      fields); consider generics so client contracts specify their calldata
+      arg count instead of paying for the max. Structs + TS twins + readers/
+      decoders + fakenet consumer updated in ONE change; re-measure and log
+      the delta. "Not meaningfully reducible" is a valid, loggable outcome.
+- [ ] **2.3 Freeze.** Republish `@sig-net/midnight*` with the final shapes,
+      bump the fakenet responder pins, record final row counts in the
+      Decision Log. First long-lived deployment happens after this.
 
 ## 3 — Backlog (unscheduled; decide-or-drop, most fold into §2)
 
@@ -100,11 +87,22 @@ from git history as needed.
   missing); matters only if Preview/testnet becomes a target.
 - Caller-e2e smoke check (fast stack-liveness assert before the slow proven
   flow); pull forward only if runs keep dying mid-flow.
+- Wire-format versioning beyond the existing `{ version, payload }`
+  notification envelope: the coexistence rule ("layout change ⇒ new version,
+  old keeps decoding"), versioned request-id domain tags, `V1` on every
+  struct, golden vectors per wire version.
+- MPC-side alignment sign-off, if it resurfaces: request-id scheme
+  (whole-struct `persistentHash` vs tails-hash), routing params / calldata
+  field order / domain strings; the two intentional MVP divergences
+  (attestation-message preimage `hash(hash(output),outputLen)`, Schnorr
+  challenge via `as JubjubScalar`) must match the MPC signer exactly; the
+  `respond_bidirectional` crypto question (SGN1 says secp256k1 ECDSA,
+  in-circuit means Jubjub Schnorr). Old checklists: `alignment.md` /
+  `ecdsa-midnight-progress.md` in git history (`d68c830`).
 - From the old README TODOs: deploy-script rejoin/upgrade of existing
-  deployments; strip unnecessary request padding (→ 2.2 field-sizing); move
-  generic types into signet.js; generics for client calldata arg count;
-  canonical `EVMSignatureRequest` from signet.js; `V1` on every struct
-  (→ 2.1); witness-provided nonce randomness + nonce evolution.
+  deployments; move generic types into signet.js; canonical
+  `EVMSignatureRequest` from signet.js; witness-provided nonce randomness +
+  nonce evolution.
 
 ---
 
@@ -123,5 +121,17 @@ folded), and a decide-or-drop backlog (§3). `setup-preview-wallet` was
 verified redundant (dust-registration and wait primitives ported in both
 repos; only thin wrappers missing — §3).
 **Impact:** none on code; this file and the examples TASK.md are the artifacts.
+
+### D31 — ledger9 branch is dead; finalisation = shrink the signing requests (2026-07-17)
+**Decision:** Per Bernard (after talking to the branch's author):
+`feat/signet-signer-ledger9` is dead — the goldens this repo needs are the
+golden-vectored crypto tests already in `packages/signet-midnight/tests`, and
+`READING-GUIDE.md` dies with the branch (delete it in the post-merge cleanup;
+the keep-until-goldens-ported guardrail in D29/D30 is void). The finalisation
+work (§2) is re-scoped to: measure → reduce the signing-request size (padding,
+field widths, calldata-arg generics) if possible → freeze/republish. The
+former Phase A/E material (wire versioning, MPC alignment sign-off,
+attestation-crypto question) moved to the §3 backlog — recorded, unscheduled.
+**Impact:** none on code; frees the post-merge branch cleanup.
 
 <!-- Append new decisions below this line. -->
