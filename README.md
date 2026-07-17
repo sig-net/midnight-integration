@@ -44,4 +44,5 @@ yarn test:integration-tests
 
 Workspace-wide rules live in [AGENTS.md](AGENTS.md) (CLAUDE.md points there);
 CI is [.github/workflows/ci.yml](.github/workflows/ci.yml) (unit + signet-caller
-e2e + weekly zk canary); remaining work is tracked in [task.md](task.md).
+e2e + weekly zk canary); remaining work is tracked in the repo's
+[GitHub issues](https://github.com/sig-net/midnight-integration/issues).

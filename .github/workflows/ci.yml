@@ -19,7 +19,7 @@
 #                contracts' keys); the unit job restores read-only.
 #
 # The integration job pulls ghcr.io/sig-net/fakenet — that image must be
-# public (tracked in task.md B.3).
+# public.
 
 name: ci
 
