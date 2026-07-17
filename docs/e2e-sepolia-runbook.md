@@ -6,9 +6,9 @@ single-key dev signer that holds `MPC_ROOT_KEY` and signs directly, **not** a re
 threshold MPC. (The `vault.api.test.ts` suite instead uses an in-process simulator +
 local Hardhat.) It covers deposit, claim (+ 4 claim-rejection cases), and withdraw:
 
-- STEP 6 — withdraw → MPC signs vault→dest transfer → completeWithdraw (success)
-- STEP 7 — withdraw with a stale nonce → MPC `0xdeadbeef` → completeWithdraw refunds
-- STEP 8 — transfer A→B: old owner can't withdraw, new owner can; complete is permissionless
+- STEP 6 — a withdrawal whose EVM transfer succeeds: after the MPC signs the result, `completeWithdraw` finalizes it (removes the request; on success it mints nothing and needs no identity, so any caller can run it).
+- STEP 7 — a withdrawal the EVM rejects (stale nonce → MPC returns `0xdeadbeef`): the withdrawer calls `completeWithdraw`, proving the identity committed at withdraw, and it re-mints their coin (refund) with a fresh random nonce so the coin is unlinkable.
+- STEP 8 — after transferring the vault-token balance A→B, the old owner can no longer fund a withdrawal and the new owner can; a successful withdrawal is finalized by any caller (permissionless).
 
 You run three processes: the Midnight stack, the MPC server, and the test.
 
