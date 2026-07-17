@@ -92,26 +92,38 @@ export class RootUnfundedError extends Error {
 }
 
 /**
- * Assert the root wallet is funded, returning its snapshot. On a network where
- * root is unfunded (a deployed network before faucet funding) this throws
- * {@link RootUnfundedError} carrying the NIGHT address + faucet URL.
+ * Ensure the root wallet is fee-ready, returning its snapshot. Root holds no
+ * NIGHT on a deployed network before faucet funding, so this throws
+ * {@link RootUnfundedError} (NIGHT address + faucet URL) when NIGHT is zero.
+ * Otherwise it registers root's NIGHT for dust generation and waits for a
+ * spendable DUST balance, because root pays the children's funding transfers
+ * in DUST: the local genesis root is already registered (a no-op here), but a
+ * faucet-funded root is not, and would have no DUST to spend.
  *
  * @param config - The stack the root wallet connects to.
  * @param rootSeed - The root wallet seed.
  * @param faucetUrl - The network's faucet URL for the underfunded message.
- * @returns The root's funding snapshot when funded.
- * @throws {@link RootUnfundedError} if root holds no NIGHT.
+ * @returns The root's fee-ready funding snapshot.
+ * @throws {@link RootUnfundedError} if root holds no NIGHT; or if no dust
+ *   appears in time after registration.
  */
 export async function assertRootFunded(
   config: MidnightNodeConfig,
   rootSeed: string,
   faucetUrl: string | undefined,
 ): Promise<AccountFunding> {
-  const funding = await readAccountFunding(config, rootSeed);
-  if (funding.night === 0n) {
-    throw new RootUnfundedError(funding.addresses.unshielded, faucetUrl);
-  }
-  return funding;
+  const keys = deriveAccountKeys(rootSeed, config.networkId);
+  const addresses = deriveAddresses(keys, config.networkId);
+  return withSyncedWalletFacade(keys, config, async (facade, state) => {
+    const night = totalNight(state);
+    if (night === 0n) {
+      throw new RootUnfundedError(addresses.unshielded, faucetUrl);
+    }
+    await registerNightForDustGeneration(facade, keys, state);
+    const dustNow = state.dust.balance(new Date());
+    const dust = dustNow > 0n ? dustNow : await waitForSpendableDust(facade);
+    return { addresses, night, dust };
+  });
 }
 
 /**
