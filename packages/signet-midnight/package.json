@@ -15,7 +15,7 @@
     "compile": "compact compile --skip-zk src/circuits.compact src/managed",
     "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig.build.json && cp -R src/managed dist/managed",
     "prepack": "yarn build",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "publishConfig": {
     "access": "public",

@@ -49,9 +49,9 @@ golden-vectored crypto tests in `packages/signet-midnight/tests`), and its
       recovered; sub-gas dust and one unrecoverable 0.1 USDC abandoned), then
       `docs/e2e-sepolia-runbook.md` and `scripts/sweep-derived-funds.ts` were
       deleted (both in git history at `9c42d6e`).
-- [ ] **1.3 Root `scratch.md`** (untracked): its Signet overview is good —
+- [X] **1.3 Root `scratch.md`** (untracked): its Signet overview is good —
       fold into `README.md` or `docs/`, or delete. Nothing untracked rides
-      into main.
+      into main. NOT DOING. scratch.md is an ignored file.
 - [x] **1.4 README `## TODOs` block** — DONE (README tidy, 2026-07-17): block
       removed; its items live in §3 / task.md §2.
 - [ ] **1.5 `--passWithNoTests`:** drop from `signet-midnight` (11 test
