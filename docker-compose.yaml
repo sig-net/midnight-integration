@@ -1,0 +1,104 @@
+# Local development stack for the integration tests: Midnight (node +
+# indexer + proof server), a local EVM dev chain, and the fakenet MPC
+# responder. `docker compose up -d`.
+#
+# The three midnight image tags are a MATCHED SET on the ledger-9 line,
+# paired with the npm @midnightntwrk/ledger-v9 version the workspace
+# resolves (the indexer tag encodes it: `l91r3-n2r3` = ledger-v9 1.0.0-rc.3
+# + node 2.0.0-rc.3). Never bump one alone — move the set together with the
+# npm stack.
+services:
+  proof-server:
+    container_name: 'midnight-proof-server'
+    image: 'midnightntwrk/proof-server:9.0.0-rc.3'
+    command: ['midnight-proof-server -v']
+    ports:
+      - '127.0.0.1:6300:6300'
+    environment:
+      RUST_BACKTRACE: 'full'
+
+  indexer:
+    # Pre-alpha tag on purpose: the first published builds that decode
+    # MIP-0002 `Misc` events — no stable ledger-9 indexer release exists yet.
+    container_name: 'midnight-indexer'
+    image: 'midnightntwrk/indexer-standalone:4.4.0-pre-alpha.16-l91r3-n2r3-bridge-and-events-epics-contract-zswap-16c656df'
+    ports:
+      - '127.0.0.1:8088:8088'
+    environment:
+      RUST_LOG: 'indexer_standalone=info,chain_indexer=info,indexer_api=info,info'
+      # WebSocket URL of the node the indexer follows
+      APP__INFRA__NODE__URL: 'ws://node:9944'
+      # hex-encoded 32 bytes encrypting stored sensitive data
+      APP__INFRA__SECRET: '303132333435363738393031323334353637383930313233343536373839303132'
+      # SPO (stake pool operator) node endpoint (points at the same dev node here)
+      APP__INFRA__SPO_NODE__URL: 'ws://node:9944'
+      # Blockfrost project id for SPO queries; dummy, unused on a local dev chain
+      APP__INFRA__SPO_NODE__BLOCKFROST_ID: 'dummy-not-using-spo'
+    depends_on:
+      node:
+        condition: service_started
+
+  node:
+    container_name: 'midnight-node'
+    image: 'midnightntwrk/midnight-node:2.0.0-rc.3'
+    ports:
+      - '127.0.0.1:9944:9944'
+    environment:
+      CFG_PRESET: 'dev'
+      THRESHOLD: '0'
+      SHOW_CONFIG: 'false'
+      RUST_BACKTRACE: '1'
+      # Block-reward beneficiary; arbitrary-but-valid hex on a dev chain.
+      SIDECHAIN_BLOCK_BENEFICIARY: '04bcf7ad3be7a5c790460be82a713af570f22e0f801f6659ab8e84a52be6969e'
+
+  evm:
+    # anvil dev chain (id 31337, pre-funded dev-mnemonic accounts).
+    # Used for all EVM interactions.
+    container_name: 'local-evm'
+    image: 'ghcr.io/foundry-rs/foundry:v1.5.1'
+    entrypoint: ['anvil', '--host', '0.0.0.0']
+    ports:
+      - '127.0.0.1:8545:8545'
+
+  fakenet:
+    # The MPC fakenet responder (sig-net/solana-signet-program, fakenet-signer
+    # workspace) in Midnight-only mode (DISABLE_SOLANA). Polls the signet contract's
+    # notification registry via the indexer, signs with keys derived from MPC_ROOT_KEY,
+    # and posts responses through the proof server.
+    #
+    # Only runs with `--profile fakenet` as it needs MPC_ROOT_KEY and
+    # MIDNIGHT_SIGNET_CONTRACT_ADDRESS, which exist only once the
+    # integration-tests setup has derived the key and deployed the contract.
+    # The setup does the whole hand-off itself: it appends the two values to
+    # the repo-root .env (append-only — existing lines are never touched) and
+    # starts this service. Manual equivalent (and the FAKENET_MANAGED=0 path):
+    #   docker compose --profile fakenet up -d --force-recreate fakenet
+    container_name: 'fakenet-responder'
+    image: 'ghcr.io/sig-net/fakenet:latest'
+    profiles: ['fakenet']
+    depends_on:
+      indexer:
+        condition: service_started
+      proof-server:
+        condition: service_started
+      evm:
+        condition: service_started
+    extra_hosts: # To let the container reach services on the HOST (e.g. a hardhat node)
+      - 'host.docker.internal:host-gateway'
+    environment:
+      VERBOSE: '${VERBOSE:-false}'
+      DISABLE_SOLANA: '${DISABLE_SOLANA:-true}'
+      # The fakenet requires a reachable EVM endpoint to boot; defaults to
+      # the in-network `evm` service above (loopback in-container would be
+      # the container itself, hence the dedicated variable).
+      EVM_RPC_URL: '${FAKENET_EVM_RPC_URL:-http://evm:8545}'
+      MIDNIGHT_NETWORK_ID: '${MIDNIGHT_NETWORK_ID:-undeployed}'
+      MIDNIGHT_INDEXER_URL: '${MIDNIGHT_INDEXER_URL:-http://indexer:8088/api/v3/graphql}'
+      MIDNIGHT_INDEXER_WS_URL: '${MIDNIGHT_INDEXER_WS_URL:-ws://indexer:8088/api/v3/graphql/ws}'
+      MIDNIGHT_NODE_URL: '${MIDNIGHT_NODE_URL:-http://node:9944}'
+      MIDNIGHT_PROOF_SERVER_URL: '${MIDNIGHT_PROOF_SERVER_URL:-http://proof-server:6300}'
+      MIDNIGHT_WALLET_SEED: '${MIDNIGHT_WALLET_SEED:-0000000000000000000000000000000000000000000000000000000000000001}'
+      # Both are appended to the repo-root .env by the integration-tests
+      # setup (which also starts this service), see packages/integration-tests/README.md.
+      MPC_ROOT_KEY: '${MPC_ROOT_KEY:-}'
+      MIDNIGHT_SIGNET_CONTRACT_ADDRESS: '${MIDNIGHT_SIGNET_CONTRACT_ADDRESS:-}'

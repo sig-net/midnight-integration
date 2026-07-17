@@ -1,0 +1,39 @@
+pragma language_version >= 0.25;
+
+// Compiled export surface of the Signet and Schnorr modules.
+//
+// Signet.compact / Schnorr.compact must stay module-only files (that is what
+// lets contracts import them), but a bare module compiles to nothing. This
+// contract-less program re-exports the modules' pure circuits so the compiler
+// emits them as pureCircuits in managed/contract/index.js — giving the
+// package an in-process, provable-logic-identical reference implementation:
+// unit tests exercise the REAL circuits, and off-chain code (path checks,
+// Schnorr challenges, attestation messages, notification packing) reuses them
+// instead of hand-porting the algorithms. Off-chain code only ever DECODES a
+// SignBidirectionalNotification (fixed-offset byte reads), but tests build
+// fixtures with the compiled packer to pin the pack<->decode lockstep.
+//
+// ONLY the non-generic circuits are exported here. The request circuits
+// (calculateRequestId, constructSignBidirectionalRequest) are generic over the
+// tx-params type, the compiler cannot export type-parameterized circuits from
+// the top level, and this package is client-agnostic — a capacity
+// instantiation is a CLIENT contract's choice and never belongs here.
+// constructSignBidirectionalRequest is contract-only, so it needs no off-chain
+// copy; calculateRequestId IS needed off-chain (clients recompute ledger map
+// keys), so it alone has a documented-deviation TS twin in signet-requests.ts,
+// kept honest by caller-contract's submitSignatureRequest round-trip test.
+//
+// Compile with --skip-zk only: pure circuits run in TS without proving keys.
+
+import CompactStandardLibrary;
+import "./Signet";
+import "./Schnorr";
+
+export {
+  signetAttestationMessage,
+  assertHexOf,
+  assertPathCommitment,
+  constructSignBidirectionalNotificationV1,
+  evmAddressAbiValue,
+  schnorrChallenge
+};

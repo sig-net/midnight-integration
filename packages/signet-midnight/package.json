@@ -1,0 +1,42 @@
+{
+  "name": "@sig-net/midnight",
+  "version": "0.0.3",
+  "type": "module",
+  "description": "Midnight-side sig-net integration — the seed of a future signet.js Midnight adapter.",
+  "//exports": "Local dev consumes raw TS source. `publishConfig.exports` below swaps this to the emitted ./dist at publish time, so npm consumers get JS + .d.ts while the monorepo keeps resolving to src.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "src/*.compact"
+  ],
+  "scripts": {
+    "compile": "compact compile --skip-zk src/circuits.compact src/managed",
+    "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig.build.json && cp -R src/managed dist/managed",
+    "prepack": "yarn build",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.0",
+    "@midnight-ntwrk/midnight-js-types": "5.0.0-beta.3",
+    "@noble/curves": "^2.2.0",
+    "ethers": "^6.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

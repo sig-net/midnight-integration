@@ -1,77 +1,48 @@
-# Midnight ERC20 Vault
+# Sig Network Midnight Integration
 
-Cross-chain ERC20 vault between Ethereum and Midnight using the Signet MPC.
+The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-net/mpc) [Midnight Blockchain](https://midnight.network) Integration allows contracts on Midnight to execute arbitrary transactions on foreign blockchains.
 
-Users deposit on Midnight, the MPC signs and broadcasts an EVM `transfer()` transaction, and the user claims a **fully shielded** token on Midnight — amount and owner hidden on-chain.
+This repository contains the Sig Network protocol singleton contract and the
+associated SDK that let contract builders on Midnight leverage this chain
+signature technology, plus a minimal caller contract that exercises the
+protocol end to end.
 
-The contract is generic and works with any ERC20 token. The E2E tests use USDC on Sepolia as a concrete example.
+Example applications built on these packages — such as the ERC20 vault demo —
+live in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples),
+consuming the published `@sig-net/*` npm packages.
 
-## Flow
+## Quick start
 
-```
-User calls deposit() on Midnight (ZK proof)
-        ↓
-MPC detects deposit via indexer polling
-        ↓
-MPC builds ABI calldata + signs EVM tx (secp256k1)
-        ↓
-Client broadcasts signed tx to Sepolia
-        ↓
-MPC confirms ERC20 transfer() succeeded
-        ↓
-MPC signs Schnorr response (Jubjub) → broadcasts via WebSocket
-        ↓
-User calls claim() → contract verifies signature → mints shielded token
+```sh
+corepack enable
+yarn install
+compact update 0.33.0-rc.0        # the rc toolchain matching the ledger-9 stack
+yarn compile                      # generates each contract package's src/managed/ (skip-zk)
+yarn compile:signet-contract:zk   # signet-contract's build gates on its prover keys
+yarn build && yarn test           # typecheck + unit tests (simulator-only, offline)
 ```
 
-## Prerequisites
+To run the end-to-end suite against the local docker stack, follow
+[`.claude/skills/e2e/SKILL.md`](.claude/skills/e2e/SKILL.md) — the
+operational runbook from a fresh clone to a green suite:
 
-- [Midnight standalone](https://docs.midnight.network/) Docker environment
-- Node.js 18+
-- For E2E: MPC response server + Sepolia RPC
-
-## Setup
-
-```bash
-npm install
-cd boilerplate/contract && npm install
-cd ../contract-cli && npm install
+```sh
+docker compose up -d
+yarn test:integration-tests
 ```
 
-## Run unit tests (standalone only)
+## Packages
 
-```bash
-# Start Midnight standalone
-docker compose -f boilerplate/contract-cli/standalone.yml up -d
+| Package | npm | What it is |
+|---|---|---|
+| [`packages/signet-midnight`](packages/signet-midnight) | `@sig-net/midnight` | Client-agnostic signet protocol library: shared Compact modules, TS twins of the wire structs, state readers, request feed/resolver, crypto (epsilon derivation, Schnorr) |
+| [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: signature-response log (in-circuit Schnorr verified) + request-notification registry |
+| [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the singleton + the generic deploy/wallet plumbing |
+| [`packages/caller-contract`](packages/caller-contract) | repo-private | The minimal client contract: submit a signature request, verify the Schnorr response — the smallest thing that drives the protocol |
+| [`packages/integration-tests`](packages/integration-tests) | repo-private | The generic e2e suite: submit → notification → MPC signature → in-circuit verify, against the local docker stack (`docker-compose.yaml`: midnight node/indexer/proof server + anvil EVM + fakenet MPC responder) |
+| [`packages/lib`](packages/lib) | repo-private | Shared midnight-js provider adapters (the only copy) |
 
-# Run tests
-cd boilerplate/contract-cli
-npx vitest run src/test/vault.api.test.ts
-```
-
-## Deploy and run E2E
-
-### 1. Deploy the contract
-
-```bash
-cd boilerplate/contract-cli
-MPC_JUBJUB_PK_X=<...> MPC_JUBJUB_PK_Y=<...> npx tsx src/deploy-for-e2e.ts
-```
-
-The deploy script will output:
-- `MIDNIGHT_CONTRACT_ADDRESS` — use this when starting the MPC and running the E2E test
-- `USER_EVM_ADDRESS` — fund this address on Sepolia with ETH (for gas) and the ERC20 token you're bridging
-
-### 2. Start the MPC response server
-
-```bash
-# In the solana-signet-program repo
-MIDNIGHT_CONTRACT_ADDRESSES=<contract address from step 1> yarn response
-```
-
-### 3. Run the E2E test
-
-```bash
-cd boilerplate/contract-cli
-MIDNIGHT_CONTRACT_ADDRESS=<contract address from step 1> npx vitest run src/test/vault.e2e.test.ts
-```
+Workspace-wide rules live in [AGENTS.md](AGENTS.md) (CLAUDE.md points there);
+CI is [.github/workflows/ci.yml](.github/workflows/ci.yml) (unit + signet-caller
+e2e + weekly zk canary); remaining work is tracked in the repo's
+[GitHub issues](https://github.com/sig-net/midnight-integration/issues).

@@ -1,0 +1,18 @@
+{
+  // Emit build for npm publishing ONLY — same pattern as signet-midnight's.
+  // Local dev consumes raw TS source (exports -> ./src/index.ts); this config
+  // emits ./dist for the published artifact. `yarn build` runs the plain
+  // typecheck first, then this config to emit ./dist.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rewriteRelativeImportExtensions": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  // src only — tests and deploy.ts are typechecked by the plain `tsc -p tsconfig.json` pass.
+  "include": ["src"]
+}

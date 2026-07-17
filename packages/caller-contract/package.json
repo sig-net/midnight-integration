@@ -1,0 +1,34 @@
+{
+  "name": "@midnight-protocol/caller-contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The minimal signet caller Compact contract: submits a signature request with contract-fixed calldata and verifies the MPC's Schnorr response. src/index.ts is the curated export surface — this IS the \"sdk\" face of the package.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./managed/*": "./src/managed/*"
+  },
+  "scripts": {
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signet-caller.compact src/managed/signet-caller && ln -sfn ../../../signet-contract/src/managed src/managed/SignetNotifier",
+    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/signet-caller.compact src/managed/signet-caller && ln -sfn ../../../signet-contract/src/managed src/managed/SignetNotifier",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "deploy": "tsx deploy.ts"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/midnight-js": "5.0.0-beta.3",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.3",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "5.0.0-beta.3",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "5.0.0-beta.3",
+    "@midnight-protocol/lib": "*",
+    "@sig-net/midnight": "*",
+    "@sig-net/midnight-contract-deploy": "*"
+  },
+  "devDependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.0",
+    "@types/node": "^26.1.0",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

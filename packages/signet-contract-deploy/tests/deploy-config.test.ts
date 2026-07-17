@@ -1,0 +1,53 @@
+// getDeployConfig: env → DeployConfig parsing. Pure — no network, no crypto.
+
+import { describe, expect, it } from "vitest";
+
+import { getDeployConfig, type NetworkId } from "../src/index.ts";
+
+// The pre-funded genesis mint wallet of the local standalone stack — the
+// documented default when DEPLOYER_SEED is unset.
+const GENESIS_MINT_WALLET_SEED = "0000000000000000000000000000000000000000000000000000000000000001";
+
+const CUSTOM_SEED = "00000000000000000000000000000000000000000000000000000000000000aa";
+
+interface Case {
+  name: string;
+  env: Record<string, string | undefined>;
+  expectedSeed: string;
+  expectedNetworkId: NetworkId;
+}
+
+const CASES: Case[] = [
+  {
+    name: "empty env → genesis mint seed on undeployed",
+    env: {},
+    expectedSeed: GENESIS_MINT_WALLET_SEED,
+    expectedNetworkId: "undeployed",
+  },
+  {
+    name: "DEPLOYER_SEED is used and trimmed",
+    env: { DEPLOYER_SEED: `  ${CUSTOM_SEED}  ` },
+    expectedSeed: CUSTOM_SEED,
+    expectedNetworkId: "undeployed",
+  },
+  {
+    name: "whitespace-only DEPLOYER_SEED falls back to the genesis mint seed",
+    env: { DEPLOYER_SEED: "   " },
+    expectedSeed: GENESIS_MINT_WALLET_SEED,
+    expectedNetworkId: "undeployed",
+  },
+  {
+    name: "NETWORK_ID flows through to the node config",
+    env: { NETWORK_ID: "preview", DEPLOYER_SEED: CUSTOM_SEED },
+    expectedSeed: CUSTOM_SEED,
+    expectedNetworkId: "preview",
+  },
+];
+
+describe("getDeployConfig", () => {
+  it.each(CASES)("$name", ({ env, expectedSeed, expectedNetworkId }) => {
+    const config = getDeployConfig(env);
+    expect(config.deployerSeed).toBe(expectedSeed);
+    expect(config.midnightNodeConfig.networkId).toBe(expectedNetworkId);
+  });
+});

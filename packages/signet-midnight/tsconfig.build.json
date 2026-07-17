@@ -1,0 +1,21 @@
+{
+  // Emit build for npm publishing ONLY. Local dev never uses this: the rest of
+  // the monorepo consumes this package as raw TS source (exports -> ./src/index.ts),
+  // so the base config stays noEmit. `yarn build` runs the plain typecheck first,
+  // then this config to emit ./dist, then copies the generated managed/ output in.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    // Our source imports siblings with explicit `.ts` extensions
+    // (allowImportingTsExtensions). This rewrites them to `.js` in the emit so
+    // the published JS/.d.ts resolve at runtime. Requires TS 5.7+ (we're on 6.x).
+    "rewriteRelativeImportExtensions": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  // src only — tests are typechecked by the plain `tsc -p tsconfig.json` pass.
+  "include": ["src"]
+}
