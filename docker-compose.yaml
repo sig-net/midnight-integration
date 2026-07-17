@@ -22,12 +22,19 @@ services:
     # MIP-0002 `Misc` events — no stable ledger-9 indexer release exists yet.
     container_name: 'midnight-indexer'
     image: 'midnightntwrk/indexer-standalone:4.4.0-pre-alpha.16-l91r3-n2r3-bridge-and-events-epics-contract-zswap-16c656df'
-    # Committed dev-only secrets (local defaults, nothing sensitive).
-    env_file: standalone.env.example
     ports:
       - '127.0.0.1:8088:8088'
+    # Committed dev-only values (local defaults, nothing sensitive):
+    #   APP__INFRA__NODE__URL               -> WebSocket URL of the node the indexer follows
+    #   APP__INFRA__SECRET                  -> hex-encoded 32 bytes encrypting stored sensitive data (required)
+    #   APP__INFRA__SPO_NODE__URL           -> SPO node endpoint (points at the same dev node here)
+    #   APP__INFRA__SPO_NODE__BLOCKFROST_ID -> Blockfrost project id for SPO queries; dummy, unused on a local dev chain
     environment:
       RUST_LOG: 'indexer_standalone=info,chain_indexer=info,indexer_api=info,info'
+      APP__INFRA__NODE__URL: 'ws://node:9944'
+      APP__INFRA__SECRET: '303132333435363738393031323334353637383930313233343536373839303132'
+      APP__INFRA__SPO_NODE__URL: 'ws://node:9944'
+      APP__INFRA__SPO_NODE__BLOCKFROST_ID: 'dummy-not-using-spo'
     # No healthcheck: this image ships nothing probe-able; the
     # integration-tests preflight checks the GraphQL endpoint instead.
     depends_on:
