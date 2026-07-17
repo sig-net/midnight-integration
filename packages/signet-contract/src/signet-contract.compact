@@ -1,0 +1,128 @@
+pragma language_version >= 0.25;
+
+import CompactStandardLibrary;
+
+// Shared signet library: request/response structs, request-id hashing,
+// path<->identity binding, and the attestation message. See the module header
+// in Signet.compact and https://docs.sig.network/ for the protocol.
+import "@sig-net/midnight/src/Signet";
+
+// The CENTRAL signet contract: clients register their signature-request
+// notifications here, the MPC delivers all its responses here, and both sides
+// poll it — there is deliberately no push/websocket channel. Ledger layout per
+// "Signet Contract Ledger Layout" in Signet.compact, so pollers need only this
+// contract's address.
+export ledger signatureResponseCounterIndex: SignatureResponseCounterIndex;
+
+export ledger signatureResponseIndex: SignatureResponseIndex;
+
+export ledger respondBidirectionalIndex: RespondBidirectionalIndex;
+
+// The MPC attestation key, pinned at deploy time: postRespondBidirectional
+// accepts only responses signed by this key.
+export sealed ledger mpcPubKeyHash: Bytes<32>;
+
+// The notification registry (field 4): clients register "a request was stored
+// in MY ledger at THIS index field" pointers here; the MPC polls by
+// enumerating the map. Append-only, idempotent overwrite, no removal.
+export ledger signBidirectionalNotificationIndex: SignBidirectionalNotificationIndex;
+
+constructor(mpcPk: JubjubPoint) {
+    mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
+}
+
+// notifyBidirectionalSignatureRequest should be called (cross-contract) by
+// clients after (or within) a transaction that writes a
+// SignBidirectionalRequest to their canonical SignBidirectionalRequestIndex
+// state map. Registers the notification in the registry the MPC polls; a
+// repeat call for the same request id overwrites idempotently. Unauthenticated
+// by design: the notification is a pointer, and the MPC trusts only what it
+// reads back from the named caller's own ledger.
+export circuit notifyBidirectionalSignatureRequest(
+    requestId: RequestId,
+    notification: SignBidirectionalNotification
+): [] {
+    signBidirectionalNotificationIndex.insert(
+        disclose(requestId),
+        disclose(notification),
+    );
+}
+
+// postSignatureResponse appends a signature response for requestId.
+// Unauthenticated by NECESSITY (secp256k1 ECDSA cannot be verified
+// in-circuit): anyone may post, and nothing is ever overwritten — each post
+// lands under the next (requestId, count) key. Callers poll the log by
+// request id and verify the posted signatures off-chain to pick out the
+// genuine one.
+export circuit postSignatureResponse(requestId: RequestId, signatureResponse: SignatureResponse): [] {
+    // Everything stored here is public by construction.
+    const disclosedRequestId = disclose(requestId);
+
+    // Ensure the request's counter exists (a fresh Counter reads 0).
+    if (!signatureResponseCounterIndex.member(disclosedRequestId)) {
+        signatureResponseCounterIndex.insertDefault(disclosedRequestId);
+    }
+
+    // Posts so far == this post's 0-based count. Read ONCE into a local so
+    // the stored key and the counter update cannot disagree.
+    const count = signatureResponseCounterIndex.lookup(disclosedRequestId).read();
+    signatureResponseCounterIndex.lookup(disclosedRequestId).increment(1);
+
+    // Store the response under (requestId, count).
+    signatureResponseIndex.insert(
+        SignetResponseKey{
+            requestId: disclosedRequestId,
+            count: count,
+        },
+        disclose(signatureResponse),
+    );
+}
+
+// postRespondBidirectional records the MPC's attestation of requestId's
+// remote execution. Anyone may POST, but nothing unauthentic can LAND: the
+// Schnorr signature over (requestId, hash(serializedOutput, outputLen)) is
+// verified in-circuit against the sealed MPC key, so the stored record is
+// authentic by construction and one slot per request suffices — clients read
+// it without re-verifying.
+export circuit postRespondBidirectional(
+    requestId: RequestId,
+    respondBidirectional: RespondBidirectional
+): [] {
+    // Everything stored here is public by construction.
+    const disclosedRequestId = disclose(requestId);
+    const disclosedResponse = disclose(respondBidirectional);
+
+    // Only the pinned MPC key may attest.
+    assert(
+        persistentHash<JubjubPoint>(disclosedResponse.pk) == mpcPubKeyHash,
+        "unauthorized: attestation pk is not the MPC key"
+    );
+
+    // The attestation must sign THIS request and THIS output.
+    assert(
+        jubjubSchnorrVerify<4>(
+            signetAttestationMessage(
+                disclosedRequestId,
+                disclosedResponse.serializedOutput,
+                disclosedResponse.outputLen
+            ),
+            JubjubSchnorrSignature {
+                announcement: disclosedResponse.announcement,
+                response: disclosedResponse.response,
+            },
+            disclosedResponse.pk
+        ),
+        "Invalid attestation signature"
+    );
+
+    // First valid write wins. A re-post is a no-op, never an overwrite —
+    // Schnorr is randomized, so even the MPC re-signing the same output
+    // yields bytewise-different records; asserting equality would misfire.
+    // The no-op leaves the single authenticated slot untouched. Clients poll
+    // the index by request id; no off-chain verification follows — the
+    // in-circuit checks above already authenticated the stored record.
+    if (respondBidirectionalIndex.member(disclosedRequestId)) {
+        return [];
+    }
+    respondBidirectionalIndex.insert(disclosedRequestId, disclosedResponse);
+}
