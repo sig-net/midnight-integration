@@ -6,7 +6,7 @@
 // compile/deploy, fakenet hand-off) live in steps.ts.
 
 import { deployCaller } from "@midnight-protocol/caller-contract";
-import { GENESIS_MINT_WALLET_SEED, getDeployConfig, getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
+import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 
 import { logSkip } from "../output.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../preflight.ts";
@@ -29,16 +29,7 @@ export async function assertCallerEnvironment(env: NodeJS.ProcessEnv): Promise<v
   await assertHttpReachable("indexer", nodeConfig.indexerUrl);
   await assertHttpReachable("proof server", nodeConfig.proofServerUrl);
   await assertCommandAvailable("compact", ["--version"]);
-
-  const deployConfig = getDeployConfig(env);
-  // Never log the raw seed: on a deployed network it is a real funded wallet's
-  // private key. Log only the non-secret signal (which wallet, which network).
-  const usingGenesis = deployConfig.deployerSeed === GENESIS_MINT_WALLET_SEED;
-  console.log(
-    `deployer wallet: ${usingGenesis ? "local genesis mint wallet" : "custom DEPLOYER_SEED (redacted)"}` +
-      ` on ${deployConfig.midnightNodeConfig.networkId}`,
-  );
-  console.log(` ➜ pays for contract deploys and drives the caller's circuits.`);
+  console.log(`targeting the ${nodeConfig.networkId} network at ${nodeConfig.nodeUrl}`);
 }
 
 /**

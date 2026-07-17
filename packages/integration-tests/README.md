@@ -79,22 +79,34 @@ yarn test:integration-tests:signet-caller-e2e      # just the caller flow file
 Either way the globalSetup pipeline runs first — setup is never skipped by
 narrowing the selection.
 
-### Against a deployed network (e.g. stagenet)
+### Wallets: one root funds three roles
 
-The same suite runs against any deployed Midnight network by pointing `.env`
-at it; no code change. Locally (`undeployed`) the pre-funded genesis wallet
-does everything. On a deployed network the genesis wallet is unfunded, so you
-supply a funded deployer:
+The suite runs from a single funded wallet. One **root** wallet holds the
+funds and pays out to three **role** wallets — `deployer` (deploys the
+contracts), `invoker` (drives the caller circuits) and `mpc responder` (the
+fakenet responder's fee-paying wallet). Root itself does no test work.
+
+Each wallet's seed is read from `.env` when present, otherwise generated and
+persisted there (append-only), and every wallet's addresses are printed. So
+reruns reuse the same wallets; deleting a seed line regenerates that wallet.
+
+- **undeployed:** root defaults to the genesis mint wallet, so the roles are
+  funded from genesis at runtime — a fresh run is fully automatic.
+- **deployed (e.g. stagenet):** root is generated on the first run, which then
+  **STOPS at the root preflight** and prints root's NIGHT address. Fund it via
+  the faucet, then rerun: root funds the three roles and the suite proceeds.
+
+### Against a deployed network (e.g. stagenet)
 
 1. `NETWORK_ID=stagenet` (endpoints resolve automatically; the proof server
    stays local, so keep one running at `MIDNIGHT_NODE_PROOF_SERVER_URL`,
    default `http://127.0.0.1:6300`).
-2. `DEPLOYER_SEED=<hex-or-mnemonic>` for a wallet funded via the network's
-   faucet (stagenet: https://faucet.stagenet.shielded.tools). The deployer
-   funding preflight registers its NIGHT for dust and waits for a spendable
-   fee balance before any deploy; if it holds less than `MIN_DEPLOYER_NIGHT`
-   (or nothing), it fails with the faucet URL and the wallet's receive
-   address. The genesis seed is rejected outright on a deployed network.
+2. First run: the setup generates root + the three role seeds into `.env`,
+   then stops printing root's NIGHT address. Fund it at the stagenet faucet
+   (https://faucet.stagenet.shielded.tools).
+3. Rerun: root funds the roles (evenly split, or `FUND_CHILD_NIGHT` each) and
+   the pipeline runs to the end. The fakenet responder needs its container
+   endpoints pointed at stagenet too (the `MIDNIGHT_*` compose vars).
 
 Every other setup step (MPC keys, compile/deploy, fakenet hand-off) behaves
 exactly as on the local stack, and the same `.env`-skip rules apply: set a
@@ -122,8 +134,9 @@ vars in `.env` (`MIDNIGHT_SIGNET_CONTRACT_ADDRESS`,
 |---|---|---|
 | `RUN_INTEGRATION_TESTS` | Opt-in gate (real env only, not `.env`); `test:integration-tests` sets it | unset (flow file skips) |
 | `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (deploy-package config); `undeployed` \| `preview` \| `preprod` \| `stagenet` \| `mainnet` | `undeployed` (local stack) |
-| `DEPLOYER_SEED` | Wallet that pays for deploys AND drives the caller's circuits. **Required on any deployed network** (the genesis wallet is unfunded there) | genesis seed `00…01` (undeployed only) |
-| `MIN_DEPLOYER_NIGHT` | Minimum NIGHT (base units) the deployer must hold before the run proceeds; underfunding fails the preflight with a faucet hint | unset (any positive balance) |
+| `ROOT_SEED` | Funds the role wallets; does no test work. Faucet-funded on a deployed network | genesis seed `00…01` (undeployed); generated (deployed) |
+| `DEPLOYER_SEED`, `INVOKER_SEED`, `MPC_RESPONDER_SEED` | The role wallets (deploy / invoke / fakenet responder); generated + persisted to `.env` and funded from root, or set to reuse | generated per run |
+| `FUND_CHILD_NIGHT` | NIGHT (base units) to move from root into each role wallet that needs funding | unset (split root's balance evenly) |
 | `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | deployed by setup (signet appended to `.env` automatically; caller printed — save it to skip redeploys) |
 | `MPC_ROOT_KEY` | Fakenet signer root key | derived by setup, appended to `.env` |
 | `MPC_JUBJUB_PK`, `MPC_SECP256K1_PUBKEY` | MPC public keys | derived from root key |

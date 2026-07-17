@@ -1,6 +1,7 @@
 // Seed parsing — turns user input (a BIP-39 mnemonic or a raw hex seed) into
 // the seed bytes the HD wallet derives from, plus a record of how it was
 // supplied (so the normalised hex form can be used as a stable identifier).
+import { randomBytes } from "node:crypto";
 import * as bip39 from "@scure/bip39";
 import { wordlist as english } from "@scure/bip39/wordlists/english.js";
 
@@ -60,6 +61,18 @@ export function parseSeed(input: string): { seed: Uint8Array; source: Derivation
 /** Generate a fresh random 24-word BIP-39 mnemonic (256 bits of entropy). */
 export function generateMnemonic(): string {
   return bip39.generateMnemonic(english, 256);
+}
+
+/**
+ * Generate a fresh random 32-byte seed as lowercase hex (no `0x` prefix).
+ * Preferred over a mnemonic for generated role wallets: it parses through
+ * {@link parseSeed} AND is the shape non-JS consumers expect (e.g. the
+ * fakenet responder container reads its wallet seed as raw hex).
+ *
+ * @returns 64 hex chars (32 bytes) of cryptographically-random seed.
+ */
+export function generateHexSeed(): string {
+  return toHex(randomBytes(32));
 }
 
 /**

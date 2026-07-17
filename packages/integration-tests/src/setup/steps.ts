@@ -5,12 +5,7 @@
 // the shared env accumulator. Run by setup/caller-global-setup.ts in vitest's
 // main process, so no `vitest` imports here — failed checks are plain throws.
 
-import {
-  deploySignetContract,
-  ensureFundedAccount,
-  FAUCET_URLS,
-  getDeployConfig,
-} from "@sig-net/midnight-contract-deploy";
+import { deploySignetContract } from "@sig-net/midnight-contract-deploy";
 import { formatJubjubPublicKey } from "@sig-net/midnight";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -73,63 +68,6 @@ export function ensureMpcSecp256k1Pubkey(env: NodeJS.ProcessEnv): void {
   console.log(`generated a fresh MPC_SECP256K1_PUBKEY=${env.MPC_SECP256K1_PUBKEY}`);
   console.log(` ➜ used by contracts to validate signatures`);
   console.log(` ➜ 💡 Set as MPC_SECP256K1_PUBKEY in the environment to skip this step on the next run`);
-}
-
-/**
- * Parse `MIN_DEPLOYER_NIGHT` (NIGHT base units) into a bigint floor for the
- * deployer funding preflight. Unset or empty yields `0n` (any positive
- * balance suffices: the local genesis wallet and a lightly-funded faucet
- * wallet both pass). A non-integer or negative value is a hard error, not a
- * silently-ignored typo. The single consumer is {@link ensureDeployerDust}.
- *
- * @param raw - The raw `MIN_DEPLOYER_NIGHT` value.
- * @returns The NIGHT floor in base units.
- * @throws If `raw` is set but not a non-negative integer.
- */
-export function parseMinNight(raw: string | undefined): bigint {
-  const trimmed = raw?.trim();
-  if (!trimmed) return 0n;
-  if (!/^\d+$/.test(trimmed)) {
-    throw new Error(`MIN_DEPLOYER_NIGHT must be a non-negative integer in NIGHT base units; got "${raw}".`);
-  }
-  return BigInt(trimmed);
-}
-
-/**
- * Make the deployer wallet fee-ready before any deploy. Deploys pay fees in
- * DUST, which only generates on NIGHT registered for dust generation, so this
- * routes the deployer through the generic {@link ensureFundedAccount}
- * preflight: assert it holds at least `MIN_DEPLOYER_NIGHT` NIGHT (any positive
- * balance by default) with a faucet hint when short, register its NIGHT, and
- * wait for spendable dust. On the local chain the deployer is the genesis
- * wallet; on a deployed network it is the required funded `DEPLOYER_SEED`
- * (resolved by {@link getDeployConfig}).
- *
- * @param env - The suite's env accumulator.
- * @param contractAddressEnvVars - The env-var names of every contract address
- *   the calling pipeline deploys; when ALL are already set the run deploys
- *   nothing and the preflight skips.
- * @throws If the deployer wallet holds less than the required NIGHT, or no
- *   spendable dust appears in time.
- */
-export async function ensureDeployerDust(
-  env: NodeJS.ProcessEnv,
-  contractAddressEnvVars: readonly string[],
-): Promise<void> {
-  if (contractAddressEnvVars.every((name) => env[name])) {
-    logSkip(
-      "deployer dust preflight",
-      `all contract addresses are set (${contractAddressEnvVars.join(", ")}) — no deploys this run, the deployer wallet pays nothing`,
-    );
-    return;
-  }
-  const { midnightNodeConfig, deployerSeed } = getDeployConfig(env);
-  await ensureFundedAccount(midnightNodeConfig, {
-    label: "deployer",
-    seed: deployerSeed,
-    minNight: parseMinNight(env.MIN_DEPLOYER_NIGHT),
-    faucetUrl: FAUCET_URLS[midnightNodeConfig.networkId],
-  });
 }
 
 // The signet contract is compiled + deployed FIRST: a client contract seals

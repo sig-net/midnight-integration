@@ -102,7 +102,10 @@ services:
       MIDNIGHT_INDEXER_WS_URL: '${MIDNIGHT_INDEXER_WS_URL:-ws://indexer:8088/api/v3/graphql/ws}'
       MIDNIGHT_NODE_URL: '${MIDNIGHT_NODE_URL:-http://node:9944}'
       MIDNIGHT_PROOF_SERVER_URL: '${MIDNIGHT_PROOF_SERVER_URL:-http://proof-server:6300}'
-      MIDNIGHT_WALLET_SEED: '${MIDNIGHT_WALLET_SEED:-0000000000000000000000000000000000000000000000000000000000000001}'
+      # The responder's fee-paying wallet: the mpc_responder role seed the
+      # integration-tests setup generates and funds from root (falls back to
+      # the local genesis wallet for a manual undeployed run).
+      MIDNIGHT_WALLET_SEED: '${MPC_RESPONDER_SEED:-0000000000000000000000000000000000000000000000000000000000000001}'
       # Both are appended to the repo-root .env by the integration-tests
       # setup (which also starts this service), see packages/integration-tests/README.md.
       MPC_ROOT_KEY: '${MPC_ROOT_KEY:-}'

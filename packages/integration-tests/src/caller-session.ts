@@ -22,7 +22,6 @@ import {
 import { SignetRequestResponseReader } from "@sig-net/midnight";
 import {
   deriveAccountKeys,
-  getDeployConfig,
   getMidnightNodeConfig,
   initialiseWalletFacade,
   type WalletFacade,
@@ -62,12 +61,13 @@ export interface CallerE2eSession {
 }
 
 /**
- * Create the flow file's session. The wallet is the DEPLOYER's (the caller
+ * Create the flow file's session. The wallet is the INVOKER's (the caller
  * contract involves no user identity, so the requester wallet is purely a
- * fee-paying detail); it is built lazily on first use — joining needs the
- * caller contract deployed, so this can only run once globalSetup has
- * populated env — and stopped once via stop(). Each access re-awaits synced
- * state so long tests / STEP_THROUGH pauses can't hand out a stale wallet.
+ * fee-paying detail; the invoker is a role wallet funded from root by the
+ * setup); it is built lazily on first use — joining needs the caller contract
+ * deployed, so this can only run once globalSetup has populated env — and
+ * stopped once via stop(). Each access re-awaits synced state so long tests /
+ * STEP_THROUGH pauses can't hand out a stale wallet.
  *
  * @param env - The setup-populated env accumulator.
  * @returns The session.
@@ -85,15 +85,15 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
   return {
     async callerContext(): Promise<CallerContext> {
       if (!sharedWallet) {
-        const deployConfig = getDeployConfig(env);
-        setNetworkId(deployConfig.midnightNodeConfig.networkId);
-        const keys = deriveAccountKeys(deployConfig.deployerSeed, deployConfig.midnightNodeConfig.networkId);
-        const facade = await initialiseWalletFacade(keys, deployConfig.midnightNodeConfig);
+        const nodeConfig = getMidnightNodeConfig(env);
+        setNetworkId(nodeConfig.networkId);
+        const keys = deriveAccountKeys(requireEnv(env, "INVOKER_SEED"), nodeConfig.networkId);
+        const facade = await initialiseWalletFacade(keys, nodeConfig);
         await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
         await facade.waitForSyncedState();
 
         const contractAddress = requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS");
-        const providers = buildCallerProviders(facade, keys, deployConfig.midnightNodeConfig);
+        const providers = buildCallerProviders(facade, keys, nodeConfig);
         const caller = await findDeployedContract(providers, {
           contractAddress,
           compiledContract: callerCompiledContract,
