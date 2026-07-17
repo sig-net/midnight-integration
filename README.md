@@ -13,13 +13,13 @@ The **Sign Bidirectional Flow** comprises of 5 steps:
 
 This repository contains the pieces that make that flow available on Midnight: the Sig Network protocol singleton contract, the client-agnostic SDK that contract builders integrate against, and a minimal caller contract that exercises the protocol end to end.
 
-Example applications built on these packages (such as the ERC20 vault demo) live in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples), consuming the published `@sig-net/*` npm packages.
+Example applications built on this integration (such as an ERC20 cross chain vault demo) live in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples).
 
 Jump to the [Quickstart](#quickstart) to get going or start reading at [Packages](#packages) to gain a deeper understanding of what you can find in this repository.
 
 # Quickstart
 
-The quickest way to get going with this repository is to get the generic end to end integration suite running locally. It drives the smallest possible client (the caller contract) through the protocol: submit a signature request, get discovered via the notification registry, receive the MPC signature, and verify it in-circuit.
+The quickest way to get going with this repository is to get the generic end to end integration suite running locally. It drives the smallest possible client (the caller [contract](./packages/caller-contract/src/signet-caller.compact)) through the protocol: submit a signature request, get discovered via the notification registry, receive the MPC signature, and verify it in-circuit.
 
 1. Ensure you have all of the [prerequisites](#prerequisites) installed.
 2. From the repository root, install workspace dependencies and select the required Compact toolchain explicitly:
