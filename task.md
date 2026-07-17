@@ -38,10 +38,12 @@ golden-vectored crypto tests in `packages/signet-midnight/tests`), and its
       (+ `packages/lib/AGENTS.md` heading); `AGENTS.md` H1; `README.md` title
       + package tree. Pick the scope to match `midnight-protocol`. Update
       `origin` after the GitHub rename.
-- [ ] **1.2 Delete or relocate `docs/e2e-sepolia-runbook.md`.** It documents
-      code that no longer exists here (vault e2e, `yarn response`,
-      `boilerplate/` paths); the vault's home is the examples repo. Move any
-      still-useful fakenet/Sepolia lore there; don't keep the decoy.
+- [x] **1.2 Sepolia runbook + sweep script — DONE (2026-07-17).** The parked
+      Sepolia derived-account funds were swept back to the funding wallet
+      `0xFBdC76c2aaB313484d1b8E63B75D38efD0537680` (~0.0142 ETH + 4.4 USDC
+      recovered; sub-gas dust and one unrecoverable 0.1 USDC abandoned), then
+      `docs/e2e-sepolia-runbook.md` and `scripts/sweep-derived-funds.ts` were
+      deleted (both in git history at `9c42d6e`).
 - [ ] **1.3 Root `scratch.md`** (untracked): its Signet overview is good —
       fold into `README.md` or `docs/`, or delete. Nothing untracked rides
       into main.
