@@ -25,7 +25,7 @@ the fakenet responder's config needs a reachable EVM endpoint to boot.
 ```sh
 corepack enable
 yarn install
-compact update 0.33.0-rc.0   # NEVER a bare `compact update` — see ground rules
+compact update 0.33.0-rc.2   # NEVER a bare `compact update` — see ground rules
 docker compose up -d          # node :9944, indexer :8088, proof server :6300, anvil :8545
 cd <repo-root>
 yarn test:integration-tests > /tmp/caller-e2e.log 2>&1 &
@@ -65,7 +65,7 @@ compile + deploy (the signet address is appended automatically).
 - **NEVER run a bare `compact update`** while no ≥0.33 stable exists: it
   installs (and DOWNGRADES an active rc default to) stable 0.31.1, whose
   language 0.23 rejects the contracts' `pragma language_version >= 0.25`.
-  Use `compact update 0.33.0-rc.0`; if the launcher's channel refuses the
+  Use `compact update 0.33.0-rc.2`; if the launcher's channel refuses the
   rc, use the direct-download recipe in `.github/workflows/ci.yml`.
 - Background any run that may zk-compile; redirect to a log file and watch
   it. Never sit on a foreground call with a 2-minute timeout.

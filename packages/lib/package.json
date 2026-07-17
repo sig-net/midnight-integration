@@ -17,8 +17,8 @@
     "vitest": "^4.1.9"
   },
   "dependencies": {
-    "@midnight-ntwrk/midnight-js": "5.0.0-beta.3",
-    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "5.0.0-beta.3",
+    "@midnight-ntwrk/midnight-js": "5.0.0-beta.4",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "5.0.0-beta.4",
     "@midnightntwrk/ledger-v9": "1.0.0-rc.3",
     "@midnightntwrk/wallet-sdk-facade": "5.0.0-beta.2",
     "@sig-net/midnight-contract-deploy": "*"

@@ -42,6 +42,12 @@ const CASES: Case[] = [
     expectedSeed: CUSTOM_SEED,
     expectedNetworkId: "preview",
   },
+  {
+    name: "a deployed network uses the provided DEPLOYER_SEED",
+    env: { NETWORK_ID: "stagenet", DEPLOYER_SEED: CUSTOM_SEED },
+    expectedSeed: CUSTOM_SEED,
+    expectedNetworkId: "stagenet",
+  },
 ];
 
 describe("getDeployConfig", () => {
@@ -49,5 +55,42 @@ describe("getDeployConfig", () => {
     const config = getDeployConfig(env);
     expect(config.deployerSeed).toBe(expectedSeed);
     expect(config.midnightNodeConfig.networkId).toBe(expectedNetworkId);
+  });
+});
+
+// On a deployed network the genesis mint wallet is unfunded, so getDeployConfig
+// refuses to fall back to it: a funded DEPLOYER_SEED is mandatory there.
+interface ThrowCase {
+  name: string;
+  env: Record<string, string | undefined>;
+  expectedMessage: RegExp;
+}
+
+const THROW_CASES: ThrowCase[] = [
+  {
+    name: "deployed network without DEPLOYER_SEED demands one",
+    env: { NETWORK_ID: "stagenet" },
+    expectedMessage: /DEPLOYER_SEED is required on "stagenet"/,
+  },
+  {
+    name: "deployed network with a whitespace DEPLOYER_SEED demands one",
+    env: { NETWORK_ID: "preprod", DEPLOYER_SEED: "   " },
+    expectedMessage: /DEPLOYER_SEED is required on "preprod"/,
+  },
+  {
+    name: "deployed network rejects the (unfunded here) genesis mint seed",
+    env: { NETWORK_ID: "stagenet", DEPLOYER_SEED: GENESIS_MINT_WALLET_SEED },
+    expectedMessage: /genesis mint seed, which holds no funds on "stagenet"/,
+  },
+  {
+    name: "the stagenet faucet URL appears in the funding hint",
+    env: { NETWORK_ID: "stagenet" },
+    expectedMessage: /faucet\.stagenet\.shielded\.tools/,
+  },
+];
+
+describe("getDeployConfig on deployed networks", () => {
+  it.each(THROW_CASES)("$name", ({ env, expectedMessage }) => {
+    expect(() => getDeployConfig(env)).toThrow(expectedMessage);
   });
 });

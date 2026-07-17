@@ -31,6 +31,12 @@ export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
     nodeUrl: "http://127.0.0.1:9944",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
+  ["stagenet"]: {
+    indexerUrl: "https://indexer.stagenet.shielded.tools/api/v4/graphql",
+    indexerWsUrl: "wss://indexer.stagenet.shielded.tools/api/v4/graphql/ws",
+    nodeUrl: "https://rpc.stagenet.shielded.tools",
+    proofServerUrl: LOCAL_PROOF_SERVER,
+  },
   ["preview"]: {
     indexerUrl: "https://indexer.preview.midnight.network/api/v3/graphql",
     indexerWsUrl: "wss://indexer.preview.midnight.network/api/v3/graphql/ws",
@@ -49,6 +55,15 @@ export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
     nodeUrl: "https://rpc.mainnet.midnight.network",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
+};
+
+// Faucet URLs for the networks that publish one, for underfunded-wallet
+// hints. The local standalone chain funds via genesis, not a faucet, so it
+// has no entry; the public *.midnight.network faucet URLs are omitted until
+// confirmed, so a hint there degrades to a generic "fund via the faucet".
+// TODO: add faucet urls for other networks
+export const FAUCET_URLS: Partial<Record<NetworkId, string>> = {
+  ["stagenet"]: "https://faucet.stagenet.shielded.tools",
 };
 
 // Derive the indexer WebSocket URL from the indexer HTTP URL: swap the scheme

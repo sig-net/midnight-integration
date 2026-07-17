@@ -11,8 +11,8 @@
     "test:integration:signet-caller-e2e": "yarn test:integration tests/signet-caller-e2e.test.ts"
   },
   "dependencies": {
-    "@midnight-ntwrk/midnight-js": "5.0.0-beta.3",
-    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.3",
+    "@midnight-ntwrk/midnight-js": "5.0.0-beta.4",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.4",
     "@midnight-protocol/caller-contract": "*",
     "@sig-net/midnight": "*",
     "@sig-net/midnight-contract-deploy": "*",
