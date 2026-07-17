@@ -12,3 +12,4 @@ export * from "./plumbing/midnight-node-config.ts";
 export * from "./plumbing/seed.ts";
 export * from "./plumbing/wallet.ts";
 export * from "./plumbing/deploy.ts";
+export * from "./plumbing/funding.ts";

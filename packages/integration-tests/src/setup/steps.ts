@@ -6,12 +6,10 @@
 // main process, so no `vitest` imports here — failed checks are plain throws.
 
 import {
-  deriveAccountKeys,
   deploySignetContract,
+  ensureFundedAccount,
+  FAUCET_URLS,
   getDeployConfig,
-  registerNightForDustGeneration,
-  waitForSpendableDust,
-  withSyncedWalletFacade,
 } from "@sig-net/midnight-contract-deploy";
 import { formatJubjubPublicKey } from "@sig-net/midnight";
 import { readdirSync } from "node:fs";
@@ -78,17 +76,41 @@ export function ensureMpcSecp256k1Pubkey(env: NodeJS.ProcessEnv): void {
 }
 
 /**
- * The deploys pay fees in DUST, which only generates on NIGHT registered for
- * dust generation — a funded-but-unregistered deployer wallet (fresh seed,
- * faucet-funded) would fail the first deploy. Check up front: registered
- * already → skip; unregistered NIGHT → register it and wait for a spendable
- * dust balance; no NIGHT at all → fail with a funding hint.
+ * Parse `MIN_DEPLOYER_NIGHT` (NIGHT base units) into a bigint floor for the
+ * deployer funding preflight. Unset or empty yields `0n` (any positive
+ * balance suffices: the local genesis wallet and a lightly-funded faucet
+ * wallet both pass). A non-integer or negative value is a hard error, not a
+ * silently-ignored typo. The single consumer is {@link ensureDeployerDust}.
+ *
+ * @param raw - The raw `MIN_DEPLOYER_NIGHT` value.
+ * @returns The NIGHT floor in base units.
+ * @throws If `raw` is set but not a non-negative integer.
+ */
+export function parseMinNight(raw: string | undefined): bigint {
+  const trimmed = raw?.trim();
+  if (!trimmed) return 0n;
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(`MIN_DEPLOYER_NIGHT must be a non-negative integer in NIGHT base units; got "${raw}".`);
+  }
+  return BigInt(trimmed);
+}
+
+/**
+ * Make the deployer wallet fee-ready before any deploy. Deploys pay fees in
+ * DUST, which only generates on NIGHT registered for dust generation, so this
+ * routes the deployer through the generic {@link ensureFundedAccount}
+ * preflight: assert it holds at least `MIN_DEPLOYER_NIGHT` NIGHT (any positive
+ * balance by default) with a faucet hint when short, register its NIGHT, and
+ * wait for spendable dust. On the local chain the deployer is the genesis
+ * wallet; on a deployed network it is the required funded `DEPLOYER_SEED`
+ * (resolved by {@link getDeployConfig}).
  *
  * @param env - The suite's env accumulator.
  * @param contractAddressEnvVars - The env-var names of every contract address
  *   the calling pipeline deploys; when ALL are already set the run deploys
  *   nothing and the preflight skips.
- * @throws If the deployer wallet holds neither DUST nor NIGHT.
+ * @throws If the deployer wallet holds less than the required NIGHT, or no
+ *   spendable dust appears in time.
  */
 export async function ensureDeployerDust(
   env: NodeJS.ProcessEnv,
@@ -101,32 +123,12 @@ export async function ensureDeployerDust(
     );
     return;
   }
-  const deployConfig = getDeployConfig(env);
-  const keys = deriveAccountKeys(deployConfig.deployerSeed, deployConfig.midnightNodeConfig.networkId);
-  await withSyncedWalletFacade(keys, deployConfig.midnightNodeConfig, async (facade, state) => {
-    const registered = await registerNightForDustGeneration(facade, keys, state);
-    if (registered === 0) {
-      logSkip("register deployer NIGHT for dust generation", "no unregistered NIGHT UTXOs");
-    } else {
-      console.log(`registered ${registered} deployer NIGHT UTXO(s) for dust generation`);
-    }
-
-    // A balance visible right now settles it; otherwise dust may still be
-    // generating from a (possibly just-submitted) registration — but only if
-    // there is registered NIGHT to generate FROM, so fail fast when the
-    // wallet is flat-out unfunded instead of polling into a timeout.
-    const dustNow = state.dust.balance(new Date());
-    if (dustNow > 0n) {
-      console.log(`deployer dust (fee) balance: ${dustNow}`);
-      return;
-    }
-    if (state.unshielded.availableCoins.length === 0) {
-      throw new Error(
-        "deployer wallet holds neither DUST nor NIGHT — fund it with NIGHT (see DEPLOYER_SEED) before deploying",
-      );
-    }
-    const dust = await waitForSpendableDust(facade);
-    console.log(`deployer dust (fee) balance: ${dust}`);
+  const { midnightNodeConfig, deployerSeed } = getDeployConfig(env);
+  await ensureFundedAccount(midnightNodeConfig, {
+    label: "deployer",
+    seed: deployerSeed,
+    minNight: parseMinNight(env.MIN_DEPLOYER_NIGHT),
+    faucetUrl: FAUCET_URLS[midnightNodeConfig.networkId],
   });
 }
 

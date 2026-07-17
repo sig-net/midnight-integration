@@ -14,8 +14,8 @@ import * as CoinPublicKey from "@midnight-ntwrk/platform-js/effect/CoinPublicKey
 import type { FacadeState } from "@midnightntwrk/wallet-sdk-facade";
 import { Effect, Layer, Option, type Types } from "effect";
 
-import { getMidnightNodeConfig, type MidnightNodeConfig } from "./midnight-node-config.ts";
-import type { NetworkId } from "./network-id.ts";
+import { FAUCET_URLS, getMidnightNodeConfig, type MidnightNodeConfig } from "./midnight-node-config.ts";
+import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
 
 /** Everything needed to perform a contract deploy: which stack to target, and which wallet pays for it. */
 export interface DeployConfig {
@@ -26,21 +26,66 @@ export interface DeployConfig {
 }
 
 // Pre-funded genesis wallet of the local standalone stack — the default
-// deployer for development.
-const GENESIS_MINT_WALLET_SEED = "0000000000000000000000000000000000000000000000000000000000000001";
+// deployer for development, and the ONLY network where it holds funds.
+export const GENESIS_MINT_WALLET_SEED = "0000000000000000000000000000000000000000000000000000000000000001";
+
+// True when `seed` is the genesis mint seed in hex form (0x-optional,
+// case-insensitive). A mnemonic never matches. Used to reject the genesis
+// seed on a deployed network, where it is unfunded.
+function isGenesisSeed(seed: string): boolean {
+  return seed.trim().replace(/^0x/i, "").toLowerCase() === GENESIS_MINT_WALLET_SEED;
+}
 
 /**
- * Read a {@link DeployConfig} from the environment. Every variable is
- * optional: node config per {@link getMidnightNodeConfig}, plus
- * `DEPLOYER_SEED` (hex or mnemonic) defaulting to the genesis mint wallet.
+ * Resolve the deployer seed for `networkId`. On the local standalone chain
+ * the genesis mint wallet is the default; on every deployed network the
+ * genesis wallet is unfunded, so a `DEPLOYER_SEED` funded via that network's
+ * faucet is required. The single consumer is {@link getDeployConfig}.
+ *
+ * @param env - The environment to read `DEPLOYER_SEED` from.
+ * @param networkId - The network the deploy targets.
+ * @returns The seed (hex or mnemonic) that funds & signs deploys.
+ * @throws If a deployed network has no `DEPLOYER_SEED`, or it is set to the
+ *   (unfunded-here) genesis mint seed.
+ */
+function resolveDeployerSeed(env: Record<string, string | undefined>, networkId: NetworkId): string {
+  const provided = env.DEPLOYER_SEED?.trim();
+  if (isLocalStandaloneNetwork(networkId)) {
+    return provided || GENESIS_MINT_WALLET_SEED;
+  }
+  const faucet = FAUCET_URLS[networkId];
+  const fundHint = faucet ? `fund a wallet via ${faucet}` : "fund a wallet via the network's faucet";
+  if (!provided) {
+    throw new Error(
+      `DEPLOYER_SEED is required on "${networkId}": the genesis mint seed only holds funds on the local ` +
+        `standalone chain. Set DEPLOYER_SEED (hex or mnemonic) to a funded wallet: ${fundHint}.`,
+    );
+  }
+  if (isGenesisSeed(provided)) {
+    throw new Error(
+      `DEPLOYER_SEED is the local genesis mint seed, which holds no funds on "${networkId}". ` +
+        `${fundHint} and set DEPLOYER_SEED to it.`,
+    );
+  }
+  return provided;
+}
+
+/**
+ * Read a {@link DeployConfig} from the environment. Node config comes from
+ * {@link getMidnightNodeConfig}; the deployer seed from {@link resolveDeployerSeed}
+ * (genesis mint wallet on the local chain, a required funded `DEPLOYER_SEED`
+ * on every deployed network).
  *
  * @param env - The environment to read from; defaults to `process.env`.
  * @returns The resolved deploy configuration.
+ * @throws If a deployed network lacks a valid funded `DEPLOYER_SEED` (see
+ *   {@link resolveDeployerSeed}).
  */
 export function getDeployConfig(env: Record<string, string | undefined> = process.env): DeployConfig {
+  const midnightNodeConfig = getMidnightNodeConfig(env);
   return {
-    midnightNodeConfig: getMidnightNodeConfig(env),
-    deployerSeed: env.DEPLOYER_SEED?.trim() || GENESIS_MINT_WALLET_SEED,
+    midnightNodeConfig,
+    deployerSeed: resolveDeployerSeed(env, midnightNodeConfig.networkId),
   };
 }
 

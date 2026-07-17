@@ -79,6 +79,27 @@ yarn test:integration-tests:signet-caller-e2e      # just the caller flow file
 Either way the globalSetup pipeline runs first — setup is never skipped by
 narrowing the selection.
 
+### Against a deployed network (e.g. stagenet)
+
+The same suite runs against any deployed Midnight network by pointing `.env`
+at it; no code change. Locally (`undeployed`) the pre-funded genesis wallet
+does everything. On a deployed network the genesis wallet is unfunded, so you
+supply a funded deployer:
+
+1. `NETWORK_ID=stagenet` (endpoints resolve automatically; the proof server
+   stays local, so keep one running at `MIDNIGHT_NODE_PROOF_SERVER_URL`,
+   default `http://127.0.0.1:6300`).
+2. `DEPLOYER_SEED=<hex-or-mnemonic>` for a wallet funded via the network's
+   faucet (stagenet: https://faucet.stagenet.shielded.tools). The deployer
+   funding preflight registers its NIGHT for dust and waits for a spendable
+   fee balance before any deploy; if it holds less than `MIN_DEPLOYER_NIGHT`
+   (or nothing), it fails with the faucet URL and the wallet's receive
+   address. The genesis seed is rejected outright on a deployed network.
+
+Every other setup step (MPC keys, compile/deploy, fakenet hand-off) behaves
+exactly as on the local stack, and the same `.env`-skip rules apply: set a
+contract address to skip its compile+deploy.
+
 Every setup step is **skippable via `.env`**: when its variable is set, the
 step verifies it and logs `SKIPPED`, so a populated `.env` goes straight to
 the contract calls (~2 min total). Unset, the step does the work, prints
@@ -100,8 +121,9 @@ vars in `.env` (`MIDNIGHT_SIGNET_CONTRACT_ADDRESS`,
 | Variable | Purpose | Default |
 |---|---|---|
 | `RUN_INTEGRATION_TESTS` | Opt-in gate (real env only, not `.env`); `test:integration-tests` sets it | unset (flow file skips) |
-| `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (deploy-package config) | local stack defaults |
-| `DEPLOYER_SEED` | Wallet that pays for deploys AND drives the caller's circuits | genesis seed `00…01` |
+| `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (deploy-package config); `undeployed` \| `preview` \| `preprod` \| `stagenet` \| `mainnet` | `undeployed` (local stack) |
+| `DEPLOYER_SEED` | Wallet that pays for deploys AND drives the caller's circuits. **Required on any deployed network** (the genesis wallet is unfunded there) | genesis seed `00…01` (undeployed only) |
+| `MIN_DEPLOYER_NIGHT` | Minimum NIGHT (base units) the deployer must hold before the run proceeds; underfunding fails the preflight with a faucet hint | unset (any positive balance) |
 | `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | deployed by setup (signet appended to `.env` automatically; caller printed — save it to skip redeploys) |
 | `MPC_ROOT_KEY` | Fakenet signer root key | derived by setup, appended to `.env` |
 | `MPC_JUBJUB_PK`, `MPC_SECP256K1_PUBKEY` | MPC public keys | derived from root key |
