@@ -18,7 +18,7 @@ import {
   type CallerPrivateState,
   type CallerProviders,
   type Contract as CallerContract,
-} from "@midnight-erc20-vault/caller-contract";
+} from "@midnight-protocol/caller-contract";
 import { SignetRequestResponseReader } from "@sig-net/midnight";
 import {
   deriveAccountKeys,

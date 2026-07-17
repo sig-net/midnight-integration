@@ -28,7 +28,7 @@ const SIGNET_CONTRACT_REF = { bytes: new Uint8Array(32).fill(0x5e) };
 const CPK = "0".repeat(64);
 
 describe.skipIf(!HAS_VERIFIER_KEYS)(
-  "caller deploy tx (SKIPPED without src/managed/keys — run `yarn workspace @midnight-erc20-vault/caller-contract compile:zk`)",
+  "caller deploy tx (SKIPPED without src/managed/keys — run `yarn workspace @midnight-protocol/caller-contract compile:zk`)",
   () => {
     it("builds an unproven deploy transaction from the real managed output", async () => {
       const deployTransaction = await buildDeployTransaction(

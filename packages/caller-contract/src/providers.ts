@@ -3,7 +3,7 @@
 // module + witnesses + this package's managed assets), the zk-config path the
 // proof provider reads keys from, the circuit-id union, and the private-state
 // store id. The generic wallet comes from @sig-net/midnight-contract-deploy,
-// the provider adapters from @midnight-erc20-vault/lib; clients compose the
+// the provider adapters from @midnight-protocol/lib; clients compose the
 // pieces and call `findDeployedContract(providers, ...)`.
 
 import { fileURLToPath } from "node:url";
@@ -17,7 +17,7 @@ import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
 import {
   createCrossContractProofServerProvider,
   createWalletAndMidnightProvider,
-} from "@midnight-erc20-vault/lib";
+} from "@midnight-protocol/lib";
 import {
   makeVacantCompiledContract,
   type AccountKeys,

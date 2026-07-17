@@ -5,7 +5,7 @@
 // accounts. The generic steps (MPC keys, dust preflight, signet
 // compile/deploy, fakenet hand-off) live in steps.ts.
 
-import { deployCaller } from "@midnight-erc20-vault/caller-contract";
+import { deployCaller } from "@midnight-protocol/caller-contract";
 import { getDeployConfig, getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 
 import { logSkip } from "../output.ts";

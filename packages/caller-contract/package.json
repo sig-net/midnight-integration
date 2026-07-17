@@ -1,5 +1,5 @@
 {
-  "name": "@midnight-erc20-vault/caller-contract",
+  "name": "@midnight-protocol/caller-contract",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -16,11 +16,11 @@
     "deploy": "tsx deploy.ts"
   },
   "dependencies": {
-    "@midnight-erc20-vault/lib": "*",
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.3",
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.3",
     "@midnight-ntwrk/midnight-js-level-private-state-provider": "5.0.0-beta.3",
     "@midnight-ntwrk/midnight-js-node-zk-config-provider": "5.0.0-beta.3",
+    "@midnight-protocol/lib": "*",
     "@sig-net/midnight": "*",
     "@sig-net/midnight-contract-deploy": "*"
   },

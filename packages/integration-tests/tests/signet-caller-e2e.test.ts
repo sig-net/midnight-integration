@@ -36,7 +36,7 @@ import {
   type RequestIdHex,
 } from "@sig-net/midnight";
 import { signBidirectionalRequestToSignedEVMTransaction } from "@sig-net/midnight";
-import { ledger as callerContractLedger } from "@midnight-erc20-vault/caller-contract";
+import { ledger as callerContractLedger } from "@midnight-protocol/caller-contract";
 import { getAddress } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
 import { createCallerE2eSession, type CallerContext } from "../src/caller-session.ts";

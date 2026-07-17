@@ -1,4 +1,4 @@
-# `@midnight-erc20-vault/lib` — agent notes
+# `@midnight-protocol/lib` — agent notes
 
 Workspace-wide rules live in the repo-root [`/AGENTS.md`](../../AGENTS.md) and apply
 here too. Member-specific rules:

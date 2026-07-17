@@ -1,5 +1,5 @@
 {
-  "name": "midnight-erc20-vault",
+  "name": "midnight-protocol",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,16 +9,16 @@
     "packages/*"
   ],
   "scripts": {
-    "compile": "yarn workspaces foreach --all --exclude midnight-erc20-vault --topological run compile",
-    "compile:zk": "yarn workspaces foreach --all --exclude midnight-erc20-vault --topological run compile:zk",
-    "compile:caller-contract": "yarn workspace @midnight-erc20-vault/caller-contract run compile",
-    "compile:caller-contract:zk": "yarn workspace @midnight-erc20-vault/caller-contract run compile:zk",
-    "deploy:caller-contract": "yarn workspace @midnight-erc20-vault/caller-contract run deploy",
+    "compile": "yarn workspaces foreach --all --exclude midnight-protocol --topological run compile",
+    "compile:zk": "yarn workspaces foreach --all --exclude midnight-protocol --topological run compile:zk",
+    "compile:caller-contract": "yarn workspace @midnight-protocol/caller-contract run compile",
+    "compile:caller-contract:zk": "yarn workspace @midnight-protocol/caller-contract run compile:zk",
+    "deploy:caller-contract": "yarn workspace @midnight-protocol/caller-contract run deploy",
     "compile:signet-midnight": "yarn workspace @sig-net/midnight run compile",
-    "build": "yarn workspaces foreach --all --exclude midnight-erc20-vault --topological run build",
-    "test": "yarn workspaces foreach --all --exclude midnight-erc20-vault --topological run test",
-    "test:integration-tests": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration",
-    "test:integration-tests:signet-caller-e2e": "yarn workspace @midnight-erc20-vault/integration-tests run test:integration:signet-caller-e2e",
+    "build": "yarn workspaces foreach --all --exclude midnight-protocol --topological run build",
+    "test": "yarn workspaces foreach --all --exclude midnight-protocol --topological run test",
+    "test:integration-tests": "yarn workspace @midnight-protocol/integration-tests run test:integration",
+    "test:integration-tests:signet-caller-e2e": "yarn workspace @midnight-protocol/integration-tests run test:integration:signet-caller-e2e",
     "compile:signet-contract": "yarn workspace @sig-net/midnight-contract run compile",
     "compile:signet-contract:zk": "yarn workspace @sig-net/midnight-contract run compile:zk",
     "deploy:signet-contract": "yarn workspace @sig-net/midnight-contract-deploy run deploy"

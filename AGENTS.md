@@ -1,4 +1,4 @@
-# midnight-erc20-vault — workspace-wide agent rules
+# midnight-protocol — workspace-wide agent rules
 
 This repository is a single **Yarn workspace** (Yarn 4 via corepack, `nodeLinker:
 node-modules`). Its members live under `packages/`:
