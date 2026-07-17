@@ -53,7 +53,10 @@ services:
 
   evm:
     # anvil dev chain (id 31337, pre-funded dev-mnemonic accounts).
-    # Used for all EVM interactions.
+    # Although the tests in this repository perform no EVM interactions this
+    # is required as the fakenet has no option to disable EVM yet, so this is
+    # required to keep the fakenet running.
+    # TODO: remove this local-evm once fakenet responder has a "DISABLE_EVM" option.
     container_name: 'local-evm'
     image: 'ghcr.io/foundry-rs/foundry:v1.5.1'
     entrypoint: ['anvil', '--host', '0.0.0.0']
