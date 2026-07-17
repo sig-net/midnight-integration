@@ -54,9 +54,13 @@ golden-vectored crypto tests in `packages/signet-midnight/tests`), and its
       into main. NOT DOING. scratch.md is an ignored file.
 - [x] **1.4 README `## TODOs` block** — DONE (README tidy, 2026-07-17): block
       removed; its items live in §3 / task.md §2.
-- [ ] **1.5 `--passWithNoTests`:** drop from `signet-midnight` (11 test
-      files); keep on `lib` (tests were pruned with its surface) with a
-      one-line comment, or give lib a minimal test.
+- [x] **1.5 `--passWithNoTests`: DONE (2026-07-17, `a6a8ced`).** Dropped from
+      both `signet-midnight` (its 11 test files made it dead) and `lib`: the
+      give-lib-a-minimal-test option was taken, a real offline test of
+      `createCrossContractProofServerProvider`'s construction contract (the
+      documented empty-providers throw + happy-path build), in
+      `packages/lib/tests/` (added to lib's tsconfig `include`). No
+      `--passWithNoTests` remains in the repo.
 - [ ] **1.6 Open the PR** `bernard/repo-refactor` → `main`; after merge:
       retire the old-MVP worktree and delete stale branches (including the
       dead `feat/signet-signer-ledger9`).
