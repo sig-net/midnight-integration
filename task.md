@@ -45,8 +45,8 @@ golden-vectored crypto tests in `packages/signet-midnight/tests`), and its
 - [ ] **1.3 Root `scratch.md`** (untracked): its Signet overview is good —
       fold into `README.md` or `docs/`, or delete. Nothing untracked rides
       into main.
-- [ ] **1.4 README `## TODOs` block** → already folded into §3 below; remove
-      the block from `README.md`.
+- [x] **1.4 README `## TODOs` block** — DONE (README tidy, 2026-07-17): block
+      removed; its items live in §3 / task.md §2.
 - [ ] **1.5 `--passWithNoTests`:** drop from `signet-midnight` (11 test files)
       and `xcontract-events` (2); keep on `lib` (tests were pruned with its
       surface) with a one-line comment, or give lib a minimal test.
