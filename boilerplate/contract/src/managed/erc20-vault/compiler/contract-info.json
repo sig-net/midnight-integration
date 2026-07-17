@@ -147,6 +147,160 @@
       }
     },
     {
+      "name": "withdraw",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "erc20Address",
+          "type": {
+            "type-name": "Bytes",
+            "length": 20
+          }
+        },
+        {
+          "name": "amount",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 340282366920938463463374607431768211455
+          }
+        },
+        {
+          "name": "coin",
+          "type": {
+            "type-name": "Struct",
+            "name": "ShieldedCoinInfo",
+            "elements": [
+              {
+                "name": "nonce",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "color",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 32
+                }
+              },
+              {
+                "name": "value",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 340282366920938463463374607431768211455
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "destEvmAddress",
+          "type": {
+            "type-name": "Bytes",
+            "length": 20
+          }
+        },
+        {
+          "name": "evmChainId",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "evmNonce",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "evmGasLimit",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 18446744073709551615
+          }
+        },
+        {
+          "name": "evmMaxFee",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 340282366920938463463374607431768211455
+          }
+        },
+        {
+          "name": "evmPriorityFee",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 340282366920938463463374607431768211455
+          }
+        },
+        {
+          "name": "evmValue",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 340282366920938463463374607431768211455
+          }
+        },
+        {
+          "name": "caip2Id",
+          "type": {
+            "type-name": "Bytes",
+            "length": 64
+          }
+        },
+        {
+          "name": "keyVersion",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 4294967295
+          }
+        },
+        {
+          "name": "algo",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        },
+        {
+          "name": "dest",
+          "type": {
+            "type-name": "Bytes",
+            "length": 64
+          }
+        },
+        {
+          "name": "params",
+          "type": {
+            "type-name": "Bytes",
+            "length": 512
+          }
+        },
+        {
+          "name": "outputSchema",
+          "type": {
+            "type-name": "Bytes",
+            "length": 256
+          }
+        },
+        {
+          "name": "respondSchema",
+          "type": {
+            "type-name": "Bytes",
+            "length": 256
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
       "name": "claim",
       "pure": false,
       "proof": true,
@@ -163,6 +317,74 @@
           "type": {
             "type-name": "Bytes",
             "length": 4096
+          }
+        },
+        {
+          "name": "mintNonce",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        },
+        {
+          "name": "pk",
+          "type": {
+            "type-name": "Alias",
+            "name": "JubjubPoint",
+            "type": {
+              "type-name": "Opaque",
+              "tsType": "JubjubPoint"
+            }
+          }
+        },
+        {
+          "name": "announcement",
+          "type": {
+            "type-name": "Alias",
+            "name": "JubjubPoint",
+            "type": {
+              "type-name": "Opaque",
+              "tsType": "JubjubPoint"
+            }
+          }
+        },
+        {
+          "name": "response",
+          "type": {
+            "type-name": "Field"
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "completeWithdraw",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "requestId",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        },
+        {
+          "name": "outputData",
+          "type": {
+            "type-name": "Bytes",
+            "length": 4096
+          }
+        },
+        {
+          "name": "mintNonce",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
           }
         },
         {
@@ -399,8 +621,8 @@
     {
       "name": "signetEvmMaxFee",
       "index": [
-        1,
-        0
+        0,
+        10
       ],
       "exported": true,
       "storage": "Map",
@@ -417,7 +639,7 @@
       "name": "signetEvmPriorityFee",
       "index": [
         1,
-        1
+        0
       ],
       "exported": true,
       "storage": "Map",
@@ -434,7 +656,7 @@
       "name": "signetEvmValue",
       "index": [
         1,
-        2
+        1
       ],
       "exported": true,
       "storage": "Map",
@@ -451,7 +673,7 @@
       "name": "signetCaip2Id",
       "index": [
         1,
-        3
+        2
       ],
       "exported": true,
       "storage": "Map",
@@ -468,7 +690,7 @@
       "name": "signetKeyVersion",
       "index": [
         1,
-        4
+        3
       ],
       "exported": true,
       "storage": "Map",
@@ -485,7 +707,7 @@
       "name": "signetPath",
       "index": [
         1,
-        5
+        4
       ],
       "exported": true,
       "storage": "Map",
@@ -502,7 +724,7 @@
       "name": "signetAlgo",
       "index": [
         1,
-        6
+        5
       ],
       "exported": true,
       "storage": "Map",
@@ -519,7 +741,7 @@
       "name": "signetDest",
       "index": [
         1,
-        7
+        6
       ],
       "exported": true,
       "storage": "Map",
@@ -536,7 +758,7 @@
       "name": "signetParams",
       "index": [
         1,
-        8
+        7
       ],
       "exported": true,
       "storage": "Map",
@@ -553,7 +775,7 @@
       "name": "signetOutputSchema",
       "index": [
         1,
-        9
+        8
       ],
       "exported": true,
       "storage": "Map",
@@ -570,7 +792,7 @@
       "name": "signetRespondSchema",
       "index": [
         1,
-        10
+        9
       ],
       "exported": true,
       "storage": "Map",
@@ -587,7 +809,7 @@
       "name": "signetOutputData",
       "index": [
         1,
-        11
+        10
       ],
       "exported": true,
       "storage": "Map",
@@ -604,7 +826,7 @@
       "name": "initialized",
       "index": [
         1,
-        12
+        11
       ],
       "exported": true,
       "storage": "Counter"
@@ -613,7 +835,7 @@
       "name": "sepoliaVaultAddress",
       "index": [
         1,
-        13
+        12
       ],
       "exported": true,
       "storage": "Cell",
@@ -626,11 +848,28 @@
       "name": "deployer",
       "index": [
         1,
-        14
+        13
       ],
       "exported": false,
       "storage": "Cell",
       "type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "refundCommitment",
+      "index": [
+        1,
+        14
+      ],
+      "exported": true,
+      "storage": "Map",
+      "key": {
+        "type-name": "Bytes",
+        "length": 32
+      },
+      "value": {
         "type-name": "Bytes",
         "length": 32
       }

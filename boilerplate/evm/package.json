@@ -1,0 +1,14 @@
+{
+  "name": "vault-evm-harness",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-EVM harness for the ERC20 vault integration tests: real Circle USDC (FiatTokenV2_2) compiled + deployed to a local Hardhat node.",
+  "scripts": {
+    "compile": "hardhat compile",
+    "node": "hardhat node"
+  },
+  "devDependencies": {
+    "@openzeppelin/contracts": "3.4.2",
+    "hardhat": "^2.22.10"
+  }
+}

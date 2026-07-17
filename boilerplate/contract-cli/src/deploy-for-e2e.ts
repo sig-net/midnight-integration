@@ -75,21 +75,22 @@ console.log(`initialized: ${ledger!.initialized}`);
 console.log(`mpcPubKeyHash: ${Buffer.from(ledger!.mpcPubKeyHash).toString('hex')}`);
 console.log(`sepoliaVaultAddress: 0x${Buffer.from(ledger!.sepoliaVaultAddress).toString('hex')}`);
 
-// Derive user's Sepolia address (where the user must fund USDC before deposit)
-// The user's path = identity commitment in first 32 bytes of Bytes<256>
-const userPath = new Uint8Array(256);
-userPath.set(hash2x32(pad32('vault:user:'), secretKey), 0);
-const userPathHex = Buffer.from(userPath).toString('hex');
-const userEvmAddress = deriveEvmAddress(MPC_SECP256K1_PUBKEY, contractAddress, userPathHex);
+// Derive user's Sepolia address (where the user must fund USDC before deposit).
+// The derivation path is the lowercase hex of the user's identity commitment —
+// the same string the contract stores (and verifies) in the path field, and that
+// the MPC reads back as a plain string.
+const commitmentHex = Buffer.from(deployerCommitment).toString('hex');
+const userEvmAddress = deriveEvmAddress(MPC_SECP256K1_PUBKEY, contractAddress, commitmentHex);
 
 console.log('\n=== E2E Setup Complete ===');
 console.log(`MIDNIGHT_CONTRACT_ADDRESS=${contractAddress}`);
 console.log(`SEPOLIA_VAULT_ADDRESS=${vaultAddress}`);
 console.log(`USER_EVM_ADDRESS=${userEvmAddress}`);
-console.log(`\nBefore running the E2E test:`);
-console.log(`  1. Fund ${userEvmAddress} on Sepolia with ETH (gas) + USDC`);
-console.log(`  2. Set MIDNIGHT_CONTRACT_ADDRESS=${contractAddress} in the MPC's .env`);
-console.log(`  3. Start the MPC response server`);
+console.log(`\nBefore running the E2E test — fund both derived Sepolia addresses:`);
+console.log(`  1. ${userEvmAddress}  — user DEPOSIT address: ETH (gas) + USDC (deposits transfer USDC from here)`);
+console.log(`  2. ${vaultAddress}  — vault PAYOUT address: ETH (gas) only (its USDC is credited by deposits)`);
+console.log(`  3. Set MIDNIGHT_CONTRACT_ADDRESS=${contractAddress} in the MPC's .env`);
+console.log(`  4. Start the MPC response server`);
 
 await walletCtx.wallet.stop();
 process.exit(0);

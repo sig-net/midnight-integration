@@ -26,12 +26,38 @@ export type ImpureCircuits<PS> = {
           params_0: Uint8Array,
           outputSchema_0: Uint8Array,
           respondSchema_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  withdraw(context: __compactRuntime.CircuitContext<PS>,
+           erc20Address_0: Uint8Array,
+           amount_0: bigint,
+           coin_0: { nonce: Uint8Array, color: Uint8Array, value: bigint },
+           destEvmAddress_0: Uint8Array,
+           evmChainId_0: bigint,
+           evmNonce_0: bigint,
+           evmGasLimit_0: bigint,
+           evmMaxFee_0: bigint,
+           evmPriorityFee_0: bigint,
+           evmValue_0: bigint,
+           caip2Id_0: Uint8Array,
+           keyVersion_0: bigint,
+           algo_0: Uint8Array,
+           dest_0: Uint8Array,
+           params_0: Uint8Array,
+           outputSchema_0: Uint8Array,
+           respondSchema_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   claim(context: __compactRuntime.CircuitContext<PS>,
         requestId_0: Uint8Array,
         outputData_0: Uint8Array,
+        mintNonce_0: Uint8Array,
         pk_0: __compactRuntime.JubjubPoint,
         announcement_0: __compactRuntime.JubjubPoint,
         response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  completeWithdraw(context: __compactRuntime.CircuitContext<PS>,
+                   requestId_0: Uint8Array,
+                   outputData_0: Uint8Array,
+                   mintNonce_0: Uint8Array,
+                   pk_0: __compactRuntime.JubjubPoint,
+                   announcement_0: __compactRuntime.JubjubPoint,
+                   response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type ProvableCircuits<PS> = {
@@ -54,12 +80,38 @@ export type ProvableCircuits<PS> = {
           params_0: Uint8Array,
           outputSchema_0: Uint8Array,
           respondSchema_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  withdraw(context: __compactRuntime.CircuitContext<PS>,
+           erc20Address_0: Uint8Array,
+           amount_0: bigint,
+           coin_0: { nonce: Uint8Array, color: Uint8Array, value: bigint },
+           destEvmAddress_0: Uint8Array,
+           evmChainId_0: bigint,
+           evmNonce_0: bigint,
+           evmGasLimit_0: bigint,
+           evmMaxFee_0: bigint,
+           evmPriorityFee_0: bigint,
+           evmValue_0: bigint,
+           caip2Id_0: Uint8Array,
+           keyVersion_0: bigint,
+           algo_0: Uint8Array,
+           dest_0: Uint8Array,
+           params_0: Uint8Array,
+           outputSchema_0: Uint8Array,
+           respondSchema_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   claim(context: __compactRuntime.CircuitContext<PS>,
         requestId_0: Uint8Array,
         outputData_0: Uint8Array,
+        mintNonce_0: Uint8Array,
         pk_0: __compactRuntime.JubjubPoint,
         announcement_0: __compactRuntime.JubjubPoint,
         response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  completeWithdraw(context: __compactRuntime.CircuitContext<PS>,
+                   requestId_0: Uint8Array,
+                   outputData_0: Uint8Array,
+                   mintNonce_0: Uint8Array,
+                   pk_0: __compactRuntime.JubjubPoint,
+                   announcement_0: __compactRuntime.JubjubPoint,
+                   response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type PureCircuits = {
@@ -85,12 +137,38 @@ export type Circuits<PS> = {
           params_0: Uint8Array,
           outputSchema_0: Uint8Array,
           respondSchema_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  withdraw(context: __compactRuntime.CircuitContext<PS>,
+           erc20Address_0: Uint8Array,
+           amount_0: bigint,
+           coin_0: { nonce: Uint8Array, color: Uint8Array, value: bigint },
+           destEvmAddress_0: Uint8Array,
+           evmChainId_0: bigint,
+           evmNonce_0: bigint,
+           evmGasLimit_0: bigint,
+           evmMaxFee_0: bigint,
+           evmPriorityFee_0: bigint,
+           evmValue_0: bigint,
+           caip2Id_0: Uint8Array,
+           keyVersion_0: bigint,
+           algo_0: Uint8Array,
+           dest_0: Uint8Array,
+           params_0: Uint8Array,
+           outputSchema_0: Uint8Array,
+           respondSchema_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   claim(context: __compactRuntime.CircuitContext<PS>,
         requestId_0: Uint8Array,
         outputData_0: Uint8Array,
+        mintNonce_0: Uint8Array,
         pk_0: __compactRuntime.JubjubPoint,
         announcement_0: __compactRuntime.JubjubPoint,
         response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
+  completeWithdraw(context: __compactRuntime.CircuitContext<PS>,
+                   requestId_0: Uint8Array,
+                   outputData_0: Uint8Array,
+                   mintNonce_0: Uint8Array,
+                   pk_0: __compactRuntime.JubjubPoint,
+                   announcement_0: __compactRuntime.JubjubPoint,
+                   response_0: bigint): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type Ledger = {
@@ -238,6 +316,13 @@ export type Ledger = {
   };
   readonly initialized: bigint;
   readonly sepoliaVaultAddress: Uint8Array;
+  refundCommitment: {
+    isEmpty(): boolean;
+    size(): bigint;
+    member(key_0: Uint8Array): boolean;
+    lookup(key_0: Uint8Array): Uint8Array;
+    [Symbol.iterator](): Iterator<[Uint8Array, Uint8Array]>
+  };
 }
 
 export type ContractReferenceLocations = any;
