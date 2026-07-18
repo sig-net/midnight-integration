@@ -3,18 +3,6 @@
 #   @sig-net/midnight                  (packages/signet-midnight)
 #   @sig-net/midnight-contract        (packages/signet-contract)
 #   @sig-net/midnight-contract-deploy (packages/signet-contract-deploy)
-#
-# via npm trusted publishing (OIDC, no token secrets). ONE workflow for all
-# three on purpose: the packages release in lockstep (they depend on each
-# other at the same version), and the compact toolchain + signet-contract zk
-# keygen they need to build is set up once. Each npm package's
-# trusted-publisher config points at THIS file (repository
-# sig-net/midnight-integration, workflow publish.yml).
-#
-# Release flow: bump all three package.json versions to the same X.Y.Z, then
-# push a vX.Y.Z tag (or run the workflow manually). Versions already on npm
-# are skipped, so a partially failed run can simply be rerun. A prerelease
-# version (any -suffix) publishes under the npm dist-tag "beta".
 
 name: publish
 

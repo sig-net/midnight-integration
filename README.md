@@ -75,10 +75,4 @@ yarn build && yarn test           # typecheck + unit tests (simulator-only, offl
 | [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the singleton + the generic deploy/wallet plumbing |
 | [`packages/caller-contract`](packages/caller-contract) | repo-private | The minimal client contract: submit a signature request, verify the Schnorr response, the smallest thing that drives the protocol |
 | [`packages/integration-tests`](packages/integration-tests) | repo-private | The generic e2e suite: submit → notification → MPC signature → in-circuit verify, against the local docker stack (`docker-compose.yaml`: midnight node/indexer/proof server + anvil EVM + fakenet MPC responder) |
-| [`packages/lib`](packages/lib) | repo-private | Shared midnight-js provider adapters (the only copy) |
-
-CI is [.github/workflows/ci.yml](.github/workflows/ci.yml) (unit + signet-caller e2e + weekly zk canary).
-
-# Publishing
-
-The three npm packages are published in lockstep by [.github/workflows/publish.yml](.github/workflows/publish.yml) via npm trusted publishing (OIDC, no token secrets). To release: bump all three package versions to the same `X.Y.Z`, then push a `vX.Y.Z` tag. Versions already on npm are skipped, so a partially failed run can simply be rerun; a prerelease version (any `-suffix`) lands under the `beta` dist-tag.
+| [`packages/lib`](packages/lib) | repo-private | Shared midnight-js provider adapters |
