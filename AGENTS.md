@@ -11,6 +11,11 @@ node-modules`). Its members live under `packages/`:
   package per Compact contract, no contract/sdk split: the central signet
   singleton, and the minimal client that exercises it generically. See
   "Contract packages" below.
+- **`packages/caller-contract-20-field`** — a 20-field requester contract
+  kept ONLY as the lockstep fixture for chunked-ledger raw parsing (past 15
+  fields compactc stores ledger fields in a chunk tree; its simulator tests
+  pin `@sig-net/midnight`'s field resolver against real compiler output).
+  No deploy flow, no notifier, compile is skip-zk only.
 - **`packages/signet-contract-deploy`** — the published, self-contained deploy
   tooling: the signet-contract deploy flow plus the generic deploy/wallet/config
   plumbing (`src/plumbing/`) every contract package's deploy script composes.

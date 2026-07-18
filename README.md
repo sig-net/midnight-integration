@@ -74,5 +74,6 @@ yarn build && yarn test           # typecheck + unit tests (simulator-only, offl
 | [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: signature-response log (in-circuit Schnorr verified) + request-notification registry |
 | [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the singleton + the generic deploy/wallet plumbing |
 | [`packages/caller-contract`](packages/caller-contract) | repo-private | The minimal client contract: submit a signature request, verify the Schnorr response, the smallest thing that drives the protocol |
+| [`packages/caller-contract-20-field`](packages/caller-contract-20-field) | repo-private | A 20-field requester contract: the lockstep fixture proving the raw ledger readers resolve field numbers through the compiler's chunked (>15-field) state layout |
 | [`packages/integration-tests`](packages/integration-tests) | repo-private | The generic e2e suite: submit → notification → MPC signature → in-circuit verify, against the local docker stack (`docker-compose.yaml`: midnight node/indexer/proof server + anvil EVM + fakenet MPC responder) |
 | [`packages/lib`](packages/lib) | repo-private | Shared midnight-js provider adapters |

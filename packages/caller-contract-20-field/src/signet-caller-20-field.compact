@@ -1,0 +1,102 @@
+pragma language_version >= 0.25;
+
+import CompactStandardLibrary;
+
+// Shared signet library: request/response structs, request-id hashing,
+// request construction. See the module header in Signet.compact.
+import "@sig-net/midnight/src/Signet";
+
+// The 20-field signet requester: the LOCKSTEP FIXTURE for chunked ledger
+// parsing. Past 15 fields compactc stops storing fields directly in the root
+// state array and builds a chunk tree (20 fields compile to chunks of
+// [5, 15], remainder first), so raw readers must resolve flat field numbers
+// through chunk detection. This contract exists so that resolution is tested
+// against REAL compiler output rather than a hand-built emulation:
+// signetRequestsIndex sits at field 19 (the last leaf, chunk 1 slot 14), a
+// List (array-typed, the node shape chunk detection must NOT confuse with a
+// chunk) sits at field 0, and the chunk boundary (field 4 | field 5) crosses
+// the filler counters. Simulator tests only: no deploy flow, no notifier
+// cross-call, nothing off-chain consumes it.
+
+// field 0: log of every submitted request id, newest first. An array-typed
+// node ahead of everything else.
+export ledger requestLog: List<Bytes<32>>;
+
+// field 1: contract-local request counter, sources each request's nonce.
+export ledger signetNonce: SignetNonce;
+
+// fields 2..18: filler counters whose only job is pushing the contract past
+// the 15-field chunking threshold so the root state becomes a chunk tree.
+export ledger pad02: Counter;
+export ledger pad03: Counter;
+export ledger pad04: Counter;
+export ledger pad05: Counter;
+export ledger pad06: Counter;
+export ledger pad07: Counter;
+export ledger pad08: Counter;
+export ledger pad09: Counter;
+export ledger pad10: Counter;
+export ledger pad11: Counter;
+export ledger pad12: Counter;
+export ledger pad13: Counter;
+export ledger pad14: Counter;
+export ledger pad15: Counter;
+export ledger pad16: Counter;
+export ledger pad17: Counter;
+export ledger pad18: Counter;
+
+// field 19: the request index, addressed as chunk 1 slot 14 in raw state.
+// Type configured for EVM Type 2 transactions with
+// <1 calldata word, 0 access-list entries, 0 storage keys>: the fixed
+// minimal calldata submitSignatureRequest composes.
+export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParams<1, 0, 0>>;
+
+// Records the smallest well-formed signet request, mirroring the
+// signet-caller contract's fixed composition minus the notifier call: the
+// tests read the stored record back MPC-style by field number, which is the
+// whole point of this fixture.
+export circuit submitSignatureRequest(
+  evmNonce: Uint<64>,
+  keyVersion: Uint<32>
+): [] {
+  const calldata = EVMCalldata<1> {
+    selector: Bytes [0xca, 0x11, 0xab, 0x1e],
+    noWords: 1 as Uint<16>,
+    words: [pad(32, "signet-caller:fixed-word")]
+  };
+
+  const txParams = EVMType2TxParams<1, 0, 0> {
+    to: pad(20, "signet-caller-e2e-to"),
+    chainId: 31337 as Uint<64>,
+    nonce: evmNonce,
+    gasLimit: 100000 as Uint<64>,
+    maxFeePerGas: 30000000000 as Uint<128>,       // 30 gwei
+    maxPriorityFeePerGas: 1000000000 as Uint<128>, // 1 gwei
+    value: 0 as Uint<128>,
+    accessListEntryCount: 0,
+    accessList: [],
+    calldata: some<EVMCalldata<1>>(calldata)
+  };
+
+  const schema = pad(128, "[{\"name\":\"success\",\"type\":\"bool\"}]");
+  const requestNonce = signetNonce as Uint<64>;
+  const request = constructContractPathSignBidirectionalRequest<EVMType2TxParams<1, 0, 0>>(
+    requestNonce,
+    TxParamType.evmType2,
+    txParams,
+    pad(32, "eip155:31337"),
+    keyVersion,
+    pad(256, "caller"),
+    pad(32, "ecdsa"),
+    pad(32, "ethereum"),
+    pad(64, ""),
+    schema,
+    schema
+  );
+  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>>(request));
+
+  assert(!signetRequestsIndex.member(requestId), "Request already exists");
+  signetNonce.increment(1);
+  signetRequestsIndex.insert(requestId, disclose(request));
+  requestLog.pushFront(requestId as Bytes<32>);
+}
