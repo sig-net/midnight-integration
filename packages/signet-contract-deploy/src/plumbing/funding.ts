@@ -11,6 +11,7 @@
 // per-child amount, and prints addresses lives in the integration-tests setup.
 
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
+import { isLocalStandaloneNetwork } from "./network-id.ts";
 import {
   deriveAccountKeys,
   deriveAddresses,
@@ -91,14 +92,24 @@ export class RootUnfundedError extends Error {
   }
 }
 
+// A freshly composed local stack has a window where the indexer reports a
+// synced (empty) state before it has indexed the genesis block that funds the
+// genesis mint wallet — so a zero root balance there means "not indexed yet",
+// not "unfunded". Poll until the genesis funds appear.
+const GENESIS_INDEX_POLL_INTERVAL_MS = 3_000;
+const GENESIS_INDEX_TIMEOUT_MS = 120_000;
+
 /**
  * Ensure the root wallet is fee-ready, returning its snapshot. Root holds no
  * NIGHT on a deployed network before faucet funding, so this throws
  * {@link RootUnfundedError} (NIGHT address + faucet URL) when NIGHT is zero.
- * Otherwise it registers root's NIGHT for dust generation and waits for a
- * spendable DUST balance, because root pays the children's funding transfers
- * in DUST: the local genesis root is already registered (a no-op here), but a
- * faucet-funded root is not, and would have no DUST to spend.
+ * On the local standalone chain, where genesis funds root by construction, a
+ * zero balance is instead retried until the indexer catches up (see
+ * {@link GENESIS_INDEX_TIMEOUT_MS}). Otherwise it registers root's NIGHT for
+ * dust generation and waits for a spendable DUST balance, because root pays
+ * the children's funding transfers in DUST: the local genesis root is already
+ * registered (a no-op here), but a faucet-funded root is not, and would have
+ * no DUST to spend.
  *
  * @param config - The stack the root wallet connects to.
  * @param rootSeed - The root wallet seed.
@@ -115,7 +126,15 @@ export async function assertRootFunded(
   const keys = deriveAccountKeys(rootSeed, config.networkId);
   const addresses = deriveAddresses(keys, config.networkId);
   return withSyncedWalletFacade(keys, config, async (facade, state) => {
-    const night = totalNight(state);
+    let night = totalNight(state);
+    if (night === 0n && isLocalStandaloneNetwork(config.networkId)) {
+      const deadline = Date.now() + GENESIS_INDEX_TIMEOUT_MS;
+      while (night === 0n && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, GENESIS_INDEX_POLL_INTERVAL_MS));
+        state = await facade.waitForSyncedState();
+        night = totalNight(state);
+      }
+    }
     if (night === 0n) {
       throw new RootUnfundedError(addresses.unshielded, faucetUrl);
     }
