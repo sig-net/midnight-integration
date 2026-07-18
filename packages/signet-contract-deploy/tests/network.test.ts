@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   FAUCET_URLS,
+  getFaucetUrl,
   getMidnightNodeConfig,
   isLocalStandaloneNetwork,
   NETWORK_IDS,
@@ -31,19 +32,35 @@ describe("network ids", () => {
   });
 });
 
+// Stagenet's endpoints are deliberately not published in this repo: the
+// defaults are blank and the environment must supply them.
 describe("getMidnightNodeConfig for stagenet", () => {
-  it("resolves the stagenet shielded.tools endpoints on the indexer v4 API", () => {
-    const config = getMidnightNodeConfig({ NETWORK_ID: "stagenet" });
+  it("REQUIRES the endpoint env vars, failing with the exact names to set", () => {
+    expect(() => getMidnightNodeConfig({ NETWORK_ID: "stagenet" })).toThrow(
+      /MIDNIGHT_NODE_URL, MIDNIGHT_NODE_INDEXER_URL, MIDNIGHT_NODE_INDEXER_WS_URL/,
+    );
+  });
+
+  it("resolves env-provided endpoints (WS twin derived from the indexer URL)", () => {
+    const config = getMidnightNodeConfig({
+      NETWORK_ID: "stagenet",
+      MIDNIGHT_NODE_URL: "https://node.example",
+      MIDNIGHT_NODE_INDEXER_URL: "https://indexer.example/api/v4/graphql",
+    });
     expect(config).toEqual({
       networkId: "stagenet",
-      indexerUrl: "https://indexer.stagenet.shielded.tools/api/v4/graphql",
-      indexerWsUrl: "wss://indexer.stagenet.shielded.tools/api/v4/graphql/ws",
-      nodeUrl: "https://rpc.stagenet.shielded.tools",
+      indexerUrl: "https://indexer.example/api/v4/graphql",
+      indexerWsUrl: "wss://indexer.example/api/v4/graphql/ws",
+      nodeUrl: "https://node.example",
       proofServerUrl: "http://127.0.0.1:6300",
     });
   });
 
-  it("publishes a stagenet faucet URL for underfunded hints", () => {
-    expect(FAUCET_URLS.stagenet).toBe("https://faucet.stagenet.shielded.tools");
+  it("publishes no stagenet faucet URL; MIDNIGHT_FAUCET_URL supplies one", () => {
+    expect(FAUCET_URLS.stagenet).toBeUndefined();
+    expect(getFaucetUrl({}, "stagenet")).toBeUndefined();
+    expect(getFaucetUrl({ MIDNIGHT_FAUCET_URL: "https://faucet.example" }, "stagenet")).toBe(
+      "https://faucet.example",
+    );
   });
 });

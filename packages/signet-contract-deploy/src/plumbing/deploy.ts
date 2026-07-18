@@ -14,7 +14,7 @@ import * as CoinPublicKey from "@midnight-ntwrk/platform-js/effect/CoinPublicKey
 import type { FacadeState } from "@midnightntwrk/wallet-sdk-facade";
 import { Effect, Layer, Option, type Types } from "effect";
 
-import { FAUCET_URLS, getMidnightNodeConfig, type MidnightNodeConfig } from "./midnight-node-config.ts";
+import { getFaucetUrl, getMidnightNodeConfig, type MidnightNodeConfig } from "./midnight-node-config.ts";
 import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
 
 /** Everything needed to perform a contract deploy: which stack to target, and which wallet pays for it. */
@@ -53,7 +53,7 @@ function resolveDeployerSeed(env: Record<string, string | undefined>, networkId:
   if (isLocalStandaloneNetwork(networkId)) {
     return provided || GENESIS_MINT_WALLET_SEED;
   }
-  const faucet = FAUCET_URLS[networkId];
+  const faucet = getFaucetUrl(env, networkId);
   const fundHint = faucet ? `fund a wallet via ${faucet}` : "fund a wallet via the network's faucet";
   if (!provided) {
     throw new Error(

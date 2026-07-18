@@ -98,12 +98,14 @@ reruns reuse the same wallets; deleting a seed line regenerates that wallet.
 
 ### Against a deployed network (e.g. stagenet)
 
-1. `NETWORK_ID=stagenet` (endpoints resolve automatically; the proof server
-   stays local, so keep one running at `MIDNIGHT_NODE_PROOF_SERVER_URL`,
-   default `http://127.0.0.1:6300`).
+1. `NETWORK_ID=stagenet`, plus the network's endpoints — they are not
+   published in this repo, so set `MIDNIGHT_NODE_URL` and
+   `MIDNIGHT_NODE_INDEXER_URL` (the WS twin derives from it) in `.env`. The
+   proof server stays local, so keep one running at
+   `MIDNIGHT_NODE_PROOF_SERVER_URL`, default `http://127.0.0.1:6300`.
 2. First run: the setup generates root + the three role seeds into `.env`,
-   then stops printing root's NIGHT address. Fund it at the stagenet faucet
-   (https://faucet.stagenet.shielded.tools).
+   then stops printing root's NIGHT address. Fund it at the network's faucet
+   (set `MIDNIGHT_FAUCET_URL` to have the stop message name it).
 3. Rerun: root funds the roles (evenly split, or `FUND_CHILD_NIGHT` each) and
    the pipeline runs to the end. The fakenet responder needs its container
    endpoints pointed at stagenet too (the `MIDNIGHT_*` compose vars).

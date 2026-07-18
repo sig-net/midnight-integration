@@ -10,6 +10,14 @@ const GENESIS_MINT_WALLET_SEED = "0000000000000000000000000000000000000000000000
 
 const CUSTOM_SEED = "00000000000000000000000000000000000000000000000000000000000000aa";
 
+// Stagenet's endpoints are deliberately not published in the repo, so the
+// environment must supply them before getDeployConfig's node-config read
+// resolves (see network.test.ts for that requirement itself).
+const STAGENET_ENDPOINTS = {
+  MIDNIGHT_NODE_URL: "https://node.example",
+  MIDNIGHT_NODE_INDEXER_URL: "https://indexer.example/api/v4/graphql",
+};
+
 interface Case {
   name: string;
   env: Record<string, string | undefined>;
@@ -44,7 +52,7 @@ const CASES: Case[] = [
   },
   {
     name: "a deployed network uses the provided DEPLOYER_SEED",
-    env: { NETWORK_ID: "stagenet", DEPLOYER_SEED: CUSTOM_SEED },
+    env: { NETWORK_ID: "stagenet", DEPLOYER_SEED: CUSTOM_SEED, ...STAGENET_ENDPOINTS },
     expectedSeed: CUSTOM_SEED,
     expectedNetworkId: "stagenet",
   },
@@ -69,7 +77,7 @@ interface ThrowCase {
 const THROW_CASES: ThrowCase[] = [
   {
     name: "deployed network without DEPLOYER_SEED demands one",
-    env: { NETWORK_ID: "stagenet" },
+    env: { NETWORK_ID: "stagenet", ...STAGENET_ENDPOINTS },
     expectedMessage: /DEPLOYER_SEED is required on "stagenet"/,
   },
   {
@@ -79,13 +87,13 @@ const THROW_CASES: ThrowCase[] = [
   },
   {
     name: "deployed network rejects the (unfunded here) genesis mint seed",
-    env: { NETWORK_ID: "stagenet", DEPLOYER_SEED: GENESIS_MINT_WALLET_SEED },
+    env: { NETWORK_ID: "stagenet", DEPLOYER_SEED: GENESIS_MINT_WALLET_SEED, ...STAGENET_ENDPOINTS },
     expectedMessage: /genesis mint seed, which holds no funds on "stagenet"/,
   },
   {
-    name: "the stagenet faucet URL appears in the funding hint",
-    env: { NETWORK_ID: "stagenet" },
-    expectedMessage: /faucet\.stagenet\.shielded\.tools/,
+    name: "an env-provided MIDNIGHT_FAUCET_URL appears in the funding hint",
+    env: { NETWORK_ID: "stagenet", MIDNIGHT_FAUCET_URL: "https://faucet.example", ...STAGENET_ENDPOINTS },
+    expectedMessage: /faucet\.example/,
   },
 ];
 
