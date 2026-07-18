@@ -1,6 +1,11 @@
 {
   "name": "@sig-net/midnight-contract-deploy",
   "version": "0.0.4",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sig-net/midnight-integration",
+    "directory": "packages/signet-contract-deploy"
+  },
   "type": "module",
   "description": "Deploy tooling for the central signet contract on Midnight: the operator deploy flow, the Node binding of @sig-net/midnight-contract to its compiled assets, and the generic deploy/wallet plumbing (node config, seed parsing, key derivation, wallet facade, unproven-tx build/submit) any Compact contract's deploy script composes.",
   "//exports": "Local dev consumes raw TS source. `publishConfig.exports` below swaps this to the emitted ./dist at publish time, so npm consumers get JS + .d.ts while the monorepo keeps resolving to src.",
