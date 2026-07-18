@@ -78,3 +78,7 @@ yarn build && yarn test           # typecheck + unit tests (simulator-only, offl
 | [`packages/lib`](packages/lib) | repo-private | Shared midnight-js provider adapters (the only copy) |
 
 CI is [.github/workflows/ci.yml](.github/workflows/ci.yml) (unit + signet-caller e2e + weekly zk canary).
+
+# Publishing
+
+The three npm packages are published in lockstep by [.github/workflows/publish.yml](.github/workflows/publish.yml) via npm trusted publishing (OIDC, no token secrets). To release: bump all three package versions to the same `X.Y.Z`, then push a `vX.Y.Z` tag. Versions already on npm are skipped, so a partially failed run can simply be rerun; a prerelease version (any `-suffix`) lands under the `beta` dist-tag.
