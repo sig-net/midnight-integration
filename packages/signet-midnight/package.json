@@ -1,6 +1,6 @@
 {
   "name": "@sig-net/midnight",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "type": "module",
   "description": "Midnight-side sig-net integration — the seed of a future signet.js Midnight adapter.",
   "//exports": "Local dev consumes raw TS source. `publishConfig.exports` below swaps this to the emitted ./dist at publish time, so npm consumers get JS + .d.ts while the monorepo keeps resolving to src.",
