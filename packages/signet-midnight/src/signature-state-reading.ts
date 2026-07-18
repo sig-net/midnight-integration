@@ -56,9 +56,10 @@ const unwrap = (raw: RawContractState): StateValue =>
  *
  * The runtime stores ledger fields as a root array and chunks them one level
  * deep once the field count grows, so chunked roots are flattened before
- * indexing. Chunk detection assumes signet field 0 is a `Map`, never a
- * `List` (whose node is also array-typed) — guaranteed by the signet layout
- * convention.
+ * indexing. LIMITATION: chunk detection reads an array-typed field 0 as "the
+ * root is chunked", so it misreads a contract whose FIRST ledger field is a
+ * `List` (whose node is also array-typed). Field positions themselves are
+ * otherwise unconstrained.
  *
  * @param raw - Raw contract state from the indexer or simulator.
  * @param flatIndex - Zero-based ledger field position in declaration order.

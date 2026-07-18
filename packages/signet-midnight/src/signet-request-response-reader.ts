@@ -12,7 +12,7 @@
 import type { PublicDataProvider } from "@midnight-ntwrk/midnight-js-types";
 import type { Transaction } from "ethers";
 
-import { readSignetRequestsLedgerFromState } from "./signature-requests-state-reader.ts";
+import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import {
   readSignetContractLedgerFromState,
   signetResponseIndexKey,
@@ -51,6 +51,13 @@ export interface SignetPublicStateSource {
 export interface SignetRequestResponseReaderConfig {
   /** Address of the signet-compliant requester contract (e.g. the vault). */
   readonly requesterContractAddress: string;
+  /**
+   * Ledger field position of the requester contract's request index — the
+   * same position the contract passes as `requestsIndexField` in its
+   * notifications. A contract is free to declare the index at any field, so
+   * the reader cannot assume one.
+   */
+  readonly requesterRequestsIndexField: number;
   /** Address of the central signet contract. */
   readonly signetContractAddress: string;
   /** Source of raw contract state, e.g. midnight-js's `indexerPublicDataProvider`. */
@@ -129,13 +136,13 @@ export class SignetRequestResponseReader {
 
   /**
    * Fetch the request record for `requestId` from the requester contract's
-   * ledger (request index, field 0 by the signet layout convention). Cached
+   * request index (at the configured `requesterRequestsIndexField`). Cached
    * after the first fetch.
    *
    * @param requestId - The request id to look up.
    * @returns The stored request record.
    * @throws Error when the requester contract has no state or holds no
-   *   request under `requestId`.
+   *   request under `requestId` at the configured index field.
    */
   async getSignatureRequest(
     requestId: RequestIdHex,
@@ -148,11 +155,15 @@ export class SignetRequestResponseReader {
       this.config.requesterContractAddress,
       "requester",
     );
-    const { requestsIndex } = readSignetRequestsLedgerFromState(raw);
-    const request = requestsIndex.get(requestId);
+    const request = lookupSignetRequestAt(
+      raw,
+      this.config.requesterRequestsIndexField,
+      requestId,
+    );
     if (request === undefined) {
       throw new Error(
-        `request ${requestId} is not on the requester contract's ledger — was it submitted?`,
+        `request ${requestId} is not on the requester contract's ledger ` +
+          `(request index at field ${this.config.requesterRequestsIndexField}) — was it submitted?`,
       );
     }
     this.requestCache.set(requestId, request);

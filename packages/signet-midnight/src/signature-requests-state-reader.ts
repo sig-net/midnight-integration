@@ -2,8 +2,10 @@
 // request ledger fields out of a contract's raw state WITHOUT the compiled
 // contract. This is how the MPC monitor consumes signet contracts — it has only
 // a contract address, queries raw state from the indexer
-// (queryContractState(address).data), and decodes by the signet layout
-// convention: the request index is ledger field 0, the request counter field 1.
+// (queryContractState(address).data), and decodes by ledger field POSITION.
+// A contract is free to place its request index at any field: the caller
+// supplies the position, which the discovery path learns from the
+// notification's requestsIndexField.
 // The compiled contract's generated ledger() does exactly this walk internally;
 // the record descriptors themselves are the parameterized twins in
 // signet-requests.ts. The generic tree walk and shared base descriptors live
@@ -28,12 +30,6 @@ import {
   u64,
   type RawContractState,
 } from "./signature-state-reading.ts";
-
-/** Signet layout convention: the request index is ledger field 0. */
-export const SIGNET_REQUESTS_INDEX_FIELD = 0;
-
-/** Signet layout convention: the request counter (`SignetNonce`) is ledger field 1. */
-export const SIGNET_NONCE_FIELD = 1;
 
 /**
  * Aligned-value entry count of a request record EXCLUDING the capacity-scaled
@@ -112,37 +108,44 @@ function decodeSignBidirectionalRequest(
 }
 
 /**
- * The decoded signet ledger fields of a conforming contract — the complete
- * view the MPC needs: the request index (field 0) and the request counter
- * (field 1, Compact `SignetNonce`), whose value doubles as a cheap
- * change-detection signal (unchanged nonce ⇒ no new requests).
+ * The decoded signet ledger fields of a requesting contract: its request
+ * index and its contract-local request counter (Compact `SignetNonce`, the
+ * source of each request's `requestNonce` — nothing off-chain depends on it,
+ * it is decoded here only because both fields travel together in tests and
+ * diagnostics).
  */
 export interface SignetRequestsLedger {
-  /** The request counter (ledger field {@link SIGNET_NONCE_FIELD}). */
+  /** The request counter (`SignetNonce`). */
   nonce: bigint;
-  /**
-   * The request index (ledger field {@link SIGNET_REQUESTS_INDEX_FIELD}),
-   * keyed by hex request id.
-   */
+  /** The request index, keyed by hex request id. */
   requestsIndex: SignBidirectionalRequestIndex;
 }
 
 /**
  * MPC-style read: parse the signet ledger fields out of raw contract state
  * by field position alone — no compiled contract, no generated `ledger()`,
- * only the signet layout convention and the canonical descriptors from
- * signet-requests.ts.
+ * only the caller-supplied field positions and the canonical descriptors
+ * from signet-requests.ts. A contract chooses its own layout, so the caller
+ * must know where the fields sit (the caller contract in this repo uses
+ * index 0 / counter 1; a notification names the index position of the
+ * contract it points at).
  *
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`
  *   from the indexer or `ctx.currentQueryContext.state` from the simulator.
+ * @param requestsIndexField - Ledger field position of the request index.
+ * @param nonceField - Ledger field position of the request counter.
  * @returns The decoded {@link SignetRequestsLedger}.
  * @throws Error if a field is missing, has the wrong state-value shape, or a
  *   record matches no capacity split.
  */
-export function readSignetRequestsLedgerFromState(raw: RawContractState): SignetRequestsLedger {
-  const map = signetFieldNode(raw, SIGNET_REQUESTS_INDEX_FIELD).asMap();
+export function readSignetRequestsLedgerFromState(
+  raw: RawContractState,
+  requestsIndexField: number,
+  nonceField: number,
+): SignetRequestsLedger {
+  const map = signetFieldNode(raw, requestsIndexField).asMap();
   if (map === undefined) {
-    throw new Error(`Ledger field ${SIGNET_REQUESTS_INDEX_FIELD} is not a Map`);
+    throw new Error(`Ledger field ${requestsIndexField} is not a Map`);
   }
   const requestsIndex: SignBidirectionalRequestIndex = new Map();
   for (const key of map.keys()) {
@@ -156,9 +159,9 @@ export function readSignetRequestsLedgerFromState(raw: RawContractState): Signet
     );
   }
 
-  const nonceCell = signetFieldNode(raw, SIGNET_NONCE_FIELD).asCell();
+  const nonceCell = signetFieldNode(raw, nonceField).asCell();
   if (nonceCell === undefined) {
-    throw new Error(`Ledger field ${SIGNET_NONCE_FIELD} is not a Cell`);
+    throw new Error(`Ledger field ${nonceField} is not a Cell`);
   }
   const nonce = u64.fromValue([...nonceCell.value]);
 
@@ -167,10 +170,10 @@ export function readSignetRequestsLedgerFromState(raw: RawContractState): Signet
 
 /**
  * Look up ONE request by id in a contract's request index at an arbitrary
- * ledger field — the generalization of {@link readSignetRequestsLedgerFromState}
- * the discovery path needs: a notification names both the requester contract
- * AND which field holds its index, so the field is no longer assumed to be
- * {@link SIGNET_REQUESTS_INDEX_FIELD}.
+ * ledger field — the single-record sibling of
+ * {@link readSignetRequestsLedgerFromState}, and what the discovery path
+ * uses: a notification names both the requester contract AND which field
+ * holds its index.
  *
  * This is the mandatory membership check of the discovery flow (see
  * signet-request-resolver.ts): `undefined` means the id is NOT a member of the
@@ -182,8 +185,8 @@ export function readSignetRequestsLedgerFromState(raw: RawContractState): Signet
  *
  * Only the matched record is decoded (not the whole index), and it is decoded
  * by the same {@link decodeSignBidirectionalRequest} the full reader uses, so
- * the result is `toEqual` to `readSignetRequestsLedgerFromState(raw)
- * .requestsIndex.get(requestId)` when `fieldIndex` is the index field.
+ * the result is `toEqual` to `readSignetRequestsLedgerFromState(raw,
+ * fieldIndex, …).requestsIndex.get(requestId)`.
  *
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`.
  * @param fieldIndex - Ledger field position of the request index in `raw`.

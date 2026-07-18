@@ -109,8 +109,8 @@ const requestCell = (
 };
 
 // Contract root state: an array of ledger fields with the request index map
-// at field 0 and the request counter at field 1 — the signet layout
-// convention.
+// at field 0 and the request counter at field 1 (this synthetic contract's
+// own layout — the reader takes the positions as arguments).
 const syntheticContractState = () => {
   const map = new StateMap()
     .insert(
@@ -136,6 +136,8 @@ describe("state-reader (MPC-style raw decode)", () => {
   it("round-trips requests and the nonce through raw state by field position", () => {
     const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
       syntheticContractState(),
+      0,
+      1,
     );
 
     expect(nonce).toBe(NONCE);
@@ -152,9 +154,23 @@ describe("state-reader (MPC-style raw decode)", () => {
     const fresh = StateValue.newArray()
       .arrayPush(StateValue.newMap(new StateMap()))
       .arrayPush(counterCell(0n));
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(fresh);
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(fresh, 0, 1);
     expect(requestsIndex.size).toBe(0);
     expect(nonce).toBe(0n);
+  });
+
+  it("reads an index living at a non-zero ledger field", () => {
+    // stateWithSecondIndex: index at 0, nonce at 1, a SECOND index at 2.
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
+      stateWithSecondIndex(),
+      2,
+      1,
+    );
+    expect(nonce).toBe(NONCE);
+    expect(requestsIndex.size).toBe(1);
+    expect(requestsIndex.get(requestIdHex(FIELD2_REQUEST_ID))).toEqual(
+      SAMPLE_REQUEST,
+    );
   });
 });
 
@@ -255,7 +271,7 @@ describe("lookupSignetRequestAt", () => {
 
   it("agrees byte-for-byte with readSignetRequestsLedgerFromState (reader parity)", () => {
     const raw = stateWithSecondIndex();
-    const viaReader = readSignetRequestsLedgerFromState(raw).requestsIndex.get(
+    const viaReader = readSignetRequestsLedgerFromState(raw, 0, 1).requestsIndex.get(
       requestIdHex(SAMPLE_REQUEST_ID),
     );
     expect(lookupSignetRequestAt(raw, 0, requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
