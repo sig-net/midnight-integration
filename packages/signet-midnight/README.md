@@ -25,9 +25,9 @@ npm install @sig-net/midnight
 
 A signet-compliant client contract does four things:
 
-1. **Declares the signet ledger layout**: the request index as its FIRST ledger field and the request counter as its SECOND. The MPC locates and reads requests knowing only your contract address, so these positions must stay fixed for the contract's lifetime.
+1. **Stores requests in a public index**: a `SignBidirectionalRequestIndex` map in its ledger. The index can sit at ANY ledger field: each notification the contract registers names the field position holding it, and the MPC reads the authenticated request from there. A contract-local `SignetNonce` counter is a convenient source of request nonces (identical requests must hash to distinct ids); nothing off-chain reads it.
 2. **Pins its counterparties at deploy time**: the central signet contract it notifies, and the MPC attestation key its verify circuit accepts.
-3. **Submits signature requests**: builds the transaction decomposition in-circuit, constructs the canonical request record, stores it in its own index under the request id, and registers a notification in the central registry (which the MPC polls; the MPC then reads the authenticated request back from your ledger field 0).
+3. **Submits signature requests**: builds the transaction decomposition in-circuit, constructs the canonical request record, stores it in its own index under the request id, and registers a notification in the central registry (which the MPC polls; the MPC then reads the authenticated request back from the ledger field the notification names).
 4. **Verifies the execution response**: checks the attestation key, verifies the MPC's Schnorr attestation in-circuit over (request id, output), and consumes the request.
 
 ```compact
@@ -36,9 +36,12 @@ pragma language_version >= 0.25;
 import CompactStandardLibrary;
 import "@sig-net/midnight/src/Signet";
 
-// (1) Signet ledger layout convention: request index at field 0, counter at
-// field 1. The generic size parameters cap the EVM calldata words, access
-// list entries and storage keys your requests may carry.
+// (1) The request index: the public map the MPC reads requests back from.
+// It can sit at any ledger field; the notification in submitSignatureRequest
+// names its position (0 in this contract). The counter is contract-local
+// (it sources each request's nonce so identical requests get distinct ids);
+// the MPC never reads it. The generic size parameters cap the EVM calldata
+// words, access list entries and storage keys your requests may carry.
 export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParams<1, 0, 0>>;
 export ledger signetNonce: SignetNonce;
 
@@ -89,7 +92,9 @@ export circuit submitSignatureRequest(evmNonce: Uint<64>, keyVersion: Uint<32>):
   );
 
   // Store the request in YOUR ledger under its id, then register the
-  // notification in the central signet contract's registry.
+  // notification in the central signet contract's registry. The final
+  // argument is the ledger field position of signetRequestsIndex, which is
+  // how the MPC finds the index to read the request back from.
   const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>>(request));
   assert(!signetRequestsIndex.member(requestId), "Request already exists");
   signetNonce.increment(1);

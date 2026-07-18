@@ -15,8 +15,9 @@ import "@sig-net/midnight/src/Signet";
 // needs, nothing more.
 
 // ---- Signet ledger layout ----------------------------------------------------------
-// MPC locates this index by position so location must stay fixed after first
-// contract deploy. Type configured for EVM Type 2 transactions with
+// The request index the MPC reads requests back from; the notification in
+// submitSignatureRequest names this field's position (0 in this contract).
+// Type configured for EVM Type 2 transactions with
 // <1 calldata word, 0 access-list entries, 0 storage keys> — the fixed
 // minimal calldata submitSignatureRequest composes.
 export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParams<1, 0, 0>>;
