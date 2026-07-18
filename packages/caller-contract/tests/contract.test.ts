@@ -35,12 +35,13 @@ import * as SignetNotifier from "../src/managed/SignetNotifier/contract/index.js
 
 // ---- Fixtures ----
 
-// THIS contract's ledger layout: request index at field 0, counter at field 1
-// (declaration order in signet-caller.compact). Field 0 must match the
-// `0 as Uint<8>` requestsIndexField the contract passes in
-// submitSignatureRequest's notification.
-const REQUESTS_INDEX_FIELD = 0;
+// THIS contract's ledger layout (declaration order in signet-caller.compact):
+// requestLog List at field 0, counter at field 1, request index at field 4.
+// The index position must match the `4 as Uint<8>` requestsIndexField the
+// contract passes in submitSignatureRequest's notification.
+const REQUEST_LOG_FIELD = 0;
 const NONCE_FIELD = 1;
+const REQUESTS_INDEX_FIELD = 4;
 
 // Dummy coin public key (32-byte hex). Required by the API, unused here.
 const CPK = "0".repeat(64);
@@ -157,6 +158,9 @@ describe("signet-caller ledger shape", () => {
     const { ctx } = await deployContract();
 
     const rawState = ctx.callContext.currentQueryContext.state;
+    // The List at field 0 is array-typed exactly like a chunked field root;
+    // resolving the index behind it is the point of this layout.
+    expect(signetFieldNode(rawState, REQUEST_LOG_FIELD).type()).toBe("array");
     const node = signetFieldNode(rawState, REQUESTS_INDEX_FIELD);
     expect(node.type()).toBe("map");
 

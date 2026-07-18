@@ -175,11 +175,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       });
 
       // callerAddress points at the caller (the contract whose authenticated
-      // ledger holds the request); requestId matches; the index is at field 0.
+      // ledger holds the request); requestId matches; the index is at field 4
+      // (the caller contract's layout, see signet-caller.compact).
       expect(decoded.version).toBe(1);
       expect(decoded.callerAddress).toBe(stripHexPrefix(callerAddress).toLowerCase());
       expect(decoded.requestId).toBe(signatureRequestId);
-      expect(decoded.requestsIndexField).toBe(0);
+      expect(decoded.requestsIndexField).toBe(4);
 
       banner([
         "Golden SignBidirectionalNotification decoded from the live indexer:",

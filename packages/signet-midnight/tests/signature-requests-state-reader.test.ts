@@ -108,6 +108,16 @@ const requestCell = (
   });
 };
 
+/** A one-record request index map: SAMPLE_REQUEST under SAMPLE_REQUEST_ID. */
+const sampleIndexMap = () =>
+  new StateMap().insert(
+    {
+      value: requestIdType.toValue(SAMPLE_REQUEST_ID),
+      alignment: requestIdType.alignment(),
+    },
+    requestCell(SAMPLE_REQUEST, CAPACITIES.sample),
+  );
+
 // Contract root state: an array of ledger fields with the request index map
 // at field 0 and the request counter at field 1 (this synthetic contract's
 // own layout — the reader takes the positions as arguments).
@@ -169,6 +179,50 @@ describe("state-reader (MPC-style raw decode)", () => {
     expect(nonce).toBe(NONCE);
     expect(requestsIndex.size).toBe(1);
     expect(requestsIndex.get(requestIdHex(FIELD2_REQUEST_ID))).toEqual(
+      SAMPLE_REQUEST,
+    );
+  });
+
+  it("resolves the index behind a List-typed field (array node, like a chunk)", () => {
+    // A Compact List field is a fixed THREE-slot cons ARRAY node: the same
+    // node type a chunked field root uses. A List declared before the index
+    // is exactly the layout that breaks positional guessing, so pin it:
+    // list at field 0, nonce at 1, index at 2.
+    const listNode = StateValue.newArray()
+      .arrayPush(StateValue.newNull())
+      .arrayPush(StateValue.newNull())
+      .arrayPush(counterCell(0n));
+    const state = StateValue.newArray()
+      .arrayPush(listNode)
+      .arrayPush(counterCell(NONCE))
+      .arrayPush(StateValue.newMap(sampleIndexMap()));
+
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(state, 2, 1);
+    expect(nonce).toBe(NONCE);
+    expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
+      SAMPLE_REQUEST,
+    );
+  });
+
+  it("resolves fields inside a compiler-chunked root (16 fields -> chunks of 1 + 15)", () => {
+    // compactc chunks a >15-field contract remainder-FIRST into a
+    // depth-uniform tree: 16 fields -> [chunk(1), chunk(15)], so the
+    // rightmost chunk is always FULL: the signal that separates a chunk
+    // level from an array-typed field such as a List.
+    const chunk0 = StateValue.newArray().arrayPush(
+      StateValue.newMap(sampleIndexMap()),
+    );
+    let chunk1 = StateValue.newArray().arrayPush(counterCell(NONCE));
+    for (let i = 0; i < 14; i += 1) {
+      chunk1 = chunk1.arrayPush(StateValue.newNull());
+    }
+    const state = StateValue.newArray().arrayPush(chunk0).arrayPush(chunk1);
+
+    // Flat positions: index = field 0 (chunk 0, slot 0), nonce = field 1
+    // (chunk 1, slot 0).
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(state, 0, 1);
+    expect(nonce).toBe(NONCE);
+    expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
       SAMPLE_REQUEST,
     );
   });

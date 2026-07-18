@@ -111,10 +111,10 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
         const nodeConfig = getMidnightNodeConfig(env);
         sharedReader = new SignetRequestResponseReader({
           requesterContractAddress: requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
-          // The caller contract declares its request index as ledger field 0:
+          // The caller contract declares its request index as ledger field 4:
           // the requestsIndexField its notification passes
           // (signet-caller.compact, submitSignatureRequest).
-          requesterRequestsIndexField: 0,
+          requesterRequestsIndexField: 4,
           signetContractAddress: requireEnv(env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
           publicDataProvider: indexerPublicDataProvider({
             queryURL: nodeConfig.indexerUrl,
