@@ -2,15 +2,17 @@
 # indexer + proof server), a local EVM dev chain, and the fakenet MPC
 # responder. `docker compose up -d`.
 #
-# The three midnight image tags are a MATCHED SET on the ledger-9 line,
-# paired with the npm @midnightntwrk/ledger-v9 version the workspace
-# resolves (the indexer tag encodes it: `l91r3-n2r3` = ledger-v9 1.0.0-rc.3
-# + node 2.0.0-rc.3). Never bump one alone — move the set together with the
-# npm stack.
+# The three midnight image tags are a MATCHED SET on the ledger-9 line: the
+# Midnight 2.0 stagenet-beta (Q2) RC3 stack, paired with the npm
+# @midnightntwrk/ledger-v9 version the workspace resolves. Never bump one
+# alone; move the set together with the npm stack. The indexer tag string
+# still reads `l91r3-n2r3` (its build provenance: ledger-v9 1.0.0-rc.3 +
+# node 2.0.0-rc.3); stagenet pairs that same indexer build with node
+# 2.0.0-rc.4 and proof-server 9.0.0-rc.5_experimental, so we do too.
 services:
   proof-server:
     container_name: 'midnight-proof-server'
-    image: 'midnightntwrk/proof-server:9.0.0-rc.3'
+    image: 'midnightntwrk/proof-server:9.0.0-rc.5_experimental'
     command: ['midnight-proof-server -v']
     ports:
       - '127.0.0.1:6300:6300'
@@ -40,7 +42,7 @@ services:
 
   node:
     container_name: 'midnight-node'
-    image: 'midnightntwrk/midnight-node:2.0.0-rc.3'
+    image: 'midnightntwrk/midnight-node:2.0.0-rc.4'
     ports:
       - '127.0.0.1:9944:9944'
     environment:
@@ -100,7 +102,10 @@ services:
       MIDNIGHT_INDEXER_WS_URL: '${MIDNIGHT_INDEXER_WS_URL:-ws://indexer:8088/api/v3/graphql/ws}'
       MIDNIGHT_NODE_URL: '${MIDNIGHT_NODE_URL:-http://node:9944}'
       MIDNIGHT_PROOF_SERVER_URL: '${MIDNIGHT_PROOF_SERVER_URL:-http://proof-server:6300}'
-      MIDNIGHT_WALLET_SEED: '${MIDNIGHT_WALLET_SEED:-0000000000000000000000000000000000000000000000000000000000000001}'
+      # The responder's fee-paying wallet: the mpc_responder role seed the
+      # integration-tests setup generates and funds from root (falls back to
+      # the local genesis wallet for a manual undeployed run).
+      MIDNIGHT_WALLET_SEED: '${MPC_RESPONDER_SEED:-0000000000000000000000000000000000000000000000000000000000000001}'
       # Both are appended to the repo-root .env by the integration-tests
       # setup (which also starts this service), see packages/integration-tests/README.md.
       MPC_ROOT_KEY: '${MPC_ROOT_KEY:-}'

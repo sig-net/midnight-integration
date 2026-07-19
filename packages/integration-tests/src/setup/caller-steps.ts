@@ -6,7 +6,7 @@
 // compile/deploy, fakenet hand-off) live in steps.ts.
 
 import { deployCaller } from "@midnight-protocol/caller-contract";
-import { getDeployConfig, getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
+import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 
 import { logSkip } from "../output.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../preflight.ts";
@@ -29,10 +29,7 @@ export async function assertCallerEnvironment(env: NodeJS.ProcessEnv): Promise<v
   await assertHttpReachable("indexer", nodeConfig.indexerUrl);
   await assertHttpReachable("proof server", nodeConfig.proofServerUrl);
   await assertCommandAvailable("compact", ["--version"]);
-
-  const deployConfig = getDeployConfig(env);
-  console.log(`DEPLOYER_SEED in effect: ${deployConfig.deployerSeed}`);
-  console.log(` ➜ seeds the midnight wallet that pays for contract deploys and drives the caller's circuits.`);
+  console.log(`targeting the ${nodeConfig.networkId} network at ${nodeConfig.nodeUrl}`);
 }
 
 /**

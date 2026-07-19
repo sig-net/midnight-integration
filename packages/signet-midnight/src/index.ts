@@ -1,7 +1,6 @@
-// Midnight-side sig-net integration. See README.md for the module plan:
-// request-id, calldata-builder, tx-builder, codec, constants, schnorr,
-// state-reader, response-poller — ported bit by bit from the old repo's
-// boilerplate/contract-cli/src/signet/.
+// Midnight-side sig-net integration: the client-agnostic signet protocol
+// library (wire structs, state readers, request feed/resolver, crypto) plus
+// the compiled pure circuits of the shared Compact module.
 
 export * from "./signet-requests.ts";
 export * from "./signature-state-reading.ts";

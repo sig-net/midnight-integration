@@ -11,6 +11,8 @@ export type NetworkId =
     MidnightSDKNetworkId |
     // Local standalone stack (Docker node + indexer + proof server on localhost).
     "undeployed" |
+    // Public staging network, pre-preview
+    "stagenet" |
     // Public test network for early/breaking changes — bleeding-edge ledger.
     "preview" |
     // Public test network that mirrors mainnet config; the final staging step.
@@ -21,7 +23,22 @@ export type NetworkId =
 // All known network ids, for runtime validation and iteration.
 export const NETWORK_IDS: readonly NetworkId[] = [
     "undeployed",
+    "stagenet",
     "preview",
     "preprod",
     "mainnet",
 ];
+
+/**
+ * Whether a network's genesis mint wallet is pre-funded. TRUE only for the
+ * local standalone chain (`undeployed`), whose genesis block mints to the
+ * well-known genesis seed. Every deployed network (preview / preprod /
+ * stagenet / mainnet) starts each wallet at zero, so a run against one needs
+ * a seed funded out of band (via that network's faucet).
+ *
+ * @param networkId - The network to classify.
+ * @returns Whether the genesis mint wallet holds spendable funds here.
+ */
+export function isLocalStandaloneNetwork(networkId: NetworkId): boolean {
+    return networkId === "undeployed";
+}

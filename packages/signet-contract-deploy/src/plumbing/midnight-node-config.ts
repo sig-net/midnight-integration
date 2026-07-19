@@ -31,6 +31,20 @@ export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
     nodeUrl: "http://127.0.0.1:9944",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
+  // Stagenet's endpoints are deliberately NOT published in this repo.
+  // Provide them via the environment (repo-root .env), which
+  // getMidnightNodeConfig REQUIRES for this network:
+  //   MIDNIGHT_NODE_URL             — node RPC
+  //   MIDNIGHT_NODE_INDEXER_URL     — indexer GraphQL over HTTP (the WS
+  //                                   twin derives from it when unset)
+  //   MIDNIGHT_NODE_INDEXER_WS_URL  — indexer GraphQL over WebSocket
+  // The proof server stays local (it sees private witness data).
+  ["stagenet"]: {
+    indexerUrl: "",
+    indexerWsUrl: "",
+    nodeUrl: "",
+    proofServerUrl: LOCAL_PROOF_SERVER,
+  },
   ["preview"]: {
     indexerUrl: "https://indexer.preview.midnight.network/api/v3/graphql",
     indexerWsUrl: "wss://indexer.preview.midnight.network/api/v3/graphql/ws",
@@ -51,6 +65,31 @@ export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
   },
 };
 
+// Faucet URLs for the networks that publish one, for underfunded-wallet
+// hints. The local standalone chain funds via genesis, not a faucet, so it
+// has no entry. Stagenet's faucet URL is deliberately NOT published in this
+// repo — provide it via the MIDNIGHT_FAUCET_URL environment variable (see
+// {@link getFaucetUrl}); without it the hint degrades to a generic "fund via
+// the network's faucet". The public *.midnight.network faucet URLs are
+// omitted until confirmed.
+export const FAUCET_URLS: Partial<Record<NetworkId, string>> = {};
+
+/**
+ * The faucet URL to show in underfunded-wallet hints: `MIDNIGHT_FAUCET_URL`
+ * from the environment when set, else the network's {@link FAUCET_URLS}
+ * entry. Purely informational — a missing URL only makes the hint generic.
+ *
+ * @param env - The environment to read `MIDNIGHT_FAUCET_URL` from.
+ * @param networkId - The network whose faucet the hint points at.
+ * @returns The faucet URL, or undefined when none is known.
+ */
+export function getFaucetUrl(
+  env: Record<string, string | undefined>,
+  networkId: NetworkId,
+): string | undefined {
+  return env.MIDNIGHT_FAUCET_URL?.trim() || FAUCET_URLS[networkId];
+}
+
 // Derive the indexer WebSocket URL from the indexer HTTP URL: swap the scheme
 // to ws(s) and append the "/ws" path segment the indexer expects.
 export function indexerWsUrlFromIndexerUrl(indexerUrl: string): string {
@@ -61,8 +100,10 @@ export function indexerWsUrlFromIndexerUrl(indexerUrl: string): string {
 }
 
 /**
- * Read a {@link MidnightNodeConfig} from the environment. Every variable is
- * optional — with nothing set this yields the local "undeployed" stack.
+ * Read a {@link MidnightNodeConfig} from the environment. With nothing set
+ * this yields the local "undeployed" stack; a network with blank defaults
+ * (stagenet — its endpoints are not published in this repo) REQUIRES the
+ * endpoint variables and fails naming the missing ones.
  *
  * Parse flow:
  * 1. `NETWORK_ID` (default "undeployed", validated against {@link NETWORK_IDS})
@@ -72,6 +113,10 @@ export function indexerWsUrlFromIndexerUrl(indexerUrl: string): string {
  *    `MIDNIGHT_NODE_INDEXER_WS_URL`, `MIDNIGHT_NODE_PROOF_SERVER_URL`.
  *    When the indexer URL is overridden without a WS override, the WS URL is
  *    derived from it instead of keeping the baseline host.
+ * 3. Every resolved endpoint must be non-empty.
+ *
+ * @throws If `NETWORK_ID` is unknown, or an endpoint resolves empty (blank
+ *   default and no environment override).
  */
 export function getMidnightNodeConfig(
   env: Record<string, string | undefined> = process.env,
@@ -87,11 +132,28 @@ export function getMidnightNodeConfig(
     env.MIDNIGHT_NODE_INDEXER_WS_URL ||
     (env.MIDNIGHT_NODE_INDEXER_URL ? indexerWsUrlFromIndexerUrl(indexerUrl) : defaults.indexerWsUrl);
 
-  return {
+  const config: MidnightNodeConfig = {
     networkId,
     indexerUrl,
     indexerWsUrl,
     nodeUrl: env.MIDNIGHT_NODE_URL || defaults.nodeUrl,
     proofServerUrl: env.MIDNIGHT_NODE_PROOF_SERVER_URL || defaults.proofServerUrl,
   };
+
+  // A blank default means the network's endpoints are not published in this
+  // repo (stagenet) — the environment must supply them, so fail with the
+  // exact variables to set.
+  const missing: string[] = [];
+  if (!config.nodeUrl) missing.push("MIDNIGHT_NODE_URL");
+  if (!config.indexerUrl) missing.push("MIDNIGHT_NODE_INDEXER_URL");
+  if (!config.indexerWsUrl) missing.push("MIDNIGHT_NODE_INDEXER_WS_URL");
+  if (!config.proofServerUrl) missing.push("MIDNIGHT_NODE_PROOF_SERVER_URL");
+  if (missing.length > 0) {
+    throw new Error(
+      `network "${networkId}" has no built-in endpoints in this repo — set ${missing.join(", ")} ` +
+        `in the environment (or the repo-root .env).`,
+    );
+  }
+
+  return config;
 }

@@ -26,7 +26,7 @@ The quickest way to get going with this repository is to get the generic end to 
    ```sh
    corepack enable
    yarn install
-   compact update 0.33.0-rc.0   # Exact version required.
+   compact update 0.33.0-rc.2   # Exact version required.
                                 # `compact update` installs/downgrades
                                 # to stable.
    ```
@@ -60,7 +60,7 @@ yarn build && yarn test           # typecheck + unit tests (simulator-only, offl
 | ------- | ------| ------  |----------- |
 | Node | ≥ 20 (22+ recommended) | `node --version` | [nodejs.org](https://nodejs.org) or your version manager (nvm, fnm, …) |
 | Yarn 4 (via Corepack) | 4.x | `corepack enable && yarn --version` | Corepack ships with Node; the repo's `packageManager` field pins the Yarn version |
-| Compact toolchain | compiler 0.33.0-rc.0 | `compact compile --version` → `0.33.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.33.0-rc.0` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)). If the launcher refuses the rc version, use the direct-download recipe in [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| Compact toolchain | compiler 0.33.0-rc.2 | `compact compile --version` → `0.33.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.33.0-rc.2` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)). If the launcher refuses the rc version, use the direct-download recipe in [.github/workflows/ci.yml](.github/workflows/ci.yml) |
 | A docker environment | any recent engine | `docker --version` | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS/Windows) or your distro's engine, with **≥ 16 GB RAM allocated** (see note) |
 | Docker Compose v2 | ≥ 2.x | `docker compose version` | Included with Docker Desktop; plugin package on Linux |
 
@@ -74,7 +74,6 @@ yarn build && yarn test           # typecheck + unit tests (simulator-only, offl
 | [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: signature-response log (in-circuit Schnorr verified) + request-notification registry |
 | [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the singleton + the generic deploy/wallet plumbing |
 | [`packages/caller-contract`](packages/caller-contract) | repo-private | The minimal client contract: submit a signature request, verify the Schnorr response, the smallest thing that drives the protocol |
+| [`packages/caller-contract-20-field`](packages/caller-contract-20-field) | repo-private | A 20-field requester contract: the lockstep fixture proving the raw ledger readers resolve field numbers through the compiler's chunked (>15-field) state layout |
 | [`packages/integration-tests`](packages/integration-tests) | repo-private | The generic e2e suite: submit → notification → MPC signature → in-circuit verify, against the local docker stack (`docker-compose.yaml`: midnight node/indexer/proof server + anvil EVM + fakenet MPC responder) |
-| [`packages/lib`](packages/lib) | repo-private | Shared midnight-js provider adapters (the only copy) |
-
-CI is [.github/workflows/ci.yml](.github/workflows/ci.yml) (unit + signet-caller e2e + weekly zk canary).
+| [`packages/lib`](packages/lib) | repo-private | Shared midnight-js provider adapters |

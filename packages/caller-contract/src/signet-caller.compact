@@ -14,27 +14,36 @@ import "@sig-net/midnight/src/Signet";
 // token, no application semantics: every line here is what ANY signet caller
 // needs, nothing more.
 
-// ---- Signet ledger layout ----------------------------------------------------------
-// MPC locates this index by position so location must stay fixed after first
-// contract deploy. Type configured for EVM Type 2 transactions with
-// <1 calldata word, 0 access-list entries, 0 storage keys> — the fixed
-// minimal calldata submitSignatureRequest composes.
-export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParams<1, 0, 0>>;
+// ---- Ledger layout -----------------------------------------------------------------
+// Field numbers are declaration order and stay fixed for the contract's
+// lifetime; the request index sits at field 4 and submitSignatureRequest
+// names that position in its notification. The List at field 0 is deliberate:
+// a List node is array-typed like a chunked field root, so a raw reader that
+// guesses layout instead of resolving the named field would misparse this
+// contract; it keeps the off-chain readers honest.
 
-// Contract-local request counter: used to keep signature request hashes different between identical calls.
+// field 0: log of every submitted request id, newest first.
+export ledger requestLog: List<Bytes<32>>;
+
+// field 1: contract-local request counter, used to keep signature request
+// hashes different between identical calls.
 export ledger signetNonce: SignetNonce;
 
-// ---- Contract state ----------------------------------------------------------------
-
-// The MPC attestation key, pinned at deploy time: verifyResponse accepts only
-// respond-bidirectional attestations signed by this key.
+// field 2: the MPC attestation key, pinned at deploy time: verifyResponse
+// accepts only respond-bidirectional attestations signed by this key.
 export sealed ledger mpcPubKeyHash: Bytes<32>;
 
-// ---- Cross-contract references ----------------------------------------------------
-// The central signet contract, pinned at deploy time: submitSignatureRequest
-// cross-contract-calls it to register the request notification in its
-// registry, which the MPC polls.
+// field 3: the central signet contract, pinned at deploy time:
+// submitSignatureRequest cross-contract-calls it to register the request
+// notification in its registry, which the MPC polls.
 sealed ledger signetNotifier: SignetNotifier;
+
+// field 4: the request index the MPC reads requests back from; the
+// notification in submitSignatureRequest names this field's position.
+// Type configured for EVM Type 2 transactions with
+// <1 calldata word, 0 access-list entries, 0 storage keys>: the fixed
+// minimal calldata submitSignatureRequest composes.
+export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParams<1, 0, 0>>;
 
 constructor(mpcPk: JubjubPoint, signetContract: SignetNotifier) {
   mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
@@ -106,12 +115,16 @@ export circuit submitSignatureRequest(
   assert(!signetRequestsIndex.member(requestId), "Request already exists");
   signetNonce.increment(1);
   signetRequestsIndex.insert(requestId, disclose(request));
+  requestLog.pushFront(requestId as Bytes<32>);
 
-  // Notify the MPC of the signature request via the signet contract's registry.
+  // Notify the MPC of the signature request via the signet contract's
+  // registry. The third argument names the ledger field position of
+  // signetRequestsIndex (4, see the layout above): the MPC reads the
+  // authenticated request back from that field.
   signetNotifier.notifyBidirectionalSignatureRequest(requestId, constructSignBidirectionalNotificationV1(
     kernel.self(),
     requestId as Bytes<32>,
-    0 as Uint<8>,
+    4 as Uint<8>,
   ));
 }
 

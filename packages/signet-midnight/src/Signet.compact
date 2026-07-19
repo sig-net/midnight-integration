@@ -5,9 +5,9 @@
 // A signet compliant contract records "please sign this EVM transaction" requests
 // in its public ledger and registers a notification in the CENTRAL signet
 // contract's notification registry. The sig-net MPC network polls that one
-// registry: each notification names the requesting contract, so the MPC reads
-// the authenticated request from the requester's ledger field 0 (the signet
-// layout convention), re-assembles and signs the EVM transaction with the
+// registry: each notification names the requesting contract and the ledger
+// field position of its request index, so the MPC reads the authenticated
+// request from there, re-assembles and signs the EVM transaction with the
 // caller's derived key, and posts its responses back to the central signet
 // contract — first the signature (the client broadcasts the signed
 // transaction), then, after watching the remote execution, the Schnorr-signed
@@ -255,16 +255,16 @@ module Signet {
 
   // ---- Requester Ledger Layout -----------------------------------------------
 
-  // The on-ledger request index. Signet layout convention: a conforming
-  // contract declares this as its FIRST ledger field (instantiated at its own
-  // calldata slot capacity), so the MPC can find and deserialize it knowing
-  // only the contract address.
+  // The on-ledger request index (instantiated at the contract's own calldata
+  // slot capacity). It may sit at ANY ledger field: each notification carries
+  // the field position holding it (the requestsIndexField byte of the V1
+  // payload), which is how the MPC finds the index to read the authenticated
+  // request back from.
   export new type SignBidirectionalRequestIndex<TxParams> = Map<RequestId, SignBidirectionalRequest<TxParams>>;
 
-  // The contract-local request counter. Signet layout convention: declared as
-  // the SECOND ledger field (directly after the index). It sources each
-  // request's requestNonce and doubles as the MPC's cheap change-detection
-  // signal — an unchanged counter means no new requests since the last poll.
+  // The contract-local request counter: a convenient source of each request's
+  // requestNonce (identical requests must hash to distinct ids). Purely
+  // contract-local; nothing off-chain reads it.
   export new type SignetNonce = Counter;
 
   // ---- Signet Contract Ledger Layout ------------------------------------------

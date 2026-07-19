@@ -22,25 +22,23 @@ import {
 import {
   compileSignetContract,
   deploySignetContractStep,
-  ensureDeployerDust,
   ensureMpcJubjubPk,
   ensureMpcRootKey,
   ensureMpcSecp256k1Pubkey,
   persistFakenetHandoffToDotEnv,
   startFakenetResponder,
 } from "./steps.ts";
+import { ensureWalletSeeds, ensureWalletsFunded } from "./wallets.ts";
 
 /** Step names are what the operator greps for and what STEP_THROUGH
  * prompts show. */
 const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void>][] = [
   ["environment: midnight stack reachable, compact on PATH", assertCallerEnvironment],
+  ["setup: resolve/generate wallet seeds (root + deployer/invoker/mpc responder)", ensureWalletSeeds],
+  ["setup: preflight root funding + fund the role wallets from root", ensureWalletsFunded],
   ["setup: check/derive MPC root key", ensureMpcRootKey],
   ["setup: check/derive MPC_JUBJUB_PK public key", ensureMpcJubjubPk],
   ["setup: check/derive MPC_SECP256K1_PUBKEY public key", ensureMpcSecp256k1Pubkey],
-  [
-    "setup: deployer dust preflight (register NIGHT for dust generation if needed)",
-    (env) => ensureDeployerDust(env, ["MIDNIGHT_SIGNET_CONTRACT_ADDRESS", "MIDNIGHT_CALLER_CONTRACT_ADDRESS"]),
-  ],
   ["setup: compile signet-contract contract with proving keys", compileSignetContract],
   ["setup: deploy signet-contract", deploySignetContractStep],
   ["setup: persist fakenet hand-off values to .env (append-only)", persistFakenetHandoffToDotEnv],

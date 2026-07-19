@@ -1,0 +1,24 @@
+{
+  "name": "@midnight-protocol/caller-contract-20-field",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A 20-field signet requester used as the LOCKSTEP FIXTURE for chunked ledger parsing: past 15 fields compactc stores fields in a chunk tree, and the raw readers in @sig-net/midnight must resolve flat field numbers through it exactly like the generated ledger(). Simulator tests only: no deploy flow, no notifier, compile is skip-zk on purpose (no compile:zk script).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signet-caller-20-field.compact src/managed",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sig-net/midnight": "*"
+  },
+  "devDependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

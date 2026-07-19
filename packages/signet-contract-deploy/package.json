@@ -1,6 +1,11 @@
 {
   "name": "@sig-net/midnight-contract-deploy",
-  "version": "0.0.3",
+  "version": "0.0.5",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sig-net/midnight-integration",
+    "directory": "packages/signet-contract-deploy"
+  },
   "type": "module",
   "description": "Deploy tooling for the central signet contract on Midnight: the operator deploy flow, the Node binding of @sig-net/midnight-contract to its compiled assets, and the generic deploy/wallet plumbing (node config, seed parsing, key derivation, wallet facade, unproven-tx build/submit) any Compact contract's deploy script composes.",
   "//exports": "Local dev consumes raw TS source. `publishConfig.exports` below swaps this to the emitted ./dist at publish time, so npm consumers get JS + .d.ts while the monorepo keeps resolving to src.",
@@ -29,9 +34,9 @@
   },
   "dependencies": {
     "@effect/platform-node": "^0.107.0",
-    "@midnight-ntwrk/compact-js": "2.5.5-rc.5",
-    "@midnight-ntwrk/compact-js-node": "2.5.5-rc.5",
-    "@midnight-ntwrk/midnight-js": "5.0.0-beta.3",
+    "@midnight-ntwrk/compact-js": "2.5.5-rc.6",
+    "@midnight-ntwrk/compact-js-node": "2.5.5-rc.6",
+    "@midnight-ntwrk/midnight-js": "5.0.0-beta.4",
     "@midnight-ntwrk/platform-js": "^3.0.0",
     "@midnightntwrk/ledger-v9": "1.0.0-rc.3",
     "@midnightntwrk/wallet-sdk-abstractions": "3.0.0-beta.0",
@@ -42,8 +47,8 @@
     "@midnightntwrk/wallet-sdk-shielded": "4.0.0-beta.2",
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "4.0.0-beta.2",
     "@scure/bip39": "^2.2.0",
-    "@sig-net/midnight": "^0.0.3",
-    "@sig-net/midnight-contract": "^0.0.3",
+    "@sig-net/midnight": "^0.0.5",
+    "@sig-net/midnight-contract": "^0.0.5",
     "effect": "^3.21.4"
   },
   "devDependencies": {

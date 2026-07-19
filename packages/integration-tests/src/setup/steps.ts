@@ -5,14 +5,7 @@
 // the shared env accumulator. Run by setup/caller-global-setup.ts in vitest's
 // main process, so no `vitest` imports here — failed checks are plain throws.
 
-import {
-  deriveAccountKeys,
-  deploySignetContract,
-  getDeployConfig,
-  registerNightForDustGeneration,
-  waitForSpendableDust,
-  withSyncedWalletFacade,
-} from "@sig-net/midnight-contract-deploy";
+import { deploySignetContract } from "@sig-net/midnight-contract-deploy";
 import { formatJubjubPublicKey } from "@sig-net/midnight";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -75,59 +68,6 @@ export function ensureMpcSecp256k1Pubkey(env: NodeJS.ProcessEnv): void {
   console.log(`generated a fresh MPC_SECP256K1_PUBKEY=${env.MPC_SECP256K1_PUBKEY}`);
   console.log(` ➜ used by contracts to validate signatures`);
   console.log(` ➜ 💡 Set as MPC_SECP256K1_PUBKEY in the environment to skip this step on the next run`);
-}
-
-/**
- * The deploys pay fees in DUST, which only generates on NIGHT registered for
- * dust generation — a funded-but-unregistered deployer wallet (fresh seed,
- * faucet-funded) would fail the first deploy. Check up front: registered
- * already → skip; unregistered NIGHT → register it and wait for a spendable
- * dust balance; no NIGHT at all → fail with a funding hint.
- *
- * @param env - The suite's env accumulator.
- * @param contractAddressEnvVars - The env-var names of every contract address
- *   the calling pipeline deploys; when ALL are already set the run deploys
- *   nothing and the preflight skips.
- * @throws If the deployer wallet holds neither DUST nor NIGHT.
- */
-export async function ensureDeployerDust(
-  env: NodeJS.ProcessEnv,
-  contractAddressEnvVars: readonly string[],
-): Promise<void> {
-  if (contractAddressEnvVars.every((name) => env[name])) {
-    logSkip(
-      "deployer dust preflight",
-      `all contract addresses are set (${contractAddressEnvVars.join(", ")}) — no deploys this run, the deployer wallet pays nothing`,
-    );
-    return;
-  }
-  const deployConfig = getDeployConfig(env);
-  const keys = deriveAccountKeys(deployConfig.deployerSeed, deployConfig.midnightNodeConfig.networkId);
-  await withSyncedWalletFacade(keys, deployConfig.midnightNodeConfig, async (facade, state) => {
-    const registered = await registerNightForDustGeneration(facade, keys, state);
-    if (registered === 0) {
-      logSkip("register deployer NIGHT for dust generation", "no unregistered NIGHT UTXOs");
-    } else {
-      console.log(`registered ${registered} deployer NIGHT UTXO(s) for dust generation`);
-    }
-
-    // A balance visible right now settles it; otherwise dust may still be
-    // generating from a (possibly just-submitted) registration — but only if
-    // there is registered NIGHT to generate FROM, so fail fast when the
-    // wallet is flat-out unfunded instead of polling into a timeout.
-    const dustNow = state.dust.balance(new Date());
-    if (dustNow > 0n) {
-      console.log(`deployer dust (fee) balance: ${dustNow}`);
-      return;
-    }
-    if (state.unshielded.availableCoins.length === 0) {
-      throw new Error(
-        "deployer wallet holds neither DUST nor NIGHT — fund it with NIGHT (see DEPLOYER_SEED) before deploying",
-      );
-    }
-    const dust = await waitForSpendableDust(facade);
-    console.log(`deployer dust (fee) balance: ${dust}`);
-  });
 }
 
 // The signet contract is compiled + deployed FIRST: a client contract seals

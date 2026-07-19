@@ -26,6 +26,7 @@ import {
   ShieldedAddress,
   ShieldedCoinPublicKey,
   ShieldedEncryptionPublicKey,
+  UnshieldedAddress,
 } from "@midnightntwrk/wallet-sdk-address-format";
 
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
@@ -162,6 +163,46 @@ export async function submitUnprovenTransaction(
     tx,
     { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
     { ttl: new Date(Date.now() + RECIPE_TTL_MS) },
+  );
+  const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
+  const finalized = await facade.finalizeRecipe(signed);
+  return facade.submitTransaction(finalized);
+}
+
+/**
+ * Transfer unshielded NIGHT from a started wallet to another wallet's
+ * unshielded (NIGHT receive) address: build the transfer recipe, sign its
+ * inputs, prove, and submit. Fees are paid in the sender's DUST (`payFees`),
+ * so the sender must already be dust-generating. The NIGHT token type is read
+ * from the sender's synced state (these chains carry a single unshielded
+ * token), so no token constant is hard-coded.
+ *
+ * @param facade - A started, synced, dust-generating wallet facade (the funder).
+ * @param keys - The funder's key material, for balancing and signing.
+ * @param state - The funder's synced state, read for its NIGHT token type.
+ * @param toUnshieldedAddress - The recipient's unshielded address (bech32m, network-prefixed).
+ * @param networkId - The network both wallets live on (decodes the address).
+ * @param amount - NIGHT to send, in base units.
+ * @returns The submitted transaction's identifier.
+ * @throws If the sender holds no unshielded NIGHT, or balancing/proving/submission fails.
+ */
+export async function transferNight(
+  facade: WalletFacade,
+  keys: AccountKeys,
+  state: FacadeState,
+  toUnshieldedAddress: string,
+  networkId: NetworkId,
+  amount: bigint,
+): Promise<TransactionIdentifier> {
+  const nightTokenType = Object.keys(state.unshielded.balances)[0];
+  if (!nightTokenType) {
+    throw new Error("funder wallet holds no unshielded NIGHT to transfer");
+  }
+  const receiverAddress = MidnightBech32m.parse(toUnshieldedAddress).decode(UnshieldedAddress, networkId);
+  const recipe = await facade.transferTransaction(
+    [{ type: "unshielded", outputs: [{ type: nightTokenType, receiverAddress, amount }] }],
+    { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
+    { ttl: new Date(Date.now() + RECIPE_TTL_MS), payFees: true },
   );
   const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
   const finalized = await facade.finalizeRecipe(signed);

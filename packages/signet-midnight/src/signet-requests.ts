@@ -127,7 +127,8 @@ export interface EVMType2TxParams {
 /**
  * Canonical signet request record (Compact:
  * `SignBidirectionalRequest<TxParams>`), stored per {@link RequestId} in a
- * requesting contract's index (ledger field 0). Mirrors the MPC's
+ * requesting contract's index (at whichever ledger field the contract
+ * declares it — its notifications name the position). Mirrors the MPC's
  * SignBidirectionalRequest with the transaction decomposed. The TS twin fixes
  * the type parameter at {@link EVMType2TxParams} — the only decomposition
  * so far; new tx kinds add a union here alongside their Compact struct.

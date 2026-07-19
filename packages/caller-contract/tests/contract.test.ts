@@ -20,7 +20,6 @@ import {
   schnorrSign,
   signetFieldNode,
   toSignBidirectionalRequestIndex,
-  SIGNET_REQUESTS_INDEX_FIELD,
   type JubjubKeypair,
   type RespondBidirectional,
   type SignBidirectionalRequestLedgerIndex,
@@ -35,6 +34,14 @@ import { createCallerPrivateState } from "../src/witnesses.ts";
 import * as SignetNotifier from "../src/managed/SignetNotifier/contract/index.js";
 
 // ---- Fixtures ----
+
+// THIS contract's ledger layout (declaration order in signet-caller.compact):
+// requestLog List at field 0, counter at field 1, request index at field 4.
+// The index position must match the `4 as Uint<8>` requestsIndexField the
+// contract passes in submitSignatureRequest's notification.
+const REQUEST_LOG_FIELD = 0;
+const NONCE_FIELD = 1;
+const REQUESTS_INDEX_FIELD = 4;
 
 // Dummy coin public key (32-byte hex). Required by the API, unused here.
 const CPK = "0".repeat(64);
@@ -151,10 +158,17 @@ describe("signet-caller ledger shape", () => {
     const { ctx } = await deployContract();
 
     const rawState = ctx.callContext.currentQueryContext.state;
-    const node = signetFieldNode(rawState, SIGNET_REQUESTS_INDEX_FIELD);
+    // The List at field 0 is array-typed exactly like a chunked field root;
+    // resolving the index behind it is the point of this layout.
+    expect(signetFieldNode(rawState, REQUEST_LOG_FIELD).type()).toBe("array");
+    const node = signetFieldNode(rawState, REQUESTS_INDEX_FIELD);
     expect(node.type()).toBe("map");
 
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(rawState);
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
+      rawState,
+      REQUESTS_INDEX_FIELD,
+      NONCE_FIELD,
+    );
     const typedIndex = toSignBidirectionalRequestIndex(
       ledger(ctx.callContext.currentQueryContext.state).signetRequestsIndex,
     );
@@ -176,7 +190,11 @@ describe("submitSignatureRequest round-trip", () => {
       ledger(state).signetRequestsIndex,
     );
     // Read 2: MPC-style raw read — no compiled contract involved.
-    const rawLedger = readSignetRequestsLedgerFromState(state);
+    const rawLedger = readSignetRequestsLedgerFromState(
+      state,
+      REQUESTS_INDEX_FIELD,
+      NONCE_FIELD,
+    );
 
     expect(typedIndex.size).toBe(1);
     expect(rawLedger.requestsIndex).toEqual(typedIndex);
