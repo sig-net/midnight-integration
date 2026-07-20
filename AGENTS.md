@@ -62,22 +62,29 @@ exception for that specific case.
 - **NEVER carry dead code.** Unused env vars, disabled or unreachable code paths,
   scaffold leftovers, commented-out blocks — delete them, never leave them for
   "later". Code that isn't reached is a lie about what the system does.
-- **ALWAYS install dependencies at the latest STABLE version; NEVER pin.** First
-  resolve the version — `yarn npm info <pkg> --fields dist-tags,version,deprecated`
-  — then add it explicitly: `yarn workspace <workspace> add <pkg>@^<version>`, where
-  `<version>` is that latest stable release. The caret is deliberate and NOT
-  optional: `yarn add` writes exactly the range you name, so a bare
-  `<pkg>@<version>` would silently pin — always spell the `^`. Naming the version
-  inside the caret range is NOT a pin: the range still floats; spelling it out just
-  forces you to look at what you're pulling in. If the resolved latest is a
-  prerelease (an `-rc`/`-beta`/`-alpha`/`-next`/`-canary` in the version string),
-  STOP and ask the user — never adopt a prerelease unprompted; let them opt in.
-  Before you install, confirm the release is sound: it is not deprecated (from the
-  `yarn npm info` above), and after install `yarn npm audit` reports no new
-  advisory. The compact toolchain
-  is likewise unpinned: `compact update`
-  installs it and compile scripts carry **no `+version` pin**. Corollary: a
-  dependency shared by two members MUST resolve to the same version in every member
+- **ALWAYS install exact, frozen versions; the committed `yarn.lock` is the source
+  of truth.** Dependencies do NOT float. CI runs `yarn install --immutable` (see
+  `.github/workflows/*.yml`) and FAILS rather than resolve a newer version, so a
+  version bump is only ever a deliberate, reviewed change. To add or change a
+  dependency: resolve the version first —
+  `yarn npm info <pkg> --fields dist-tags,version,deprecated` — then
+  `yarn workspace <workspace> add <pkg>@^<version>` at that latest stable release,
+  and COMMIT the refreshed `yarn.lock` in the SAME change. The caret range left in
+  `package.json` is fine: the committed lockfile, not the range, is what pins the
+  build, and `--immutable` guarantees CI installs exactly what the lockfile records.
+  If the resolved latest is a prerelease (an `-rc`/`-beta`/`-alpha`/`-next`/`-canary`
+  in the version string), STOP and ask the user — never adopt a prerelease
+  unprompted; let them opt in. Before you install, confirm the release is sound: it
+  is not deprecated (from the `yarn npm info` above), and after install
+  `yarn npm audit` reports no new advisory. The compact toolchain is likewise
+  PINNED, not floating: the launcher (`compact-v0.5.1`) and the compiler
+  (`compactc 0.33.0-rc.2`) are fetched by EXACT URL in the CI/publish workflows,
+  which set `0.33.0-rc.2` as the launcher default; the compile scripts call
+  `compact compile` against that default, so locally you must pin the same default
+  (`compact update 0.33.0-rc.2`) or your `managed/` output will diverge. The
+  launcher tag, the compiler URL, the npm `@midnightntwrk/*` stack, and the
+  workflow cache keys are a MATCHED SET — bump them together in one change. Corollary:
+  a dependency shared by two members MUST resolve to the same version in every member
   — bump it everywhere in the same change and `yarn install` from the root. A single
   shared version is what keeps the WASM-backed `@midnight-ntwrk/*` packages
   resolving to one instance; divergence causes dual-instance "expected instance
