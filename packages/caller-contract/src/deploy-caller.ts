@@ -15,7 +15,7 @@ import {
   withSyncedWalletFacade,
   type TransactionIdentifier,
 } from "@sig-net/midnight-contract-deploy";
-import { parseJubjubPublicKey } from "@sig-net/midnight";
+import { parseSecp256k1PublicKey } from "@sig-net/midnight";
 
 import { callerCompiledContract } from "./providers.ts";
 import { createCallerPrivateState } from "./witnesses.ts";
@@ -33,28 +33,28 @@ export interface CallerDeployment {
  * deploy transaction and submit it through a synced wallet. Progress is
  * logged to the console.
  *
- * The MPC attestation key (`MPC_JUBJUB_PK`, "x,y" decimal or 0x-hex field
- * coordinates) is sealed as `mpcPubKeyHash` — verifyResponse accepts only
+ * The MPC attestation key (`MPC_SECP256K1_PUBKEY`, compressed or uncompressed
+ * 0x-hex) is sealed as `mpcPubKeyHash` — verifyResponse accepts only ECDSA
  * attestations signed by it. The signet contract address is sealed as the
  * cross-contract notification target.
  *
- * @param env - Environment map providing `DEPLOYER_SEED`, `MPC_JUBJUB_PK`,
+ * @param env - Environment map providing `DEPLOYER_SEED`, `MPC_SECP256K1_PUBKEY`,
  *   `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` (the signet contract to seal as the
  *   cross-contract emitter) and the shared Midnight node configuration (see
  *   `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
- * @throws If `MPC_JUBJUB_PK` or `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` is
+ * @throws If `MPC_SECP256K1_PUBKEY` or `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` is
  *   missing/malformed, the deployer wallet holds no funds, or submission fails.
  */
 export async function deployCaller(env: Record<string, string | undefined> = process.env): Promise<CallerDeployment> {
   const deployConfig = getDeployConfig(env);
   const { networkId } = deployConfig.midnightNodeConfig;
 
-  const mpcPkRaw = env.MPC_JUBJUB_PK?.trim();
+  const mpcPkRaw = env.MPC_SECP256K1_PUBKEY?.trim();
   if (!mpcPkRaw) {
-    throw new Error('MPC_JUBJUB_PK is required (the MPC attestation key, as "x,y")');
+    throw new Error('MPC_SECP256K1_PUBKEY is required (the MPC attestation key, as compressed/uncompressed 0x-hex)');
   }
-  const mpcPk = parseJubjubPublicKey(mpcPkRaw);
+  const mpcPk = parseSecp256k1PublicKey(mpcPkRaw);
 
   // The signet contract the caller cross-contract-calls to register signature
   // request notifications — sealed into the caller as the SignetNotifier

@@ -10,7 +10,7 @@ import "@sig-net/midnight/src/Signet";
 // The minimal signet caller: the SMALLEST contract that exercises the central
 // signet contract generically. It does exactly two things — submit a
 // signature request (with contract-fixed, minimal calldata) and verify the
-// MPC's Schnorr-signed respond-bidirectional attestation of that request. No
+// MPC's ECDSA-signed respond-bidirectional attestation of that request. No
 // token, no application semantics: every line here is what ANY signet caller
 // needs, nothing more.
 
@@ -45,8 +45,8 @@ sealed ledger signetNotifier: SignetNotifier;
 // minimal calldata submitSignatureRequest composes.
 export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParams<1, 0, 0>>;
 
-constructor(mpcPk: JubjubPoint, signetContract: SignetNotifier) {
-  mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
+constructor(mpcPk: Secp256k1Point, signetContract: SignetNotifier) {
+  mpcPubKeyHash = disclose(persistentHash<Secp256k1Point>(mpcPk));
   signetNotifier = disclose(signetContract);
 }
 
@@ -129,16 +129,19 @@ export circuit submitSignatureRequest(
 }
 
 // ---- Verify response -----------------------------------------------------------------
-// Verifies the MPC's Schnorr-signed respond-bidirectional attestation of a
+// Verifies the MPC's ECDSA-signed respond-bidirectional attestation of a
 // pending request and consumes the request. The attestation key check + the
-// in-circuit Schnorr verification over (requestId, output) are the whole
-// point: they prove the response answers THIS request and comes from the
-// pinned MPC key. Consuming the request is the observable effect (and the
-// double-verify protection). Permissionless on purpose — a valid attestation
-// is self-authenticating, so anyone holding it may settle.
+// in-circuit secp256k1 ECDSA verification over signetAttestationMessage
+// (requestId, output) are the whole point: they prove the response answers
+// THIS request and comes from the pinned MPC key. Consuming the request is the
+// observable effect (and the double-verify protection). Permissionless on
+// purpose — a valid attestation is self-authenticating, so anyone holding it
+// may settle. The signing public key is passed as a separate argument and
+// pinned by hash against mpcPubKeyHash.
 export circuit verifyResponse(
   requestId: RequestId,
-  respondBidirectional: RespondBidirectional
+  respondBidirectional: RespondBidirectional,
+  pk: Secp256k1Point
 ): [] {
   // requestId keys the ledger operations, so it is public; the response is
   // only verified, never written.
@@ -146,23 +149,25 @@ export circuit verifyResponse(
 
   // -- attestation key: pk must be the MPC's registered key --
   assert(
-    persistentHash<JubjubPoint>(respondBidirectional.pk) == mpcPubKeyHash,
+    persistentHash<Secp256k1Point>(pk) == mpcPubKeyHash,
     "Unauthorized: attestation pk is not the MPC key"
   );
 
-  // -- attestation signature: the MPC signed THIS request and THIS output --
+  // -- attestation signature: the MPC signed THIS request and THIS output. The
+  // stored r/s are little-endian scalar bytes; cast them back to
+  // Secp256k1Scalar for verification. --
   assert(
-    jubjubSchnorrVerify<4>(
+    secp256k1EcdsaVerify(
       signetAttestationMessage(
         disclosedRequestId,
         respondBidirectional.serializedOutput,
         respondBidirectional.outputLen
       ),
-      JubjubSchnorrSignature {
-        announcement: respondBidirectional.announcement,
-        response: respondBidirectional.response,
+      Secp256k1EcdsaSignature {
+        r: respondBidirectional.sigR as Secp256k1Scalar,
+        s: respondBidirectional.sigS as Secp256k1Scalar,
       },
-      respondBidirectional.pk
+      pk
     ),
     "Invalid attestation signature"
   );

@@ -27,7 +27,7 @@ repo touches a network from tests. The pipeline has two halves:
   3. `pollSignatureResponse` — the fakenet's ECDSA response arrives on the
      signet contract and verifies against the caller's epsilon-derived
      account.
-  4. `verifyResponse` — verify a Schnorr attestation in-circuit and consume
+  4. `verifyResponse` — verify an ECDSA attestation in-circuit and consume
      the request. The fakenet only attests after observing a broadcast on
      the destination chain (a leg this generic exercise deliberately omits),
      so the attestation is signed in-test from the suite's shared
@@ -139,7 +139,7 @@ vars in `.env` (`MIDNIGHT_SIGNET_CONTRACT_ADDRESS`,
 | `FUND_CHILD_NIGHT` | NIGHT (base units) to move from root into each role wallet that needs funding | unset (split root's balance evenly) |
 | `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | deployed by setup (signet appended to `.env` automatically; caller printed — save it to skip redeploys) |
 | `MPC_ROOT_KEY` | Fakenet signer root key | derived by setup, appended to `.env` |
-| `MPC_JUBJUB_PK`, `MPC_SECP256K1_PUBKEY` | MPC public keys | derived from root key |
+| `MPC_SECP256K1_PUBKEY` | MPC public key | derived from root key |
 | `FAKENET_MANAGED` | `0` = setup neither writes the hand-off values to `.env` nor touches the responder container — you run the responder yourself (responder development) | unset (setup manages the responder) |
 | `FAKENET_EVM_RPC_URL` | EVM endpoint as reachable from the fakenet CONTAINER (compose-only; not read by the tests) | `http://evm:8545` |
 | `TRUST_PREBUILT_ZK_KEYS` | `1` = setup skips `compile:*:zk` when prover keys are already present. CI-only: the CI cache is keyed on the contract sources, so present ⇒ fresh; locally stale keys would poison deploys — never set it by hand | unset |

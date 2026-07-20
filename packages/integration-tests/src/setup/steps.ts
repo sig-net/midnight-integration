@@ -6,7 +6,6 @@
 // main process, so no `vitest` imports here — failed checks are plain throws.
 
 import { deploySignetContract } from "@sig-net/midnight-contract-deploy";
-import { formatJubjubPublicKey } from "@sig-net/midnight";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { requireEnv } from "../e2e-env.ts";
@@ -33,24 +32,6 @@ export function ensureMpcRootKey(env: NodeJS.ProcessEnv): void {
 // the steps below — after ensureMpcRootKey has a chance to generate
 // MPC_ROOT_KEY.
 const mpcKeys = (env: NodeJS.ProcessEnv) => deriveMpcKeys(requireEnv(env, "MPC_ROOT_KEY"));
-
-export function ensureMpcJubjubPk(env: NodeJS.ProcessEnv): void {
-  const expectedMPCJubjubPK = formatJubjubPublicKey(mpcKeys(env).jubjubPoint);
-  if (env.MPC_JUBJUB_PK) {
-    console.log(`Found MPC_JUBJUB_PK in the environment as ${env.MPC_JUBJUB_PK}`);
-    if (env.MPC_JUBJUB_PK !== expectedMPCJubjubPK) {
-      throw new Error(
-        `MPC_JUBJUB_PK should be derived from MPC_ROOT_KEY: expected ${expectedMPCJubjubPK}, found ${env.MPC_JUBJUB_PK}`,
-      );
-    }
-    logSkip("check/derive MPC_JUBJUB_PK public key", `MPC_JUBJUB_PK is set correctly`);
-    return;
-  }
-  env.MPC_JUBJUB_PK = expectedMPCJubjubPK;
-  console.log(`generated a fresh MPC_JUBJUB_PK=${env.MPC_JUBJUB_PK}`);
-  console.log(` ➜ used by contracts to validate signatures`);
-  console.log(` ➜ 💡 Set as MPC_JUBJUB_PK in the environment to skip this step on the next run`);
-}
 
 export function ensureMpcSecp256k1Pubkey(env: NodeJS.ProcessEnv): void {
   const expectedSECP256k1CompressedPubkey = mpcKeys(env).secp256k1CompressedPubkey;

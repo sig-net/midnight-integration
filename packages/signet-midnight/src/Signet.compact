@@ -9,8 +9,8 @@
 // field position of its request index, so the MPC reads the authenticated
 // request from there, re-assembles and signs the EVM transaction with the
 // caller's derived key, and posts its responses back to the central signet
-// contract — first the signature (the client broadcasts the signed
-// transaction), then, after watching the remote execution, the Schnorr-signed
+// contract: first the signature (the client broadcasts the signed
+// transaction), then, after watching the remote execution, the ECDSA-signed
 // respond-bidirectional attestation of its result. Clients poll the central
 // contract's response indexes by request id. Requests and both response kinds
 // are counterparts and are defined side by side here; the pure circuits that
@@ -154,8 +154,12 @@ module Signet {
 
   // The counterpart to SignatureResponse, posted by the MPC after
   // it observes execution of the signed transaction on the destination chain.
-  // This response contains execution output and an attestation as to its authenticity.
-  // TODO: currently contains a Schnorr attestation --> migrate to ECDSA.
+  // This response contains execution output and a secp256k1 ECDSA attestation
+  // as to its authenticity. The attestation is verified IN-CIRCUIT against the
+  // signet contract's sealed MPC key (secp256k1EcdsaVerify), signed over
+  // signetAttestationMessage(requestId, serializedOutput, outputLen). The
+  // signing public key is passed alongside as a circuit argument, not stored
+  // here — it is pinned by hash against the sealed mpcPubKeyHash.
   export struct RespondBidirectional {
     // ABI-encoded return data of the remote call (canonical
     // serialized_output), zero-padded. First 32-byte word == 1 signals
@@ -166,16 +170,13 @@ module Signet {
     // Meaningful byte count of serializedOutput.
     outputLen: Uint<8>;
 
-    // The MPC attestation key (Jubjub). Hash-checked against the signet
-    // contract's sealed mpcPubKeyHash at post time, and again by requester
-    // contracts at claim time.
-    pk: JubjubPoint;
-
-    // Schnorr nonce commitment R.
-    announcement: JubjubPoint;
-
-    // Schnorr response scalar s.
-    response: Field;
+    // ECDSA signature scalars r and s as LITTLE-ENDIAN 32-byte values (the byte
+    // order the `Secp256k1Scalar as Bytes<32>` cast produces). A Secp256k1Scalar
+    // cannot itself reside in ledger state (the compiler rejects it), so the
+    // stored record carries bytes and the verifying circuits cast them back with
+    // `as Secp256k1Scalar` before calling secp256k1EcdsaVerify.
+    sigR: Bytes<32>;
+    sigS: Bytes<32>;
   }
 
   // The EVM transaction to be signed, decomposed into typed fields
@@ -278,16 +279,21 @@ module Signet {
   //   field 4: SignBidirectionalNotificationIndex
   //
   // Each store gets the defense its contents allow:
-  //   - Signature responses are secp256k1 ECDSA — unverifiable in-circuit —
-  //     so their log is UNAUTHENTICATED and append-only: each post lands
-  //     under a fresh (requestId, count) key; a rogue poster can add noise
-  //     but never overwrite or block the genuine response. Clients poll a
-  //     request's entries by request id and verify each signature off-chain.
-  //   - Respond-bidirectional attestations are Schnorr on Jubjub — the
-  //     embedded curve — so the contract verifies them IN-CIRCUIT at post
-  //     time against its sealed MPC key hash. Garbage cannot land; one
-  //     authenticated slot per request suffices, first valid write wins.
-  //     Clients poll the slot by request id.
+  //   - Signature responses over the EVM transaction are NOT verified
+  //     in-circuit — by design, to avoid the proving cost of an ECDSA check on
+  //     every posted signature — so their log is UNAUTHENTICATED and
+  //     append-only: each post lands under a fresh (requestId, count) key; a
+  //     rogue poster can add noise but never overwrite or block the genuine
+  //     response. Clients poll a request's entries by request id and verify
+  //     each signature off-chain.
+  //   - Respond-bidirectional attestations are secp256k1 ECDSA verified
+  //     IN-CIRCUIT (secp256k1EcdsaVerify) at post time against the sealed MPC
+  //     key hash. Garbage cannot land; one authenticated slot per request
+  //     suffices, first VALID write wins. (secp256k1EcdsaVerify does not
+  //     enforce low-s, so the malleated twin (r, n-s) also verifies — re-posts
+  //     can differ byte-for-byte, which is exactly why the slot is keyed by
+  //     request id and the first valid write is kept.) Clients poll the slot by
+  //     request id.
   //   - Notifications are UNAUTHENTICATED pointers ("contract X stored
   //     request Y at index field Z"): anyone may register one, so the MPC
   //     never trusts a notification's content — it authenticates by reading
@@ -349,11 +355,17 @@ module Signet {
 
   // ---- Respond-bidirectional attestation message ------------------------------
 
-  // The message the MPC Schnorr-signs to attest a remote execution:
-  // (requestId, hash(serializedOutput, outputLen)) as four 16-byte
-  // little-endian field limbs. The hash binds the output TOGETHER WITH its
-  // length, so neither can be swapped under a reused signature; the 16-byte
-  // split is needed because a 32-byte value overflows the BLS scalar field.
+  // The 32-byte digest the MPC ECDSA-signs to attest a remote execution:
+  // the domain-separated persistent hash of (requestId, hash(serializedOutput,
+  // outputLen)). The inner hash binds the output TOGETHER WITH its length, so
+  // neither can be swapped under a reused signature. The "signet:midnight:attest"
+  // domain tag partitions this digest from the EVM transaction hashes the SAME
+  // secp256k1 MPC key signs, so an attestation signature can never be replayed as
+  // a transaction signature or vice versa.
+  //
+  // The digest is passed straight to secp256k1EcdsaVerify as msgHash (interpreted
+  // big-endian, RFC 6979 convention — no byte reversal).
+  //
   // ONE implementation for everyone: the signet contract verifies posts
   // against it, requester contracts (e.g. the vault's claim) re-verify against it, and
   // off-chain signers call the compiled copy (via circuits.compact) — never
@@ -362,18 +374,16 @@ module Signet {
     requestId: RequestId,
     serializedOutput: Bytes<128>,
     outputLen: Uint<8>
-  ): Vector<4, Field> {
-    const rid = requestId as Bytes<32>;
+  ): Bytes<32> {
     const outHash = persistentHash<Vector<2, Bytes<32>>>([
       persistentHash<Bytes<128>>(serializedOutput),
       outputLen as Field as Bytes<32>
     ]);
-    return [
-      slice<16>(rid, 0) as Field,
-      slice<16>(rid, 16) as Field,
-      slice<16>(outHash, 0) as Field,
-      slice<16>(outHash, 16) as Field
-    ];
+    return persistentHash<Vector<3, Bytes<32>>>([
+      pad(32, "signet:midnight:attest"),
+      requestId as Bytes<32>,
+      outHash
+    ]);
   }
 
   // ---- Path <-> identity binding ---------------------------------------------

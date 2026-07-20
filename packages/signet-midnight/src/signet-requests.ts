@@ -26,7 +26,7 @@ import {
 import { getAddress, getBytes, Signature, Transaction } from "ethers";
 
 import { asciiPadded } from "./constants.ts";
-import { bigintToBytes32, bytesToBigint } from "./schnorr.ts";
+import { bigintToBytes32, bytesToBigint } from "./ecdsa.ts";
 import type { SignatureResponse } from "./signet-contract-state-reader.ts";
 
 /**

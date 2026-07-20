@@ -79,7 +79,9 @@ services:
     # starts this service. Manual equivalent (and the FAKENET_MANAGED=0 path):
     #   docker compose --profile fakenet up -d --force-recreate fakenet
     container_name: 'fakenet-responder'
-    image: 'ghcr.io/sig-net/fakenet:latest'
+    # Override FAKENET_IMAGE to run a locally built responder image (e.g.
+    # `ghcr.io/sig-net/fakenet:use-ecdsa`) before it is pushed to ghcr.
+    image: '${FAKENET_IMAGE:-ghcr.io/sig-net/fakenet:latest}'
     profiles: ['fakenet']
     depends_on:
       indexer:

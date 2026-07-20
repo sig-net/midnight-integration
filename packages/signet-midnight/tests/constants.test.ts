@@ -1,8 +1,16 @@
-// Unit tests for the padded-ASCII codec and the byte conversion helpers.
+// Unit tests for the padded-ASCII codec, the byte conversion helpers, and the
+// serialized-output execution verdicts.
 
 import { describe, expect, it } from "vitest";
 
-import { asciiPadded, bigintToBytes32, bytesToBigint } from "../src/index.ts";
+import {
+  asciiPadded,
+  bigintToBytes32,
+  bytesToBigint,
+  executionSucceeded,
+  isExecutionError,
+  MPC_ERROR_SENTINEL,
+} from "../src/index.ts";
 
 describe("asciiPadded", () => {
   interface Case {
@@ -52,5 +60,48 @@ describe("bigintToBytes32 / bytesToBigint", () => {
   it("is little-endian (Compact Field as Bytes<32>)", () => {
     expect(bigintToBytes32(1n)[0]).toBe(1);
     expect(bigintToBytes32(256n)[1]).toBe(1);
+  });
+});
+
+describe("serializedOutput decoding", () => {
+  interface Case {
+    /** Test name, completing the sentence "decodes <name>". */
+    name: string;
+    /** The attestation's serialized output. */
+    serializedOutput: Uint8Array;
+    /** Expected {@link executionSucceeded} verdict. */
+    succeeded: boolean;
+    /** Expected {@link isExecutionError} verdict. */
+    error: boolean;
+  }
+
+  const CASES: Case[] = [
+    {
+      name: "a success flag (first byte 1)",
+      serializedOutput: (() => { const out = new Uint8Array(128); out[0] = 1; return out; })(),
+      succeeded: true,
+      error: false,
+    },
+    {
+      name: "a false return (all zero)",
+      serializedOutput: new Uint8Array(128),
+      succeeded: false,
+      error: false,
+    },
+    {
+      name: "the MPC error sentinel (0xdeadbeef prefix)",
+      serializedOutput: (() => {
+        const out = new Uint8Array(128);
+        out.set(MPC_ERROR_SENTINEL);
+        return out;
+      })(),
+      succeeded: false,
+      error: true,
+    },
+  ];
+
+  it.each(CASES)("decodes $name", ({ serializedOutput, succeeded, error }) => {
+    expect(executionSucceeded(serializedOutput)).toBe(succeeded);
+    expect(isExecutionError(serializedOutput)).toBe(error);
   });
 });

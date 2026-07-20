@@ -18,12 +18,13 @@ import {
 import {
   bytesToHex,
   decodeSignBidirectionalNotification,
-  deriveJubjubKeypair,
+  ecdsaSignatureToLeBytes,
   pureCircuits,
   readSignBidirectionalNotificationIndexFromState,
   readSignetContractLedgerFromState,
   requestIdHex,
   requestIdType,
+  signAttestation,
   signatureResponseType,
   respondBidirectionalType,
   signBidirectionalNotificationType,
@@ -56,17 +57,16 @@ const RESPONSE_1: SignatureResponse = {
   recoveryId: 1n,
 };
 
-// One respond-bidirectional attestation for REQUEST_ID — real Jubjub points
-// so the descriptor round-trips genuine coordinates, but a synthetic scalar
-// (the reader decodes, it does not verify).
-const MPC_KEYS = deriveJubjubKeypair(bytes(32, 0x42));
-const RESPOND_BIDIRECTIONAL: RespondBidirectional = {
-  serializedOutput: bytes(128, 0x01),
-  outputLen: 32n,
-  pk: MPC_KEYS.pk,
-  announcement: deriveJubjubKeypair(bytes(32, 0x43)).pk,
-  response: 123456789n,
-};
+// One respond-bidirectional attestation for REQUEST_ID — a real ECDSA
+// signature over the attestation digest so the descriptor round-trips genuine
+// little-endian scalar bytes (the reader decodes, it does not verify).
+const RESPOND_BIDIRECTIONAL: RespondBidirectional = (() => {
+  const serializedOutput = bytes(128, 0x01);
+  const outputLen = 32n;
+  const digest = pureCircuits.signetAttestationMessage(REQUEST_ID, serializedOutput, outputLen);
+  const { sigR, sigS } = ecdsaSignatureToLeBytes(signAttestation(digest, bytes(32, 0x42)));
+  return { serializedOutput, outputLen, sigR, sigS };
+})();
 
 const MPC_PUB_KEY_HASH = bytes(32, 0x99);
 

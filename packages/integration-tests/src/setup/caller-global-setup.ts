@@ -22,7 +22,6 @@ import {
 import {
   compileSignetContract,
   deploySignetContractStep,
-  ensureMpcJubjubPk,
   ensureMpcRootKey,
   ensureMpcSecp256k1Pubkey,
   persistFakenetHandoffToDotEnv,
@@ -37,7 +36,6 @@ const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void
   ["setup: resolve/generate wallet seeds (root + deployer/invoker/mpc responder)", ensureWalletSeeds],
   ["setup: preflight root funding + fund the role wallets from root", ensureWalletsFunded],
   ["setup: check/derive MPC root key", ensureMpcRootKey],
-  ["setup: check/derive MPC_JUBJUB_PK public key", ensureMpcJubjubPk],
   ["setup: check/derive MPC_SECP256K1_PUBKEY public key", ensureMpcSecp256k1Pubkey],
   ["setup: compile signet-contract contract with proving keys", compileSignetContract],
   ["setup: deploy signet-contract", deploySignetContractStep],

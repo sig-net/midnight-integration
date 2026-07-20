@@ -12,15 +12,15 @@ import {
 import {
   asciiPadded,
   calculateRequestId,
-  deriveJubjubKeypair,
+  ecdsaSignatureToLeBytes,
   pureCircuits as signetCircuits,
   readSignetRequestsLedgerFromState,
   requestIdBytes,
   requestIdHex,
-  schnorrSign,
+  secp256k1PublicKeyFromSecretKey,
+  signAttestation,
   signetFieldNode,
   toSignBidirectionalRequestIndex,
-  type JubjubKeypair,
   type RespondBidirectional,
   type SignBidirectionalRequestLedgerIndex,
 } from "@sig-net/midnight";
@@ -49,8 +49,10 @@ const CPK = "0".repeat(64);
 const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
-// The "MPC" of these tests: its attestation key is pinned by the constructor.
-const MPC_KEYS = deriveJubjubKeypair(bytes(32, 0x42));
+// The "MPC" of these tests: its attestation key (the root key used directly
+// as the secp256k1 private key) is pinned by the constructor.
+const MPC_SECRET_KEY = bytes(32, 0x42);
+const MPC_PK = secp256k1PublicKeyFromSecretKey(MPC_SECRET_KEY);
 
 // The signet contract (callee) the caller seals + cross-contract-calls. A
 // valid sample contract address so the runtime's address checks pass.
@@ -71,7 +73,7 @@ const signetStateProvider = async () => {
   const signet = new SignetNotifier.Contract({});
   const { currentContractState } = await signet.initialState(
     createConstructorContext(undefined, CPK),
-    MPC_KEYS.pk,
+    MPC_PK,
   );
   return { getContractState: async () => currentContractState };
 };
@@ -105,7 +107,7 @@ const deployContract = async () => {
   const { currentContractState, currentPrivateState } =
     await contract.initialState(
       createConstructorContext<CallerPrivateState>(createCallerPrivateState(), CPK),
-      MPC_KEYS.pk,
+      MPC_PK,
       SIGNET_CONTRACT_REF,
     );
   const ctx = createCircuitContext(
@@ -276,7 +278,8 @@ describe("submitSignatureRequest round-trip", () => {
 // ---- Attestation fixtures ----
 
 // An MPC key OTHER than the one the constructor pinned.
-const IMPOSTER_KEYS = deriveJubjubKeypair(bytes(32, 0x43));
+const IMPOSTER_SECRET_KEY = bytes(32, 0x43);
+const IMPOSTER_PK = secp256k1PublicKeyFromSecretKey(IMPOSTER_SECRET_KEY);
 
 // A successful remote execution: first byte 1, rest zero; 32 meaningful
 // bytes (one ABI word). The circuit never inspects the output's content —
@@ -287,30 +290,23 @@ OUTPUT_SUCCESS[0] = 1;
 const OUTPUT_LEN = 32n;
 
 /**
- * Sign a REAL attestation of (requestId, serializedOutput, outputLen) with
- * `keys` — message and challenge both come from the compiled circuits,
- * exactly like the MPC.
+ * Sign a REAL ECDSA attestation of (requestId, serializedOutput, outputLen)
+ * with `secretKey` — the digest comes from the compiled circuit, exactly like
+ * the MPC. Returns the ledger-shaped record (r/s as little-endian bytes); the
+ * signing public key is presented separately to verifyResponse.
  */
 const attest = (
-  keys: JubjubKeypair,
+  secretKey: Uint8Array,
   requestId: Uint8Array,
   serializedOutput: Uint8Array,
 ): RespondBidirectional => {
-  const msg = signetCircuits.signetAttestationMessage(
+  const digest = signetCircuits.signetAttestationMessage(
     requestId,
     serializedOutput,
     OUTPUT_LEN,
   );
-  const signature = schnorrSign(keys.sk, msg, (ax, ay, px, py, m) =>
-    signetCircuits.schnorrChallenge(ax, ay, px, py, m),
-  );
-  return {
-    serializedOutput,
-    outputLen: OUTPUT_LEN,
-    pk: keys.pk,
-    announcement: signature.announcement,
-    response: signature.response,
-  };
+  const { sigR, sigS } = ecdsaSignatureToLeBytes(signAttestation(digest, secretKey));
+  return { serializedOutput, outputLen: OUTPUT_LEN, sigR, sigS };
 };
 
 // ---- Verify-response tests ----
@@ -323,7 +319,8 @@ describe("verifyResponse", () => {
       await contract.circuits.verifyResponse(
         ctx,
         requestId,
-        attest(MPC_KEYS, requestId, OUTPUT_SUCCESS),
+        attest(MPC_SECRET_KEY, requestId, OUTPUT_SUCCESS),
+        MPC_PK,
       )
     ).context;
 
@@ -331,27 +328,40 @@ describe("verifyResponse", () => {
     expect(state.signetRequestsIndex.isEmpty()).toBe(true);
   });
 
-  it("rejects an attestation by a key other than the pinned MPC key", async () => {
+  it("rejects an attestation presenting a key other than the pinned MPC key", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     await expect(
       contract.circuits.verifyResponse(
         ctx,
         requestId,
-        attest(IMPOSTER_KEYS, requestId, OUTPUT_SUCCESS),
+        attest(IMPOSTER_SECRET_KEY, requestId, OUTPUT_SUCCESS),
+        IMPOSTER_PK,
       ),
     ).rejects.toThrow(/attestation pk is not the MPC key/);
   });
 
+  it("rejects a signature by a non-MPC key presented under the MPC key", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    await expect(
+      contract.circuits.verifyResponse(
+        ctx,
+        requestId,
+        attest(IMPOSTER_SECRET_KEY, requestId, OUTPUT_SUCCESS),
+        MPC_PK,
+      ),
+    ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
   it("rejects a tampered attestation (output differs from what was signed)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    const attestation = attest(MPC_KEYS, requestId, OUTPUT_SUCCESS);
+    const attestation = attest(MPC_SECRET_KEY, requestId, OUTPUT_SUCCESS);
     const tamperedOutput = new Uint8Array(128);
     tamperedOutput[0] = 2;
     await expect(
       contract.circuits.verifyResponse(ctx, requestId, {
         ...attestation,
         serializedOutput: tamperedOutput,
-      }),
+      }, MPC_PK),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -364,7 +374,8 @@ describe("verifyResponse", () => {
       contract.circuits.verifyResponse(
         ctx,
         requestId,
-        attest(MPC_KEYS, otherId, OUTPUT_SUCCESS),
+        attest(MPC_SECRET_KEY, otherId, OUTPUT_SUCCESS),
+        MPC_PK,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
@@ -376,7 +387,8 @@ describe("verifyResponse", () => {
       contract.circuits.verifyResponse(
         ctx,
         unknownId,
-        attest(MPC_KEYS, unknownId, OUTPUT_SUCCESS),
+        attest(MPC_SECRET_KEY, unknownId, OUTPUT_SUCCESS),
+        MPC_PK,
       ),
     ).rejects.toThrow(/Request not found/);
   });
@@ -387,7 +399,8 @@ describe("verifyResponse", () => {
       await contract.circuits.verifyResponse(
         ctx,
         requestId,
-        attest(MPC_KEYS, requestId, OUTPUT_SUCCESS),
+        attest(MPC_SECRET_KEY, requestId, OUTPUT_SUCCESS),
+        MPC_PK,
       )
     ).context;
 
@@ -395,7 +408,8 @@ describe("verifyResponse", () => {
       contract.circuits.verifyResponse(
         next,
         requestId,
-        attest(MPC_KEYS, requestId, OUTPUT_SUCCESS),
+        attest(MPC_SECRET_KEY, requestId, OUTPUT_SUCCESS),
+        MPC_PK,
       ),
     ).rejects.toThrow(/Request not found/);
   });

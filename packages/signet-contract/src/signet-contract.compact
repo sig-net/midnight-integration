@@ -27,8 +27,8 @@ export sealed ledger mpcPubKeyHash: Bytes<32>;
 // enumerating the map. Append-only, idempotent overwrite, no removal.
 export ledger signBidirectionalNotificationIndex: SignBidirectionalNotificationIndex;
 
-constructor(mpcPk: JubjubPoint) {
-    mpcPubKeyHash = disclose(persistentHash<JubjubPoint>(mpcPk));
+constructor(mpcPk: Secp256k1Point) {
+    mpcPubKeyHash = disclose(persistentHash<Secp256k1Point>(mpcPk));
 }
 
 // notifyBidirectionalSignatureRequest should be called (cross-contract) by
@@ -80,44 +80,51 @@ export circuit postSignatureResponse(requestId: RequestId, signatureResponse: Si
 
 // postRespondBidirectional records the MPC's attestation of requestId's
 // remote execution. Anyone may POST, but nothing unauthentic can LAND: the
-// Schnorr signature over (requestId, hash(serializedOutput, outputLen)) is
-// verified in-circuit against the sealed MPC key, so the stored record is
-// authentic by construction and one slot per request suffices — clients read
-// it without re-verifying.
+// secp256k1 ECDSA signature over signetAttestationMessage(requestId,
+// serializedOutput, outputLen) is verified in-circuit against the sealed MPC
+// key, so the stored record is authentic by construction and one slot per
+// request suffices — clients read it without re-verifying. The signing public
+// key is passed as a separate argument (a Secp256k1Point cannot live in ledger
+// state) and pinned by hash against mpcPubKeyHash.
 export circuit postRespondBidirectional(
     requestId: RequestId,
-    respondBidirectional: RespondBidirectional
+    respondBidirectional: RespondBidirectional,
+    pk: Secp256k1Point
 ): [] {
     // Everything stored here is public by construction.
     const disclosedRequestId = disclose(requestId);
     const disclosedResponse = disclose(respondBidirectional);
+    const disclosedPk = disclose(pk);
 
     // Only the pinned MPC key may attest.
     assert(
-        persistentHash<JubjubPoint>(disclosedResponse.pk) == mpcPubKeyHash,
+        persistentHash<Secp256k1Point>(disclosedPk) == mpcPubKeyHash,
         "unauthorized: attestation pk is not the MPC key"
     );
 
-    // The attestation must sign THIS request and THIS output.
+    // The attestation must sign THIS request and THIS output. The stored r/s
+    // are little-endian scalar bytes; cast them back to Secp256k1Scalar for
+    // verification.
     assert(
-        jubjubSchnorrVerify<4>(
+        secp256k1EcdsaVerify(
             signetAttestationMessage(
                 disclosedRequestId,
                 disclosedResponse.serializedOutput,
                 disclosedResponse.outputLen
             ),
-            JubjubSchnorrSignature {
-                announcement: disclosedResponse.announcement,
-                response: disclosedResponse.response,
+            Secp256k1EcdsaSignature {
+                r: disclosedResponse.sigR as Secp256k1Scalar,
+                s: disclosedResponse.sigS as Secp256k1Scalar,
             },
-            disclosedResponse.pk
+            disclosedPk
         ),
         "Invalid attestation signature"
     );
 
     // First valid write wins. A re-post is a no-op, never an overwrite —
-    // Schnorr is randomized, so even the MPC re-signing the same output
-    // yields bytewise-different records; asserting equality would misfire.
+    // secp256k1EcdsaVerify does not enforce low-s, so the malleated twin
+    // (r, n-s) verifies too and even the MPC re-signing the same output can
+    // yield a bytewise-different record; asserting equality would misfire.
     // The no-op leaves the single authenticated slot untouched. Clients poll
     // the index by request id; no off-chain verification follows — the
     // in-circuit checks above already authenticated the stored record.

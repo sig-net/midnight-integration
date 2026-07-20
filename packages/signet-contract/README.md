@@ -3,7 +3,7 @@
 The central [Sig Network](https://sig.network) signet contract on the [Midnight blockchain](https://midnight.network): the singleton that exposes the MPC's [sign bidirectional flow](https://docs.sig.network/architecture/sign-bidirectional) to other Midnight contracts. The MPC posts back to it and clients poll it:
 
 - **Signature responses**: an unauthenticated counted log; callers verify the signatures off-chain or in their own circuits.
-- **Remote execution responses**: Schnorr attestations by the MPC's Jubjub key, verified in-circuit at post time.
+- **Remote execution responses**: secp256k1 ECDSA attestations by the MPC's key, verified in-circuit at post time.
 - **Request-notification registry**: how the MPC discovers new signature requests.
 
 ## What is in it

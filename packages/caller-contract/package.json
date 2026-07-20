@@ -3,14 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The minimal signet caller Compact contract: submits a signature request with contract-fixed calldata and verifies the MPC's Schnorr response. src/index.ts is the curated export surface — this IS the \"sdk\" face of the package.",
+  "description": "The minimal signet caller Compact contract: submits a signature request with contract-fixed calldata and verifies the MPC's ECDSA attestation. src/index.ts is the curated export surface — this IS the \"sdk\" face of the package.",
   "exports": {
     ".": "./src/index.ts",
     "./managed/*": "./src/managed/*"
   },
   "scripts": {
-    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signet-caller.compact src/managed/signet-caller && ln -sfn ../../../signet-contract/src/managed src/managed/SignetNotifier",
-    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/signet-caller.compact src/managed/signet-caller && ln -sfn ../../../signet-contract/src/managed src/managed/SignetNotifier",
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk --feature-zkir-v3 src/signet-caller.compact src/managed/signet-caller && ln -sfn ../../../signet-contract/src/managed src/managed/SignetNotifier",
+    "compile:zk": "COMPACT_PATH=../../node_modules compact compile --feature-zkir-v3 src/signet-caller.compact src/managed/signet-caller && ln -sfn ../../../signet-contract/src/managed src/managed/SignetNotifier",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "deploy": "tsx deploy.ts"

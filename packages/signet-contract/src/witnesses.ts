@@ -1,5 +1,5 @@
-// The signet contract has no witnesses: Schnorr verification is
-// CompactStandardLibrary's `jubjubSchnorrVerify` (fully in-circuit), and
+// The signet contract has no witnesses: attestation verification is
+// CompactStandardLibrary's `secp256k1EcdsaVerify` (fully in-circuit), and
 // there is no private state — posting carries no caller secrets.
 
 import type { Witnesses } from "./managed/contract/index.js";

@@ -12,13 +12,13 @@ export * from "./signet-request-resolver.ts";
 export * from "./signet-request-feed.ts";
 export * from "./constants.ts";
 export * from "./epsilon-derivation.ts";
-export * from "./schnorr.ts";
+export * from "./ecdsa.ts";
 
 /**
  * Compiled pure circuits of Signet.compact (run `yarn compile` first): the
  * executable reference implementation of the client-agnostic circuits —
- * path<->identity checks, the attestation message, the notification packer
- * (`constructSignBidirectionalNotificationV1`), and the Schnorr challenge.
+ * path<->identity checks, the attestation message digest, and the
+ * notification packer (`constructSignBidirectionalNotificationV1`).
  * Off-chain code MUST use these instead of re-porting the algorithms — they
  * are the same compiled logic the contracts prove. The generic request
  * circuits cannot be compiled here (type-parameterized): request construction

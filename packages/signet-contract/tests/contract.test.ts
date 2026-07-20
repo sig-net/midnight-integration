@@ -1,9 +1,8 @@
 // Simulator-level unit tests: the contract runs entirely in-process via
 // @midnight-ntwrk/compact-runtime — no ledger, no network, no proving. The
-// stage-2 suite signs REAL attestations (schnorrSign + the compiled
-// schnorrChallenge/signetAttestationMessage circuits), so
-// postRespondBidirectional's in-circuit Schnorr verification is exercised
-// end to end.
+// stage-2 suite signs REAL attestations (signAttestation + the compiled
+// signetAttestationMessage circuit), so postRespondBidirectional's in-circuit
+// secp256k1 ECDSA verification is exercised end to end.
 
 import { describe, expect, it } from "vitest";
 
@@ -14,15 +13,18 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
+  bigintToBytes32,
+  bytesToBigint,
   bytesToHex,
   decodeSignBidirectionalNotification,
-  deriveJubjubKeypair,
-  hashJubjubPoint,
+  ecdsaSignatureToLeBytes,
+  hashSecp256k1Point,
   readSignetContractLedgerFromState,
   requestIdHex,
-  schnorrSign,
+  SECP256K1_ORDER,
+  secp256k1PublicKeyFromSecretKey,
+  signAttestation,
   pureCircuits as signetCircuits,
-  type JubjubKeypair,
   type SignatureResponse,
   type RespondBidirectional,
 } from "@sig-net/midnight";
@@ -59,9 +61,13 @@ const SIG_2: SignatureResponse = {
   recoveryId: 1n,
 };
 
-// The "MPC" of these tests (its key is pinned at deploy), and an imposter.
-const MPC_KEYS = deriveJubjubKeypair(bytes(32, 0x42));
-const IMPOSTER_KEYS = deriveJubjubKeypair(bytes(32, 0x43));
+// The "MPC" of these tests (its key is pinned at deploy) and an imposter,
+// each a fixed secp256k1 secret key (< n, non-zero) used directly — the same
+// "root key IS the secp private key" convention the fakenet holds.
+const MPC_SECRET_KEY = bytes(32, 0x42);
+const IMPOSTER_SECRET_KEY = bytes(32, 0x43);
+const MPC_PK = secp256k1PublicKeyFromSecretKey(MPC_SECRET_KEY);
+const IMPOSTER_PK = secp256k1PublicKeyFromSecretKey(IMPOSTER_SECRET_KEY);
 
 // A successful remote execution: first byte 1 (the LE encoding the circuits
 // decode as `as Field == 1`), rest zero; 32 meaningful bytes (one ABI word).
@@ -70,32 +76,37 @@ OUTPUT_SUCCESS[0] = 1;
 const OUTPUT_SUCCESS_LEN = 32n;
 
 /**
- * Sign a REAL attestation of (requestId, serializedOutput, outputLen) with
- * `keys` — message and challenge both come from the compiled circuits,
- * exactly like the MPC.
+ * Sign a REAL ECDSA attestation of (requestId, serializedOutput, outputLen)
+ * with `secretKey` — the digest comes from the compiled circuit, exactly like
+ * the MPC. Returns the ledger-shaped record (r/s as little-endian bytes); the
+ * signing public key is presented separately to the circuit.
  */
 const attest = (
-  keys: JubjubKeypair,
+  secretKey: Uint8Array,
   requestId: Uint8Array,
   serializedOutput: Uint8Array,
   outputLen: bigint = OUTPUT_SUCCESS_LEN,
 ): RespondBidirectional => {
-  const msg = signetCircuits.signetAttestationMessage(
+  const digest = signetCircuits.signetAttestationMessage(
     requestId,
     serializedOutput,
     outputLen,
   );
-  const signature = schnorrSign(keys.sk, msg, (ax, ay, px, py, m) =>
-    signetCircuits.schnorrChallenge(ax, ay, px, py, m),
-  );
-  return {
-    serializedOutput,
-    outputLen,
-    pk: keys.pk,
-    announcement: signature.announcement,
-    response: signature.response,
-  };
+  const { sigR, sigS } = ecdsaSignatureToLeBytes(signAttestation(digest, secretKey));
+  return { serializedOutput, outputLen, sigR, sigS };
 };
+
+/**
+ * The malleated twin of an attestation: same r, but s replaced with n - s.
+ * secp256k1EcdsaVerify does not enforce low-s, so the twin verifies too, yet
+ * its bytes differ — a second, equally valid record over the same output,
+ * which is what the first-write-wins test needs (ECDSA signing is otherwise
+ * deterministic).
+ */
+const malleate = (attestation: RespondBidirectional): RespondBidirectional => ({
+  ...attestation,
+  sigS: bigintToBytes32(SECP256K1_ORDER - bytesToBigint(attestation.sigS)),
+});
 
 // ---- Harness ----
 
@@ -104,7 +115,7 @@ const deployContract = async (circuitId: string) => {
   const { currentContractState, currentPrivateState } =
     await contract.initialState(
       createConstructorContext(createSignetContractPrivateState(), CPK),
-      MPC_KEYS.pk,
+      MPC_PK,
     );
   const ctx = createCircuitContext(
     circuitId,
@@ -125,7 +136,7 @@ describe("constructor", () => {
     expect(state.signatureResponseCounterIndex.isEmpty()).toBe(true);
     expect(state.signatureResponseIndex.isEmpty()).toBe(true);
     expect(state.respondBidirectionalIndex.isEmpty()).toBe(true);
-    expect(state.mpcPubKeyHash).toEqual(hashJubjubPoint(MPC_KEYS.pk));
+    expect(state.mpcPubKeyHash).toEqual(hashSecp256k1Point(MPC_PK));
     expect(state.signBidirectionalNotificationIndex.isEmpty()).toBe(true);
   });
 });
@@ -351,13 +362,14 @@ describe("postSignatureResponse", () => {
 describe("postRespondBidirectional", () => {
   it("stores a genuine attestation — the ledger record parses into the shared twin type", async () => {
     const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
+    const attestation = attest(MPC_SECRET_KEY, REQUEST_A, OUTPUT_SUCCESS);
 
     const next = (
       await contract.circuits.postRespondBidirectional(
         ctx,
         REQUEST_A,
         attestation,
+        MPC_PK,
       )
     ).context;
     const state = ledger(next.callContext.currentQueryContext.state);
@@ -370,59 +382,81 @@ describe("postRespondBidirectional", () => {
     expect(stored).toEqual(attestation);
   });
 
-  it("rejects an attestation by a key other than the pinned MPC key", async () => {
+  it("rejects an attestation presenting a key other than the pinned MPC key", async () => {
     const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const attestation = attest(IMPOSTER_KEYS, REQUEST_A, OUTPUT_SUCCESS);
+    const attestation = attest(IMPOSTER_SECRET_KEY, REQUEST_A, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.postRespondBidirectional(ctx, REQUEST_A, attestation),
+      contract.circuits.postRespondBidirectional(ctx, REQUEST_A, attestation, IMPOSTER_PK),
     ).rejects.toThrow(/attestation pk is not the MPC key/);
+  });
+
+  it("rejects a signature by a non-MPC key presented under the MPC key", async () => {
+    const { contract, ctx } = await deployContract("postRespondBidirectional");
+    // Signed by the imposter but claiming to be the MPC key: the key hash
+    // passes, the signature does not.
+    const attestation = attest(IMPOSTER_SECRET_KEY, REQUEST_A, OUTPUT_SUCCESS);
+    await expect(
+      contract.circuits.postRespondBidirectional(ctx, REQUEST_A, attestation, MPC_PK),
+    ).rejects.toThrow(/Invalid attestation signature/);
   });
 
   it("rejects a tampered attestation (output differs from what was signed)", async () => {
     const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
+    const attestation = attest(MPC_SECRET_KEY, REQUEST_A, OUTPUT_SUCCESS);
     const tamperedOutput = new Uint8Array(OUTPUT_SUCCESS);
     tamperedOutput[100] = 0xff;
     await expect(
       contract.circuits.postRespondBidirectional(ctx, REQUEST_A, {
         ...attestation,
         serializedOutput: tamperedOutput,
-      }),
+      }, MPC_PK),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
   it("rejects a tampered attestation (output length differs from what was signed)", async () => {
     const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
+    const attestation = attest(MPC_SECRET_KEY, REQUEST_A, OUTPUT_SUCCESS);
     await expect(
       contract.circuits.postRespondBidirectional(ctx, REQUEST_A, {
         ...attestation,
         outputLen: attestation.outputLen + 1n,
-      }),
+      }, MPC_PK),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
   it("rejects a genuine attestation replayed under a DIFFERENT request id", async () => {
     const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
+    const attestation = attest(MPC_SECRET_KEY, REQUEST_A, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.postRespondBidirectional(ctx, REQUEST_B, attestation),
+      contract.circuits.postRespondBidirectional(ctx, REQUEST_B, attestation, MPC_PK),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
-  it("first valid write wins: a re-signed duplicate is a no-op, not an overwrite", async () => {
+  it("accepts the high-s malleated twin: the verifier does NOT enforce low-s", async () => {
     const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const first = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    // Schnorr is randomized: a second signature over the SAME output is a
-    // different, equally valid record.
-    const second = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    expect(second.announcement).not.toEqual(first.announcement);
+    const twin = malleate(attest(MPC_SECRET_KEY, REQUEST_A, OUTPUT_SUCCESS));
+
+    const next = (
+      await contract.circuits.postRespondBidirectional(ctx, REQUEST_A, twin, MPC_PK)
+    ).context;
+    const state = ledger(next.callContext.currentQueryContext.state);
+    expect(state.respondBidirectionalIndex.size()).toBe(1n);
+    expect(state.respondBidirectionalIndex.lookup(REQUEST_A)).toEqual(twin);
+  });
+
+  it("first valid write wins: a re-posted twin is a no-op, not an overwrite", async () => {
+    const { contract, ctx } = await deployContract("postRespondBidirectional");
+    const first = attest(MPC_SECRET_KEY, REQUEST_A, OUTPUT_SUCCESS);
+    // ECDSA signing is deterministic (RFC 6979), so the malleated twin is a
+    // DIFFERENT, equally valid record over the same output.
+    const second = malleate(first);
+    expect(second.sigS).not.toEqual(first.sigS);
 
     let next = (
-      await contract.circuits.postRespondBidirectional(ctx, REQUEST_A, first)
+      await contract.circuits.postRespondBidirectional(ctx, REQUEST_A, first, MPC_PK)
     ).context;
     next = (
-      await contract.circuits.postRespondBidirectional(next, REQUEST_A, second)
+      await contract.circuits.postRespondBidirectional(next, REQUEST_A, second, MPC_PK)
     ).context;
 
     const state = ledger(next.callContext.currentQueryContext.state);
@@ -432,14 +466,14 @@ describe("postRespondBidirectional", () => {
 
   it("tracks attestations per request id", async () => {
     const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const forA = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    const forB = attest(MPC_KEYS, REQUEST_B, OUTPUT_SUCCESS);
+    const forA = attest(MPC_SECRET_KEY, REQUEST_A, OUTPUT_SUCCESS);
+    const forB = attest(MPC_SECRET_KEY, REQUEST_B, OUTPUT_SUCCESS);
 
     let next = (
-      await contract.circuits.postRespondBidirectional(ctx, REQUEST_A, forA)
+      await contract.circuits.postRespondBidirectional(ctx, REQUEST_A, forA, MPC_PK)
     ).context;
     next = (
-      await contract.circuits.postRespondBidirectional(next, REQUEST_B, forB)
+      await contract.circuits.postRespondBidirectional(next, REQUEST_B, forB, MPC_PK)
     ).context;
 
     const state = ledger(next.callContext.currentQueryContext.state);

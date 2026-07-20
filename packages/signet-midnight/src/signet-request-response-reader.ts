@@ -312,10 +312,10 @@ export class SignetRequestResponseReader {
   /**
    * Fetch the MPC's respond-bidirectional attestation for `requestId`,
    * if posted. The signet contract verified it IN-CIRCUIT at post time
-   * (Schnorr over `(requestId, hash(serializedOutput, outputLen))` against
-   * the sealed MPC key), so it is single-slot and needs no off-chain
-   * verification or verdicts — `undefined` simply means not posted yet, poll
-   * again.
+   * (secp256k1 ECDSA over `signetAttestationMessage(requestId,
+   * serializedOutput, outputLen)` against the sealed MPC key), so it is
+   * single-slot and needs no off-chain verification or verdicts — `undefined`
+   * simply means not posted yet, poll again.
    *
    * @param requestId - The request id whose attestation to fetch.
    * @returns The attestation record, or `undefined` when none is posted.

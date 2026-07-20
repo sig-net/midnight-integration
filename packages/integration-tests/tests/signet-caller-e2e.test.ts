@@ -2,7 +2,7 @@
 // central signet contract end to end — submit a signature request (with
 // contract-fixed minimal calldata), watch the notification land in the
 // singleton's registry, poll the MPC's signature response and verify it
-// against the caller's derived account, then verify a Schnorr attestation
+// against the caller's derived account, then verify an ECDSA attestation
 // in-circuit — against contracts the caller globalSetup pipeline
 // (src/setup/caller-global-setup.ts, wired by vitest.config.ts) has
 // already compiled/deployed. Tests in THIS file run in source order and feed
@@ -14,7 +14,7 @@
 // test (after the first) until you hit Enter in the terminal.
 //
 // Deliberately EVM-free: the request exists to be SIGNED, never broadcast.
-// The fakenet's own Schnorr attestation only follows a broadcast it observed
+// The fakenet's own ECDSA attestation only follows a broadcast it observed
 // on the target chain, so the in-circuit verification leg is driven with an
 // attestation signed from the suite's shared MPC_ROOT_KEY — the same key
 // material the fakenet signs with.
@@ -23,12 +23,13 @@ import {
   asciiPadded,
   calculateRequestId,
   deriveEvmAddress,
-  deriveJubjubKeypair,
+  ecdsaSignatureToLeBytes,
   hexToBytes,
+  parseSecp256k1PublicKey,
   pureCircuits as signetCircuits,
   requestIdBytes,
   requestIdHex,
-  schnorrSign,
+  signAttestation,
   sleepUnlessAborted,
   stripHexPrefix,
   toSignBidirectionalRequestIndex,
@@ -256,16 +257,16 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
   );
 
   it(
-    "verifyResponse [signet-caller contract method call]: verify a Schnorr attestation in-circuit and consume the request",
+    "verifyResponse [signet-caller contract method call]: verify an ECDSA attestation in-circuit and consume the request",
     async () => {
-      // The fakenet posts its own Schnorr attestation only after observing
+      // The fakenet posts its own ECDSA attestation only after observing
       // the requested transaction on the destination chain — the
       // post-broadcast leg this generic exercise deliberately omits. The
       // caller contract's VERIFICATION of an attestation is what this leg
       // proves, so the attestation is signed here from the suite's shared
       // MPC_ROOT_KEY (the exact key material the fakenet signs with; the
-      // setup derived the sealed MPC_JUBJUB_PK from it), using the same
-      // compiled circuits the MPC uses.
+      // setup derived the sealed MPC_SECP256K1_PUBKEY from it), using the same
+      // compiled digest circuit the MPC uses.
       expect(signatureRequestId).toBeDefined();
 
       const context = await session.callerContext();
@@ -285,23 +286,20 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       serializedOutput[0] = 1;
       const outputLen = 32n;
 
-      const mpcKeys = deriveJubjubKeypair(hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))));
-      const message = signetCircuits.signetAttestationMessage(requestKey, serializedOutput, outputLen);
-      const signature = schnorrSign(mpcKeys.sk, message, (ax, ay, px, py, m) =>
-        signetCircuits.schnorrChallenge(ax, ay, px, py, m),
-      );
+      const rootKey = hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY")));
+      const digest = signetCircuits.signetAttestationMessage(requestKey, serializedOutput, outputLen);
+      const { sigR, sigS } = ecdsaSignatureToLeBytes(signAttestation(digest, rootKey));
+      const mpcPk = parseSecp256k1PublicKey(requireEnv("MPC_SECP256K1_PUBKEY"));
 
-      await context.caller.callTx.verifyResponse(requestKey, {
-        serializedOutput,
-        outputLen,
-        pk: mpcKeys.pk,
-        announcement: signature.announcement,
-        response: signature.response,
-      });
+      await context.caller.callTx.verifyResponse(
+        requestKey,
+        { serializedOutput, outputLen, sigR, sigS },
+        mpcPk,
+      );
 
       // The consumption is the observable effect: present before (checked
       // above), absent after — and removal only happens if every in-circuit
-      // check (pk hash, Schnorr signature) passed. Poll briefly for the
+      // check (pk hash, ECDSA signature) passed. Poll briefly for the
       // indexer to catch up.
       const deadline = Date.now() + MINUTE;
       let stillPresent = true;
@@ -316,7 +314,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       banner([
         `Request ${signatureRequestId} verified and consumed.`,
         "",
-        "The caller verified the MPC-keyed Schnorr attestation in-circuit and",
+        "The caller verified the MPC-keyed ECDSA attestation in-circuit and",
         "removed the request from its ledger.",
       ]);
     },

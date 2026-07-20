@@ -22,7 +22,6 @@ import {
   signatureToSignatureResponse,
   signBidirectionalRequestToSignedEVMTransaction,
   signBidirectionalRequestToUnsignedEVMTransaction,
-  deriveJubjubKeypair,
   requestIdHex,
   requestIdType,
   signBidirectionalRequestDescriptor,
@@ -140,15 +139,14 @@ const requesterState = (): StateValue => {
     );
 };
 
-// An attestation record for the respond-bidirectional tests: real Jubjub
-// points, synthetic scalar — the reader decodes, the CONTRACT verified at
+// An attestation record for the respond-bidirectional tests: synthetic
+// little-endian scalar bytes — the reader decodes, the CONTRACT verified at
 // post time.
 const RESPOND_BIDIRECTIONAL: RespondBidirectional = {
   serializedOutput: (() => { const out = new Uint8Array(128); out[0] = 1; return out; })(),
   outputLen: 32n,
-  pk: deriveJubjubKeypair(bytes(32, 0x42)).pk,
-  announcement: deriveJubjubKeypair(bytes(32, 0x43)).pk,
-  response: 123456789n,
+  sigR: bytes(32, 0xa2),
+  sigS: bytes(32, 0xb2),
 };
 
 /**

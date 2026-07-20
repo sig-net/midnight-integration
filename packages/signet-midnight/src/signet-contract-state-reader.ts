@@ -12,11 +12,8 @@
 
 import {
   CompactTypeBytes,
-  CompactTypeField,
-  CompactTypeJubjubPoint,
   CompactTypeUnsignedInteger,
   type CompactType,
-  type JubjubPoint,
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
@@ -125,23 +122,26 @@ export const signatureResponseType: CompactType<SignatureResponse> = {
 
 /**
  * The MPC's respond-bidirectional attestation of a request's remote EVM
- * execution (Compact `RespondBidirectional`): the serialized execution
- * output plus the Schnorr signature over
- * `(requestId, hash(serializedOutput, outputLen))`. Stored records were
- * verified IN-CIRCUIT by the signet contract at post time, so readers can
- * trust them without re-verifying.
+ * execution (Compact `RespondBidirectional`): the serialized execution output
+ * plus the secp256k1 ECDSA signature over the attestation digest
+ * `signetAttestationMessage(requestId, serializedOutput, outputLen)`. Stored
+ * records were verified IN-CIRCUIT by the signet contract at post time, so
+ * readers can trust them without re-verifying. The signing public key is not
+ * stored here — it is pinned by hash against the sealed MPC key.
  */
 export interface RespondBidirectional {
   /** ABI-encoded return data (canonical serialized_output), zero-padded to 128 bytes. */
   serializedOutput: Uint8Array;
   /** Meaningful byte count of {@link serializedOutput}. */
   outputLen: bigint;
-  /** The MPC attestation key (hash-checked against the sealed key at post). */
-  pk: JubjubPoint;
-  /** Schnorr nonce commitment R. */
-  announcement: JubjubPoint;
-  /** Schnorr response scalar s. */
-  response: bigint;
+  /**
+   * ECDSA signature scalar r as 32 LITTLE-ENDIAN bytes (the byte order the
+   * `Secp256k1Scalar as Bytes<32>` cast produces; recover the scalar with
+   * `bytesToBigint`).
+   */
+  sigR: Uint8Array;
+  /** ECDSA signature scalar s as 32 little-endian bytes (see {@link sigR}). */
+  sigS: Uint8Array;
 }
 
 /**
@@ -192,8 +192,9 @@ export const signetResponseKeyType: CompactType<SignetResponseKey> = {
 
 /**
  * Hand-composed descriptor for {@link RespondBidirectional}. Field
- * order (serializedOutput, outputLen, pk, announcement, response) must match
- * the Compact struct.
+ * order (serializedOutput, outputLen, sigR, sigS) must match the Compact
+ * struct — the signature scalars are stored as `Bytes<32>`, not
+ * `Secp256k1Scalar`.
  */
 export const respondBidirectionalType: CompactType<RespondBidirectional> = {
   /** @returns Compound alignment of the struct's fields in declaration order. */
@@ -201,9 +202,8 @@ export const respondBidirectionalType: CompactType<RespondBidirectional> = {
     return bytes128
       .alignment()
       .concat(u8.alignment())
-      .concat(CompactTypeJubjubPoint.alignment())
-      .concat(CompactTypeJubjubPoint.alignment())
-      .concat(CompactTypeField.alignment());
+      .concat(bytes32.alignment())
+      .concat(bytes32.alignment());
   },
   /**
    * Decode one attestation record from an aligned value, consuming it field
@@ -216,9 +216,8 @@ export const respondBidirectionalType: CompactType<RespondBidirectional> = {
     return {
       serializedOutput: bytes128.fromValue(value),
       outputLen: u8.fromValue(value),
-      pk: CompactTypeJubjubPoint.fromValue(value),
-      announcement: CompactTypeJubjubPoint.fromValue(value),
-      response: CompactTypeField.fromValue(value),
+      sigR: bytes32.fromValue(value),
+      sigS: bytes32.fromValue(value),
     };
   },
   /**
@@ -231,9 +230,8 @@ export const respondBidirectionalType: CompactType<RespondBidirectional> = {
     return bytes128
       .toValue(record.serializedOutput)
       .concat(u8.toValue(record.outputLen))
-      .concat(CompactTypeJubjubPoint.toValue(record.pk))
-      .concat(CompactTypeJubjubPoint.toValue(record.announcement))
-      .concat(CompactTypeField.toValue(record.response));
+      .concat(bytes32.toValue(record.sigR))
+      .concat(bytes32.toValue(record.sigS));
   },
 };
 

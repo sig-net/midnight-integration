@@ -5,7 +5,7 @@
 // package's compiled assets to carry keys (its published dist/managed
 // always does; an in-repo checkout needs `yarn compile:zk`).
 
-import { parseJubjubPublicKey } from "@sig-net/midnight";
+import { parseSecp256k1PublicKey } from "@sig-net/midnight";
 import {
   assertDeployerFunded,
   buildDeployTransaction,
@@ -34,14 +34,14 @@ export interface SignetContractDeployment {
  * Deploy the signet contract: read config from `env`, build and prove the
  * deploy transaction and submit it through a synced wallet. Progress is
  * logged to the console. The one constructor argument is the MPC attestation
- * key (`MPC_JUBJUB_PK`, "x,y" decimal or 0x-hex field coordinates),
- * whose hash the contract seals — remote execution responses must be signed
- * by it. Any funded wallet can deploy; nothing about the deployer is sealed.
+ * key (`MPC_SECP256K1_PUBKEY`, compressed or uncompressed 0x-hex), whose hash
+ * the contract seals — remote execution attestations must be ECDSA-signed by
+ * it. Any funded wallet can deploy; nothing about the deployer is sealed.
  *
  * @param env - Environment map providing `DEPLOYER_SEED`,
- *   `MPC_JUBJUB_PK` and the shared Midnight node configuration (see `getMidnightNodeConfig`).
+ *   `MPC_SECP256K1_PUBKEY` and the shared Midnight node configuration (see `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
- * @throws If `MPC_JUBJUB_PK` is missing/malformed, the deployer
+ * @throws If `MPC_SECP256K1_PUBKEY` is missing/malformed, the deployer
  *   wallet holds no funds, or submission fails.
  */
 export async function deploySignetContract(
@@ -50,11 +50,11 @@ export async function deploySignetContract(
   const deployConfig = getDeployConfig(env);
   const { networkId } = deployConfig.midnightNodeConfig;
 
-  const mpcPkRaw = env.MPC_JUBJUB_PK?.trim();
+  const mpcPkRaw = env.MPC_SECP256K1_PUBKEY?.trim();
   if (!mpcPkRaw) {
-    throw new Error("MPC_JUBJUB_PK is required (the MPC attestation key, as \"x,y\")");
+    throw new Error("MPC_SECP256K1_PUBKEY is required (the MPC attestation key, as compressed/uncompressed 0x-hex)");
   }
-  const mpcPk = parseJubjubPublicKey(mpcPkRaw);
+  const mpcPk = parseSecp256k1PublicKey(mpcPkRaw);
 
   const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
 
