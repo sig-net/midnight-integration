@@ -12,16 +12,18 @@ import { describe, expect, it } from "vitest";
 
 import { buildDeployTransaction } from "@sig-net/midnight-contract-deploy";
 
-import { callerCompiledContract, createCallerPrivateState } from "../src/index.ts";
+import { callerCompiledContract, createCallerPrivateState, pureCircuits } from "../src/index.ts";
 
 const MANAGED_DIR = fileURLToPath(new URL("../src/managed/signet-caller", import.meta.url));
 const HAS_VERIFIER_KEYS = existsSync(join(MANAGED_DIR, "keys"));
 
 // Stand-in signet-contract reference sealed as the cross-contract emitter.
 // (The MPC response key is NOT a constructor arg: it is pinned after deploy
-// via initialise, once the contract address — the key's derivation input —
-// exists.)
+// via the deployer-gated initialise, once the contract address — the key's
+// derivation input — exists. The constructor seals the deployer commitment.)
 const SIGNET_CONTRACT_REF = { bytes: new Uint8Array(32).fill(0x5e) };
+const DEPLOYER_SECRET = new Uint8Array(32).fill(0xd0);
+const DEPLOYER_COMMITMENT = pureCircuits.deployerCommitment(DEPLOYER_SECRET);
 
 // Dummy coin public key (32-byte hex) for the constructor context.
 const CPK = "0".repeat(64);
@@ -34,7 +36,8 @@ describe.skipIf(!HAS_VERIFIER_KEYS)(
         callerCompiledContract,
         "undeployed",
         CPK,
-        createCallerPrivateState(),
+        createCallerPrivateState(DEPLOYER_SECRET),
+        DEPLOYER_COMMITMENT,
         SIGNET_CONTRACT_REF,
       );
 
@@ -52,7 +55,8 @@ describe.skipIf(!HAS_VERIFIER_KEYS)(
           callerCompiledContract,
           "undeployed",
           CPK,
-          createCallerPrivateState(),
+          createCallerPrivateState(DEPLOYER_SECRET),
+          DEPLOYER_COMMITMENT,
           { bytes: new Uint8Array(31) }, // not Bytes<32> — the generated arg validation must trip
         ),
       ).rejects.toThrow(/Failed to initialize contract/);

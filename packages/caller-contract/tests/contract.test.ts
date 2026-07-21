@@ -28,7 +28,7 @@ import {
   type SignBidirectionalEventLedgerMap,
 } from "@sig-net/midnight";
 
-import { Contract, ledger, witnesses, type CallerPrivateState } from "../src/index.ts";
+import { Contract, ledger, pureCircuits as callerCircuits, witnesses, type CallerPrivateState } from "../src/index.ts";
 import { createCallerPrivateState } from "../src/witnesses.ts";
 // The signet contract (callee) module — the same one the caller's generated
 // code cross-contract-calls. submitSignatureRequest ends in a call to its
@@ -59,6 +59,11 @@ const bytes = (length: number, fill: number) =>
 // depends on the contract's own address, so it cannot be a constructor arg).
 const MPC_RESPONSE_SECRET = bytes(32, 0x42);
 const MPC_RESPONSE_KEY = secp256k1PublicKeyOf(MPC_RESPONSE_SECRET);
+
+// The deployer's identity secret: its commitment is sealed by the
+// constructor and gates initialise (answered by the deployerSecretKey
+// witness from private state).
+const DEPLOYER_SECRET = bytes(32, 0xd0);
 
 // The signet contract (callee) the caller seals + cross-contract-calls. A
 // valid sample contract address so the runtime's address checks pass.
@@ -102,12 +107,18 @@ const KEY_VERSION = 1n;
 
 // ---- Harness ----
 
-/** Deploy WITHOUT pinning the response key — the pre-initialise state. */
-const deployUninitialised = async () => {
+/**
+ * Deploy WITHOUT pinning the response key — the pre-initialise state. The
+ * constructor seals the DEPLOYER_SECRET's commitment; `witnessSecret` is
+ * what the private state answers the deployerSecretKey witness with (pass an
+ * imposter's secret to exercise the initialise gate).
+ */
+const deployUninitialised = async (witnessSecret: Uint8Array = DEPLOYER_SECRET) => {
   const contract = new Contract<CallerPrivateState>(witnesses);
   const { currentContractState, currentPrivateState } =
     await contract.initialState(
-      createConstructorContext<CallerPrivateState>(createCallerPrivateState(), CPK),
+      createConstructorContext<CallerPrivateState>(createCallerPrivateState(witnessSecret), CPK),
+      callerCircuits.deployerCommitment(DEPLOYER_SECRET),
       SIGNET_CONTRACT_REF,
     );
   const ctx = createCircuitContext(
@@ -167,6 +178,13 @@ describe("initialise", () => {
     await expect(
       contract.circuits.initialise(ctx, IMPOSTER_PUBLIC),
     ).rejects.toThrow(/Already initialised/);
+  });
+
+  it("is deployer-gated: a witness secret other than the sealed commitment's rejects", async () => {
+    const { contract, ctx } = await deployUninitialised(bytes(32, 0xba));
+    await expect(
+      contract.circuits.initialise(ctx, MPC_RESPONSE_KEY),
+    ).rejects.toThrow(/Not the deployer/);
   });
 });
 

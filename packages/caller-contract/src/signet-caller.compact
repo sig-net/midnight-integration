@@ -56,7 +56,30 @@ sealed ledger signetSigner: SignetSigner;
 // minimal calldata submitSignatureRequest composes.
 export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
 
-constructor(signetContract: SignetSigner) {
+// field 5: identity commitment of the deployer; only they may call
+// initialise(). Sealed by the constructor so the two-step configuration
+// cannot be front-run (same pattern as the erc20-vault example's
+// deployer-gated initialize).
+sealed ledger deployer: Bytes<32>;
+
+// ---- Identity ----------------------------------------------------------------------
+// The deployer proves identity with a secret-key witness; only a commitment
+// (hash) of the key ever reaches the ledger.
+
+witness deployerSecretKey(): Bytes<32>;
+
+// Exported so off-chain code (deploy tooling, tests) may compute commitments
+// by calling the compiled circuit.
+export pure circuit deployerCommitment(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "signet-caller:deployer:"), sk]);
+}
+
+// Two-step config: the constructor pins WHO may configure (the deployer's
+// identity commitment, computed off-chain from their secret key); the
+// deployer-gated initialise() then pins the MPC response key — which can
+// only be derived once the contract address exists.
+constructor(initialDeployerCommitment: Bytes<32>, signetContract: SignetSigner) {
+  deployer = disclose(initialDeployerCommitment);
   signetSigner = disclose(signetContract);
 }
 
@@ -65,14 +88,17 @@ constructor(signetContract: SignetSigner) {
 // deploy, when the contract's address exists and the key can therefore be
 // derived off-chain (the real MPC derives it from the tx SENDER + the fixed
 // per-chain path — sig-net/mpc respond_bidirectional.rs — so the pinned key
-// MUST be the one scoped to this contract's own address). Set-once: any
-// later call rejects. NB the call is permissionless, so the pin is
-// first-caller-wins — deploy and initialise back to back. A production
-// contract would bind initialise to a deployer credential instead.
+// MUST be the one scoped to this contract's own address). Set-once and
+// deployer-gated: the sealed commitment prevents anyone else from pinning a
+// key of their own.
 export circuit initialise(mpcResponseKey: Secp256k1Point): [] {
   assert(
     mpcResponseKeyHash == default<Bytes<32>>,
     "Already initialised: the MPC response key is pinned"
+  );
+  assert(
+    deployerCommitment(deployerSecretKey()) == deployer,
+    "Not the deployer"
   );
   mpcResponseKeyHash = disclose(persistentHash<Secp256k1Point>(mpcResponseKey));
 }

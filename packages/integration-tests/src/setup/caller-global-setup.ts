@@ -18,6 +18,7 @@ import {
   assertCallerEnvironment,
   compileCallerContract,
   deployCallerContractStep,
+  ensureCallerDeployerIdentity,
 } from "./caller-steps.ts";
 import {
   compileSignetContract,
@@ -43,6 +44,7 @@ const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void
   ["setup: persist fakenet hand-off values to .env (append-only)", persistFakenetHandoffToDotEnv],
   ["setup: start the fakenet responder (docker compose)", startFakenetResponder],
   ["setup: compile caller contract with proving keys", compileCallerContract],
+  ["setup: resolve caller deployer identity (gates initialise)", ensureCallerDeployerIdentity],
   ["setup: deploy caller contract", deployCallerContractStep],
   ["setup: check/derive MPC_RESPONSE_KEY for the caller contract", ensureMpcResponseKey],
 ];

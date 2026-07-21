@@ -8,6 +8,7 @@
 import { deployCaller } from "@midnight-protocol/caller-contract";
 import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 
+import { requireEnv } from "../e2e-env.ts";
 import { logSkip } from "../output.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../preflight.ts";
 import { runRootScript } from "../subprocess.ts";
@@ -51,6 +52,25 @@ export async function compileCallerContract(env: NodeJS.ProcessEnv): Promise<voi
     return;
   }
   await runRootScript("compile:caller-contract:zk", env, 14 * MINUTE);
+}
+
+/**
+ * Resolve the caller deployer's identity secret: the commitment sealed by
+ * the caller's constructor gates its initialise circuit, and the flow's
+ * initialise leg answers the deployerSecretKey witness with this value.
+ * Defaults to the deployer wallet seed (the same convention the erc20-vault
+ * example uses), so no fresh material is minted.
+ *
+ * @param env - The suite's env accumulator.
+ */
+export function ensureCallerDeployerIdentity(env: NodeJS.ProcessEnv): void {
+  if (env.CALLER_DEPLOYER_SECRET_KEY) {
+    logSkip("resolve caller deployer identity", "CALLER_DEPLOYER_SECRET_KEY is set");
+    return;
+  }
+  env.CALLER_DEPLOYER_SECRET_KEY = requireEnv(env, "DEPLOYER_SEED");
+  console.log("defaulted CALLER_DEPLOYER_SECRET_KEY to the deployer wallet seed (initialise is deployer-gated)");
+  console.log(" ➜ its commitment is sealed by the caller's constructor; only its holder may pin the response key");
 }
 
 /**

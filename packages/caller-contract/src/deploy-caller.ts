@@ -21,8 +21,30 @@ import {
   type TransactionIdentifier,
 } from "@sig-net/midnight-contract-deploy";
 
+import { pureCircuits } from "./managed/signet-caller/contract/index.js";
 import { callerCompiledContract } from "./providers.ts";
 import { createCallerPrivateState } from "./witnesses.ts";
+
+/**
+ * Resolve the deployer's 32-byte identity secret: `CALLER_DEPLOYER_SECRET_KEY`
+ * when set, else the deployer wallet seed (same convention as the erc20-vault
+ * example). Its commitment gates the contract's initialise circuit.
+ *
+ * @param env - The environment to read from.
+ * @param fallbackSeed - The deployer wallet seed (32-byte hex).
+ * @returns The 32-byte secret key.
+ * @throws If the resolved value is not exactly 32 bytes of hex.
+ */
+export function resolveCallerDeployerSecretKey(
+  env: Record<string, string | undefined>,
+  fallbackSeed: string,
+): Uint8Array {
+  const raw = (env.CALLER_DEPLOYER_SECRET_KEY?.trim() || fallbackSeed).replace(/^0x/i, "");
+  if (!/^[0-9a-fA-F]{64}$/.test(raw)) {
+    throw new Error("the caller deployer identity secret must be exactly 32 bytes of hex (set CALLER_DEPLOYER_SECRET_KEY)");
+  }
+  return Uint8Array.from(raw.match(/.{2}/g)!.map((byte) => parseInt(byte, 16)));
+}
 
 /** The outcome of a successful caller deployment. */
 export interface CallerDeployment {
@@ -43,15 +65,24 @@ export interface CallerDeployment {
  *
  * @param env - Environment map providing `DEPLOYER_SEED`,
  *   `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` (the signet contract to seal as the
- *   cross-contract emitter) and the shared Midnight node configuration (see
+ *   cross-contract emitter), optionally `CALLER_DEPLOYER_SECRET_KEY` (the
+ *   identity secret whose commitment gates initialise; defaults to the
+ *   deployer seed) and the shared Midnight node configuration (see
  *   `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
  * @throws If `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` is missing/malformed, the
- *   deployer wallet holds no funds, or submission fails.
+ *   identity secret is malformed, the deployer wallet holds no funds, or
+ *   submission fails.
  */
 export async function deployCaller(env: Record<string, string | undefined> = process.env): Promise<CallerDeployment> {
   const deployConfig = getDeployConfig(env);
   const { networkId } = deployConfig.midnightNodeConfig;
+
+  // The deployer's identity commitment, sealed by the constructor: only the
+  // holder of the secret may later call initialise (front-run protection for
+  // the response-key pin).
+  const deployerSecretKey = resolveCallerDeployerSecretKey(env, deployConfig.deployerSeed);
+  const deployerCommitment = pureCircuits.deployerCommitment(deployerSecretKey);
 
   // The signet contract the caller cross-contract-calls to register signature
   // request notifications — sealed into the caller as the SignetSigner
@@ -76,7 +107,8 @@ export async function deployCaller(env: Record<string, string | undefined> = pro
         callerCompiledContract,
         networkId,
         accountKeys.shieldedSecretKeys.coinPublicKey,
-        createCallerPrivateState(),
+        createCallerPrivateState(deployerSecretKey),
+        deployerCommitment,
         signetSigner,
       );
       console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
