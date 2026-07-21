@@ -161,16 +161,14 @@ const requestSubmitted = async () => {
 // ---- Tests ----
 
 describe("initialise", () => {
-  it("pins the MPC response key's hash (zero before, signetKeyHash after)", async () => {
+  it("stores the MPC response key verbatim (uninitialised before, the point after)", async () => {
     const { contract, ctx } = await deployUninitialised();
-    expect(
-      ledger(ctx.callContext.currentQueryContext.state).mpcResponseKeyHash,
-    ).toEqual(new Uint8Array(32));
+    expect(ledger(ctx.callContext.currentQueryContext.state).initialised).toBe(0n);
 
     const next = (await contract.circuits.initialise(ctx, MPC_RESPONSE_KEY)).context;
-    expect(
-      ledger(next.callContext.currentQueryContext.state).mpcResponseKeyHash,
-    ).toEqual(signetCircuits.signetKeyHash(MPC_RESPONSE_KEY));
+    const state = ledger(next.callContext.currentQueryContext.state);
+    expect(state.initialised).toBe(1n);
+    expect(state.mpcResponseKey).toEqual(MPC_RESPONSE_KEY);
   });
 
   it("is set-once: a second initialise rejects", async () => {
@@ -369,7 +367,7 @@ const respond = (
 // ---- Verify-response tests ----
 
 describe("verifyResponse", () => {
-  it("rejects while uninitialised (no pinned key yet)", async () => {
+  it("rejects while uninitialised (no stored key yet)", async () => {
     const { contract, ctx } = await deployUninitialised();
     const next = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION)).context;
     const index = toSignBidirectionalEventIndex(
@@ -382,7 +380,6 @@ describe("verifyResponse", () => {
         next,
         requestId,
         respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
-        MPC_RESPONSE_KEY,
       ),
     ).rejects.toThrow(/Not initialised/);
   });
@@ -395,7 +392,6 @@ describe("verifyResponse", () => {
         ctx,
         requestId,
         respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
-        MPC_RESPONSE_KEY,
       )
     ).context;
 
@@ -403,26 +399,13 @@ describe("verifyResponse", () => {
     expect(state.signBidirectionalEventMap.isEmpty()).toBe(true);
   });
 
-  it("rejects a pk other than the pinned MPC derived key", async () => {
+  it("rejects an imposter's signature (verified against the STORED key)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     await expect(
       contract.circuits.verifyResponse(
         ctx,
         requestId,
         respond(IMPOSTER_SECRET, requestId, OUTPUT_SUCCESS),
-        IMPOSTER_PUBLIC,
-      ),
-    ).rejects.toThrow(/pk is not the MPC response key/);
-  });
-
-  it("rejects an imposter's signature presented with the pinned key", async () => {
-    const { contract, ctx, requestId } = await requestSubmitted();
-    await expect(
-      contract.circuits.verifyResponse(
-        ctx,
-        requestId,
-        respond(IMPOSTER_SECRET, requestId, OUTPUT_SUCCESS),
-        MPC_RESPONSE_KEY,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
@@ -437,7 +420,6 @@ describe("verifyResponse", () => {
         ctx,
         requestId,
         { ...response, serializedOutput: tamperedOutput },
-        MPC_RESPONSE_KEY,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
@@ -452,7 +434,6 @@ describe("verifyResponse", () => {
         ctx,
         requestId,
         respond(MPC_RESPONSE_SECRET, otherId, OUTPUT_SUCCESS),
-        MPC_RESPONSE_KEY,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
@@ -465,7 +446,6 @@ describe("verifyResponse", () => {
         ctx,
         unknownId,
         respond(MPC_RESPONSE_SECRET, unknownId, OUTPUT_SUCCESS),
-        MPC_RESPONSE_KEY,
       ),
     ).rejects.toThrow(/Request not found/);
   });
@@ -477,7 +457,6 @@ describe("verifyResponse", () => {
         ctx,
         requestId,
         respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
-        MPC_RESPONSE_KEY,
       )
     ).context;
 
@@ -486,7 +465,6 @@ describe("verifyResponse", () => {
         next,
         requestId,
         respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
-        MPC_RESPONSE_KEY,
       ),
     ).rejects.toThrow(/Request not found/);
   });

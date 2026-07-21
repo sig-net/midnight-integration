@@ -31,18 +31,20 @@ export ledger signetRequestNonce: Counter;
 
 // field 2: the MPC RESPONSE key (secp256k1) for this contract, derived
 // off-chain from the MPC root key + (THIS contract's address, the fixed
-// respond-bidirectional path "midnight response key") and pinned as a
-// persistent hash by the one-shot initialise circuit. The key depends on
-// this contract's own address, and the address is a hash over the deploy
-// (constructor arguments included), so the pin cannot be a constructor
-// seal: it is set ONCE, right after deploy, when the address (and therefore
-// the derived key) exists. Zero (the default) means "not yet initialised".
+// respond-bidirectional path "midnight response key") and stored VERBATIM
+// by the one-shot initialise circuit — the current toolchain supports curve
+// types in ledger state, so no hash-pin indirection is needed and
+// verifyResponse reads the key straight from here. The key depends on this
+// contract's own address, and the address is a hash over the deploy
+// (constructor arguments included), so it cannot be a constructor seal: it
+// is set ONCE, right after deploy, when the address (and therefore the
+// derived key) exists (the `initialised` counter below is the sentinel).
 // This is NOT the key that signs the requested transaction (that one is
 // scoped by the request's own path): it is the key the MPC signs
 // respond-bidirectional responses with. verifyResponse accepts only
 // responses ECDSA-signed by it. The central signet contract stores posts
-// unverified, so this pin is the only authentication gate.
-export ledger mpcResponseKeyHash: Bytes<32>;
+// unverified, so this key is the only authentication gate.
+export ledger mpcResponseKey: Secp256k1Point;
 
 // field 3: the central signet contract, pinned at deploy time:
 // submitSignatureRequest cross-contract-calls it to register the request
@@ -61,6 +63,10 @@ export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxPar
 // cannot be front-run (same pattern as the erc20-vault example's
 // deployer-gated initialize).
 sealed ledger deployer: Bytes<32>;
+
+// field 6: whether initialise has run (0 = no, 1 = yes) — the sentinel
+// gating the one-shot key store, same counter convention as the vault.
+export ledger initialised: Counter;
 
 // ---- Identity ----------------------------------------------------------------------
 // The deployer proves identity with a secret-key witness; only a commitment
@@ -84,23 +90,24 @@ constructor(initialDeployerCommitment: Bytes<32>, signetContract: SignetSigner) 
 }
 
 // ---- Initialise --------------------------------------------------------------------
-// Pins the MPC response key for this contract, once. Called right after
+// Stores the MPC response key for this contract, once. Called right after
 // deploy, when the contract's address exists and the key can therefore be
 // derived off-chain (the real MPC derives it from the tx SENDER + the fixed
-// per-chain path — sig-net/mpc respond_bidirectional.rs — so the pinned key
+// per-chain path — sig-net/mpc respond_bidirectional.rs — so the stored key
 // MUST be the one scoped to this contract's own address). Set-once and
-// deployer-gated: the sealed commitment prevents anyone else from pinning a
+// deployer-gated: the sealed commitment prevents anyone else from storing a
 // key of their own.
-export circuit initialise(mpcResponseKey: Secp256k1Point): [] {
+export circuit initialise(responseKey: Secp256k1Point): [] {
   assert(
-    mpcResponseKeyHash == default<Bytes<32>>,
-    "Already initialised: the MPC response key is pinned"
+    initialised == 0,
+    "Already initialised: the MPC response key is stored"
   );
   assert(
     deployerCommitment(deployerSecretKey()) == deployer,
     "Not the deployer"
   );
-  mpcResponseKeyHash = disclose(persistentHash<Secp256k1Point>(mpcResponseKey));
+  initialised.increment(1);
+  mpcResponseKey = disclose(responseKey);
 }
 
 // ---- Submit ------------------------------------------------------------------------
@@ -186,31 +193,25 @@ export circuit submitSignatureRequest(
 
 // ---- Verify response -----------------------------------------------------------------
 // Verifies the MPC's ECDSA-signed respond-bidirectional response of a pending
-// request and consumes the request. The key check + the in-circuit ECDSA
-// verification over the attestation digest of (requestId, output) are the
-// whole point: they prove the response answers THIS request and comes from
-// the pinned MPC response key. The key is a circuit argument (a
-// Secp256k1Point cannot be read back out of ledger state), hash-checked
-// against the sealed pin. Consuming the request is the observable effect
-// (and the double-verify protection). Permissionless on purpose — a valid
-// response is self-authenticating, so anyone holding it may settle.
+// request and consumes the request. The in-circuit ECDSA verification over
+// the attestation digest of (requestId, output) is the whole point: it
+// proves the response answers THIS request and comes from the stored MPC
+// response key, read straight from the ledger (no key argument, nothing to
+// re-supply). Consuming the request is the observable effect (and the
+// double-verify protection). Permissionless on purpose — a valid response
+// is self-authenticating, so anyone holding it may settle.
 export circuit verifyResponse(
   requestId: RequestId,
-  respondBidirectionalEvent: RespondBidirectionalEvent,
-  mpcResponseKey: Secp256k1Point
+  respondBidirectionalEvent: RespondBidirectionalEvent
 ): [] {
   // requestId keys the ledger operations, so it is public; the response is
   // only verified, never written.
   const disclosedRequestId = disclose(requestId);
 
-  // -- key: the pin must exist and the supplied key must match it --
+  // -- key: initialise must have stored it --
   assert(
-    mpcResponseKeyHash != default<Bytes<32>>,
-    "Not initialised: no MPC response key pinned"
-  );
-  assert(
-    persistentHash<Secp256k1Point>(mpcResponseKey) == mpcResponseKeyHash,
-    "Unauthorized: pk is not the MPC response key"
+    initialised != 0,
+    "Not initialised: no MPC response key stored"
   );
 
   // -- signature: the MPC signed THIS request and THIS output --

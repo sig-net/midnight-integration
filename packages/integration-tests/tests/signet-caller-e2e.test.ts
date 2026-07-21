@@ -106,48 +106,49 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
   let signatureRequestId: RequestIdHex;
 
   it(
-    "initialise [signet-caller contract method call]: pin the MPC response key for this contract",
+    "initialise [signet-caller contract method call]: store the MPC response key for this contract",
     async () => {
       // The response key is derived from the CALLER's own address (setup step
       // ensureMpcResponseKey, after the deploy), so it cannot be a
-      // constructor argument: the contract pins its hash via the one-shot
-      // initialise circuit instead. Idempotent across reruns: an existing
-      // pin is checked against MPC_RESPONSE_KEY and the call is skipped.
+      // constructor argument: the contract stores it verbatim via the
+      // one-shot initialise circuit instead, and verifyResponse reads it
+      // straight from the ledger. Idempotent across reruns: an existing
+      // stored key is checked against MPC_RESPONSE_KEY and the call skipped.
       const context = await session.callerContext();
       const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
-      const expectedHash = signetCircuits.signetKeyHash(mpcResponseKey);
 
-      const readPin = async (): Promise<Uint8Array> => {
+      const readKeyState = async () => {
         const state = await context.providers.publicDataProvider.queryContractState(context.contractAddress);
         if (!state) {
           throw new Error(`no contract state found at ${context.contractAddress}`);
         }
-        return callerContractLedger(state.data).mpcResponseKeyHash;
+        const decoded = callerContractLedger(state.data);
+        return { initialised: decoded.initialised, storedKey: decoded.mpcResponseKey };
       };
 
-      const pin = await readPin();
-      if (pin.some((byte) => byte !== 0)) {
-        expect(pin, "the existing pin must match the derived MPC_RESPONSE_KEY").toEqual(expectedHash);
-        logSkip("initialise", "the MPC response key is already pinned (rerun against a kept caller)");
+      const before = await readKeyState();
+      if (before.initialised !== 0n) {
+        expect(before.storedKey, "the stored key must match the derived MPC_RESPONSE_KEY").toEqual(mpcResponseKey);
+        logSkip("initialise", "the MPC response key is already stored (rerun against a kept caller)");
         return;
       }
 
       await context.caller.callTx.initialise(mpcResponseKey);
 
-      // State indexing lags finalization: poll briefly for the pin.
+      // State indexing lags finalization: poll briefly for the store.
       const deadline = Date.now() + MINUTE;
-      let current = await readPin();
-      while (current.every((byte) => byte === 0) && Date.now() < deadline) {
+      let current = await readKeyState();
+      while (current.initialised === 0n && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        current = await readPin();
+        current = await readKeyState();
       }
-      expect(current, "initialise must pin signetKeyHash(MPC_RESPONSE_KEY)").toEqual(expectedHash);
+      expect(current.initialised, "initialise must flip the sentinel").toBe(1n);
+      expect(current.storedKey, "initialise must store MPC_RESPONSE_KEY verbatim").toEqual(mpcResponseKey);
 
       banner([
-        "MPC response key pinned on the caller contract:",
+        "MPC response key stored on the caller contract (read back from the ledger):",
         "",
-        `  key:  ${requireEnv("MPC_RESPONSE_KEY")}`,
-        `  hash: ${Buffer.from(expectedHash).toString("hex")}`,
+        `  key: ${requireEnv("MPC_RESPONSE_KEY")}`,
         "",
         "Derived from the MPC root key + THIS contract's address + the fixed",
         '"midnight response key" path — the sender-scoped derivation the MPC uses.',
@@ -348,21 +349,18 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
         hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
       );
-      const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
       const digest = signetCircuits.signetAttestationDigest(requestKey, serializedOutput, outputLen);
       const signature = signAttestationDigest(digest, responseSecretKey);
 
-      await context.caller.callTx.verifyResponse(
-        requestKey,
-        {
-          serializedOutput,
-          outputLen,
-          r: bigintToBytes32(signature.r),
-          s: bigintToBytes32(signature.s),
-          recoveryId: BigInt(signature.recoveryId),
-        },
-        mpcResponseKey,
-      );
+      // No key argument: verifyResponse reads the stored MPC response key
+      // straight from the ledger (the initialise leg put it there).
+      await context.caller.callTx.verifyResponse(requestKey, {
+        serializedOutput,
+        outputLen,
+        r: bigintToBytes32(signature.r),
+        s: bigintToBytes32(signature.s),
+        recoveryId: BigInt(signature.recoveryId),
+      });
 
       // The consumption is the observable effect: present before (checked
       // above), absent after — and removal only happens if every in-circuit
