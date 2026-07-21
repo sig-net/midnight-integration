@@ -5,7 +5,7 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 It does this by exposing the MPC's [sign bidirectional flow](https://docs.sig.network/architecture/sign-bidirectional) to contracts on Midnight.
 
 The **Sign Bidirectional Flow** comprises of 5 steps:
-1. Client calls a contract on Midnight which requests a signature for a transaction destined for a foreign chain
+1. Client calls a contract on Midnight which requests a signature for a transaction destined for a foreign chain # FIXME: describe that the signature is for the path derived key.
 2. Sig Network MPC honours the request, generating the transaction signature and posting it back to Midnight
 3. Client extracts the signature, using it to submit the signed transaction to the foreign chain
 4. Sig Network MPC observes the foreign transaction and posts the output of the execution (signed) back to Midnight
