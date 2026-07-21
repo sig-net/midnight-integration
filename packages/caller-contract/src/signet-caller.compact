@@ -31,10 +31,8 @@ export ledger signetRequestNonce: Counter;
 
 // field 2: the MPC RESPONSE key (secp256k1) for this contract, derived
 // off-chain from the MPC root key + (THIS contract's address, the fixed
-// respond-bidirectional path "midnight response key") and stored VERBATIM
-// by the one-shot initialise circuit — the current toolchain supports curve
-// types in ledger state, so no hash-pin indirection is needed and
-// verifyResponse reads the key straight from here. The key depends on this
+// respond-bidirectional path "midnight response key") and stored in
+// by the one-shot initialise circuitThe key depends on this
 // contract's own address, and the address is a hash over the deploy
 // (constructor arguments included), so it cannot be a constructor seal: it
 // is set ONCE, right after deploy, when the address (and therefore the
