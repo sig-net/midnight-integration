@@ -15,6 +15,8 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
+  MPCDestination,
+  MPCSignatureAlgorithm,
   SignetRequestResolver,
   TxParamType,
   asciiPadded,
@@ -22,9 +24,9 @@ import {
   numericAbiWordValue,
   requestIdHex,
   requestIdType,
-  signBidirectionalRequestDescriptor,
+  signBidirectionalEventDescriptor,
   type SignBidirectionalNotification,
-  type SignBidirectionalRequest,
+  type SignBidirectionalEvent,
   type SignetPublicStateSource,
 } from "../src/index.ts";
 
@@ -36,15 +38,21 @@ const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
-const REQUEST_DESCRIPTOR = signBidirectionalRequestDescriptor(2, 0, 0);
+const REQUEST_DESCRIPTOR = signBidirectionalEventDescriptor(2, 0, 0, 34, 34);
 
 const CALLER_ADDRESS = "caller-vault-address";
 const REQUEST_ID = bytes(32, 0x2f);
 const REQUEST_ID_HEX = requestIdHex(REQUEST_ID);
 const NON_MEMBER_ID_HEX = requestIdHex(bytes(32, 0x30));
 
-const REQUEST: SignBidirectionalRequest = {
+const REQUEST: SignBidirectionalEvent = {
+  sender: { bytes: new Uint8Array(32) },
   requestNonce: 0n,
+  keyVersion: 1n,
+  path: new Uint8Array(32),
+  algo: MPCSignatureAlgorithm.ecdsa,
+  dest: MPCDestination.unused,
+  params: new Uint8Array(64),
   txParamType: TxParamType.evmType2,
   txParams: {
     to: bytes(20, 0xaa),
@@ -66,13 +74,9 @@ const REQUEST: SignBidirectionalRequest = {
     },
   },
   caip2Id: asciiPadded("eip155:11155111", 32),
-  keyVersion: 1n,
-  path: new Uint8Array(256),
-  algo: asciiPadded("ecdsa", 32),
-  dest: asciiPadded("ethereum", 32),
-  params: new Uint8Array(64),
-  outputDeserializationSchema: new Uint8Array(128),
-  respondSerializationSchema: new Uint8Array(128),
+  // Schema fixtures end in a non-zero byte (the exact-length convention).
+  outputDeserializationSchema: bytes(34, 0x07),
+  respondSerializationSchema: bytes(34, 0x08),
 };
 
 /** Caller state: request index (field 0) holding REQUEST, nonce (field 1). */
@@ -110,7 +114,6 @@ const notificationFor = (
 ): SignBidirectionalNotification => ({
   version: 1,
   callerAddress: CALLER_ADDRESS,
-  requestId: REQUEST_ID_HEX,
   requestsIndexField: 0,
   ...overrides,
 });
@@ -120,7 +123,7 @@ describe("SignetRequestResolver", () => {
     const resolver = new SignetRequestResolver({
       source: stubSource({ [CALLER_ADDRESS]: callerState() }),
     });
-    const resolved = await resolver.resolve(notificationFor());
+    const resolved = await resolver.resolve(REQUEST_ID_HEX, notificationFor());
     expect(resolved).toEqual({
       callerAddress: CALLER_ADDRESS,
       requestId: REQUEST_ID_HEX,
@@ -133,13 +136,15 @@ describe("SignetRequestResolver", () => {
       source: stubSource({ [CALLER_ADDRESS]: callerState() }),
     });
     await expect(
-      resolver.resolve(notificationFor({ requestId: NON_MEMBER_ID_HEX })),
+      resolver.resolve(NON_MEMBER_ID_HEX, notificationFor()),
     ).resolves.toBeUndefined();
   });
 
   it("drops a notification whose callerAddress holds no contract state", async () => {
     const resolver = new SignetRequestResolver({ source: stubSource({}) });
-    await expect(resolver.resolve(notificationFor())).resolves.toBeUndefined();
+    await expect(
+      resolver.resolve(REQUEST_ID_HEX, notificationFor()),
+    ).resolves.toBeUndefined();
   });
 
   it("drops a notification pointing at the wrong requestsIndexField", async () => {
@@ -148,7 +153,7 @@ describe("SignetRequestResolver", () => {
     });
     // Field 1 is the nonce cell, not the request index.
     await expect(
-      resolver.resolve(notificationFor({ requestsIndexField: 1 })),
+      resolver.resolve(REQUEST_ID_HEX, notificationFor({ requestsIndexField: 1 })),
     ).resolves.toBeUndefined();
   });
 
@@ -159,14 +164,16 @@ describe("SignetRequestResolver", () => {
       }),
     } as unknown as SignetPublicStateSource;
     const resolver = new SignetRequestResolver({ source });
-    await expect(resolver.resolve(notificationFor())).resolves.toBeUndefined();
+    await expect(
+      resolver.resolve(REQUEST_ID_HEX, notificationFor()),
+    ).resolves.toBeUndefined();
   });
 
   it("caches a resolved request — re-resolving queries state once", async () => {
     const source = stubSource({ [CALLER_ADDRESS]: callerState() });
     const resolver = new SignetRequestResolver({ source });
-    const first = await resolver.resolve(notificationFor());
-    const second = await resolver.resolve(notificationFor());
+    const first = await resolver.resolve(REQUEST_ID_HEX, notificationFor());
+    const second = await resolver.resolve(REQUEST_ID_HEX, notificationFor());
     expect(second).toEqual(first);
     expect(source.queryContractState).toHaveBeenCalledTimes(1);
   });
@@ -176,9 +183,9 @@ describe("SignetRequestResolver", () => {
     const table: Record<string, StateValueType> = {};
     const source = stubSource(table);
     const resolver = new SignetRequestResolver({ source });
-    expect(await resolver.resolve(notificationFor())).toBeUndefined();
+    expect(await resolver.resolve(REQUEST_ID_HEX, notificationFor())).toBeUndefined();
     table[CALLER_ADDRESS] = callerState();
-    expect(await resolver.resolve(notificationFor())).toEqual({
+    expect(await resolver.resolve(REQUEST_ID_HEX, notificationFor())).toEqual({
       callerAddress: CALLER_ADDRESS,
       requestId: REQUEST_ID_HEX,
       request: REQUEST,

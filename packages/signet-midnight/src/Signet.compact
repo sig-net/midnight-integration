@@ -1,162 +1,245 @@
-// ============================================================================
-// Signet — shared Compact library for sig-net (signet) MPC signature
-// requests and responses on Midnight.
-// ============================================================================
-// A signet compliant contract records "please sign this EVM transaction" requests
-// in its public ledger and registers a notification in the CENTRAL signet
-// contract's notification registry. The sig-net MPC network polls that one
-// registry: each notification names the requesting contract and the ledger
-// field position of its request index, so the MPC reads the authenticated
-// request from there, re-assembles and signs the EVM transaction with the
-// caller's derived key, and posts its responses back to the central signet
-// contract — first the signature (the client broadcasts the signed
-// transaction), then, after watching the remote execution, the Schnorr-signed
-// respond-bidirectional attestation of its result. Clients poll the central
-// contract's response indexes by request id. Requests and both response kinds
-// are counterparts and are defined side by side here; the pure circuits that
-// operate on them follow below.
+// =======================================================================================================
+// Sig Network (Signet) shared Compact library enabling contracts on the Midnight blockchain to leverage
+// the Signet Distributed MPC network to execute arbitrary transactions on foreign blockchains.
+// =======================================================================================================
 //
-// Naming follows the MPC's canonical vocabulary (sig-net/mpc
-// chain-signatures/primitives): the SignBidirectionalRequest record mirrors
-// the MPC's canonical bidirectional request primitive (with the EVM
-// transaction decomposed — the Canton-adapter precedent); the
-// SignatureResponse record mirrors Signature { big_r, s, recovery_id }; the
-// execution attestation mirrors the MPC's respond-bidirectional
-// serialized_output.
+//  Terms:
+//    - client contract(s): contracts on the Midnight blockchain that integrate with the Signet Distributed MPC
+//                       to execute arbitrary transactions on foreign blockchains.
+//    - Signet singleton: a single contract on the Midnight blockchain holding the Signet registry for transaction
+//                        signature requests and responses, as well as the signed output of transactions executed
+//                        on foreign blockchains.
+//
+//  Usage:
+//   // Import this module at the start of a contract (resolved through node_modules via COMPACT_PATH):
+//   import "@sig-net/midnight/src/Signet";
+//
+//  Key types at a Glance:
+//  - SignBidirectionalEvent: Structured request for a signature on a transaction. Generically configured by client
+//                            contracts based on the type of transaction for which a signature is requested
+//                            (EVM Type 2, Solana etc.).
+//  - RequestId: 32 byte chain agnostic nominal id, calculated as hash of SignBidirectionalEvent (see calculateRequestId).
+//  - SignBidirectionalEventMap: Named mapping of RequestId to SignBidirectionalEvent. Declared by client contracts
+//                               in their ledger. Client contract tells MPC field location of this map when making a cross
+//                               contract call, via SignetSigner, to the Signet singleton. The MPC looks here to find
+//                               SignBidirectionalEvents.
+//  - SignetSigner: Contract interface used by client contract to make cross contract calls to
+//                  Signet singleton to notify the MPC of a SignBidirectionalEvent.
+//  - SignBidirectionalEventNotification: Notification delivered by client contracts via cross contract call to Signet singleton
+//                                        (via SignetSigner interface) to notify the MPC of a SignBidirectionalEvent.
+//  - SignatureRespondedEvent: Counterpart to SignBidirectionalEvent containing MPC generated signature requested by a SignBidirectionalEvent.
+//                             Posted by MPC back to Signet singleton for clients to extract to build a signed transaction.
+//  - RespondBidirectionalEvent: Structure containing the output of a transaction executed on a foreign blockchain,
+//                               ECDSA-signed over the request id and output (see signetAttestationDigest) by the
+//                               MPC's RESPONSE key for the requesting contract: the key derived from the client
+//                               contract's address + the fixed path "midnight response key" (not the root key,
+//                               and not the request-signing key). Posted by MPC back to Signet singleton for
+//                               clients to extract, verify (see verifyRespondBidirectionalEvent) and deliver back
+//                               to the client contract.
+//
+// These key types are best understood within the sign bidirectional flow that they enable:
+// 1. Client contract stores a SignBidirectionalEvent in a SignBidirectionalEventMap its own ledger
+//    (against the calculated RequestId) and requests a signature from the MPC by registering a
+//    SignBidirectionalEventNotification in the Signet singleton contract's registry
+//    (via cross contract call against the SignetSigner interface).
+// 2. MPC polls the Signet singleton contract's registry for the SignBidirectionalEventNotification,
+//    using it to read the SignBidirectionalEvent signature request from the client's ledger. It generates the
+//    signature and and posts a SignatureRespondedEvent (the requested signature) to the Signet singleton contract.
+// 3. Client polls the Signet singleton contract SignatureRespondedEventMap for the signature by RequestId,
+//    verifies the posted SignatureRespondedEvent and broadcasts txn to destination chain.
+// 4. MPC observes txn execution on destination chain, posts a RespondBidirectionalEvent
+//    attestation to the central Signet contract; the client polls it by RequestId.
 //
 // Read more:
-//   - sig-net docs (chain signatures, key derivation): https://docs.sig.network/
-//   - canonical request shape this mirrors: sig-net/mpc
-//     chain-signatures/primitives/src/bidirectional.rs
+//   - For full integration examples (such as an ERC20 cross chain vault example) see
+//     the Midnight Examples repository at: https://github.com/sig-net/midnight-examples.
+//   - Signet docs (chain signatures, key derivation): https://docs.sig.network
 //   - Compact language reference (modules, types):
 //     https://docs.midnight.network/compact/reference/compact-reference
-//
-// Import from a contract (resolved through node_modules via COMPACT_PATH —
-// see the consuming package's compile script):
-//   import "@sig-net/midnight/src/Signet";
 
 module Signet {
   import CompactStandardLibrary;
 
-  // ---- Identifiers ---------------------------------------------------------
+  // ---- SignBidirectionalEvent ------------------------------------------------------------------------
 
-  // Nominal id of a signet request. Deliberately CHAIN-AGNOSTIC: downstream
-  // consumers (the signet contract, response pollers, the MPC)
-  // treat it as an opaque 32-byte key, whatever kind of request it identifies.
-  // Each request kind mints ids via its own domain-separated hash circuit
-  // (see calculateRequestId). `new type` makes it NOT interchangeable
-  // with any other Bytes<32> — cast explicitly: `someHash as RequestId`.
-  export new type RequestId = Bytes<32>;
+  // Structured request for a signature on a transaction. Generically configured by client contracts
+  // based on the type of transaction for which a signature is requested (EVM Type 2, Solana etc.).
+  export struct SignBidirectionalEvent<TxParams, #LenOutputDeserialization, #LenRespondSerialization> {
+    // Address of the client contract that stores and notifies of this SignBidirectionalEvent.
+    // Set with kernel.self().
+    sender: ContractAddress;
 
-  // ---- The canonical request/response pair ----------------------------------
-  // 1. Client contract stores a SignBidirectionalRequest in its own ledger and registers a
-  //    SignBidirectionalNotification in the central signet contract's registry, requesting a
-  //    signature from the MPC
-  // 2. MPC polls the registry, reads the request from the client's ledger, and posts a
-  //    SignatureResponse (the requested signature) to the central signet contract
-  // 3. Client polls the signature response log by request id, verifies the posted
-  //    SignatureResponse, broadcasts txn to destination chain
-  // 4. MPC observes txn execution on destination chain, posts a RespondBidirectional
-  //    attestation to the central signet contract; the client polls it by request id
+    // Optional nonce field settable by client contracts to ensure SignBidirectionalEvent uniqueness if desired.
+    requestNonce: Uint<64>;
 
-  // TxParamType indiciates which transaction-param decomposition a request
+    // MPC Key Derivation Parameters.
+    // Every key the MPC signs with is scoped by the requesting contract:
+    //   derivedSigningKey = f(mpcRootKey[keyVersion], sender, path)
+    // The path is 32 opaque bytes of the client contract's choosing (e.g a fixed literal
+    // for a contract-owned account or a hash of a caller's secret for per-user
+    // accounts): no format is enforced. The sender is always part of the
+    // derivation, so no contract can reach another contract's derived keys.
+    keyVersion: Uint<8>;      // MPC root-key version to derive from. Set to 1.
+    path: Bytes<32>;          // Key derivation path: 32 opaque bytes, client contract's choice.
+
+    // MPC Parameters.
+    algo: MPCSignatureAlgorithm;  // Signature algorithm scheme, e.g. ecdsa
+    dest: MPCDestination;         // Destination field reserved for future use. Set to unused.
+    params: Bytes<64>;            // Extra MPC parameters reserved for future use. Leave blank.
+
+    // Specific destination chain Transaction parameters.
+    txParamType: TxParamType; // Off-chain tag indicating what type txParams is set to.
+    txParams: TxParams; // The generic transaction-param payload
+    caip2Id: Bytes<32>;       // Target chain in CAIP-2 form, e.g. "eip155:11155111"
+                              // (https://chainagnostic.org/CAIPs/caip-2)
+
+    // Serialisation Schemas.
+    // outputDeserializationSchema tells the MPC how to deserialise the destination chain's
+    // execution output (destination chain -> MPC). respondSerializationSchema tells the MPC
+    // how to serialise that output into the RespondBidirectionalEvent it posts back
+    // (MPC -> Midnight). Both are ABI-style JSON schema strings, sized per client contract.
+    outputDeserializationSchema: Bytes<LenOutputDeserialization>;
+    respondSerializationSchema: Bytes<LenRespondSerialization>;
+  }
+
+  // MPCSignatureAlgorithm indicates which signature algorithm
+  // will be used by the MPC to generate requested signature.
+  export enum MPCSignatureAlgorithm {
+    ecdsa, // ECDSA signature algorithm
+    reserved, // Reserved for future use. Exists to keep enum >= 2 (proof server bug).
+  }
+
+  // MPCDestination used to specify destination field for SignBidirectionalEvent.
+  // Currently unused.
+  export enum MPCDestination {
+    unused,
+    reserved, // Reserved for future use. Exists to keep enum >= 2 (proof server bug).
+  }
+
+  // TxParamType indicates which transaction-param decomposition a request
   // contains so an off-chain consumer (e.g. the MPC) knows how to re-assemble it.
-  // In-circuit this is redundant as the type is fixed at compile time (i.e. monomorphized).
   export enum TxParamType {
     evmType2, // EVMType2TxParams: an EIP-1559 EVM transaction (envelope + calldata)
-    reserved, // never used — exists only to keep the enum at >= 2 variants. A
-              // 1-variant enum compiles to a zero-byte value the proof server's
-              // field-repr parser reads as ZERO field elements while the compiler
-              // allocates ONE, so persistentHash over any struct containing it
-              // (i.e. every request id) fails to prove.
+    reserved, // Reserved for future use. Exists to keep enum >= 2 (proof server bug).
   }
 
-  // SignBidirectionalRequest is the record a Client contract stores to request
-  // a signature from the MPC (and hashes into its RequestId).
-  export struct SignBidirectionalRequest<TxParams> {
-    requestNonce: Uint<64>;   // contract-local nonce at creation time
+  // Construction helper for the canonical Signet SignBidirectionalEvent
+  export pure circuit constructSignBidirectionalEvent<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
+    sender: ContractAddress,
+    requestNonce: Uint<64>,
+    keyVersion: Uint<8>,
+    path: Bytes<32>,
+    algo: MPCSignatureAlgorithm,
+    dest: MPCDestination,
+    params: Bytes<64>,
+    txParamType: TxParamType,
+    txParams: TxParams,
+    caip2Id: Bytes<32>,
+    outputDeserializationSchema: Bytes<LenOutputDeserialization>,
+    respondSerializationSchema: Bytes<LenRespondSerialization>,
+  ): SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization> {
+    // validate supported values
+    assert(keyVersion >= 1, "keyVersion must be >= 1");
 
-    txParamType: TxParamType; // which decomposition txParams is (off-chain decode tag)
-    txParams: TxParams;       // the generic transaction-param payload
-
-    // TODO: confirm sufficient size for CAIP-2 standard.
-    caip2Id: Bytes<32>;        // target chain in CAIP-2 form, e.g. "eip155:11155111"
-                               // (https://chainagnostic.org/CAIPs/caip-2)
-    // TODO: can be much smaller                           
-    keyVersion: Uint<32>;      // MPC root-key version to derive from (>= 1;
-                               // version 0 is the unsupported legacy format)
-    // TODO: consider possible optimisation. keep unchanged for now.                           
-    path: Bytes<256>;          // key-derivation path; by signet-Midnight
-                               // convention the canonical lowercase hex of the
-                               // caller's identity commitment, zero-padded
-                               // (enforced by assertPathCommitment)
-    
-    // TODO: Possibly ENUMs, these fields are not used so we could make them small now.
-    algo: Bytes<32>;           // signature scheme, e.g. "ecdsa"
-    dest: Bytes<32>;           // response destination, e.g. "ethereum"
-    params: Bytes<64>;         // scheme-specific extras (opaque to contracts)
-    
-    // Look at most popular defi contracts for schematisation of schema types
-    // TODO: dynamically size these 2 schemas to reduce proving type
-    outputDeserializationSchema: Bytes<128>; // MPC output_deserialization_schema
-                                             // (destination chain -> MPC)
-    respondSerializationSchema: Bytes<128>;  // MPC respond_serialization_schema
-                                             // (MPC -> source chain)
-  }
-
-  // External contract surface of the central signet contract: a client cross-
-  // contract-calls notifyBidirectionalSignatureRequest to register the request
-  // in the central notification registry, which the MPC polls.
-  export contract SignetNotifier {
-    circuit notifyBidirectionalSignatureRequest(
-      requestId: RequestId,
-      notification: SignBidirectionalNotification
-    ): [];
-  }
-
-  // SignBidirectionalNotification is the record a client registers in the
-  // central signet contract's notification registry to tell the MPC a
-  // SignBidirectionalRequest was stored in the client's own ledger — and WHERE
-  // to read the authenticated copy. Attribution comes from whose authenticated
-  // state the MPC reads, never from a field here.
-  export struct SignBidirectionalNotification {
-      version: Uint<8>;   // payload layout tag; 1 = the V1 layout below
-      payload: Bytes<65>; // V1: callerAddress (32) ++ requestId (32) ++ requestsIndexField (1)
-  }
-
-  // Build the V1 notification: manually pack the caller's raw address bytes,
-  // the raw request id, and the request-index ledger-field position into the
-  // 65-byte payload (exact, byte-concatenated, no padding) and tag
-  // version = 1. Client contracts call this instead of hand-constructing the
-  // envelope; off-chain readers decode by the same fixed offsets.
-  export pure circuit constructSignBidirectionalNotificationV1(
-    callerAddress: ContractAddress,
-    requestId: Bytes<32>,
-    requestsIndexField: Uint<8>
-  ): SignBidirectionalNotification {
-    return SignBidirectionalNotification {
-      version: 1,
-      payload: Bytes[...callerAddress.bytes, ...requestId, requestsIndexField]
+    // construct and return request
+    return SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization> {
+      sender,
+      requestNonce,
+      keyVersion,
+      path,
+      algo,
+      dest,
+      params,
+      txParamType,
+      txParams,
+      caip2Id,
+      outputDeserializationSchema,
+      respondSerializationSchema,
     };
   }
 
-  // The counterpart to SignBidirectionalRequest: the record the MPC posts to
-  // the central signet contract's response log after it observes the request
-  // (mirrors the MPC's canonical Signature { big_r, s, recovery_id }).
-  // Contains the MPC's secp256k1 signature over the requested transaction.
-  // The requesting client uses this to rebuild a signed transaction and broadcast.
-  export struct SignatureResponse {
+  // ---- SignBidirectionalEvent RequestId --------------------------------------------------------------
+
+  // 32 byte chain agnostic nominal id, calculated as persistent hash of SignBidirectionalEvent
+  // (see calculateRequestId).
+  export new type RequestId = Bytes<32>;
+
+  // RequestId calculation helper: the persistent hash of the full event record, so the id
+  // commits to every field, including the sender address (which scopes ids per contract).
+  // There is deliberately no extra domain-separation tag. Off-chain consumers (the MPC,
+  // clients) must compute this exact hash to locate and authenticate requests.
+  export pure circuit calculateRequestId<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
+    request: SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>
+  ): RequestId {
+    return persistentHash<SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>>(request) as RequestId;
+  }
+
+  // ---- Client Contract: SignBidirectionalEvent Map ---------------------------------------------------
+
+  // Named mapping of RequestId to SignBidirectionalEvent. Declared by client contracts
+  // in their ledger. Client contract tells MPC field location of this map when making a cross
+  // contract call, via SignetSigner, to the Signet singleton. The MPC looks here to find
+  // SignBidirectionalEvents.
+  export new type SignBidirectionalEventMap<TxParams, #LenOutputDeserialization, #LenRespondSerialization> = Map<RequestId, SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>>;
+
+  // ---- Cross Contract SignBidirectionalEventNotification ---------------------------------------------
+
+  // Contract interface used by client contract to make cross contract calls to
+  // Signet singleton to notify the MPC of a SignBidirectionalEvent.
+  export contract SignetSigner {
+    // Called by client contracts to notify the MPC of a SignBidirectionalEvent.
+    circuit signBidirectionalEvent(
+      // Canonical id of the SignBidirectionalEvent (calculate with calculateRequestId).
+      requestId: RequestId,
+      // Versioned notification of the SignBidirectionalEvent
+      // (construct with constructSignBidirectionalEventNotificationV1).
+      notification: SignBidirectionalEventNotification
+    ): SignetMapKey;
+  }
+
+  // Notification delivered by client contracts via cross contract call to Signet singleton
+  // (via SignetSigner interface) to notify the MPC of a SignBidirectionalEvent.
+  export struct SignBidirectionalEventNotification {
+      version: Uint<8>;   // payload layout tag; 1 = the V1 layout:
+                          // callerAddress (32) ++ requestsIndexField (1) ++ zero padding (95)
+      payload: Bytes<128>;
+  }
+
+  // Construction helper for the V1 SignBidirectionalEventNotification
+  export pure circuit constructSignBidirectionalEventNotificationV1(
+    // Address of the client contract that stores and notifies of this SignBidirectionalEvent.
+    // Set with kernel.self(). MUST match sender in associated SignBidirectionalEvent.
+    callerAddress: ContractAddress,
+    requestsIndexField: Uint<8>
+  ): SignBidirectionalEventNotification {
+    return SignBidirectionalEventNotification {
+      version: 1,
+      // 128 = 32 + 1 + 95
+      payload: Bytes[...callerAddress.bytes, requestsIndexField, ...default<Bytes<95>>]
+    };
+  }
+
+  // Counterpart to SignBidirectionalEvent containing MPC generated signature requested by a SignBidirectionalEvent.
+  // Posted by MPC back to Signet singleton for clients to extract to build a signed transaction.
+  export struct SignatureRespondedEvent {
     bigRx: Bytes<32>;    // signature R.x
     bigRy: Bytes<32>;    // signature R.y
     s: Bytes<32>;        // signature s
     recoveryId: Uint<8>; // parity of R.y for public-key recovery
   }
 
-  // The counterpart to SignatureResponse, posted by the MPC after
-  // it observes execution of the signed transaction on the destination chain.
-  // This response contains execution output and an attestation as to its authenticity.
-  // TODO: currently contains a Schnorr attestation --> migrate to ECDSA.
-  export struct RespondBidirectional {
+  // Structure containing the output of a transaction executed on a foreign blockchain,
+  // ECDSA-signed (secp256k1) over the attestation digest of the request id and output
+  // (see signetAttestationDigest) by the MPC's RESPONSE key for the requesting contract:
+  //   mpcResponseKey = f(mpcRootKey[keyVersion], sender, "midnight response key")
+  // i.e. the same derivation as request-signing keys but with the FIXED
+  // respond-bidirectional path, so it is per-client-contract yet independent of any
+  // request's own path (mirrors the MPC's per-chain "<chain> response key" convention).
+  // Posted by MPC back to Signet singleton for clients to extract, verify and deliver
+  // back to the client contract. The singleton stores posts UNVERIFIED: client contracts
+  // must verify the signature themselves against their MPC response key, via
+  // verifyRespondBidirectionalEvent (see verifyResponse in the caller-contract example).
+  export struct RespondBidirectionalEvent {
     // ABI-encoded return data of the remote call (canonical
     // serialized_output), zero-padded. First 32-byte word == 1 signals
     // success; a 0xdeadbeef prefix is the MPC's error sentinel for a
@@ -166,17 +249,77 @@ module Signet {
     // Meaningful byte count of serializedOutput.
     outputLen: Uint<8>;
 
-    // The MPC attestation key (Jubjub). Hash-checked against the signet
-    // contract's sealed mpcPubKeyHash at post time, and again by requester
-    // contracts at claim time.
-    pk: JubjubPoint;
+    // ECDSA signature scalars as LITTLE-ENDIAN 32-byte values (the byte order the
+    // `Secp256k1Scalar as Bytes<32>` cast produces). Stored as bytes because
+    // Secp256k1Scalar values cannot live in ledger state (compiler limitation).
+    // r is the MPC signature's big_r.x reduced mod the curve order.
+    r: Bytes<32>;
+    s: Bytes<32>;
 
-    // Schnorr nonce commitment R.
-    announcement: JubjubPoint;
-
-    // Schnorr response scalar s.
-    response: Field;
+    // Recovery id (parity of R.y), for off-chain public key recovery only.
+    // Unused in-circuit: verification takes the public key as an explicit input.
+    recoveryId: Uint<8>;
   }
+
+  // SignetMapKey used to locate SignBidirectionalEventNotifications, SignatureRespondedEvent and
+  // RespondBidirectionalEvents in Signet singleton contract storage.
+  export struct SignetMapKey {
+    count: Uint<64>;
+    requestId: RequestId;
+  };
+
+  // The 32-byte digest the MPC ECDSA-signs to attest a remote execution:
+  // the persistent hash of the request id together with hash(serializedOutput, outputLen).
+  // The inner hash binds the output together with its length so neither can be swapped
+  // under a reused signature. secp256k1EcdsaVerify interprets the digest as a BIG-ENDIAN
+  // integer reduced mod the curve order (RFC 6979 convention). ONE implementation for
+  // everyone: client contracts verify against it in-circuit, and off-chain signers (the
+  // MPC, tests) call the compiled copy via circuits.compact, never a TS re-implementation.
+  export pure circuit signetAttestationDigest(
+    requestId: RequestId,
+    serializedOutput: Bytes<128>,
+    outputLen: Uint<8>
+  ): Bytes<32> {
+    const outHash = persistentHash<Vector<2, Bytes<32>>>([
+      persistentHash<Bytes<128>>(serializedOutput),
+      outputLen as Field as Bytes<32>
+    ]);
+    return persistentHash<Vector<2, Bytes<32>>>([requestId as Bytes<32>, outHash]);
+  }
+
+  // Verify a RespondBidirectionalEvent against a secp256k1 public key: the event's
+  // ECDSA signature must sign the attestation digest of (requestId, output). This is
+  // the check client contracts run before accepting a response (the Signet singleton
+  // stores posts unverified); pass the contract's MPC RESPONSE key (derived off-chain
+  // from the contract's address + the fixed path "midnight response key", typically
+  // hash-pinned in the contract's ledger at deploy time).
+  export pure circuit verifyRespondBidirectionalEvent(
+    requestId: RequestId,
+    respondBidirectionalEvent: RespondBidirectionalEvent,
+    mpcResponseKey: Secp256k1Point
+  ): Boolean {
+    return secp256k1EcdsaVerify(
+      signetAttestationDigest(
+        requestId,
+        respondBidirectionalEvent.serializedOutput,
+        respondBidirectionalEvent.outputLen
+      ),
+      Secp256k1EcdsaSignature {
+        r: respondBidirectionalEvent.r as Secp256k1Scalar,
+        s: respondBidirectionalEvent.s as Secp256k1Scalar,
+      },
+      mpcResponseKey
+    );
+  }
+
+  // Hash a secp256k1 public key exactly as client contracts pin it at deploy time
+  // (sealed `persistentHash<Secp256k1Point>`), so off-chain code can recompute the
+  // pin without re-deploying.
+  export pure circuit signetKeyHash(pk: Secp256k1Point): Bytes<32> {
+    return persistentHash<Secp256k1Point>(pk);
+  }
+
+  // ---- EVM Type2 Transaction Parameters ---------------------------------------------------
 
   // The EVM transaction to be signed, decomposed into typed fields
   // (EIP-1559 / type-2: https://eips.ethereum.org/EIPS/eip-1559).
@@ -220,286 +363,5 @@ module Signet {
     selector: Bytes<4>;  // the literal first 4 calldata bytes (big-endian, as broadcast)
     noWords: Uint<16>;   // No. of used words in the words list
     words: Vector<maxWords, Bytes<32>>;
-  }
-
-  // The field value to embed in a calldata word for an EVM address: the
-  // BIG-ENDIAN numeric reading of its 20 display-order bytes. Embedding the
-  // address directly (`addr as Field`) would be wrong: that cast is
-  // little-endian, so the MPC's LE-decode -> BE-encode step would emit the
-  // address byte-reversed in the calldata. Usage: a calldata word
-  // `evmAddressAbiValue(addr) as Bytes<32>`.
-  // (Uint amounts need no helper: `amount as Field` already embeds the
-  // correct numeric value.)
-  export pure circuit evmAddressAbiValue(addr: Bytes<20>): Field {
-    const a0  = slice<1>(addr, 0) as Field;
-    const a1  = a0  * 256 + (slice<1>(addr, 1)  as Field);
-    const a2  = a1  * 256 + (slice<1>(addr, 2)  as Field);
-    const a3  = a2  * 256 + (slice<1>(addr, 3)  as Field);
-    const a4  = a3  * 256 + (slice<1>(addr, 4)  as Field);
-    const a5  = a4  * 256 + (slice<1>(addr, 5)  as Field);
-    const a6  = a5  * 256 + (slice<1>(addr, 6)  as Field);
-    const a7  = a6  * 256 + (slice<1>(addr, 7)  as Field);
-    const a8  = a7  * 256 + (slice<1>(addr, 8)  as Field);
-    const a9  = a8  * 256 + (slice<1>(addr, 9)  as Field);
-    const a10 = a9  * 256 + (slice<1>(addr, 10) as Field);
-    const a11 = a10 * 256 + (slice<1>(addr, 11) as Field);
-    const a12 = a11 * 256 + (slice<1>(addr, 12) as Field);
-    const a13 = a12 * 256 + (slice<1>(addr, 13) as Field);
-    const a14 = a13 * 256 + (slice<1>(addr, 14) as Field);
-    const a15 = a14 * 256 + (slice<1>(addr, 15) as Field);
-    const a16 = a15 * 256 + (slice<1>(addr, 16) as Field);
-    const a17 = a16 * 256 + (slice<1>(addr, 17) as Field);
-    const a18 = a17 * 256 + (slice<1>(addr, 18) as Field);
-    return      a18 * 256 + (slice<1>(addr, 19) as Field);
-  }
-
-  // ---- Requester Ledger Layout -----------------------------------------------
-
-  // The on-ledger request index (instantiated at the contract's own calldata
-  // slot capacity). It may sit at ANY ledger field: each notification carries
-  // the field position holding it (the requestsIndexField byte of the V1
-  // payload), which is how the MPC finds the index to read the authenticated
-  // request back from.
-  export new type SignBidirectionalRequestIndex<TxParams> = Map<RequestId, SignBidirectionalRequest<TxParams>>;
-
-  // The contract-local request counter: a convenient source of each request's
-  // requestNonce (identical requests must hash to distinct ids). Purely
-  // contract-local; nothing off-chain reads it.
-  export new type SignetNonce = Counter;
-
-  // ---- Signet Contract Ledger Layout ------------------------------------------
-  // The CENTRAL signet contract on Midnight stores both MPC response kinds and
-  // the request notification registry.
-  // Its layout convention (find everything knowing only the contract address):
-  //   field 0: SignatureResponseCounterIndex
-  //   field 1: SignatureResponseIndex
-  //   field 2: RespondBidirectionalIndex
-  //   field 3: mpcPubKeyHash (sealed Bytes<32>)
-  //   field 4: SignBidirectionalNotificationIndex
-  //
-  // Each store gets the defense its contents allow:
-  //   - Signature responses are secp256k1 ECDSA — unverifiable in-circuit —
-  //     so their log is UNAUTHENTICATED and append-only: each post lands
-  //     under a fresh (requestId, count) key; a rogue poster can add noise
-  //     but never overwrite or block the genuine response. Clients poll a
-  //     request's entries by request id and verify each signature off-chain.
-  //   - Respond-bidirectional attestations are Schnorr on Jubjub — the
-  //     embedded curve — so the contract verifies them IN-CIRCUIT at post
-  //     time against its sealed MPC key hash. Garbage cannot land; one
-  //     authenticated slot per request suffices, first valid write wins.
-  //     Clients poll the slot by request id.
-  //   - Notifications are UNAUTHENTICATED pointers ("contract X stored
-  //     request Y at index field Z"): anyone may register one, so the MPC
-  //     never trusts a notification's content — it authenticates by reading
-  //     the request back from the NAMED caller's own ledger and refusing
-  //     records whose recomputed id does not match.
-
-  // Per-request post counter for signature responses (field 0). The counter
-  // reads the number of posts made for that request; entries exist for
-  // counts 0..counter-1.
-  export new type SignatureResponseCounterIndex = Map<RequestId, Counter>;
-
-  // Composite key of one posted signature response: the request id it
-  // answers plus this post's 0-based count, sourced from
-  // SignatureResponseCounterIndex. (Respond-bidirectional posts need no key
-  // struct — authenticated posts are keyed by request id alone.)
-  export struct SignetResponseKey {
-    count: Uint<64>;
-    requestId: RequestId;
-  };
-
-  // The on-ledger signature response log (field 1), keyed by
-  // (requestId, count).
-  export new type SignatureResponseIndex = Map<SignetResponseKey, SignatureResponse>;
-
-  // The on-ledger respond-bidirectional index (field 2): one
-  // contract-verified attestation per request.
-  export new type RespondBidirectionalIndex = Map<RequestId, RespondBidirectional>;
-
-  // The on-ledger notification registry (field 4): one notification per
-  // request id, append-only (a re-notify is an idempotent overwrite; there is
-  // deliberately no removal circuit). The MPC discovers requests by
-  // enumerating this map and diffing against the request ids it has already
-  // served.
-  export new type SignBidirectionalNotificationIndex = Map<RequestId, SignBidirectionalNotification>;
-
-  // ---- Request id -----------------------------------------------------------
-
-  // Canonical id of an EVM signature request: the domain-separated persistent
-  // hash of the entire request record. The id therefore commits to every
-  // field — the MPC (or anyone) recomputes it off-chain and refuses records
-  // whose stored key does not match.
-  //
-  // The "signet:midnight:request" domain tag partitions the RequestId space:
-  // ids minted by this circuit can never collide or be confused with hashes
-  // minted under any other tag.
-  //
-  // Off-chain twin: being type-parameterized, this circuit cannot be exported
-  // through circuits.compact, so signet-requests.ts carries a TS twin
-  // (calculateRequestId) that MUST stay in lockstep — see the
-  // deviation note there before changing anything here.
-  export pure circuit calculateRequestId<TxParams>(
-    request: SignBidirectionalRequest<TxParams>
-  ): RequestId {
-    return persistentHash<Vector<2, Bytes<32>>>([
-      pad(32, "signet:midnight:request"),
-      persistentHash<SignBidirectionalRequest<TxParams>>(request)
-    ]) as RequestId;
-  }
-
-  // ---- Respond-bidirectional attestation message ------------------------------
-
-  // The message the MPC Schnorr-signs to attest a remote execution:
-  // (requestId, hash(serializedOutput, outputLen)) as four 16-byte
-  // little-endian field limbs. The hash binds the output TOGETHER WITH its
-  // length, so neither can be swapped under a reused signature; the 16-byte
-  // split is needed because a 32-byte value overflows the BLS scalar field.
-  // ONE implementation for everyone: the signet contract verifies posts
-  // against it, requester contracts (e.g. the vault's claim) re-verify against it, and
-  // off-chain signers call the compiled copy (via circuits.compact) — never
-  // a TS re-implementation.
-  export pure circuit signetAttestationMessage(
-    requestId: RequestId,
-    serializedOutput: Bytes<128>,
-    outputLen: Uint<8>
-  ): Vector<4, Field> {
-    const rid = requestId as Bytes<32>;
-    const outHash = persistentHash<Vector<2, Bytes<32>>>([
-      persistentHash<Bytes<128>>(serializedOutput),
-      outputLen as Field as Bytes<32>
-    ]);
-    return [
-      slice<16>(rid, 0) as Field,
-      slice<16>(rid, 16) as Field,
-      slice<16>(outHash, 0) as Field,
-      slice<16>(outHash, 16) as Field
-    ];
-  }
-
-  // ---- Path <-> identity binding ---------------------------------------------
-  // Compact cannot ENCODE bytes->hex in-circuit (nibble extraction needs
-  // integer div/mod/shift, which the prime field has no native op for). But it
-  // CAN DECODE hex->bytes with multiply/add/compare. So the derivation path (a
-  // public value) carries the hex string, and we verify in-circuit that it
-  // canonically decodes to the commitment. The prover cannot supply a wrong or
-  // non-canonical string, so this is as strong as computing the hex on-chain —
-  // and it lets the MPC treat the path as a plain opaque string (no hex
-  // special-case in the MPC).
-
-  // Decode one canonical hex character ('0'-'9', lowercase 'a'-'f') to 0..15.
-  pure circuit charToNibble(c: Uint<8>): Uint<8> {
-    const isDigit = (c >= 48) && (c <= 57);  // '0'..'9'
-    const isLower = (c >= 97) && (c <= 102); // 'a'..'f' (lowercase only => canonical)
-    assert(isDigit || isLower, "non-canonical hex char");
-    const base = c - 48;             // safe: c >= 48 in both accepted ranges
-    const adjust = isLower ? 39 : 0; // 'a'(97) - 48 - 39 = 10
-    return base - adjust;
-  }
-
-  // Assert that hexStr (64 lowercase hex chars) decodes exactly to commitment.
-  export pure circuit assertHexOf(commitment: Bytes<32>, hexStr: Bytes<64>): [] {
-    for (const i of 0 .. 32) {
-      const hi = charToNibble(slice<1>(hexStr, 2 * i) as Uint<8>);
-      const lo = charToNibble(slice<1>(hexStr, 2 * i + 1) as Uint<8>);
-      assert((slice<1>(commitment, i) as Field) == (hi as Field) * 16 + (lo as Field),
-             "path hex does not match commitment");
-    }
-  }
-
-  // // Assert the full path <-> identity binding: the path is EXACTLY the
-  // canonical lowercase hex of `commitment`, zero-padded to 256 bytes. This
-  // makes identity -> path -> MPC-derived account a forced 1:1 mapping: no one
-  // can request signatures under another identity's derived key, and no
-  // identity can spread across multiple derived keys via case/suffix
-  // malleability. See https://docs.sig.network/ for path-based derivation.
-  export pure circuit assertPathCommitment(
-    commitment: Bytes<32>,
-    path: Bytes<256>
-  ): [] {
-    assertHexOf(commitment, slice<64>(path, 0));
-    assert(slice<192>(path, 64) == pad(192, ""), "Path must be zero-padded after hex");
-  }
-
-  // ---- Request construction ---------------------------------------------------
-
-  // Assemble the canonical request record for a CALLER-IDENTITY request,
-  // enforcing the path <-> identity binding on the way — the MPC signs with
-  // the calling user's derived key and no one else's.
-  // The requesting contract supplies:
-  //   - pathCommitment: the DISCLOSED identity commitment of the caller
-  //     (derived from a secret-key witness — see the vault's userCommitment)
-  //   - requestNonce:   its contract-local nonce (typically a Counter read)
-  //   - txParams:       the transaction decomposition; the contract MUST
-  //     build (or overwrite) any part it enforces — calldata above all —
-  //     rather than pass caller input through
-  //   - the remaining MPC routing fields, caller-supplied
-  // Store the result under calculateRequestId(request) in the
-  // request index.
-  export pure circuit constructSignBidirectionalRequest<TxParams>(
-    pathCommitment: Bytes<32>,
-    requestNonce: Uint<64>,
-    txParamType: TxParamType,
-    txParams: TxParams,
-    caip2Id: Bytes<32>,
-    keyVersion: Uint<32>,
-    path: Bytes<256>,
-    algo: Bytes<32>,
-    dest: Bytes<32>,
-    params: Bytes<64>,
-    outputDeserializationSchema: Bytes<128>,
-    respondSerializationSchema: Bytes<128>
-  ): SignBidirectionalRequest<TxParams> {
-    assertPathCommitment(pathCommitment, path);
-    return constructContractPathSignBidirectionalRequest<TxParams>(
-      requestNonce,
-      txParamType,
-      txParams,
-      caip2Id,
-      keyVersion,
-      path,
-      algo,
-      dest,
-      params,
-      outputDeserializationSchema,
-      respondSerializationSchema
-    );
-  }
-
-  // Assemble the canonical request record for a CONTRACT-OWNED derivation
-  // path: a literal the requesting contract fixes in-circuit (e.g. a vault
-  // treasury's "vault"), so the MPC signs with the CONTRACT's derived account
-  // rather than a caller's. No identity binding applies — the contract itself
-  // vouches for the path by hardcoding it; never pass a caller-supplied path
-  // here (that would let anyone request signatures under any derived key —
-  // use constructSignBidirectionalRequest for caller-identity requests).
-  // Enforces the canonical keyVersion floor for both constructors.
-  export pure circuit constructContractPathSignBidirectionalRequest<TxParams>(
-    requestNonce: Uint<64>,
-    txParamType: TxParamType,
-    txParams: TxParams,
-    caip2Id: Bytes<32>,
-    keyVersion: Uint<32>,
-    path: Bytes<256>,
-    algo: Bytes<32>,
-    dest: Bytes<32>,
-    params: Bytes<64>,
-    outputDeserializationSchema: Bytes<128>,
-    respondSerializationSchema: Bytes<128>
-  ): SignBidirectionalRequest<TxParams> {
-    // The MPC rejects requests for the unsupported legacy key version 0.
-    assert(keyVersion >= 1, "keyVersion must be >= 1");
-    return SignBidirectionalRequest<TxParams> {
-      requestNonce,
-      txParamType,
-      txParams,
-      caip2Id,
-      keyVersion,
-      path,
-      algo,
-      dest,
-      params,
-      outputDeserializationSchema,
-      respondSerializationSchema
-    };
   }
 }

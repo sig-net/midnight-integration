@@ -11,16 +11,18 @@ import { describe, expect, it } from "vitest";
 import { getAddress, Interface, Transaction } from "ethers";
 
 import {
+  MPCDestination,
+  MPCSignatureAlgorithm,
   TxParamType,
   assembleCalldata,
   bytesToHex,
   evmAddressAbiWord,
   numericAbiWordValue,
-  signBidirectionalRequestToUnsignedEVMTransaction,
+  signBidirectionalEventToUnsignedEVMTransaction,
   type EVMType2TxParams,
   type Maybe,
   type EVMCalldata,
-  type SignBidirectionalRequest,
+  type SignBidirectionalEvent,
 } from "../src/index.ts";
 
 // The ERC20 transfer(address,uint256) selector — a realistic calldata fixture
@@ -116,18 +118,19 @@ describe("access list in the rebuilt transaction", () => {
     },
   };
 
-  const request = (txParams: EVMType2TxParams): SignBidirectionalRequest => ({
+  const request = (txParams: EVMType2TxParams): SignBidirectionalEvent => ({
+    sender: { bytes: new Uint8Array(32) },
     requestNonce: 0n,
+    keyVersion: 1n,
+    path: new Uint8Array(32),
+    algo: MPCSignatureAlgorithm.ecdsa,
+    dest: MPCDestination.unused,
+    params: new Uint8Array(64),
     txParamType: TxParamType.evmType2,
     txParams,
     caip2Id: new Uint8Array(32),
-    keyVersion: 1n,
-    path: new Uint8Array(256),
-    algo: new Uint8Array(32),
-    dest: new Uint8Array(32),
-    params: new Uint8Array(64),
-    outputDeserializationSchema: new Uint8Array(128),
-    respondSerializationSchema: new Uint8Array(128),
+    outputDeserializationSchema: new Uint8Array(34),
+    respondSerializationSchema: new Uint8Array(34),
   });
 
   it("count-trims capacity slots and serializes round-trip", () => {
@@ -135,7 +138,7 @@ describe("access list in the rebuilt transaction", () => {
     const key0 = bytes(32, 0x11);
     // Capacity 2 keys, only 1 in use; the second slot is zero-fill noise the
     // count must exclude.
-    const tx = signBidirectionalRequestToUnsignedEVMTransaction(
+    const tx = signBidirectionalEventToUnsignedEVMTransaction(
       request({
         ...baseTxParams,
         accessListEntryCount: 1n,
@@ -161,7 +164,7 @@ describe("access list in the rebuilt transaction", () => {
   });
 
   it("an all-capacity-unused access list serializes as empty", () => {
-    const tx = signBidirectionalRequestToUnsignedEVMTransaction(
+    const tx = signBidirectionalEventToUnsignedEVMTransaction(
       request({
         ...baseTxParams,
         accessList: [

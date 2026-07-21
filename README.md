@@ -5,11 +5,19 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 It does this by exposing the MPC's [sign bidirectional flow](https://docs.sig.network/architecture/sign-bidirectional) to contracts on Midnight.
 
 The **Sign Bidirectional Flow** comprises of 5 steps:
-1. Client calls a contract on Midnight which requests a signature for a transaction destined for a foreign chain
+1. Client calls a contract on Midnight which requests a signature for a transaction destined for a foreign chain. The signature is made with a key derived for the requesting contract (see [Derived keys](#derived-keys)).
 2. Sig Network MPC honours the request, generating the transaction signature and posting it back to Midnight
 3. Client extracts the signature, using it to submit the signed transaction to the foreign chain
 4. Sig Network MPC observes the foreign transaction and posts the output of the execution (signed) back to Midnight
 5. Client extracts the signed foreign execution output, then submits it back to the Midnight contract completing the foreign transaction execution.
+
+## Derived keys
+
+Every key the MPC signs with is scoped by the requesting contract:
+
+`derivedSigningKey = f(mpcRootKey[keyVersion], contractAddress, path)`
+
+The path is 32 opaque bytes of the contract's choosing (a fixed literal for a contract-owned account, a hash of a caller's secret for per-user accounts). There are no format requirements. The contract address is always part of the derivation, so no contract can reach another contract's derived keys.
 
 This repository contains the pieces that make that flow available on Midnight: the Sig Network protocol singleton contract, the client-agnostic SDK that contract builders integrate against, and a minimal caller contract that exercises the protocol end to end.
 

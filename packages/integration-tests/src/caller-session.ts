@@ -19,7 +19,7 @@ import {
   type CallerProviders,
   type Contract as CallerContract,
 } from "@midnight-protocol/caller-contract";
-import { SignetRequestResponseReader } from "@sig-net/midnight";
+import { hexToBytes, stripHexPrefix, SignetRequestResponseReader } from "@sig-net/midnight";
 import {
   deriveAccountKeys,
   getMidnightNodeConfig,
@@ -94,11 +94,18 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
 
         const contractAddress = requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS");
         const providers = buildCallerProviders(facade, keys, nodeConfig);
+        // The private state carries the deployer identity secret feeding the
+        // deployerSecretKey witness: initialise is deployer-gated. The store
+        // is contract-address-scoped, so a fresh deploy always takes this
+        // initial state (no stale-state hazard across redeploys).
+        const privateState = createCallerPrivateState(
+          hexToBytes(stripHexPrefix(requireEnv(env, "CALLER_DEPLOYER_SECRET_KEY"))),
+        );
         const caller = await findDeployedContract(providers, {
           contractAddress,
           compiledContract: callerCompiledContract,
           privateStateId: CALLER_PRIVATE_STATE_ID,
-          initialPrivateState: createCallerPrivateState(),
+          initialPrivateState: privateState,
         });
         sharedWallet = { facade, context: { providers, caller, contractAddress } };
       }

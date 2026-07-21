@@ -16,6 +16,8 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
+  MPCDestination,
+  MPCSignatureAlgorithm,
   SignetRequestFeed,
   TxParamType,
   asciiPadded,
@@ -26,9 +28,10 @@ import {
   requestIdHex,
   requestIdType,
   signBidirectionalNotificationType,
-  signBidirectionalRequestDescriptor,
+  signBidirectionalEventDescriptor,
+  signetMapKeyType,
   type SignBidirectionalNotificationRecord,
-  type SignBidirectionalRequest,
+  type SignBidirectionalEvent,
 } from "../src/index.ts";
 
 // The ERC20 transfer(address,uint256) selector — a realistic calldata fixture
@@ -39,7 +42,7 @@ const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
-const REQUEST_DESCRIPTOR = signBidirectionalRequestDescriptor(2, 0, 0);
+const REQUEST_DESCRIPTOR = signBidirectionalEventDescriptor(2, 0, 0, 34, 34);
 
 const SIGNET_ADDRESS = "signet-contract-address";
 
@@ -53,8 +56,14 @@ const REQUEST_A_ID = bytes(32, 0x2f);
 const REQUEST_B_ID = bytes(32, 0x31);
 const FORGED_CALLER_BYTES = bytes(32, 0xff); // no state at this address
 
-const REQUEST: SignBidirectionalRequest = {
+const REQUEST: SignBidirectionalEvent = {
+  sender: { bytes: new Uint8Array(32) },
   requestNonce: 0n,
+  keyVersion: 1n,
+  path: new Uint8Array(32),
+  algo: MPCSignatureAlgorithm.ecdsa,
+  dest: MPCDestination.unused,
+  params: new Uint8Array(64),
   txParamType: TxParamType.evmType2,
   txParams: {
     to: bytes(20, 0xaa),
@@ -76,13 +85,9 @@ const REQUEST: SignBidirectionalRequest = {
     },
   },
   caip2Id: asciiPadded("eip155:11155111", 32),
-  keyVersion: 1n,
-  path: new Uint8Array(256),
-  algo: asciiPadded("ecdsa", 32),
-  dest: asciiPadded("ethereum", 32),
-  params: new Uint8Array(64),
-  outputDeserializationSchema: new Uint8Array(128),
-  respondSerializationSchema: new Uint8Array(128),
+  // Schema fixtures end in a non-zero byte (the exact-length convention).
+  outputDeserializationSchema: bytes(34, 0x07),
+  respondSerializationSchema: bytes(34, 0x08),
 };
 
 /** Caller state with `requestId` in the field-0 request index. */
@@ -103,23 +108,23 @@ const callerStateWith = (requestId: Uint8Array): StateValueType => {
 
 /**
  * A V1 notification record, packed by the REAL compiled circuit — the same
- * packer the vault calls in-circuit, so these fixtures pin the pack↔decode
- * lockstep by construction.
+ * packer client contracts call in-circuit, so these fixtures pin the
+ * pack↔decode lockstep by construction. The request id is NOT in the
+ * payload: it lives in the registry map key.
  */
 const notification = (
   caller: Uint8Array,
-  requestId: Uint8Array,
+  _requestId?: Uint8Array,
 ): SignBidirectionalNotificationRecord =>
-  pureCircuits.constructSignBidirectionalNotificationV1(
+  pureCircuits.constructSignBidirectionalEventNotificationV1(
     { bytes: caller },
-    requestId,
     0n,
   );
 
 /**
- * Synthetic SIGNET contract state: the 5-field layout with the notification
- * registry (field 4) holding the given records, keyed by their request ids.
- * Fields 0-3 are present (empty / zeroed) so field positions stay honest.
+ * Synthetic SIGNET contract state: the 6-field layout with the notification
+ * map (field 1) holding the given records under SignetMapKey(0, requestId).
+ * The other fields are present (empty maps) so field positions stay honest.
  */
 const signetStateWith = (
   entries: Array<{ key: Uint8Array; record: SignBidirectionalNotificationRecord }>,
@@ -127,7 +132,10 @@ const signetStateWith = (
   let registry = new StateMap();
   for (const { key, record } of entries) {
     registry = registry.insert(
-      { value: requestIdType.toValue(key), alignment: requestIdType.alignment() },
+      {
+        value: signetMapKeyType.toValue({ count: 0n, requestId: key }),
+        alignment: signetMapKeyType.alignment(),
+      },
       StateValue.newCell({
         value: signBidirectionalNotificationType.toValue(record),
         alignment: signBidirectionalNotificationType.alignment(),
@@ -135,16 +143,12 @@ const signetStateWith = (
     );
   }
   return StateValue.newArray()
-    .arrayPush(StateValue.newMap(new StateMap())) // field 0: response counter index
-    .arrayPush(StateValue.newMap(new StateMap())) // field 1: response log
-    .arrayPush(StateValue.newMap(new StateMap())) // field 2: respond-bidirectional index
-    .arrayPush(
-      StateValue.newCell({
-        value: requestIdType.toValue(bytes(32, 0)),
-        alignment: requestIdType.alignment(),
-      }),
-    ) // field 3: mpc key hash
-    .arrayPush(StateValue.newMap(registry)); // field 4: notification registry
+    .arrayPush(StateValue.newMap(new StateMap())) // field 0: notification counter map
+    .arrayPush(StateValue.newMap(registry)) // field 1: notification map
+    .arrayPush(StateValue.newMap(new StateMap())) // field 2: signature response counter map
+    .arrayPush(StateValue.newMap(new StateMap())) // field 3: signature response map
+    .arrayPush(StateValue.newMap(new StateMap())) // field 4: respond-bidirectional counter map
+    .arrayPush(StateValue.newMap(new StateMap())); // field 5: respond-bidirectional map
 };
 
 /**

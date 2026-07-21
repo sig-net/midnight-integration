@@ -17,7 +17,7 @@ import type { SignBidirectionalNotification } from "./signet-contract-state-read
 import type { SignetPublicStateSource } from "./signet-request-response-reader.ts";
 import type {
   RequestIdHex,
-  SignBidirectionalRequest,
+  SignBidirectionalEvent,
 } from "./signet-requests.ts";
 
 /**
@@ -35,7 +35,7 @@ export interface ResolvedSignetRequest {
   /** The request id, confirmed to be a member of `callerAddress`'s index. */
   requestId: RequestIdHex;
   /** The authenticated request record to sign. */
-  request: SignBidirectionalRequest;
+  request: SignBidirectionalEvent;
 }
 
 /** Everything a {@link SignetRequestResolver} needs. */
@@ -74,17 +74,20 @@ export class SignetRequestResolver {
   /**
    * Resolve a notification to its authenticated request, or `undefined` when it
    * cannot be trusted: the caller contract has no state, or `requestId` is not
-   * a member of the index at `requestsIndexField` (forged, stale, wrong field,
+   * a member of the map at `requestsIndexField` (forged, stale, wrong field,
    * or not yet indexed — poll again). Never throws on an untrusted
    * notification; a bad one is dropped, not surfaced as an error.
    *
+   * @param requestId - The request id the notification was registered under
+   *   (the registry map key — the V1 payload does not carry one).
    * @param notification - The decoded notification.
    * @returns The authenticated request, or `undefined` to drop the notification.
    */
   async resolve(
+    requestId: RequestIdHex,
     notification: SignBidirectionalNotification,
   ): Promise<ResolvedSignetRequest | undefined> {
-    const cached = this.resolvedCache.get(notification.requestId);
+    const cached = this.resolvedCache.get(requestId);
     if (cached !== undefined) {
       return cached;
     }
@@ -100,17 +103,17 @@ export class SignetRequestResolver {
     const request = lookupSignetRequestAt(
       state.data,
       notification.requestsIndexField,
-      notification.requestId,
+      requestId,
     );
     if (request === undefined) {
       return undefined; // membership check failed — drop the notification
     }
     const resolved: ResolvedSignetRequest = {
       callerAddress: notification.callerAddress,
-      requestId: notification.requestId,
+      requestId,
       request,
     };
-    this.resolvedCache.set(notification.requestId, resolved);
+    this.resolvedCache.set(requestId, resolved);
     return resolved;
   }
 }

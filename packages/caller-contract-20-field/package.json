@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signet-caller-20-field.compact src/managed",
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk --feature-zkir-v3 src/signet-caller-20-field.compact src/managed",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

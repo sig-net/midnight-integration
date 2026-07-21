@@ -19,7 +19,7 @@ import {
   readSignetRequestsLedgerFromState,
   requestIdHex,
   signetFieldNode,
-  toSignBidirectionalRequestIndex,
+  toSignBidirectionalEventIndex,
 } from "@sig-net/midnight";
 
 import { Contract, ledger } from "../src/index.ts";
@@ -28,7 +28,7 @@ import { Contract, ledger } from "../src/index.ts";
 
 // THIS contract's ledger layout (declaration order in
 // signet-caller-20-field.compact): requestLog List at field 0, counter at
-// field 1, filler counters at 2..18, request index at field 19. In raw state
+// field 1, filler counters at 2..18, request map at field 19. In raw state
 // the compiler stores these as chunks of [5, 15], so fields 0..4 live in
 // chunk 0 and fields 5..19 in chunk 1.
 const REQUEST_LOG_FIELD = 0;
@@ -94,8 +94,8 @@ describe("chunked ledger raw parsing (20 fields, REAL compiler output)", () => {
     const state = next.callContext.currentQueryContext.state;
 
     // Read 1: generated ledger() (knows the chunk tree at compile time).
-    const typedIndex = toSignBidirectionalRequestIndex(
-      ledger(state).signetRequestsIndex,
+    const typedIndex = toSignBidirectionalEventIndex(
+      ledger(state).signBidirectionalEventMap,
     );
     // Read 2: MPC-style raw read by flat field number alone.
     const rawLedger = readSignetRequestsLedgerFromState(
@@ -106,7 +106,7 @@ describe("chunked ledger raw parsing (20 fields, REAL compiler output)", () => {
 
     expect(typedIndex.size).toBe(1);
     expect(rawLedger.requestsIndex).toEqual(typedIndex);
-    expect(rawLedger.nonce).toBe(ledger(state).signetNonce);
+    expect(rawLedger.nonce).toBe(ledger(state).signetRequestNonce);
 
     // Read 3: the discovery path's single-record lookup at the notified
     // field number.

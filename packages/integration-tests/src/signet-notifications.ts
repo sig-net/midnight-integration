@@ -26,9 +26,10 @@ export interface SignetNotificationPoll {
 }
 
 /**
- * Poll the signet contract's notification registry (ledger field 4, read the
- * way the MPC reads it — raw state by field position) until an entry for
- * `requestId` appears and decodes, or `timeoutMs` (default 60s) passes.
+ * Poll the signet contract's notification registry (ledger field 1, read the
+ * way the MPC reads it — raw state by field position, keyed by the request
+ * id in each entry's map key) until an entry for `requestId` appears and
+ * decodes, or `timeoutMs` (default 60s) passes.
  *
  * @param options - The env, target request id, and patience.
  * @returns The decoded V1 notification.

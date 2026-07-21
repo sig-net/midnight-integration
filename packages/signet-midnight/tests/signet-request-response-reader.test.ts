@@ -6,7 +6,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  CompactTypeBytes,
   CompactTypeUnsignedInteger,
   StateMap,
   StateValue,
@@ -15,25 +14,27 @@ import {
 import { computeAddress, SigningKey } from "ethers";
 
 import {
+  MPCDestination,
+  MPCSignatureAlgorithm,
   TxParamType,
   asciiPadded,
+  bigintToBytes32,
   evmAddressAbiWord,
   numericAbiWordValue,
-  signatureToSignatureResponse,
-  signBidirectionalRequestToSignedEVMTransaction,
-  signBidirectionalRequestToUnsignedEVMTransaction,
-  deriveJubjubKeypair,
+  signatureToSignatureRespondedEvent,
+  signBidirectionalEventToSignedEVMTransaction,
+  signBidirectionalEventToUnsignedEVMTransaction,
   requestIdHex,
   requestIdType,
-  signBidirectionalRequestDescriptor,
-  signatureResponseType,
-  respondBidirectionalType,
-  signetResponseKeyType,
+  signBidirectionalEventDescriptor,
+  signatureRespondedEventType,
+  respondBidirectionalEventType,
+  signetMapKeyType,
   SignetRequestResponseReader,
-  type SignBidirectionalRequest,
-  type SignatureResponse,
+  type SignBidirectionalEvent,
+  type SignatureRespondedEvent,
   type SignetPublicStateSource,
-  type RespondBidirectional,
+  type RespondBidirectionalEvent,
 } from "../src/index.ts";
 
 // The ERC20 transfer(address,uint256) selector — a realistic calldata fixture
@@ -46,10 +47,9 @@ const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
-const bytes32 = new CompactTypeBytes(32);
 
 /** The sample request's capacities (the vault's EVMType2TxParams<2, 0, 0>). */
-const REQUEST_DESCRIPTOR = signBidirectionalRequestDescriptor(2, 0, 0);
+const REQUEST_DESCRIPTOR = signBidirectionalEventDescriptor(2, 0, 0, 34, 34);
 
 const REQUEST_ID = bytes(32, 0x2f);
 const REQUEST_ID_HEX = requestIdHex(REQUEST_ID);
@@ -62,8 +62,14 @@ const SIGNET_CONTRACT_ADDRESS = "signet-contract-address";
  * Known-good request record for a `transfer(vault, amount)` deposit — the
  * base every test uses. Shared across tests: NEVER mutate.
  */
-const REQUEST: SignBidirectionalRequest = {
+const REQUEST: SignBidirectionalEvent = {
+  sender: { bytes: new Uint8Array(32) },
   requestNonce: 0n,
+  keyVersion: 1n,
+  path: new Uint8Array(32),
+  algo: MPCSignatureAlgorithm.ecdsa,
+  dest: MPCDestination.unused,
+  params: new Uint8Array(64),
   txParamType: TxParamType.evmType2,
   txParams: {
     to: bytes(20, 0xaa),
@@ -85,13 +91,9 @@ const REQUEST: SignBidirectionalRequest = {
     },
   },
   caip2Id: asciiPadded("eip155:11155111", 32),
-  keyVersion: 1n,
-  path: new Uint8Array(256),
-  algo: asciiPadded("ecdsa", 32),
-  dest: asciiPadded("ethereum", 32),
-  params: new Uint8Array(64),
-  outputDeserializationSchema: new Uint8Array(128),
-  respondSerializationSchema: new Uint8Array(128),
+  // Schema fixtures end in a non-zero byte (the exact-length convention).
+  outputDeserializationSchema: bytes(34, 0x07),
+  respondSerializationSchema: bytes(34, 0x08),
 };
 
 // The "MPC" of these tests: a plain secp256k1 key standing in for the user's
@@ -102,17 +104,17 @@ const IMPOSTER_KEY = new SigningKey(`0x${"22".repeat(32)}`);
 const IMPOSTER_ADDRESS = computeAddress(IMPOSTER_KEY.publicKey);
 
 /** Sign `REQUEST`'s rebuilt tx hash with `key`, packed as a response record. */
-const signResponse = (key: SigningKey): SignatureResponse =>
-  signatureToSignatureResponse(
+const signResponse = (key: SigningKey): SignatureRespondedEvent =>
+  signatureToSignatureRespondedEvent(
     key.sign(
-      signBidirectionalRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
     ),
   );
 
 const GENUINE_RESPONSE = signResponse(MPC_KEY);
 const IMPOSTER_RESPONSE = signResponse(IMPOSTER_KEY);
 // An all-zero r cannot decode into a signature at all.
-const UNDECODABLE_RESPONSE: SignatureResponse = {
+const UNDECODABLE_RESPONSE: SignatureRespondedEvent = {
   bigRx: bytes(32, 0),
   bigRy: bytes(32, 0),
   s: bytes(32, 0),
@@ -140,32 +142,21 @@ const requesterState = (): StateValue => {
     );
 };
 
-// An attestation record for the respond-bidirectional tests: real Jubjub
-// points, synthetic scalar — the reader decodes, the CONTRACT verified at
-// post time.
-const RESPOND_BIDIRECTIONAL: RespondBidirectional = {
+// A respond-bidirectional record for the response tests: synthetic LE
+// signature scalars — the reader decodes, verification is the CLIENT's job.
+const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
   serializedOutput: (() => { const out = new Uint8Array(128); out[0] = 1; return out; })(),
   outputLen: 32n,
-  pk: deriveJubjubKeypair(bytes(32, 0x42)).pk,
-  announcement: deriveJubjubKeypair(bytes(32, 0x43)).pk,
-  response: 123456789n,
+  r: bigintToBytes32(123456789n),
+  s: bigintToBytes32(987654321n),
+  recoveryId: 1n,
 };
 
-/**
- * Signet contract state: signature counter index (field 0), signature log
- * (field 1), respond-bidirectional index (field 2), sealed MPC key hash
- * (field 3) for REQUEST_ID. `counterOverride` forces a counter that
- * disagrees with the log, for the inconsistency test.
- */
-const signetContractState = (
-  posts: SignatureResponse[],
-  counterOverride?: bigint,
-  respondBidirectional?: RespondBidirectional,
-): StateValue => {
-  const total = counterOverride ?? BigInt(posts.length);
-  let counterMap = new StateMap();
+/** A one-entry `Map<RequestId, Counter>` for REQUEST_ID, empty at 0. */
+const counterMapOf = (total: bigint): StateMap => {
+  let map = new StateMap();
   if (total > 0n) {
-    counterMap = counterMap.insert(
+    map = map.insert(
       {
         value: requestIdType.toValue(REQUEST_ID),
         alignment: requestIdType.alignment(),
@@ -176,19 +167,34 @@ const signetContractState = (
       }),
     );
   }
+  return map;
+};
+
+/**
+ * Signet contract state in the 6-field layout: notification counter/map
+ * (fields 0/1, empty), signature counter/map (fields 2/3), respond-
+ * bidirectional counter/map (fields 4/5) for REQUEST_ID. `counterOverride`
+ * forces a counter that disagrees with the log, for the inconsistency test.
+ */
+const signetContractState = (
+  posts: SignatureRespondedEvent[],
+  counterOverride?: bigint,
+  respondBidirectional?: RespondBidirectionalEvent,
+): StateValue => {
+  const total = counterOverride ?? BigInt(posts.length);
   let responseMap = new StateMap();
   posts.forEach((post, index) => {
     responseMap = responseMap.insert(
       {
-        value: signetResponseKeyType.toValue({
+        value: signetMapKeyType.toValue({
           count: BigInt(index),
           requestId: REQUEST_ID,
         }),
-        alignment: signetResponseKeyType.alignment(),
+        alignment: signetMapKeyType.alignment(),
       },
       StateValue.newCell({
-        value: signatureResponseType.toValue(post),
-        alignment: signatureResponseType.alignment(),
+        value: signatureRespondedEventType.toValue(post),
+        alignment: signatureRespondedEventType.alignment(),
       }),
     );
   });
@@ -196,26 +202,24 @@ const signetContractState = (
   if (respondBidirectional !== undefined) {
     respondBidirectionalMap = respondBidirectionalMap.insert(
       {
-        value: requestIdType.toValue(REQUEST_ID),
-        alignment: requestIdType.alignment(),
+        value: signetMapKeyType.toValue({ count: 0n, requestId: REQUEST_ID }),
+        alignment: signetMapKeyType.alignment(),
       },
       StateValue.newCell({
-        value: respondBidirectionalType.toValue(respondBidirectional),
-        alignment: respondBidirectionalType.alignment(),
+        value: respondBidirectionalEventType.toValue(respondBidirectional),
+        alignment: respondBidirectionalEventType.alignment(),
       }),
     );
   }
   return StateValue.newArray()
-    .arrayPush(StateValue.newMap(counterMap))
-    .arrayPush(StateValue.newMap(responseMap))
-    .arrayPush(StateValue.newMap(respondBidirectionalMap))
+    .arrayPush(StateValue.newMap(new StateMap())) // field 0: notification counter map
+    .arrayPush(StateValue.newMap(new StateMap())) // field 1: notification map
+    .arrayPush(StateValue.newMap(counterMapOf(total))) // field 2: signature counter map
+    .arrayPush(StateValue.newMap(responseMap)) // field 3: signature map
     .arrayPush(
-      StateValue.newCell({
-        value: bytes32.toValue(bytes(32, 0x99)),
-        alignment: bytes32.alignment(),
-      }),
-    )
-    .arrayPush(StateValue.newMap(new StateMap())); // field 4: notification registry
+      StateValue.newMap(counterMapOf(respondBidirectional === undefined ? 0n : 1n)),
+    ) // field 4: respond-bidirectional counter map
+    .arrayPush(StateValue.newMap(respondBidirectionalMap)); // field 5: respond-bidirectional map
 };
 
 // ---- Harness ----
@@ -225,9 +229,9 @@ const signetContractState = (
  * request-record caching is observable.
  */
 const makeReader = (
-  posts: SignatureResponse[],
+  posts: SignatureRespondedEvent[],
   counterOverride?: bigint,
-  respondBidirectional?: RespondBidirectional,
+  respondBidirectional?: RespondBidirectionalEvent,
 ) => {
   const queries = { requester: 0, responses: 0 };
   const publicDataProvider: SignetPublicStateSource = {
@@ -268,7 +272,7 @@ describe("getSignatureRequest", () => {
     const { reader, queries } = makeReader([GENUINE_RESPONSE]);
     await reader.getSignatureRequest(REQUEST_ID_HEX);
     await reader.getSignatureRequest(REQUEST_ID_HEX);
-    await reader.getVerifiedSignatureResponse(REQUEST_ID_HEX, MPC_ADDRESS);
+    await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS);
     expect(queries.requester).toBe(1);
   });
 
@@ -315,7 +319,7 @@ interface VerdictCase {
   /** Test name, completing the sentence "resolves <name>". */
   name: string;
   /** The posts on the ledger, in count order. */
-  posts: SignatureResponse[];
+  posts: SignatureRespondedEvent[];
   /** The signer verification demands. */
   expectedSigner: string;
   /** Index (count) of the post expected as `verified`; absent = none valid. */
@@ -364,12 +368,12 @@ const VERDICT_CASES: VerdictCase[] = [
   },
 ];
 
-describe("getVerifiedSignatureResponse", () => {
+describe("getVerifiedSignatureRespondedEvent", () => {
   it.each(VERDICT_CASES)(
     "resolves $name",
     async ({ posts, expectedSigner, verifiedPost, rejectedReasons }) => {
       const { reader } = makeReader(posts);
-      const { verified, verdicts } = await reader.getVerifiedSignatureResponse(
+      const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(
         REQUEST_ID_HEX,
         expectedSigner,
       );
@@ -401,7 +405,7 @@ describe("getUnsignedEVMTransaction", () => {
 
     expect(tx.isSigned()).toBe(false);
     expect(tx.unsignedHash).toBe(
-      signBidirectionalRequestToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
     );
     // Unsigned needs only the request record — never touches the signet contract.
     expect(queries.responses).toBe(0);
@@ -424,7 +428,7 @@ describe("getSignedEVMTransaction", () => {
     expect(tx?.from).toBe(MPC_ADDRESS);
     // Identical to assembling it directly from the request and genuine post.
     expect(tx?.serialized).toBe(
-      signBidirectionalRequestToSignedEVMTransaction(REQUEST, GENUINE_RESPONSE)
+      signBidirectionalEventToSignedEVMTransaction(REQUEST, GENUINE_RESPONSE)
         .serialized,
     );
   });
@@ -444,18 +448,18 @@ describe("getSignedEVMTransaction", () => {
   });
 });
 
-describe("getRespondBidirectional", () => {
-  it("returns the posted attestation", async () => {
+describe("getRespondBidirectionalEvents", () => {
+  it("returns the posted responses in count order", async () => {
     const { reader } = makeReader([], undefined, RESPOND_BIDIRECTIONAL);
-    expect(await reader.getRespondBidirectional(REQUEST_ID_HEX)).toEqual(
+    expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([
       RESPOND_BIDIRECTIONAL,
-    );
+    ]);
   });
 
-  it("returns undefined when no attestation is posted yet", async () => {
+  it("returns an empty array when nothing is posted yet", async () => {
     const { reader } = makeReader([]);
     expect(
-      await reader.getRespondBidirectional(REQUEST_ID_HEX),
-    ).toBeUndefined();
+      await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX),
+    ).toEqual([]);
   });
 });

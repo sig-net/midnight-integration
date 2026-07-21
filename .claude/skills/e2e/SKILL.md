@@ -38,7 +38,7 @@ and a value that conflicts with the shell environment is a hard error, not
 an overwrite. The first run zk-compiles BOTH contracts (~10–25 min of
 keygen, machine-dependent — background the run and never diagnose a hang
 from duration alone), deploys them, starts the responder mid-setup, and the
-flow file runs to the end (signet-caller: 4/4). Save the printed
+flow file runs to the end (signet-caller: 5/5). Save the printed
 `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips
 compile + deploy (the signet address is appended automatically).
 

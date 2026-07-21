@@ -28,42 +28,36 @@ jobs:
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
-          # corepack owns yarn here; the action's cache probe would run
-          # yarn 1.x against the yarn-4 packageManager field and die
+          # corepack owns yarn: the action's yarn-1 cache probe would die here
           package-manager-cache: false
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
-      # Just log the version; upgrading npm here breaks sigstore (provenance).
+      # Just log the version. Upgrading npm here breaks sigstore (provenance).
       - run: npm --version
-      - name: Cache period stamp (the compact toolchain floats on latest; refresh weekly)
-        id: stamp
-        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
-      - name: Restore the compact toolchain
+      - name: Restore the compact toolchain (keyed on the pinned versions)
         uses: actions/cache@v4
         with:
           path: |
             ~/.compact
             ~/.local/bin/compact
-          key: compact-${{ runner.os }}-${{ steps.stamp.outputs.week }}
-          restore-keys: compact-${{ runner.os }}-
-      - name: Install / update the compact toolchain (unpinned, per AGENTS.md)
+          key: compact-${{ runner.os }}-launcher0.5.1-compactc0.33.0-rc.2
+      - name: Install the compact toolchain (pinned launcher + compiler, per AGENTS.md)
         run: |
           export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
+          # Launcher pinned to compact-v0.5.1 (never releases/latest): the
+          # toolchain is frozen, so bump this tag deliberately.
           if ! command -v compact >/dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -LsSf \
-              https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh | sh
           fi
-          compact update
-          # The workspace tracks the ledger-9 toolchain line: latest STABLE
-          # (0.31.1) speaks language 0.23 and rejects the contracts'
-          # `pragma language_version >= 0.25`. compactc 0.33.0-rc.2 is a
-          # PRERELEASE published on the toolchain's LF home
+          # The workspace tracks the ledger-9 toolchain line: compactc
+          # 0.33.0-rc.2 is a PRERELEASE published on the toolchain's LF home
           # (LFDT-Minokawa/compact), which the launcher's channel does not
-          # list. Download it directly and let the launcher adopt it.
-          # Part of the ledger-9 MATCHED SET (see docker-compose.yaml's
-          # image-tag comment); move it together with the npm stack.
+          # list. Download it directly and let the launcher adopt it. Part of
+          # the ledger-9 MATCHED SET (see docker-compose.yaml's image-tag
+          # comment). Bump it together with the npm stack.
           RC_DIR="$HOME/.compact/versions/0.33.0-rc.2/x86_64-unknown-linux-musl"
           if [ ! -x "$RC_DIR/compactc" ]; then
             mkdir -p "$RC_DIR"
@@ -73,7 +67,7 @@ jobs:
             chmod +x "$RC_DIR"/*
           fi
           # `compact update <ver>` adopts an already-on-disk version without
-          # downloading; if the launcher refuses (version not in its
+          # downloading. If the launcher refuses (version not in its
           # channel), wire the default symlinks it would have created.
           compact update 0.33.0-rc.2 || ln -sfn "$RC_DIR"/* "$HOME/.compact/bin/"
           compact compile --version
@@ -90,8 +84,8 @@ jobs:
           version="$(basename "$(dirname "$(dirname "$target")")")"
           case "$version" in [0-9]*) ;; *) version="$(compact compile --version)" ;; esac
           echo "version=$(printf '%s' "$version" | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
-      - name: Install dependencies (no lockfile by design; installs float to latest)
-        run: yarn install --no-immutable
+      - name: Install dependencies (frozen, from the committed yarn.lock)
+        run: yarn install --immutable
       - name: Verify the three package versions move in lockstep (and match the tag)
         run: |
           V_MIDNIGHT=$(node -p "require('./packages/signet-midnight/package.json').version")
@@ -111,7 +105,7 @@ jobs:
       - name: Compile (skip-zk)
         run: yarn compile
       # Restore-only: ci.yml's integration job owns saving this cache (it
-      # generates BOTH contracts' keys; this job generates only
+      # generates BOTH contracts' keys, whereas this job generates only
       # signet-contract's, so a save from here would poison the key).
       - name: Restore prebuilt zk proving keys
         uses: actions/cache/restore@v4
@@ -123,7 +117,7 @@ jobs:
       - name: Ensure signet-contract prover keys (the published managed assets carry them)
         run: |
           if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
-            echo "prover keys present (restored from the cache); skipping keygen"
+            echo "prover keys present (restored from the cache), skipping keygen"
           else
             yarn compile:signet-contract:zk
           fi
@@ -131,7 +125,7 @@ jobs:
         run: yarn build
       - name: Unit tests (simulator-only, offline)
         run: yarn test
-      - name: Publish to npm (dependency order; versions already on npm are skipped)
+      - name: Publish to npm (dependency order, versions already on npm are skipped)
         run: |
           set -euo pipefail
           for entry in \
@@ -142,7 +136,7 @@ jobs:
             name="${entry#*:}"
             version=$(node -p "require('./packages/$dir/package.json').version")
             if [ -n "$(npm view "$name@$version" version 2>/dev/null || true)" ]; then
-              echo "$name@$version is already on npm; skipping"
+              echo "$name@$version is already on npm, skipping"
               continue
             fi
             echo "publishing $name@$version"

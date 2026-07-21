@@ -15,10 +15,10 @@ import type { CompactType } from "@midnight-ntwrk/compact-runtime";
 
 import {
   requestIdHex,
-  signBidirectionalRequestDescriptor,
+  signBidirectionalEventDescriptor,
   type RequestIdHex,
-  type SignBidirectionalRequest,
-  type SignBidirectionalRequestIndex,
+  type SignBidirectionalEvent,
+  type SignBidirectionalEventIndex,
 } from "./signet-requests.ts";
 
 /** The aligned-value cursor every descriptor's `fromValue` consumes. */
@@ -32,37 +32,46 @@ import {
 } from "./signature-state-reading.ts";
 
 /**
- * Aligned-value entry count of a request record EXCLUDING the capacity-scaled
- * vectors: requestNonce (1) + txParamType (1, enums are one atom whatever
- * their byte width) + the EVMType2TxParams fixed fields (to..value = 7,
- * accessListEntryCount = 1) + the calldata Maybe's is_some (1), selector (1)
- * and noWords (1) + the routing fields caip2Id..respondSerializationSchema (8).
- * A stored request cell therefore holds
+ * Aligned-value entry count of an event record EXCLUDING the capacity-scaled
+ * vectors: sender (1) + requestNonce (1) + keyVersion (1) + path (1) +
+ * algo (1) + dest (1) + params (1) + txParamType (1, enums are one atom
+ * whatever their byte width) + the EVMType2TxParams fixed fields
+ * (to..value = 7, accessListEntryCount = 1) + the calldata Maybe's
+ * is_some (1), selector (1) and noWords (1) + caip2Id (1) + the two schema
+ * fields (1 each). A stored event cell therefore holds
  *   `REQUEST_FIXED_VALUE_ATOMS + maxCalldataWords
  *      + maxAccessListEntries·(2 + maxStorageKeysPerEntry)`
  * entries (each calldata word is one Bytes<32> atom; each access-list entry is
  * address + storageKeyCount + its keys).
  */
-export const REQUEST_FIXED_VALUE_ATOMS = 21;
+export const REQUEST_FIXED_VALUE_ATOMS = 22;
 
 /**
  * Recover a record's capacity instantiation (maxCalldataWords,
  * maxAccessListEntries, maxStorageKeysPerEntry) from its aligned-value atom
- * count and decode it. Unlike the old single-vector layout, one atom count no
- * longer determines the capacities uniquely, so candidates are enumerated —
- * access-list-free first (today's producers — the caller contract <1, 0, 0>,
- * the erc20-vault example <2, 0, 0> — all are) —
- * and validated by the decode itself: the descriptors' Bytes length checks
- * and the enum range check reject wrong splits, and a decode that leaves
- * atoms unconsumed is rejected here.
+ * count and decode it. One atom count does not determine the capacities
+ * uniquely, so candidates are enumerated — access-list-free first (today's
+ * producers — the caller contract <1, 0, 0>, the erc20-vault example
+ * <2, 0, 0> — all are) — and validated by the decode itself: the descriptors'
+ * Bytes length checks and the enum range check reject wrong splits, and a
+ * decode that leaves atoms unconsumed is rejected here.
+ *
+ * The schema byte widths (`#LenOutputDeserialization`,
+ * `#LenRespondSerialization`) are read from the LAST TWO atoms' actual byte
+ * lengths. That works because the state layer stores atoms with trailing
+ * zeros trimmed and schemas are exact-length by protocol convention (JSON
+ * schema strings sized to fit, never NUL-padded, never ending in a zero
+ * byte) — so stored length == declared length. A contract that padded its
+ * schema capacity with trailing zeros would decode to the trimmed width and
+ * fail the request-id recompute, which is the authoritative check anyway.
  *
  * @param atoms - The record cell's aligned value (a fresh copy per attempt).
  * @returns The decoded record.
  * @throws Error if no capacity split decodes the value cleanly.
  */
-function decodeSignBidirectionalRequest(
+function decodeSignBidirectionalEvent(
   atoms: AlignedValue,
-): SignBidirectionalRequest {
+): SignBidirectionalEvent {
   const variable = atoms.length - REQUEST_FIXED_VALUE_ATOMS;
   if (variable < 0) {
     throw new Error(
@@ -70,17 +79,21 @@ function decodeSignBidirectionalRequest(
         `${REQUEST_FIXED_VALUE_ATOMS} its fixed fields need`,
     );
   }
+  const lenOutputDeserialization = (atoms[atoms.length - 2] as Uint8Array).length;
+  const lenRespondSerialization = (atoms[atoms.length - 1] as Uint8Array).length;
   const attempt = (
     maxWords: number,
     maxEntries: number,
     maxKeys: number,
-  ): SignBidirectionalRequest | undefined => {
+  ): SignBidirectionalEvent | undefined => {
     const cursor = [...atoms] as AlignedValue;
     try {
-      const record = signBidirectionalRequestDescriptor(
+      const record = signBidirectionalEventDescriptor(
         maxWords,
         maxEntries,
         maxKeys,
+        lenOutputDeserialization,
+        lenRespondSerialization,
       ).fromValue(cursor);
       // A clean decode consumes the record exactly.
       return cursor.length === 0 ? record : undefined;
@@ -109,16 +122,16 @@ function decodeSignBidirectionalRequest(
 
 /**
  * The decoded signet ledger fields of a requesting contract: its request
- * index and its contract-local request counter (Compact `SignetNonce`, the
+ * index and its contract-local request counter (Compact `Counter`, the
  * source of each request's `requestNonce` — nothing off-chain depends on it,
  * it is decoded here only because both fields travel together in tests and
  * diagnostics).
  */
 export interface SignetRequestsLedger {
-  /** The request counter (`SignetNonce`). */
+  /** The request counter (`Counter`). */
   nonce: bigint;
   /** The request index, keyed by hex request id. */
-  requestsIndex: SignBidirectionalRequestIndex;
+  requestsIndex: SignBidirectionalEventIndex;
 }
 
 /**
@@ -147,7 +160,7 @@ export function readSignetRequestsLedgerFromState(
   if (map === undefined) {
     throw new Error(`Ledger field ${requestsIndexField} is not a Map`);
   }
-  const requestsIndex: SignBidirectionalRequestIndex = new Map();
+  const requestsIndex: SignBidirectionalEventIndex = new Map();
   for (const key of map.keys()) {
     // fromValue consumes its input, so hand each descriptor a copy.
     const requestId = requestIdType.fromValue([...key.value]);
@@ -155,7 +168,7 @@ export function readSignetRequestsLedgerFromState(
     if (cell === undefined) continue;
     requestsIndex.set(
       requestIdHex(requestId),
-      decodeSignBidirectionalRequest(cell.value),
+      decodeSignBidirectionalEvent(cell.value),
     );
   }
 
@@ -184,7 +197,7 @@ export function readSignetRequestsLedgerFromState(
  * malformed or adversarial notification can never crash the reader.
  *
  * Only the matched record is decoded (not the whole index), and it is decoded
- * by the same {@link decodeSignBidirectionalRequest} the full reader uses, so
+ * by the same {@link decodeSignBidirectionalEvent} the full reader uses, so
  * the result is `toEqual` to `readSignetRequestsLedgerFromState(raw,
  * fieldIndex, …).requestsIndex.get(requestId)`.
  *
@@ -197,7 +210,7 @@ export function lookupSignetRequestAt(
   raw: RawContractState,
   fieldIndex: number,
   requestId: RequestIdHex,
-): SignBidirectionalRequest | undefined {
+): SignBidirectionalEvent | undefined {
   let node;
   try {
     node = signetFieldNode(raw, fieldIndex);
@@ -218,7 +231,7 @@ export function lookupSignetRequestAt(
       return undefined;
     }
     try {
-      return decodeSignBidirectionalRequest(cell.value);
+      return decodeSignBidirectionalEvent(cell.value);
     } catch {
       return undefined; // a cell that is not a decodable request record
     }

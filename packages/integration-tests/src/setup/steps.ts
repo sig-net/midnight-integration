@@ -6,7 +6,7 @@
 // main process, so no `vitest` imports here — failed checks are plain throws.
 
 import { deploySignetContract } from "@sig-net/midnight-contract-deploy";
-import { formatJubjubPublicKey } from "@sig-net/midnight";
+import { deriveMidnightResponseKey, formatSecp256k1PublicKey } from "@sig-net/midnight";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { requireEnv } from "../e2e-env.ts";
@@ -33,24 +33,6 @@ export function ensureMpcRootKey(env: NodeJS.ProcessEnv): void {
 // the steps below — after ensureMpcRootKey has a chance to generate
 // MPC_ROOT_KEY.
 const mpcKeys = (env: NodeJS.ProcessEnv) => deriveMpcKeys(requireEnv(env, "MPC_ROOT_KEY"));
-
-export function ensureMpcJubjubPk(env: NodeJS.ProcessEnv): void {
-  const expectedMPCJubjubPK = formatJubjubPublicKey(mpcKeys(env).jubjubPoint);
-  if (env.MPC_JUBJUB_PK) {
-    console.log(`Found MPC_JUBJUB_PK in the environment as ${env.MPC_JUBJUB_PK}`);
-    if (env.MPC_JUBJUB_PK !== expectedMPCJubjubPK) {
-      throw new Error(
-        `MPC_JUBJUB_PK should be derived from MPC_ROOT_KEY: expected ${expectedMPCJubjubPK}, found ${env.MPC_JUBJUB_PK}`,
-      );
-    }
-    logSkip("check/derive MPC_JUBJUB_PK public key", `MPC_JUBJUB_PK is set correctly`);
-    return;
-  }
-  env.MPC_JUBJUB_PK = expectedMPCJubjubPK;
-  console.log(`generated a fresh MPC_JUBJUB_PK=${env.MPC_JUBJUB_PK}`);
-  console.log(` ➜ used by contracts to validate signatures`);
-  console.log(` ➜ 💡 Set as MPC_JUBJUB_PK in the environment to skip this step on the next run`);
-}
 
 export function ensureMpcSecp256k1Pubkey(env: NodeJS.ProcessEnv): void {
   const expectedSECP256k1CompressedPubkey = mpcKeys(env).secp256k1CompressedPubkey;
@@ -158,8 +140,45 @@ export async function deploySignetContractStep(env: NodeJS.ProcessEnv): Promise<
   );
   env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS = contractAddress;
   console.log(`deployed a fresh MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${contractAddress}`);
-  console.log(` ➜ the central signet contract on Midnight — records signature requests and authenticated MPC responses`);
+  console.log(` ➜ the central signet contract on Midnight — records signature requests and MPC responses`);
   console.log(` ➜ 💡 Set as MIDNIGHT_SIGNET_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
+}
+
+/**
+ * Derive (or check) the MPC response key for the deployed CALLER contract:
+ * `MPC_RESPONSE_KEY = f(MPC root key, caller contract address, "midnight
+ * response key")` — the sender-scoped derivation the real MPC uses for
+ * respond-bidirectional signing. The key depends on the caller's address, so
+ * this step MUST run after the caller deploy; the flow file then pins the
+ * key on-chain via the caller's one-shot initialise circuit. The fakenet
+ * responder derives the same key per request from its MPC_ROOT_KEY + the
+ * request's sender, so nothing extra is handed off.
+ *
+ * @param env - The suite's env accumulator.
+ * @throws If a pre-set MPC_RESPONSE_KEY disagrees with the derivation.
+ */
+export function ensureMpcResponseKey(env: NodeJS.ProcessEnv): void {
+  const expected = formatSecp256k1PublicKey(
+    deriveMidnightResponseKey(
+      requireEnv(env, "MPC_SECP256K1_PUBKEY"),
+      requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
+    ),
+  );
+  if (env.MPC_RESPONSE_KEY) {
+    console.log(`Found MPC_RESPONSE_KEY in the environment as ${env.MPC_RESPONSE_KEY}`);
+    if (env.MPC_RESPONSE_KEY !== expected) {
+      throw new Error(
+        `MPC_RESPONSE_KEY should be derived from MPC_ROOT_KEY + MIDNIGHT_CALLER_CONTRACT_ADDRESS: ` +
+          `expected ${expected}, found ${env.MPC_RESPONSE_KEY}`,
+      );
+    }
+    logSkip("check/derive MPC_RESPONSE_KEY public key", `MPC_RESPONSE_KEY is set correctly`);
+    return;
+  }
+  env.MPC_RESPONSE_KEY = expected;
+  console.log(`derived a fresh MPC_RESPONSE_KEY=${env.MPC_RESPONSE_KEY}`);
+  console.log(` ➜ the MPC's respond-bidirectional key for the caller contract; the flow pins its hash via initialise`);
+  console.log(` ➜ 💡 Set as MPC_RESPONSE_KEY in the environment to skip this step on the next run`);
 }
 
 // The fakenet responder hand-off, automated. docker compose interpolates the

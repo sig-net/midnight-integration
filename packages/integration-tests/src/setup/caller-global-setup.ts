@@ -18,11 +18,12 @@ import {
   assertCallerEnvironment,
   compileCallerContract,
   deployCallerContractStep,
+  ensureCallerDeployerIdentity,
 } from "./caller-steps.ts";
 import {
   compileSignetContract,
   deploySignetContractStep,
-  ensureMpcJubjubPk,
+  ensureMpcResponseKey,
   ensureMpcRootKey,
   ensureMpcSecp256k1Pubkey,
   persistFakenetHandoffToDotEnv,
@@ -37,14 +38,15 @@ const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void
   ["setup: resolve/generate wallet seeds (root + deployer/invoker/mpc responder)", ensureWalletSeeds],
   ["setup: preflight root funding + fund the role wallets from root", ensureWalletsFunded],
   ["setup: check/derive MPC root key", ensureMpcRootKey],
-  ["setup: check/derive MPC_JUBJUB_PK public key", ensureMpcJubjubPk],
   ["setup: check/derive MPC_SECP256K1_PUBKEY public key", ensureMpcSecp256k1Pubkey],
   ["setup: compile signet-contract contract with proving keys", compileSignetContract],
   ["setup: deploy signet-contract", deploySignetContractStep],
   ["setup: persist fakenet hand-off values to .env (append-only)", persistFakenetHandoffToDotEnv],
   ["setup: start the fakenet responder (docker compose)", startFakenetResponder],
   ["setup: compile caller contract with proving keys", compileCallerContract],
+  ["setup: resolve caller deployer identity (gates initialise)", ensureCallerDeployerIdentity],
   ["setup: deploy caller contract", deployCallerContractStep],
+  ["setup: check/derive MPC_RESPONSE_KEY for the caller contract", ensureMpcResponseKey],
 ];
 
 export async function setup(project: TestProject): Promise<void> {

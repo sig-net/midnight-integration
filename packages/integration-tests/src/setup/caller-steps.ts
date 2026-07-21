@@ -8,6 +8,7 @@
 import { deployCaller } from "@midnight-protocol/caller-contract";
 import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 
+import { requireEnv } from "../e2e-env.ts";
 import { logSkip } from "../output.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../preflight.ts";
 import { runRootScript } from "../subprocess.ts";
@@ -54,6 +55,25 @@ export async function compileCallerContract(env: NodeJS.ProcessEnv): Promise<voi
 }
 
 /**
+ * Resolve the caller deployer's identity secret: the commitment sealed by
+ * the caller's constructor gates its initialise circuit, and the flow's
+ * initialise leg answers the deployerSecretKey witness with this value.
+ * Defaults to the deployer wallet seed (the same convention the erc20-vault
+ * example uses), so no fresh material is minted.
+ *
+ * @param env - The suite's env accumulator.
+ */
+export function ensureCallerDeployerIdentity(env: NodeJS.ProcessEnv): void {
+  if (env.CALLER_DEPLOYER_SECRET_KEY) {
+    logSkip("resolve caller deployer identity", "CALLER_DEPLOYER_SECRET_KEY is set");
+    return;
+  }
+  env.CALLER_DEPLOYER_SECRET_KEY = requireEnv(env, "DEPLOYER_SEED");
+  console.log("defaulted CALLER_DEPLOYER_SECRET_KEY to the deployer wallet seed (initialise is deployer-gated)");
+  console.log(" ➜ its commitment is sealed by the caller's constructor; only its holder may pin the response key");
+}
+
+/**
  * Deploy the caller contract (unless a kept address skips it), retrying while
  * deployer dust generates on a young chain, and record the address in the
  * accumulator under `MIDNIGHT_CALLER_CONTRACT_ADDRESS`.
@@ -68,6 +88,6 @@ export async function deployCallerContractStep(env: NodeJS.ProcessEnv): Promise<
   const { contractAddress } = await retryDeployWhileDustGenerates("deploy:caller-contract", () => deployCaller(env));
   env.MIDNIGHT_CALLER_CONTRACT_ADDRESS = contractAddress;
   console.log(`deployed a fresh MIDNIGHT_CALLER_CONTRACT_ADDRESS=${contractAddress}`);
-  console.log(` ➜ the minimal signet caller on Midnight — records signature requests and verifies the MPC's Schnorr responses`);
+  console.log(` ➜ the minimal signet caller on Midnight — records signature requests and verifies the MPC's ECDSA responses`);
   console.log(` ➜ 💡 Set as MIDNIGHT_CALLER_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
 }

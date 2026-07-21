@@ -6,13 +6,13 @@
 //
 // The lockstep is enforced by each consuming contract's simulator tests: the
 // "signet-caller ledger shape" test in packages/caller-contract/tests/
-// contract.test.ts assigns the generated `ledger().signetRequestsIndex` to the
-// named SignBidirectionalRequestLedgerIndex type — the assignment itself is
+// contract.test.ts assigns the generated `ledger().signBidirectionalEventMap`
+// to the named SignBidirectionalEventLedgerMap type — the assignment itself is
 // the assertion, so any structural drift between the generated managed types
 // and these twins fails that package's `yarn build` / `yarn test`.
 //
 // Read more: https://docs.sig.network/ (signet protocol) and the module
-// header in Signet.compact (layout convention, path binding).
+// header in Signet.compact (key derivation, event flow).
 
 import {
   CompactTypeBoolean,
@@ -25,17 +25,26 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 import { getAddress, getBytes, Signature, Transaction } from "ethers";
 
-import { asciiPadded } from "./constants.ts";
-import { bigintToBytes32, bytesToBigint } from "./schnorr.ts";
-import type { SignatureResponse } from "./signet-contract-state-reader.ts";
+import { bigintToBytes32, bytesToBigint } from "./ecdsa-attestation.ts";
+import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts";
 
 /**
  * 32-byte signet request id (Compact: `new type RequestId = Bytes<32>`).
  * Chain-agnostic: downstream consumers treat it as an opaque key. Ids are
- * minted by `calculateRequestId` in Signet.compact — the domain-separated
- * hash of the full {@link SignBidirectionalRequest} record.
+ * minted by `calculateRequestId` in Signet.compact — the persistent hash of
+ * the full {@link SignBidirectionalEvent} record (which includes the sender
+ * contract address, scoping ids per contract).
  */
 export type RequestId = Uint8Array;
+
+/**
+ * A Midnight contract address as the generated code represents it in struct
+ * fields (Compact `ContractAddress`): a single-field wrapper around the raw
+ * 32 address bytes.
+ */
+export interface ContractAddress {
+  bytes: Uint8Array;
+}
 
 /**
  * Which transaction-param decomposition a request carries (Compact:
@@ -51,6 +60,28 @@ export const TxParamType = {
    * enum at >= 2 variants (a 1-variant enum is a zero-byte value the proof
    * server cannot parse inside persistentHash preimages).
    */
+  reserved: 1,
+} as const;
+
+/**
+ * Which signature algorithm the MPC uses (Compact:
+ * `enum MPCSignatureAlgorithm`), 0-based variant index.
+ */
+export const MPCSignatureAlgorithm = {
+  /** ECDSA over secp256k1. */
+  ecdsa: 0,
+  /** Never emitted — the >= 2 variants padding (see {@link TxParamType}). */
+  reserved: 1,
+} as const;
+
+/**
+ * The MPC destination field (Compact: `enum MPCDestination`), 0-based
+ * variant index. Reserved for future use.
+ */
+export const MPCDestination = {
+  /** The only currently-valid value. */
+  unused: 0,
+  /** Never emitted — the >= 2 variants padding (see {@link TxParamType}). */
   reserved: 1,
 } as const;
 
@@ -104,7 +135,7 @@ export interface EVMAccessListEntry {
 export interface EVMType2TxParams {
   /** Call target (e.g. the ERC20 contract), 20 bytes. */
   to: Uint8Array;
-  /** EVM chain id (also expressed in {@link SignBidirectionalRequest.caip2Id}). */
+  /** EVM chain id (also expressed in {@link SignBidirectionalEvent.caip2Id}). */
   chainId: bigint;
   /** Account nonce of the MPC-derived sender address. */
   nonce: bigint;
@@ -126,35 +157,39 @@ export interface EVMType2TxParams {
 
 /**
  * Canonical signet request record (Compact:
- * `SignBidirectionalRequest<TxParams>`), stored per {@link RequestId} in a
- * requesting contract's index (at whichever ledger field the contract
- * declares it — its notifications name the position). Mirrors the MPC's
- * SignBidirectionalRequest with the transaction decomposed. The TS twin fixes
- * the type parameter at {@link EVMType2TxParams} — the only decomposition
- * so far; new tx kinds add a union here alongside their Compact struct.
+ * `SignBidirectionalEvent<TxParams, #LenOutputDeserialization,
+ * #LenRespondSerialization>`), stored per {@link RequestId} in a requesting
+ * contract's `SignBidirectionalEventMap` (at whichever ledger field the
+ * contract declares it — its notifications name the position). The TS twin
+ * fixes the tx-params type parameter at {@link EVMType2TxParams} — the only
+ * decomposition so far; new tx kinds add a union here alongside their
+ * Compact struct. The schema fields carry their contract-declared byte
+ * widths in their array lengths.
  */
-export interface SignBidirectionalRequest {
+export interface SignBidirectionalEvent {
+  /** Address of the client contract that stores this event (`kernel.self()`). */
+  sender: ContractAddress;
   /** Contract-local nonce captured when the request was created. */
   requestNonce: bigint;
+  /** MPC root-key version to derive from (>= 1). */
+  keyVersion: bigint;
+  /** Key-derivation path: 32 opaque bytes of the client contract's choosing. */
+  path: Uint8Array;
+  /** An {@link MPCSignatureAlgorithm} value. */
+  algo: number;
+  /** An {@link MPCDestination} value. */
+  dest: number;
+  /** Extra MPC parameters, reserved; 64 bytes. */
+  params: Uint8Array;
   /** A {@link TxParamType} value tagging the txParams decomposition. */
   txParamType: number;
   /** The transaction decomposition. */
   txParams: EVMType2TxParams;
   /** Target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded; 32 bytes. */
   caip2Id: Uint8Array;
-  /** MPC root-key version to derive from (>= 1; version 0 is the unsupported legacy format). */
-  keyVersion: bigint;
-  /** Key-derivation path: canonical lowercase hex of the caller's identity commitment, zero-padded; 256 bytes. */
-  path: Uint8Array;
-  /** Signature scheme, zero-padded ASCII, e.g. "ecdsa"; 32 bytes. */
-  algo: Uint8Array;
-  /** Response destination, zero-padded ASCII, e.g. "ethereum"; 32 bytes. */
-  dest: Uint8Array;
-  /** Scheme-specific extras, opaque; 64 bytes. */
-  params: Uint8Array;
-  /** MPC output_deserialization_schema (destination chain -> MPC); 128 bytes. */
+  /** MPC output_deserialization_schema (destination chain -> MPC); contract-declared width. */
   outputDeserializationSchema: Uint8Array;
-  /** MPC respond_serialization_schema (MPC -> source chain); 128 bytes. */
+  /** MPC respond_serialization_schema (MPC -> Midnight); contract-declared width. */
   respondSerializationSchema: Uint8Array;
 }
 
@@ -162,11 +197,11 @@ export interface SignBidirectionalRequest {
 //
 // DEVIATION from the "pure circuits are compiled, never re-written in TS"
 // rule (see circuits.compact): `calculateRequestId` is generic over the
-// tx-params type, the Compact compiler cannot export type-parameterized
-// circuits from the top level, and a compiled copy would have to be
-// monomorphized at ONE capacity instantiation — a client contract's choice
-// that never belongs in this client-agnostic package. So the request-id
-// circuit alone gets a TS twin here.
+// tx-params type and schema lengths, the Compact compiler cannot export
+// type-parameterized circuits from the top level, and a compiled copy would
+// have to be monomorphized at ONE capacity instantiation — a client
+// contract's choice that never belongs in this client-agnostic package. So
+// the request-id circuit alone gets a TS twin here.
 //
 // It is NOT a hand-port of the hash algorithm: it calls the very
 // `persistentHash` runtime builtin that compiled circuits call, over runtime
@@ -180,23 +215,32 @@ export interface SignBidirectionalRequest {
 
 // Runtime descriptors of the Compact base types the request record uses.
 // CompactTypeUnsignedInteger takes (maxValue, byte length) — same literals
-// the compiler emits for Uint<8/32/64/128>. CompactTypeEnum takes
+// the compiler emits for Uint<8/64/128>. CompactTypeEnum takes
 // (variantCount - 1, byte length); NOTE a 1-variant enum would compile to
 // `CompactTypeEnum(0, 0)` — zero bytes, which the proof server cannot parse
-// inside persistentHash preimages. TxParamType therefore carries a padding
+// inside persistentHash preimages. Every enum therefore carries a padding
 // `reserved` variant so it stays at (1, 1).
 const BYTES_4 = new CompactTypeBytes(4);
 const BYTES_20 = new CompactTypeBytes(20);
 const BYTES_32 = new CompactTypeBytes(32);
 const BYTES_64 = new CompactTypeBytes(64);
-const BYTES_128 = new CompactTypeBytes(128);
-const BYTES_256 = new CompactTypeBytes(256);
 const UINT_8 = new CompactTypeUnsignedInteger(2n ** 8n - 1n, 1);
 const UINT_16 = new CompactTypeUnsignedInteger(2n ** 16n - 1n, 2);
-const UINT_32 = new CompactTypeUnsignedInteger(2n ** 32n - 1n, 4);
 const UINT_64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
 const UINT_128 = new CompactTypeUnsignedInteger(2n ** 128n - 1n, 16);
 const TX_PARAM_TYPE = new CompactTypeEnum(1, 1);
+const MPC_SIGNATURE_ALGORITHM = new CompactTypeEnum(1, 1);
+const MPC_DESTINATION = new CompactTypeEnum(1, 1);
+
+/**
+ * Descriptor of a Compact `ContractAddress` struct field, exactly as the
+ * compiler generates it: a single-field `{ bytes: Bytes<32> }` wrapper.
+ */
+const CONTRACT_ADDRESS: CompactType<ContractAddress> = {
+  alignment: () => BYTES_32.alignment(),
+  fromValue: (value) => ({ bytes: BYTES_32.fromValue(value) }),
+  toValue: (value) => BYTES_32.toValue(value.bytes),
+};
 
 /**
  * Build the runtime descriptor of a Compact struct from its per-field
@@ -310,20 +354,32 @@ export function evmType2TxParamsDescriptor(
 }
 
 /**
- * Descriptor of {@link SignBidirectionalRequest} at one capacity instantiation.
+ * Descriptor of {@link SignBidirectionalEvent} at one capacity instantiation.
  *
  * @param maxCalldataWords - Calldata word capacity.
  * @param maxAccessListEntries - Access-list entry capacity.
  * @param maxStorageKeysPerEntry - Storage-key capacity per entry.
- * @returns The request record descriptor.
+ * @param lenOutputDeserialization - Declared byte width of
+ *   `outputDeserializationSchema` (Compact `#LenOutputDeserialization`).
+ * @param lenRespondSerialization - Declared byte width of
+ *   `respondSerializationSchema` (Compact `#LenRespondSerialization`).
+ * @returns The event record descriptor.
  */
-export function signBidirectionalRequestDescriptor(
+export function signBidirectionalEventDescriptor(
   maxCalldataWords: number,
   maxAccessListEntries: number,
   maxStorageKeysPerEntry: number,
-): CompactType<SignBidirectionalRequest> {
-  return compactStructDescriptor<SignBidirectionalRequest>({
+  lenOutputDeserialization: number,
+  lenRespondSerialization: number,
+): CompactType<SignBidirectionalEvent> {
+  return compactStructDescriptor<SignBidirectionalEvent>({
+    sender: CONTRACT_ADDRESS,
     requestNonce: UINT_64,
+    keyVersion: UINT_8,
+    path: BYTES_32,
+    algo: MPC_SIGNATURE_ALGORITHM,
+    dest: MPC_DESTINATION,
+    params: BYTES_64,
     txParamType: TX_PARAM_TYPE,
     txParams: evmType2TxParamsDescriptor(
       maxCalldataWords,
@@ -331,49 +387,39 @@ export function signBidirectionalRequestDescriptor(
       maxStorageKeysPerEntry,
     ),
     caip2Id: BYTES_32,
-    keyVersion: UINT_32,
-    path: BYTES_256,
-    algo: BYTES_32,
-    dest: BYTES_32,
-    params: BYTES_64,
-    outputDeserializationSchema: BYTES_128,
-    respondSerializationSchema: BYTES_128,
+    outputDeserializationSchema: new CompactTypeBytes(lenOutputDeserialization),
+    respondSerializationSchema: new CompactTypeBytes(lenRespondSerialization),
   });
 }
 
 /**
- * Domain tag partitioning the {@link RequestId} space
- * (Compact: `pad(32, "signet:midnight:request")`).
- */
-const REQUEST_ID_DOMAIN_TAG = asciiPadded("signet:midnight:request", 32);
-
-/**
- * Canonical id of a signet request: the domain-separated persistent hash of
- * the entire request record. TS twin of Signet.compact's `calculateRequestId`
- * circuit (see the deviation note atop this section), generic over the
- * capacity instantiation via the record's own array lengths — pass the
- * record exactly as the ledger stores it, unused slots included.
+ * Canonical id of a signet request: the persistent hash of the entire event
+ * record (which commits to every field, the sender address included — there
+ * is deliberately no extra domain tag). TS twin of Signet.compact's
+ * `calculateRequestId` circuit (see the deviation note atop this section),
+ * generic over the capacity instantiation via the record's own array
+ * lengths — pass the record exactly as the ledger stores it, unused slots
+ * included and schemas at their declared widths.
  *
- * @param request - The full request record (contract-shaped, all slots).
+ * @param request - The full event record (contract-shaped, all slots).
  * @returns The 32-byte request id — the record's ledger map key.
  */
-export function calculateRequestId(request: SignBidirectionalRequest): RequestId {
+export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
   const { txParams } = request;
   const maxCalldataWords = txParams.calldata.value.words.length;
   const maxAccessListEntries = txParams.accessList.length;
   const maxStorageKeysPerEntry =
     maxAccessListEntries === 0 ? 0 : txParams.accessList[0].storageKeys.length;
-  return persistentHash(new CompactTypeVector(2, BYTES_32), [
-    REQUEST_ID_DOMAIN_TAG,
-    persistentHash(
-      signBidirectionalRequestDescriptor(
-        maxCalldataWords,
-        maxAccessListEntries,
-        maxStorageKeysPerEntry,
-      ),
-      request,
+  return persistentHash(
+    signBidirectionalEventDescriptor(
+      maxCalldataWords,
+      maxAccessListEntries,
+      maxStorageKeysPerEntry,
+      request.outputDeserializationSchema.length,
+      request.respondSerializationSchema.length,
     ),
-  ]);
+    request,
+  );
 }
 
 // ---- Calldata / transaction assembly ----------------------------------------
@@ -467,8 +513,8 @@ function decodeAccessList(
  *   MPC signs).
  * @throws Error if a calldata word carries an unknown kind.
  */
-export function signBidirectionalRequestToUnsignedEVMTransaction(
-  request: SignBidirectionalRequest,
+export function signBidirectionalEventToUnsignedEVMTransaction(
+  request: SignBidirectionalEvent,
 ): Transaction {
   const { txParams } = request;
   return Transaction.from({
@@ -495,8 +541,8 @@ export function signBidirectionalRequestToUnsignedEVMTransaction(
  * @returns The ethers signature.
  * @throws Error if the recovery id is not 0 or 1.
  */
-export function signatureResponseToSignature(
-  response: SignatureResponse,
+export function signatureRespondedEventToSignature(
+  response: SignatureRespondedEvent,
 ): Signature {
   const recoveryId = Number(response.recoveryId);
   if (recoveryId !== 0 && recoveryId !== 1) {
@@ -538,7 +584,7 @@ function bigintToBytes32BE(value: bigint): Uint8Array {
 
 /**
  * Encode an ECDSA signature as the response record posted to the signet
- * contract — the inverse of {@link signatureResponseToSignature},
+ * contract — the inverse of {@link signatureRespondedEventToSignature},
  * for MPC-side posters (the fakenet signer, tests). The canonical record
  * carries `bigR` as a full affine point but an `r || s || v` signature only
  * has R.x and the parity of R.y, so R.y is recovered by decompressing the
@@ -553,9 +599,9 @@ function bigintToBytes32BE(value: bigint): Uint8Array {
  * @returns The response record, ready to post.
  * @throws Error if `r` is not the x coordinate of a curve point.
  */
-export function signatureToSignatureResponse(
+export function signatureToSignatureRespondedEvent(
   signature: Pick<Signature, "r" | "s" | "yParity">,
-): SignatureResponse {
+): SignatureRespondedEvent {
   const x = BigInt(signature.r);
   const ySquared = (modPow(x, 3n, SECP256K1_P) + 7n) % SECP256K1_P;
   // P ≡ 3 (mod 4), so a square root (when one exists) is c^((P+1)/4).
@@ -577,10 +623,10 @@ export function signatureToSignatureResponse(
 /**
  * Assemble the broadcast-ready signed EIP-1559 transaction for a request from
  * its MPC signature response: rebuild the exact unsigned transaction the MPC
- * signed (see {@link signBidirectionalRequestToUnsignedEVMTransaction}) and
+ * signed (see {@link signBidirectionalEventToUnsignedEVMTransaction}) and
  * attach the signature. Does NOT check that the signature recovers to the
  * requester's derived address — the response log is unauthenticated, so
- * verify first with `verifySignatureResponse`.
+ * verify first with `verifySignatureRespondedEvent`.
  *
  * @param request - The on-ledger request record.
  * @param response - The posted signature record answering it.
@@ -588,25 +634,25 @@ export function signatureToSignatureResponse(
  *   `eth_sendRawTransaction`, `hash` its on-chain hash, `from` the recovered
  *   sender.
  * @throws Error if the request record is malformed (see
- *   {@link signBidirectionalRequestToUnsignedEVMTransaction}) or the response
+ *   {@link signBidirectionalEventToUnsignedEVMTransaction}) or the response
  *   is not a decodable signature.
  */
-export function signBidirectionalRequestToSignedEVMTransaction(
-  request: SignBidirectionalRequest,
-  response: SignatureResponse,
+export function signBidirectionalEventToSignedEVMTransaction(
+  request: SignBidirectionalEvent,
+  response: SignatureRespondedEvent,
 ): Transaction {
-  const transaction = signBidirectionalRequestToUnsignedEVMTransaction(request);
-  transaction.signature = signatureResponseToSignature(response);
+  const transaction = signBidirectionalEventToUnsignedEVMTransaction(request);
+  transaction.signature = signatureRespondedEventToSignature(response);
   return transaction;
 }
 
 /**
- * The generated ledger shape of `Map<RequestId, SignBidirectionalRequest>`:
+ * The generated ledger shape of `Map<RequestId, SignBidirectionalEvent>`:
  * what a contract's `ledger(state).signetRequestsIndex` provides. Structural,
  * so any contract exposing the index satisfies it.
  */
-export interface SignBidirectionalRequestLedgerIndex
-  extends Iterable<[RequestId, SignBidirectionalRequest]> {
+export interface SignBidirectionalEventLedgerMap
+  extends Iterable<[RequestId, SignBidirectionalEvent]> {
   /** @returns `true` when the index holds no requests. */
   isEmpty(): boolean;
   /** @returns Number of requests in the index. */
@@ -621,7 +667,7 @@ export interface SignBidirectionalRequestLedgerIndex
    * @returns The stored request record; throws when absent — guard with
    *   {@link member} first.
    */
-  lookup(requestId: RequestId): SignBidirectionalRequest;
+  lookup(requestId: RequestId): SignBidirectionalEvent;
 }
 
 declare const requestIdHexBrand: unique symbol;
@@ -641,9 +687,9 @@ export type RequestIdHex = string & {
 };
 
 /** Plain-JS index parsed out of the ledger, keyed by hex request id. */
-export type SignBidirectionalRequestIndex = Map<
+export type SignBidirectionalEventIndex = Map<
   RequestIdHex,
-  SignBidirectionalRequest
+  SignBidirectionalEvent
 >;
 
 /**
@@ -725,37 +771,27 @@ export function requestIdBytes(id: RequestIdHex): RequestId {
   return bytes;
 }
 
-/** Byte width of the path field (Compact `Bytes<256>`). */
-export const PATH_BYTES = 256;
-
 /**
- * Build the canonical MPC derivation path for an identity commitment: the
- * lowercase hex of the commitment as ASCII, zero-padded to {@link PATH_BYTES}
- * — exactly what the contract's `assertPathCommitment` accepts. Use this to
- * populate {@link SignBidirectionalRequest.path} when constructing requests.
- *
- * @param commitment - 32-byte identity commitment.
- * @returns The 256-byte path field value.
+ * Byte width of the path field (Compact `Bytes<32>`): 32 opaque bytes of the
+ * client contract's choosing. Keys the MPC signs with are derived from
+ * (contract address, path), so a contract can only ever reach keys scoped to
+ * itself.
  */
-export function signetPathOfCommitment(commitment: Uint8Array): Uint8Array {
-  const path = new Uint8Array(PATH_BYTES);
-  path.set(new TextEncoder().encode(bytesToHex(commitment)));
-  return path;
-}
+export const PATH_BYTES = 32;
 
 /**
  * Parse the on-ledger request map into a plain-JS index keyed by hex
  * request id.
  *
  * @param ledgerIndex - Iterable of `[requestId, request]` entries — e.g. a
- *   contract's `ledger(state).signetRequestsIndex` (any
- *   {@link SignBidirectionalRequestLedgerIndex}).
+ *   contract's `ledger(state).signBidirectionalEventMap` (any
+ *   {@link SignBidirectionalEventLedgerMap}).
  * @returns A new `Map` from {@link requestIdHex} key to request record.
  */
-export function toSignBidirectionalRequestIndex(
-  ledgerIndex: Iterable<[RequestId, SignBidirectionalRequest]>,
-): SignBidirectionalRequestIndex {
-  const index: SignBidirectionalRequestIndex = new Map();
+export function toSignBidirectionalEventIndex(
+  ledgerIndex: Iterable<[RequestId, SignBidirectionalEvent]>,
+): SignBidirectionalEventIndex {
+  const index: SignBidirectionalEventIndex = new Map();
   for (const [requestId, request] of ledgerIndex) {
     index.set(requestIdHex(requestId), request);
   }

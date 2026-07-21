@@ -1,9 +1,9 @@
 // Simulator-level unit tests: the contract runs entirely in-process via
-// @midnight-ntwrk/compact-runtime — no ledger, no network, no proving. The
-// stage-2 suite signs REAL attestations (schnorrSign + the compiled
-// schnorrChallenge/signetAttestationMessage circuits), so
-// postRespondBidirectional's in-circuit Schnorr verification is exercised
-// end to end.
+// @midnight-ntwrk/compact-runtime — no ledger, no network, no proving. Every
+// store on this contract is an UNAUTHENTICATED append-only log: nothing is
+// verified in circuit, each post lands under the next (requestId, count) key,
+// and verification is deliberately the reader's job. The tests pin exactly
+// that: garbage lands too, nothing overwrites, counters and entries agree.
 
 import { describe, expect, it } from "vitest";
 
@@ -16,15 +16,13 @@ import {
 import {
   bytesToHex,
   decodeSignBidirectionalNotification,
-  deriveJubjubKeypair,
-  hashJubjubPoint,
+  bigintToBytes32,
   readSignetContractLedgerFromState,
   requestIdHex,
-  schnorrSign,
+  signetMapEntryKey,
   pureCircuits as signetCircuits,
-  type JubjubKeypair,
-  type SignatureResponse,
-  type RespondBidirectional,
+  type SignatureRespondedEvent,
+  type RespondBidirectionalEvent,
 } from "@sig-net/midnight";
 
 import {
@@ -46,56 +44,45 @@ const bytes = (length: number, fill: number) =>
 // Request ids the posts below answer, and signature response records.
 const REQUEST_A = bytes(32, 0xaa);
 const REQUEST_B = bytes(32, 0xbb);
-const SIG_1: SignatureResponse = {
+const SIG_1: SignatureRespondedEvent = {
   bigRx: bytes(32, 0x01),
   bigRy: bytes(32, 0x02),
   s: bytes(32, 0x03),
   recoveryId: 0n,
 };
-const SIG_2: SignatureResponse = {
+const SIG_2: SignatureRespondedEvent = {
   bigRx: bytes(32, 0x04),
   bigRy: bytes(32, 0x05),
   s: bytes(32, 0x06),
   recoveryId: 1n,
 };
 
-// The "MPC" of these tests (its key is pinned at deploy), and an imposter.
-const MPC_KEYS = deriveJubjubKeypair(bytes(32, 0x42));
-const IMPOSTER_KEYS = deriveJubjubKeypair(bytes(32, 0x43));
-
-// A successful remote execution: first byte 1 (the LE encoding the circuits
-// decode as `as Field == 1`), rest zero; 32 meaningful bytes (one ABI word).
-const OUTPUT_SUCCESS = new Uint8Array(128);
-OUTPUT_SUCCESS[0] = 1;
-const OUTPUT_SUCCESS_LEN = 32n;
-
-/**
- * Sign a REAL attestation of (requestId, serializedOutput, outputLen) with
- * `keys` — message and challenge both come from the compiled circuits,
- * exactly like the MPC.
- */
-const attest = (
-  keys: JubjubKeypair,
-  requestId: Uint8Array,
-  serializedOutput: Uint8Array,
-  outputLen: bigint = OUTPUT_SUCCESS_LEN,
-): RespondBidirectional => {
-  const msg = signetCircuits.signetAttestationMessage(
-    requestId,
-    serializedOutput,
-    outputLen,
-  );
-  const signature = schnorrSign(keys.sk, msg, (ax, ay, px, py, m) =>
-    signetCircuits.schnorrChallenge(ax, ay, px, py, m),
-  );
-  return {
-    serializedOutput,
-    outputLen,
-    pk: keys.pk,
-    announcement: signature.announcement,
-    response: signature.response,
-  };
+// Respond-bidirectional records: SYNTHETIC signatures, deliberately not
+// verifiable — the contract must store them anyway (verification is the
+// reader's job, not this contract's).
+const OUTPUT_SUCCESS = (() => {
+  const out = new Uint8Array(128);
+  out[0] = 1;
+  return out;
+})();
+const RESPOND_1: RespondBidirectionalEvent = {
+  serializedOutput: OUTPUT_SUCCESS,
+  outputLen: 32n,
+  r: bigintToBytes32(111n),
+  s: bigintToBytes32(222n),
+  recoveryId: 0n,
 };
+const RESPOND_2: RespondBidirectionalEvent = {
+  serializedOutput: bytes(128, 0x5a),
+  outputLen: 64n,
+  r: bigintToBytes32(333n),
+  s: bigintToBytes32(444n),
+  recoveryId: 1n,
+};
+
+// A caller contract address as the packer consumes it (raw 32 bytes) — the
+// registering client passes kernel.self(); here a fixed fixture suffices.
+const NOTIFYING_CALLER = { bytes: bytes(32, 0xc1) };
 
 // ---- Harness ----
 
@@ -104,7 +91,6 @@ const deployContract = async (circuitId: string) => {
   const { currentContractState, currentPrivateState } =
     await contract.initialState(
       createConstructorContext(createSignetContractPrivateState(), CPK),
-      MPC_KEYS.pk,
     );
   const ctx = createCircuitContext(
     circuitId,
@@ -119,117 +105,115 @@ const deployContract = async (circuitId: string) => {
 // ---- Tests ----
 
 describe("constructor", () => {
-  it("deploys with empty indexes and the MPC key hash sealed", async () => {
+  it("deploys with all six maps empty", async () => {
     const { ctx } = await deployContract("postSignatureResponse");
     const state = ledger(ctx.callContext.currentQueryContext.state);
-    expect(state.signatureResponseCounterIndex.isEmpty()).toBe(true);
-    expect(state.signatureResponseIndex.isEmpty()).toBe(true);
-    expect(state.respondBidirectionalIndex.isEmpty()).toBe(true);
-    expect(state.mpcPubKeyHash).toEqual(hashJubjubPoint(MPC_KEYS.pk));
-    expect(state.signBidirectionalNotificationIndex.isEmpty()).toBe(true);
+    expect(state.signBidirectionalEventNotificationCounterMap.isEmpty()).toBe(true);
+    expect(state.signBidirectionalEventNotificationMap.isEmpty()).toBe(true);
+    expect(state.signatureResponseCounterMap.isEmpty()).toBe(true);
+    expect(state.signatureResponseMap.isEmpty()).toBe(true);
+    expect(state.respondBidirectionalCounterMap.isEmpty()).toBe(true);
+    expect(state.respondBidirectionalMap.isEmpty()).toBe(true);
   });
 });
 
-// A caller contract address as the packer consumes it (raw 32 bytes) — the
-// registering client passes kernel.self(); here a fixed fixture suffices.
-const NOTIFYING_CALLER = { bytes: bytes(32, 0xc1) };
-
-describe("notifyBidirectionalSignatureRequest", () => {
-  it("stores the notification under its request id — observable on the ledger", async () => {
-    const { contract, ctx } = await deployContract(
-      "notifyBidirectionalSignatureRequest",
-    );
-    const notification = signetCircuits.constructSignBidirectionalNotificationV1(
+describe("signBidirectionalEvent", () => {
+  const notification = (requestsIndexField: bigint) =>
+    signetCircuits.constructSignBidirectionalEventNotificationV1(
       NOTIFYING_CALLER,
+      requestsIndexField,
+    );
+
+  it("stores the notification under (requestId, 0) and returns that map key", async () => {
+    const { contract, ctx } = await deployContract("signBidirectionalEvent");
+
+    const { result, context } = await contract.circuits.signBidirectionalEvent(
+      ctx,
       REQUEST_A,
-      0n,
+      notification(4n),
     );
+    const state = ledger(context.callContext.currentQueryContext.state);
 
-    const next = (
-      await contract.circuits.notifyBidirectionalSignatureRequest(
-        ctx,
-        REQUEST_A,
-        notification,
-      )
-    ).context;
-    const state = ledger(next.callContext.currentQueryContext.state);
-
-    expect(state.signBidirectionalNotificationIndex.size()).toBe(1n);
-    expect(state.signBidirectionalNotificationIndex.lookup(REQUEST_A)).toEqual(
-      notification,
-    );
+    expect(result).toEqual({ count: 0n, requestId: REQUEST_A });
+    expect(
+      state.signBidirectionalEventNotificationCounterMap.lookup(REQUEST_A).read(),
+    ).toBe(1n);
+    expect(state.signBidirectionalEventNotificationMap.size()).toBe(1n);
+    expect(
+      state.signBidirectionalEventNotificationMap.lookup({
+        count: 0n,
+        requestId: REQUEST_A,
+      }),
+    ).toEqual(notification(4n));
   });
 
-  it("overwrites idempotently on a repeat notify for the same request id", async () => {
-    const { contract, ctx } = await deployContract(
-      "notifyBidirectionalSignatureRequest",
-    );
-    const first = signetCircuits.constructSignBidirectionalNotificationV1(
-      NOTIFYING_CALLER,
+  it("appends a repeat notify under the next count — nothing overwritten", async () => {
+    const { contract, ctx } = await deployContract("signBidirectionalEvent");
+
+    const first = await contract.circuits.signBidirectionalEvent(
+      ctx,
       REQUEST_A,
-      0n,
+      notification(4n),
     );
-    const second = signetCircuits.constructSignBidirectionalNotificationV1(
-      NOTIFYING_CALLER,
+    const second = await contract.circuits.signBidirectionalEvent(
+      first.context,
       REQUEST_A,
-      3n, // different index field — latest write must win
+      notification(7n), // different index field — both posts must survive
     );
 
-    let next = (
-      await contract.circuits.notifyBidirectionalSignatureRequest(
-        ctx,
-        REQUEST_A,
-        first,
-      )
-    ).context;
-    next = (
-      await contract.circuits.notifyBidirectionalSignatureRequest(
-        next,
-        REQUEST_A,
-        second,
-      )
-    ).context;
+    expect(second.result).toEqual({ count: 1n, requestId: REQUEST_A });
+    const state = ledger(second.context.callContext.currentQueryContext.state);
+    expect(
+      state.signBidirectionalEventNotificationCounterMap.lookup(REQUEST_A).read(),
+    ).toBe(2n);
+    expect(state.signBidirectionalEventNotificationMap.size()).toBe(2n);
+    expect(
+      state.signBidirectionalEventNotificationMap.lookup({
+        count: 0n,
+        requestId: REQUEST_A,
+      }),
+    ).toEqual(notification(4n));
+    expect(
+      state.signBidirectionalEventNotificationMap.lookup({
+        count: 1n,
+        requestId: REQUEST_A,
+      }),
+    ).toEqual(notification(7n));
+  });
 
-    const state = ledger(next.callContext.currentQueryContext.state);
-    expect(state.signBidirectionalNotificationIndex.size()).toBe(1n);
-    expect(state.signBidirectionalNotificationIndex.lookup(REQUEST_A)).toEqual(
-      second,
-    );
+  it("rejects a notification whose version is not 1", async () => {
+    const { contract, ctx } = await deployContract("signBidirectionalEvent");
+    await expect(
+      contract.circuits.signBidirectionalEvent(ctx, REQUEST_A, {
+        ...notification(4n),
+        version: 2n,
+      }),
+    ).rejects.toThrow(/only version 1 notification supported/);
   });
 
   it("MPC-style raw read decodes the stored notification from real contract state", async () => {
-    const { contract, ctx } = await deployContract(
-      "notifyBidirectionalSignatureRequest",
-    );
-    const notification = signetCircuits.constructSignBidirectionalNotificationV1(
-      NOTIFYING_CALLER,
+    const { contract, ctx } = await deployContract("signBidirectionalEvent");
+    const { context } = await contract.circuits.signBidirectionalEvent(
+      ctx,
       REQUEST_A,
-      0n,
+      notification(4n),
     );
-    const next = (
-      await contract.circuits.notifyBidirectionalSignatureRequest(
-        ctx,
-        REQUEST_A,
-        notification,
-      )
-    ).context;
 
     // Read the REAL simulator state the way the MPC reads the indexer's raw
     // state: by field position, through the hand-composed descriptors. This
     // pins descriptor↔contract encoding lockstep in-process.
     const raw = readSignetContractLedgerFromState(
-      next.callContext.currentQueryContext.state,
+      context.callContext.currentQueryContext.state,
     );
-    expect(raw.signBidirectionalNotificationIndex.size).toBe(1);
-    const record = raw.signBidirectionalNotificationIndex.get(
+    expect(raw.signBidirectionalEventNotificationMap.size).toBe(1);
+    const record = raw.signBidirectionalEventNotificationMap.get(
       requestIdHex(REQUEST_A),
     );
     expect(record).toBeDefined();
     expect(decodeSignBidirectionalNotification(record!)).toEqual({
       version: 1,
       callerAddress: bytesToHex(NOTIFYING_CALLER.bytes),
-      requestId: requestIdHex(REQUEST_A),
-      requestsIndexField: 0,
+      requestsIndexField: 4,
     });
   });
 });
@@ -237,7 +221,7 @@ describe("notifyBidirectionalSignatureRequest", () => {
 /** One posted (requestId, signature) pair, applied in row order. */
 interface Post {
   requestId: Uint8Array;
-  signature: SignatureResponse;
+  signature: SignatureRespondedEvent;
 }
 
 /** One row of the post table: a post sequence → the exact expected ledger. */
@@ -246,13 +230,13 @@ interface PostCase {
   name: string;
   /** Posts applied in order, each through postSignatureResponse. */
   posts: Post[];
-  /** The FULL expected counter index: total posts per request id. */
+  /** The FULL expected counter map: total posts per request id. */
   expectedCounters: { requestId: Uint8Array; total: bigint }[];
   /** The FULL expected response log: (requestId, count) → signature. */
   expectedEntries: {
     requestId: Uint8Array;
     count: bigint;
-    signature: SignatureResponse;
+    signature: SignatureRespondedEvent;
   }[];
 }
 
@@ -324,127 +308,116 @@ describe("postSignatureResponse", () => {
       }
       const state = ledger(finalCtx.callContext.currentQueryContext.state);
 
-      // The counter index holds EXACTLY the expected requests, each counter
+      // The counter map holds EXACTLY the expected requests, each counter
       // reading that request's total number of posts.
-      expect(state.signatureResponseCounterIndex.size()).toBe(
+      expect(state.signatureResponseCounterMap.size()).toBe(
         BigInt(expectedCounters.length),
       );
       for (const { requestId, total } of expectedCounters) {
-        expect(
-          state.signatureResponseCounterIndex.lookup(requestId).read(),
-        ).toBe(total);
+        expect(state.signatureResponseCounterMap.lookup(requestId).read()).toBe(
+          total,
+        );
       }
 
       // The response log holds EXACTLY the expected (requestId, count) keys.
-      expect(state.signatureResponseIndex.size()).toBe(
+      expect(state.signatureResponseMap.size()).toBe(
         BigInt(expectedEntries.length),
       );
       for (const { requestId, count, signature } of expectedEntries) {
-        expect(
-          state.signatureResponseIndex.lookup({ count, requestId }),
-        ).toEqual(signature);
+        expect(state.signatureResponseMap.lookup({ count, requestId })).toEqual(
+          signature,
+        );
       }
     },
   );
 });
 
 describe("postRespondBidirectional", () => {
-  it("stores a genuine attestation — the ledger record parses into the shared twin type", async () => {
+  it("stores a post under (requestId, 0) — UNVERIFIED by design", async () => {
     const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
 
-    const next = (
-      await contract.circuits.postRespondBidirectional(
-        ctx,
-        REQUEST_A,
-        attestation,
-      )
-    ).context;
-    const state = ledger(next.callContext.currentQueryContext.state);
+    const { context } = await contract.circuits.postRespondBidirectional(
+      ctx,
+      REQUEST_A,
+      RESPOND_1,
+    );
+    const state = ledger(context.callContext.currentQueryContext.state);
 
-    expect(state.respondBidirectionalIndex.size()).toBe(1n);
-    // The assignment is the real assertion: the generated ledger type must
-    // stay structurally identical to the shared library's named twin.
-    const stored: RespondBidirectional =
-      state.respondBidirectionalIndex.lookup(REQUEST_A);
-    expect(stored).toEqual(attestation);
+    expect(state.respondBidirectionalCounterMap.lookup(REQUEST_A).read()).toBe(1n);
+    expect(state.respondBidirectionalMap.size()).toBe(1n);
+    // The synthetic (unverifiable) signature landed verbatim: the contract
+    // stores, the reader verifies.
+    expect(
+      state.respondBidirectionalMap.lookup({ count: 0n, requestId: REQUEST_A }),
+    ).toEqual(RESPOND_1);
   });
 
-  it("rejects an attestation by a key other than the pinned MPC key", async () => {
+  it("appends a second post for the same request — nothing overwritten", async () => {
     const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const attestation = attest(IMPOSTER_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    await expect(
-      contract.circuits.postRespondBidirectional(ctx, REQUEST_A, attestation),
-    ).rejects.toThrow(/attestation pk is not the MPC key/);
+
+    const first = await contract.circuits.postRespondBidirectional(
+      ctx,
+      REQUEST_A,
+      RESPOND_1,
+    );
+    const second = await contract.circuits.postRespondBidirectional(
+      first.context,
+      REQUEST_A,
+      RESPOND_2,
+    );
+
+    const state = ledger(second.context.callContext.currentQueryContext.state);
+    expect(state.respondBidirectionalCounterMap.lookup(REQUEST_A).read()).toBe(2n);
+    expect(state.respondBidirectionalMap.size()).toBe(2n);
+    expect(
+      state.respondBidirectionalMap.lookup({ count: 0n, requestId: REQUEST_A }),
+    ).toEqual(RESPOND_1);
+    expect(
+      state.respondBidirectionalMap.lookup({ count: 1n, requestId: REQUEST_A }),
+    ).toEqual(RESPOND_2);
   });
 
-  it("rejects a tampered attestation (output differs from what was signed)", async () => {
+  it("tracks posts per request id", async () => {
     const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    const tamperedOutput = new Uint8Array(OUTPUT_SUCCESS);
-    tamperedOutput[100] = 0xff;
-    await expect(
-      contract.circuits.postRespondBidirectional(ctx, REQUEST_A, {
-        ...attestation,
-        serializedOutput: tamperedOutput,
-      }),
-    ).rejects.toThrow(/Invalid attestation signature/);
+
+    const first = await contract.circuits.postRespondBidirectional(
+      ctx,
+      REQUEST_A,
+      RESPOND_1,
+    );
+    const second = await contract.circuits.postRespondBidirectional(
+      first.context,
+      REQUEST_B,
+      RESPOND_2,
+    );
+
+    const state = ledger(second.context.callContext.currentQueryContext.state);
+    expect(state.respondBidirectionalCounterMap.lookup(REQUEST_A).read()).toBe(1n);
+    expect(state.respondBidirectionalCounterMap.lookup(REQUEST_B).read()).toBe(1n);
+    expect(
+      state.respondBidirectionalMap.lookup({ count: 0n, requestId: REQUEST_A }),
+    ).toEqual(RESPOND_1);
+    expect(
+      state.respondBidirectionalMap.lookup({ count: 0n, requestId: REQUEST_B }),
+    ).toEqual(RESPOND_2);
   });
 
-  it("rejects a tampered attestation (output length differs from what was signed)", async () => {
+  it("MPC-style raw read agrees with the generated ledger()", async () => {
     const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    await expect(
-      contract.circuits.postRespondBidirectional(ctx, REQUEST_A, {
-        ...attestation,
-        outputLen: attestation.outputLen + 1n,
-      }),
-    ).rejects.toThrow(/Invalid attestation signature/);
-  });
+    const { context } = await contract.circuits.postRespondBidirectional(
+      ctx,
+      REQUEST_A,
+      RESPOND_1,
+    );
 
-  it("rejects a genuine attestation replayed under a DIFFERENT request id", async () => {
-    const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const attestation = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    await expect(
-      contract.circuits.postRespondBidirectional(ctx, REQUEST_B, attestation),
-    ).rejects.toThrow(/Invalid attestation signature/);
-  });
-
-  it("first valid write wins: a re-signed duplicate is a no-op, not an overwrite", async () => {
-    const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const first = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    // Schnorr is randomized: a second signature over the SAME output is a
-    // different, equally valid record.
-    const second = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    expect(second.announcement).not.toEqual(first.announcement);
-
-    let next = (
-      await contract.circuits.postRespondBidirectional(ctx, REQUEST_A, first)
-    ).context;
-    next = (
-      await contract.circuits.postRespondBidirectional(next, REQUEST_A, second)
-    ).context;
-
-    const state = ledger(next.callContext.currentQueryContext.state);
-    expect(state.respondBidirectionalIndex.size()).toBe(1n);
-    expect(state.respondBidirectionalIndex.lookup(REQUEST_A)).toEqual(first);
-  });
-
-  it("tracks attestations per request id", async () => {
-    const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const forA = attest(MPC_KEYS, REQUEST_A, OUTPUT_SUCCESS);
-    const forB = attest(MPC_KEYS, REQUEST_B, OUTPUT_SUCCESS);
-
-    let next = (
-      await contract.circuits.postRespondBidirectional(ctx, REQUEST_A, forA)
-    ).context;
-    next = (
-      await contract.circuits.postRespondBidirectional(next, REQUEST_B, forB)
-    ).context;
-
-    const state = ledger(next.callContext.currentQueryContext.state);
-    expect(state.respondBidirectionalIndex.size()).toBe(2n);
-    expect(state.respondBidirectionalIndex.lookup(REQUEST_A)).toEqual(forA);
-    expect(state.respondBidirectionalIndex.lookup(REQUEST_B)).toEqual(forB);
+    const raw = readSignetContractLedgerFromState(
+      context.callContext.currentQueryContext.state,
+    );
+    expect(raw.respondBidirectionalCounterMap.get(requestIdHex(REQUEST_A))).toBe(1n);
+    expect(
+      raw.respondBidirectionalMap.get(
+        signetMapEntryKey(requestIdHex(REQUEST_A), 0n),
+      ),
+    ).toEqual(RESPOND_1);
   });
 });

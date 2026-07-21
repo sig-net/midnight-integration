@@ -1,25 +1,16 @@
-# CI runs the SAME commands a developer types — there is exactly one test
-# stream (see packages/integration-tests/README.md). Three jobs:
+# Unit and integration testing.
+#   unit         compile + build + test
+#   integration  compose stack + signet-caller e2e, whose setup deploys the
+#                contracts and starts the fakenet responder
 #
-#   unit         — yarn compile && yarn build && yarn test  (every push/PR)
-#   integration  — docker compose up -d + the generic signet-caller e2e; the
-#                  suite's own setup deploys the contracts, appends the
-#                  fakenet hand-off values to .env and starts the responder
-#                  container
-#   zk-canary    — fresh full keygen, row counts in the log (weekly + manual)
+# Everything is FROZEN: npm deps from the committed yarn.lock (installs run
+# --immutable), and the compact toolchain pinned by exact URL (launcher
+# compact-v0.5.1, compiler compactc 0.33.0-rc.2). Bump versions deliberately.
 #
-# Caches (both weekly-keyed or source-keyed, never version-pinned — the repo
-# floats on latest):
-#   compact-*  — the compact toolchain (~/.compact + the launcher binary)
-#   zk-keys-*  — prover/verifier keys, keyed on compiler version + every
-#                .compact source; a hit lets the setup skip ~2×10 min of
-#                keygen via TRUST_PREBUILT_ZK_KEYS (fresh by construction:
-#                the key changes whenever a contract changes). Only the
-#                integration job SAVES this cache (it generates both
-#                contracts' keys); the unit job restores read-only.
-#
-# The integration job pulls ghcr.io/sig-net/fakenet — that image must be
-# public.
+# Caches (compact-*, zk-keys-*) are keyed on those pins, so a hit only skips a
+# download/keygen and never changes what is built. Only the integration job
+# saves zk-keys, while the unit job restores read-only. It also pulls the
+# public ghcr.io/sig-net/fakenet image.
 
 name: ci
 
@@ -29,13 +20,7 @@ on:
   pull_request:
   schedule:
     - cron: "17 3 * * *" # nightly: integration suite
-    - cron: "41 4 * * 1" # weekly (Mon): zk row-count canary
   workflow_dispatch:
-    inputs:
-      zk-canary:
-        description: "Run the zk compile canary (fresh keygen, no cache)"
-        type: boolean
-        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -52,40 +37,30 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*
-          # corepack owns yarn here; the action's cache probe would run
-          # yarn 1.x against the yarn-4 packageManager field and die
+          # corepack owns yarn: the action's yarn-1 cache probe would die here
           package-manager-cache: false
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
-      - name: Cache period stamp (the compact toolchain floats on latest — refresh weekly)
-        id: stamp
-        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
-      - name: Restore the compact toolchain
+      - name: Restore the compact toolchain (keyed on the pinned versions)
         uses: actions/cache@v4
         with:
           path: |
             ~/.compact
             ~/.local/bin/compact
-          key: compact-${{ runner.os }}-${{ steps.stamp.outputs.week }}
-          restore-keys: compact-${{ runner.os }}-
-      - name: Install / update the compact toolchain (unpinned, per AGENTS.md)
+          key: compact-${{ runner.os }}-launcher0.5.1-compactc0.33.0-rc.2
+      - name: Install the compact toolchain (pinned launcher + compiler, per AGENTS.md)
         run: |
           export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
+          # Launcher pinned to compact-v0.5.1 (never releases/latest).
           if ! command -v compact >/dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -LsSf \
-              https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh | sh
           fi
-          compact update
-          # The workspace tracks the ledger-9 toolchain line: latest STABLE
-          # (0.31.1) speaks language 0.23 and rejects the contracts'
-          # `pragma language_version >= 0.25`. compactc 0.33.0-rc.2 is a
-          # PRERELEASE published on the toolchain's LF home
-          # (LFDT-Minokawa/compact), which the launcher's channel does not
-          # list — download it directly and let the launcher adopt it.
-          # Part of the ledger-9 MATCHED SET (see docker-compose.yaml's
-          # image-tag comment) — move it together with the npm stack.
+          # compactc 0.33.0-rc.2: a ledger-9 PRERELEASE not in the launcher's
+          # channel, so fetch it directly. Part of the ledger-9 matched set
+          # (see docker-compose.yaml). Bump it with the npm stack.
           RC_DIR="$HOME/.compact/versions/0.33.0-rc.2/x86_64-unknown-linux-musl"
           if [ ! -x "$RC_DIR/compactc" ]; then
             mkdir -p "$RC_DIR"
@@ -94,29 +69,24 @@ jobs:
             unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
             chmod +x "$RC_DIR"/*
           fi
-          # `compact update <ver>` adopts an already-on-disk version without
-          # downloading; if the launcher refuses (version not in its
-          # channel), wire the default symlinks it would have created.
+          # Adopt the on-disk version. If the launcher refuses, wire its symlinks.
           compact update 0.33.0-rc.2 || ln -sfn "$RC_DIR"/* "$HOME/.compact/bin/"
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
         run: |
-          # The zk-key cache must bust whenever the compiler BUILD changes,
-          # but `compact compile --version` drops the -rc suffix (rc.0 and
-          # rc.2 both print 0.33.0), so an rc bump would silently reuse the
-          # old rc's cached managed/ output against a newer runtime. Read the
-          # rc-qualified version from the default compiler's version directory
-          # (…/versions/<version>/<arch>/compactc) instead.
+          # `compact compile --version` drops the -rc suffix (rc.0 and rc.2 both
+          # print 0.33.0), so read the rc-qualified version from the compiler's
+          # on-disk path instead, so the zk cache key busts on an rc bump.
           target="$(readlink -f "$(command -v compactc)")"
           version="$(basename "$(dirname "$(dirname "$target")")")"
           case "$version" in [0-9]*) ;; *) version="$(compact compile --version)" ;; esac
           echo "version=$(printf '%s' "$version" | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
-      - name: Install dependencies (no lockfile by design — installs float to latest)
-        run: yarn install --no-immutable
+      - name: Install dependencies (frozen, from the committed yarn.lock)
+        run: yarn install --immutable
       - name: Compile (skip-zk)
         run: yarn compile
-      - name: Restore prebuilt zk proving keys (read-only; the integration job saves)
+      - name: Restore prebuilt zk proving keys (read-only, the integration job saves)
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -126,13 +96,13 @@ jobs:
       - name: Ensure signet-contract prover keys (its build's publish-safety check needs them)
         run: |
           if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
-            echo "prover keys present (restored from the cache) — skipping keygen"
+            echo "prover keys present (restored from the cache), skipping keygen"
           else
             yarn compile:signet-contract:zk
           fi
       - name: Build (typecheck, no emit)
         run: yarn build
-      - name: Unit tests (simulator-only; the integration suites self-skip without RUN_INTEGRATION_TESTS)
+      - name: Unit tests (simulator-only, the integration suites self-skip without RUN_INTEGRATION_TESTS)
         run: yarn test
 
   integration:
@@ -145,40 +115,30 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*
-          # corepack owns yarn here; the action's cache probe would run
-          # yarn 1.x against the yarn-4 packageManager field and die
+          # corepack owns yarn: the action's yarn-1 cache probe would die here
           package-manager-cache: false
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
-      - name: Cache period stamp (the compact toolchain floats on latest — refresh weekly)
-        id: stamp
-        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
-      - name: Restore the compact toolchain
+      - name: Restore the compact toolchain (keyed on the pinned versions)
         uses: actions/cache@v4
         with:
           path: |
             ~/.compact
             ~/.local/bin/compact
-          key: compact-${{ runner.os }}-${{ steps.stamp.outputs.week }}
-          restore-keys: compact-${{ runner.os }}-
-      - name: Install / update the compact toolchain (unpinned, per AGENTS.md)
+          key: compact-${{ runner.os }}-launcher0.5.1-compactc0.33.0-rc.2
+      - name: Install the compact toolchain (pinned launcher + compiler, per AGENTS.md)
         run: |
           export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
+          # Launcher pinned to compact-v0.5.1 (never releases/latest).
           if ! command -v compact >/dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -LsSf \
-              https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh | sh
           fi
-          compact update
-          # The workspace tracks the ledger-9 toolchain line: latest STABLE
-          # (0.31.1) speaks language 0.23 and rejects the contracts'
-          # `pragma language_version >= 0.25`. compactc 0.33.0-rc.2 is a
-          # PRERELEASE published on the toolchain's LF home
-          # (LFDT-Minokawa/compact), which the launcher's channel does not
-          # list — download it directly and let the launcher adopt it.
-          # Part of the ledger-9 MATCHED SET (see docker-compose.yaml's
-          # image-tag comment) — move it together with the npm stack.
+          # compactc 0.33.0-rc.2: a ledger-9 PRERELEASE not in the launcher's
+          # channel, so fetch it directly. Part of the ledger-9 matched set
+          # (see docker-compose.yaml). Bump it with the npm stack.
           RC_DIR="$HOME/.compact/versions/0.33.0-rc.2/x86_64-unknown-linux-musl"
           if [ ! -x "$RC_DIR/compactc" ]; then
             mkdir -p "$RC_DIR"
@@ -187,26 +147,21 @@ jobs:
             unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
             chmod +x "$RC_DIR"/*
           fi
-          # `compact update <ver>` adopts an already-on-disk version without
-          # downloading; if the launcher refuses (version not in its
-          # channel), wire the default symlinks it would have created.
+          # Adopt the on-disk version. If the launcher refuses, wire its symlinks.
           compact update 0.33.0-rc.2 || ln -sfn "$RC_DIR"/* "$HOME/.compact/bin/"
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
         run: |
-          # The zk-key cache must bust whenever the compiler BUILD changes,
-          # but `compact compile --version` drops the -rc suffix (rc.0 and
-          # rc.2 both print 0.33.0), so an rc bump would silently reuse the
-          # old rc's cached managed/ output against a newer runtime. Read the
-          # rc-qualified version from the default compiler's version directory
-          # (…/versions/<version>/<arch>/compactc) instead.
+          # `compact compile --version` drops the -rc suffix (rc.0 and rc.2 both
+          # print 0.33.0), so read the rc-qualified version from the compiler's
+          # on-disk path instead, so the zk cache key busts on an rc bump.
           target="$(readlink -f "$(command -v compactc)")"
           version="$(basename "$(dirname "$(dirname "$target")")")"
           case "$version" in [0-9]*) ;; *) version="$(compact compile --version)" ;; esac
           echo "version=$(printf '%s' "$version" | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
-      - name: Install dependencies (no lockfile by design — installs float to latest)
-        run: yarn install --no-immutable
+      - name: Install dependencies (frozen, from the committed yarn.lock)
+        run: yarn install --immutable
       - name: Compile (skip-zk)
         run: yarn compile
       - name: Restore prebuilt zk proving keys
@@ -217,10 +172,10 @@ jobs:
             packages/signet-contract/src/managed
             packages/caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
-      - name: zk keygen (both contracts; cache miss only)
+      - name: zk keygen (both contracts, cache miss only)
         if: steps.zk.outputs.cache-hit != 'true'
         run: yarn compile:zk
-      - name: Save zk proving keys (immediately — a later flow failure must not lose them)
+      - name: Save zk proving keys (immediately, before a later failure can lose them)
         if: steps.zk.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
@@ -237,13 +192,11 @@ jobs:
           timeout 180 bash -c 'until curl -fs -X POST -H "content-type: application/json" -d "{\"query\":\"{__typename}\"}" http://127.0.0.1:8088/api/v3/graphql >/dev/null 2>&1; do sleep 3; done'
           curl -fsS -X POST -H 'content-type: application/json' \
             -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' http://127.0.0.1:8545
-      # The suite's own setup does the rest: deploys both contracts, appends
-      # MPC_ROOT_KEY + MIDNIGHT_SIGNET_CONTRACT_ADDRESS to .env (the file
-      # does not exist on a fresh runner — it gets created), and starts the
-      # fakenet responder container. The pipeline itself is EVM-free; anvil
-      # is up only because the responder's config needs a reachable EVM
-      # endpoint to boot.
-      - name: Integration suite — generic signet-caller e2e
+      # The suite's setup deploys both contracts, writes MPC_ROOT_KEY +
+      # MIDNIGHT_SIGNET_CONTRACT_ADDRESS to .env, and starts the fakenet
+      # responder. The pipeline is EVM-free: anvil runs only so the responder's
+      # config has a reachable EVM endpoint to boot.
+      - name: Integration suite (generic signet-caller e2e)
         env:
           TRUST_PREBUILT_ZK_KEYS: "1"
         run: yarn test:integration-tests
@@ -259,59 +212,3 @@ jobs:
         with:
           name: integration-logs
           path: ci-logs/
-
-  zk-canary:
-    name: zk compile canary (fresh keygen, row counts)
-    if: (github.event_name == 'schedule' && github.event.schedule == '41 4 * * 1') || (github.event_name == 'workflow_dispatch' && inputs.zk-canary == true)
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: lts/*
-          # corepack owns yarn here; the action's cache probe would run
-          # yarn 1.x against the yarn-4 packageManager field and die
-          package-manager-cache: false
-      - name: Enable corepack (yarn 4 via the packageManager field)
-        run: corepack enable
-      - name: Install the compact toolchain (always fresh — the canary exists to catch upstream drift)
-        run: |
-          export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
-          curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
-          compact update
-          # The workspace tracks the ledger-9 toolchain line: latest STABLE
-          # (0.31.1) speaks language 0.23 and rejects the contracts'
-          # `pragma language_version >= 0.25`. compactc 0.33.0-rc.2 is a
-          # PRERELEASE published on the toolchain's LF home
-          # (LFDT-Minokawa/compact), which the launcher's channel does not
-          # list — download it directly and let the launcher adopt it.
-          # Part of the ledger-9 MATCHED SET (see docker-compose.yaml's
-          # image-tag comment) — move it together with the npm stack.
-          RC_DIR="$HOME/.compact/versions/0.33.0-rc.2/x86_64-unknown-linux-musl"
-          if [ ! -x "$RC_DIR/compactc" ]; then
-            mkdir -p "$RC_DIR"
-            curl -fsSL -o /tmp/compactc-rc.zip \
-              https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.2/compactc_v0.33.0-rc.2_x86_64-unknown-linux-musl.zip
-            unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
-            chmod +x "$RC_DIR"/*
-          fi
-          # `compact update <ver>` adopts an already-on-disk version without
-          # downloading; if the launcher refuses (version not in its
-          # channel), wire the default symlinks it would have created.
-          compact update 0.33.0-rc.2 || ln -sfn "$RC_DIR"/* "$HOME/.compact/bin/"
-          compact compile --version
-      - name: Install dependencies (no lockfile by design — installs float to latest)
-        run: yarn install --no-immutable
-      - name: Full zk compile (no cache — fresh keygen is the point)
-        run: yarn compile:zk 2>&1 | tee zk-compile.log
-      - name: Surface circuit row counts
-        run: grep -iE 'rows|circuit' zk-compile.log || echo "no row-count lines found — inspect the full log artifact"
-      - name: Upload the compile log
-        uses: actions/upload-artifact@v4
-        with:
-          name: zk-compile-log
-          path: zk-compile.log

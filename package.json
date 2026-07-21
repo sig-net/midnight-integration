@@ -13,6 +13,7 @@
     "compile:zk": "yarn workspaces foreach --all --exclude midnight-protocol --topological run compile:zk",
     "compile:caller-contract": "yarn workspace @midnight-protocol/caller-contract run compile",
     "compile:caller-contract:zk": "yarn workspace @midnight-protocol/caller-contract run compile:zk",
+    "compile:caller-contract-20-field": "yarn workspace @midnight-protocol/caller-contract-20-field run compile",
     "deploy:caller-contract": "yarn workspace @midnight-protocol/caller-contract run deploy",
     "compile:signet-midnight": "yarn workspace @sig-net/midnight run compile",
     "build": "yarn workspaces foreach --all --exclude midnight-protocol --topological run build",

@@ -19,13 +19,13 @@ import {
   createWalletAndMidnightProvider,
 } from "@midnight-protocol/lib";
 import {
-  makeVacantCompiledContract,
+  makeCompiledContract,
   type AccountKeys,
   type MidnightNodeConfig,
 } from "@sig-net/midnight-contract-deploy";
 
 import { Contract } from "./managed/signet-caller/contract/index.js";
-import type { CallerPrivateState } from "./witnesses.ts";
+import { witnesses, type CallerPrivateState } from "./witnesses.ts";
 
 /** The caller's provable circuit ids, straight from the generated contract. */
 export type CallerCircuitId = keyof InstanceType<typeof Contract>["provableCircuits"] & string;
@@ -61,16 +61,18 @@ export type CallerProviders = MidnightProviders<
 // deployed signet contract's managed output (see this package's compile
 // script).
 const managedPath = fileURLToPath(new URL("./managed/signet-caller", import.meta.url));
-const signetManagedPath = fileURLToPath(new URL("./managed/SignetNotifier", import.meta.url));
+const signetManagedPath = fileURLToPath(new URL("./managed/SignetSigner", import.meta.url));
 
 /**
- * The caller's compact-js compiled-contract binding: generated module (the
- * contract declares no witnesses) + this package's compiled assets. Consumed
- * by `findDeployedContract` (and the deploy flow in {@link deployCaller}).
+ * The caller's compact-js compiled-contract binding: generated module + the
+ * deployerSecretKey witness (gating initialise) + this package's compiled
+ * assets. Consumed by `findDeployedContract` (and the deploy flow in
+ * {@link deployCaller}).
  */
-export const callerCompiledContract = makeVacantCompiledContract<Contract<CallerPrivateState>, CallerPrivateState>(
+export const callerCompiledContract = makeCompiledContract<Contract<CallerPrivateState>, CallerPrivateState>(
   "signet-caller",
   Contract,
+  witnesses,
   managedPath,
 );
 

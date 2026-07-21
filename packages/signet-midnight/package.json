@@ -1,6 +1,6 @@
 {
   "name": "@sig-net/midnight",
-  "version": "0.0.5",
+  "version": "0.0.8",
   "repository": {
     "type": "git",
     "url": "https://github.com/sig-net/midnight-integration",
@@ -17,7 +17,7 @@
     "src/*.compact"
   ],
   "scripts": {
-    "compile": "compact compile --skip-zk src/circuits.compact src/managed",
+    "compile": "compact compile --skip-zk --feature-zkir-v3 src/circuits.compact src/managed",
     "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig.build.json && cp -R src/managed dist/managed",
     "prepack": "yarn build",
     "test": "vitest run"

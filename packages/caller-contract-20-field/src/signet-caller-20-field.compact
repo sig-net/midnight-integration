@@ -12,7 +12,7 @@ import "@sig-net/midnight/src/Signet";
 // [5, 15], remainder first), so raw readers must resolve flat field numbers
 // through chunk detection. This contract exists so that resolution is tested
 // against REAL compiler output rather than a hand-built emulation:
-// signetRequestsIndex sits at field 19 (the last leaf, chunk 1 slot 14), a
+// signBidirectionalEventMap sits at field 19 (the last leaf, chunk 1 slot 14), a
 // List (array-typed, the node shape chunk detection must NOT confuse with a
 // chunk) sits at field 0, and the chunk boundary (field 4 | field 5) crosses
 // the filler counters. Simulator tests only: no deploy flow, no notifier
@@ -23,7 +23,7 @@ import "@sig-net/midnight/src/Signet";
 export ledger requestLog: List<Bytes<32>>;
 
 // field 1: contract-local request counter, sources each request's nonce.
-export ledger signetNonce: SignetNonce;
+export ledger signetRequestNonce: Counter;
 
 // fields 2..18: filler counters whose only job is pushing the contract past
 // the 15-field chunking threshold so the root state becomes a chunk tree.
@@ -45,11 +45,11 @@ export ledger pad16: Counter;
 export ledger pad17: Counter;
 export ledger pad18: Counter;
 
-// field 19: the request index, addressed as chunk 1 slot 14 in raw state.
+// field 19: the request map, addressed as chunk 1 slot 14 in raw state.
 // Type configured for EVM Type 2 transactions with
 // <1 calldata word, 0 access-list entries, 0 storage keys>: the fixed
 // minimal calldata submitSignatureRequest composes.
-export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParams<1, 0, 0>>;
+export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
 
 // Records the smallest well-formed signet request, mirroring the
 // signet-caller contract's fixed composition minus the notifier call: the
@@ -57,7 +57,7 @@ export ledger signetRequestsIndex: SignBidirectionalRequestIndex<EVMType2TxParam
 // whole point of this fixture.
 export circuit submitSignatureRequest(
   evmNonce: Uint<64>,
-  keyVersion: Uint<32>
+  keyVersion: Uint<8>
 ): [] {
   const calldata = EVMCalldata<1> {
     selector: Bytes [0xca, 0x11, 0xab, 0x1e],
@@ -78,25 +78,26 @@ export circuit submitSignatureRequest(
     calldata: some<EVMCalldata<1>>(calldata)
   };
 
-  const schema = pad(128, "[{\"name\":\"success\",\"type\":\"bool\"}]");
-  const requestNonce = signetNonce as Uint<64>;
-  const request = constructContractPathSignBidirectionalRequest<EVMType2TxParams<1, 0, 0>>(
+  const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
+  const requestNonce = signetRequestNonce as Uint<64>;
+  const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 34, 34>(
+    kernel.self(),
     requestNonce,
+    keyVersion,
+    pad(32, "caller-path"),
+    MPCSignatureAlgorithm.ecdsa,
+    MPCDestination.unused,
+    pad(64, ""),
     TxParamType.evmType2,
     txParams,
     pad(32, "eip155:31337"),
-    keyVersion,
-    pad(256, "caller"),
-    pad(32, "ecdsa"),
-    pad(32, "ethereum"),
-    pad(64, ""),
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>>(request));
+  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 34, 34>(request));
 
-  assert(!signetRequestsIndex.member(requestId), "Request already exists");
-  signetNonce.increment(1);
-  signetRequestsIndex.insert(requestId, disclose(request));
+  assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
+  signetRequestNonce.increment(1);
+  signBidirectionalEventMap.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 }
