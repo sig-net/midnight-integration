@@ -3,13 +3,19 @@ pragma language_version >= 0.25;
 import CompactStandardLibrary;
 
 // Shared signet library: request/response structs, request-id hashing,
-// path<->identity binding, and the attestation message. See the module header
+// request construction, and the attestation message. See the module header
 // in Signet.compact and https://docs.sig.network/ for the protocol.
 import "@sig-net/midnight/src/Signet";
 
-// This is the central Sig Network contract on Midnignt.
+// This is the central Sig Network contract on Midnight.
 // Clients register their signature-request notifications here via cross contract call.
-// The MPC delivers signature responses and sign bidirectional responses here.
+// The MPC delivers signature responses and respond-bidirectional responses here.
+//
+// Every store here is an UNAUTHENTICATED append-only log by design: each post lands
+// under the next (requestId, count) key, nothing is verified in circuit, and nothing
+// can be overwritten. Verification is deliberately the reader's job: the MPC authenticates notifications by reading the event back
+// from the named caller's own ledger, and clients verify posted signatures and
+// attestations themselves (off-chain or in their own circuits).
 
 export ledger signBidirectionalEventNotificationCounterMap: Map<RequestId, Counter>;
 export ledger signBidirectionalEventNotificationMap: Map<SignetMapKey, SignBidirectionalEventNotification>;
@@ -17,16 +23,17 @@ export ledger signBidirectionalEventNotificationMap: Map<SignetMapKey, SignBidir
 export ledger signatureResponseCounterMap: Map<RequestId, Counter>;
 export ledger signatureResponseMap: Map<SignetMapKey, SignatureRespondedEvent>;
 
-export ledger respondBidrectionalCounterMap: Map<RequestId, Counter>;
+export ledger respondBidirectionalCounterMap: Map<RequestId, Counter>;
 export ledger respondBidirectionalMap: Map<SignetMapKey, RespondBidirectionalEvent>;
 
-constructor() {
-}
-
-// signBidirectionalEvent should be called (cross-contract) by
-// clients to notify that a SignBidirectionalEvent has been written to their
-// to their canonical SignBidirectionalRequestMap state map.
-// The MPC verifies the cross contract call was submitted by the callerAddress in the notification.
+// signBidirectionalEvent should be called (cross-contract) by clients to notify the MPC
+// that a SignBidirectionalEvent has been written to their canonical
+// SignBidirectionalEventMap state map. The MPC does not trust the notification's
+// content. It authenticates by:
+//   (a) reading the event back from the named caller's own ledger and refusing entries
+//       whose recomputed request id or sender does not match, and
+//   (b) confirming via the indexer that the transaction which posted this notification
+//       also contains a contract call on the callerAddress named in the notification.
 export circuit signBidirectionalEvent(
       requestId: RequestId,
       notification: SignBidirectionalEventNotification
@@ -38,7 +45,7 @@ export circuit signBidirectionalEvent(
         signBidirectionalEventNotificationCounterMap.insertDefault(disclose(requestId));
     }
 
-    // Read no. of posts of this notifcation so far into notification map key & increment.
+    // Read no. of posts of this notification so far into notification map key & increment.
     const signBidirectionalEventNotificationMapKey = SignetMapKey{
         count: signBidirectionalEventNotificationCounterMap.lookup(disclose(requestId)).read(),
         requestId: disclose(requestId),
@@ -81,8 +88,9 @@ export circuit postSignatureResponse(
     );
 }
 
-// postRespondBidirectional appends the signed response of foreign transaction execution for requestId.
-// Callers poll the log by request id and verify the signed response off-chain.
+// postRespondBidirectional appends the MPC's respond-bidirectional response (the attested
+// output of the foreign transaction execution) for requestId. Stored unverified: callers
+// poll the log by request id and verify the attestation themselves.
 export circuit postRespondBidirectional(
     requestId: RequestId,
     respondBidirectionalEvent: RespondBidirectionalEvent
@@ -90,13 +98,13 @@ export circuit postRespondBidirectional(
     const disclosedRequestId = disclose(requestId);
 
     // Initialise respond bidirectional response counter for this requestId if it doesn't yet exist.
-    if (!signatureResponseCounterMap.member(disclosedRequestId)) {
-        signatureResponseCounterMap.insertDefault(disclosedRequestId);
+    if (!respondBidirectionalCounterMap.member(disclosedRequestId)) {
+        respondBidirectionalCounterMap.insertDefault(disclosedRequestId);
     }
 
-    // Read no. of posts of this signature response so far & increment.
-    const count = respondBidrectionalCounterMap.lookup(disclosedRequestId).read();
-    respondBidrectionalCounterMap.lookup(disclosedRequestId).increment(1);
+    // Read no. of posts of this respond bidirectional response so far & increment.
+    const count = respondBidirectionalCounterMap.lookup(disclosedRequestId).read();
+    respondBidirectionalCounterMap.lookup(disclosedRequestId).increment(1);
 
     // Store the response under (requestId, count).
     respondBidirectionalMap.insert(

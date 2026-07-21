@@ -87,7 +87,7 @@ export circuit submitSignatureRequest(
     pad(32, "caller-path"),
     MPCSignatureAlgorithm.ecdsa,
     MPCDestination.unused,
-    pad(64, ""),    
+    pad(64, ""),
     TxParamType.evmType2,
     txParams,
     pad(32, "eip155:31337"),

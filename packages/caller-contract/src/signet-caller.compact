@@ -30,7 +30,9 @@ export ledger requestLog: List<Bytes<32>>;
 export ledger signetRequestNonce: Counter;
 
 // field 2: the MPC attestation key, pinned at deploy time: verifyResponse
-// accepts only respond-bidirectional attestations signed by this key.
+// accepts only respond-bidirectional attestations signed by this key. The
+// central signet contract stores posts unverified, so this pin is the only
+// authentication gate on attestations.
 export sealed ledger mpcPubKeyHash: Bytes<32>;
 
 // field 3: the central signet contract, pinned at deploy time:
@@ -52,13 +54,13 @@ constructor(mpcPk: JubjubPoint, signetContract: SignetSigner) {
 
 // ---- Submit ------------------------------------------------------------------------
 // Records the smallest well-formed signet request and notifies the MPC of it.
-// EVERYTHING about the transaction is a contract constant below — recipient,
-// calldata, chain, gas envelope, derivation path, MPC routing — so the request
+// EVERYTHING about the transaction is a contract constant below (recipient,
+// calldata, chain, gas envelope, derivation path, MPC routing), so the request
 // surface carries no application semantics at all. The caller supplies only
 // what no contract can know: the derived sender account's nonce (chain state)
 // and the MPC key version. The MPC signs with the CONTRACT's own derived
-// account (path = the contract-fixed literal "caller" — see
-// constructContractPathSignBidirectionalRequest), so no caller identity is
+// account (keys are scoped by contract address + path, and the path here is
+// the contract-fixed literal "caller-path"), so no caller identity is
 // involved anywhere.
 export circuit submitSignatureRequest(
   evmNonce: Uint<64>,
@@ -117,9 +119,9 @@ export circuit submitSignatureRequest(
   requestLog.pushFront(requestId as Bytes<32>);
 
   // Notify the MPC of the signature request via the signet contract's
-  // registry. The third argument names the ledger field position of
-  // signBidirectionalEventMap (4, see the layout above): the MPC reads the
-  // authenticated request back from that field.
+  // registry. The notification's second argument names the ledger field
+  // position of signBidirectionalEventMap (4, see the layout above): the MPC
+  // reads the authenticated request back from that field.
   const requestMapKey = signetSigner.signBidirectionalEvent(
     requestId,
     constructSignBidirectionalEventNotificationV1(

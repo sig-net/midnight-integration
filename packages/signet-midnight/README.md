@@ -15,6 +15,14 @@ The client-agnostic [Sig Network](https://sig.network) protocol library for the 
 
 Where signet.js already covers something (for example EVM transaction preparation or address derivation), import it from there; only what is Midnight-specific lives here.
 
+## Derived keys
+
+Every key the MPC signs with is scoped by the requesting contract:
+
+`derivedSigningKey = f(mpcRootKey[keyVersion], contractAddress, path)`
+
+The path is 32 opaque bytes of the contract's choosing (a fixed literal for a contract-owned account, a hash of a caller's secret for per-user accounts). There are no format requirements. The contract address is always part of the derivation, so no contract can reach another contract's derived keys.
+
 ## Install
 
 ```sh

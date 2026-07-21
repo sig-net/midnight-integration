@@ -13,4 +13,6 @@ This [contract](./src/signet-caller.compact) tests steps 1. and 5. from this flo
 - 1. Requesting Sign Bidrectional on a transaction is tested by exported circuit `submitSignatureRequest`
 - 5. Verifying the signed output of the transaction is tested by exported circuit `verifyResponse`
 
+The requested signature is made with the contract's own derived account. Every key the MPC signs with is scoped by the requesting contract (`derivedSigningKey = f(mpcRootKey[keyVersion], contractAddress, path)`, where the path is 32 opaque bytes of the contract's choosing), and this contract fixes its path to the literal `"caller-path"`.
+
 More comprehensive example applications built on this Sig Network 'sign bidrectional flow', such as an ERC20 cross chain vault demo, can be found in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples).
