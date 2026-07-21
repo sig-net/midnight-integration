@@ -31,9 +31,6 @@ import "./Schnorr";
 
 export {
   signetAttestationMessage,
-  assertHexOf,
-  assertPathCommitment,
-  constructSignBidirectionalNotificationV1,
-  evmAddressAbiValue,
+  constructSignBidirectionalEventNotificationV1,
   schnorrChallenge
 };

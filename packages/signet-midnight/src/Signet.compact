@@ -32,7 +32,7 @@
 //  - RespondBidirectionalEvent: Structure containing signed output of transaction executed on a foreign blockchain.
 //                               Posted by MPC back to Signet singleton for clients to extract and deliver back to client
 //                               contract. Signed with key dervied from sender + response. TODO: validate this description.
-
+//
 // These key types are best understood within the sign bidirectional flow that they enable:
 // 1. Client contract stores a SignBidirectionalEvent in its own ledger and registers a
 //    SignBidirectionalEventNotification in the central Signet contract's registry, requesting a
@@ -182,7 +182,8 @@ module Signet {
   ): SignBidirectionalEventNotification {
     return SignBidirectionalEventNotification {
       version: 1,
-      payload: pad(128, Bytes[...callerAddress.bytes, requestsIndexField])
+      // 128 = 32 + 1 + 95
+      payload: Bytes[...callerAddress.bytes, requestsIndexField, ...default<Bytes<95>>]
     };
   }
 
@@ -230,7 +231,7 @@ module Signet {
 
   // The message the MPC Schnorr-signs to attest a remote execution.
   // TODO: this will changed to use ECDSA.
-  export pure circuit SignetAttestationMessage(
+  export pure circuit signetAttestationMessage(
     requestId: RequestId,
     serializedOutput: Bytes<128>,
     outputLen: Uint<8>
