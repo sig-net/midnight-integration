@@ -30,20 +30,19 @@ export const MIDNIGHT_TESTNET_CHAIN_ID = "midnight:testnet";
 
 /**
  * The FIXED derivation path of the MPC's respond-bidirectional RESPONSE key
- * for Midnight client contracts (mirrors the MPC's per-chain
- * `<chain> response key` convention, sig-net/mpc
- * chain-signatures/node/src/respond_bidirectional.rs). The response key is
- * derived from (the SIGNET SINGLETON contract address, this path): it is not
- * the MPC root key and not the key that signs the requested transaction.
- * Client contracts pin its hash at deploy time and verify
- * RespondBidirectionalEvents against it.
+ * for Midnight client contracts, mirroring the real MPC's per-chain
+ * `<chain> response key` convention (sig-net/mpc
+ * chain-signatures/node/src/respond_bidirectional.rs, where the epsilon
+ * requester is the requesting tx's SENDER). The response key is derived PER
+ * CLIENT CONTRACT from (the client contract's own address, this path): it is
+ * not the MPC root key and not the key that signs the requested transaction.
  *
- * Why the SIGNET address and not the client contract's own address: the pin
- * is sealed in the client's CONSTRUCTOR, and a Midnight contract address is
- * a hash over the deploy (constructor arguments included), so a key derived
- * from the client's own address could never be known at the moment it must
- * be sealed. The signet singleton deploys first, so its address is available
- * to every client deploy, and the key stays scoped per signet deployment.
+ * The key depends on the client contract's address, and a Midnight contract
+ * address is a hash over the deploy (constructor arguments included), so the
+ * key cannot exist before the deploy transaction is built. Client contracts
+ * therefore pin its hash with a one-shot `initialise` circuit right after
+ * deploy (never a constructor seal) and verify RespondBidirectionalEvents
+ * against the pin.
  */
 export const MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH = "midnight response key";
 
@@ -127,25 +126,26 @@ function normaliseRequesterAddress(contractAddress: string): string {
 }
 
 /**
- * Derive the MPC's respond-bidirectional RESPONSE key for a signet
- * deployment, public side: what client-contract deploys pin
+ * Derive the MPC's respond-bidirectional RESPONSE key for one client
+ * contract, public side: what the client pins via its `initialise` circuit
  * (`MPC_RESPONSE_KEY`) and what response verification checks against. See
- * {@link MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH} for the scheme and why the
- * requester is the signet singleton's address.
+ * {@link MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH} for the scheme (the requester
+ * is the client contract's own address, mirroring the real MPC's
+ * sender-scoped derivation).
  *
  * @param mpcSecp256k1PubkeyHex - The MPC root secp256k1 public key as 0x-hex
  *   (compressed or uncompressed).
- * @param signetContractAddress - The signet singleton's Midnight contract
- *   address (`0x` prefix optional, case-insensitive).
+ * @param clientContractAddress - The client contract's Midnight address
+ *   (`0x` prefix optional, case-insensitive).
  * @returns The response public key as a Compact-runtime `Secp256k1Point`.
  */
 export function deriveMidnightResponseKey(
   mpcSecp256k1PubkeyHex: string,
-  signetContractAddress: string,
+  clientContractAddress: string,
 ): Secp256k1Point {
   const point = deriveChildPoint(
     mpcSecp256k1PubkeyHex,
-    normaliseRequesterAddress(signetContractAddress),
+    normaliseRequesterAddress(clientContractAddress),
     MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
     MIDNIGHT_TESTNET_CHAIN_ID,
   );
@@ -153,21 +153,21 @@ export function deriveMidnightResponseKey(
 }
 
 /**
- * Derive the MPC's respond-bidirectional RESPONSE key for a signet
- * deployment, secret side: `(rootSecret + epsilon) mod n`. MPC-side only
+ * Derive the MPC's respond-bidirectional RESPONSE key for one client
+ * contract, secret side: `(rootSecret + epsilon) mod n`. MPC-side only
  * (the fakenet signer, test harnesses): a real client never holds the root
  * key. The result feeds `signAttestationDigest` directly.
  *
  * @param mpcRootSecretKey - The 32-byte MPC root secret key (big-endian, the
  *   standard secp256k1 encoding).
- * @param signetContractAddress - The signet singleton's Midnight contract
- *   address (`0x` prefix optional, case-insensitive).
+ * @param clientContractAddress - The client contract's Midnight address
+ *   (`0x` prefix optional, case-insensitive).
  * @returns The 32-byte response secret key (big-endian).
  * @throws Error if the root key is not 32 bytes or the derived scalar is 0.
  */
 export function deriveMidnightResponseSecretKey(
   mpcRootSecretKey: Uint8Array,
-  signetContractAddress: string,
+  clientContractAddress: string,
 ): Uint8Array {
   if (mpcRootSecretKey.length !== 32) {
     throw new Error(`MPC root secret key must be 32 bytes, got ${mpcRootSecretKey.length}`);
@@ -177,7 +177,7 @@ export function deriveMidnightResponseSecretKey(
     root = (root << 8n) | BigInt(byte);
   }
   const epsilon = deriveEpsilon(
-    normaliseRequesterAddress(signetContractAddress),
+    normaliseRequesterAddress(clientContractAddress),
     MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
     MIDNIGHT_TESTNET_CHAIN_ID,
   );

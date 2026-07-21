@@ -145,12 +145,14 @@ export async function deploySignetContractStep(env: NodeJS.ProcessEnv): Promise<
 }
 
 /**
- * Derive (or check) the MPC response key for this signet deployment:
- * `MPC_RESPONSE_KEY = f(MPC root key, signet contract address, "midnight
- * response key")`. Caller deploys seal its hash, so this step MUST run after
- * the signet deploy and before any client deploy. The fakenet responder
- * derives the same key from its own MPC_ROOT_KEY +
- * MIDNIGHT_SIGNET_CONTRACT_ADDRESS hand-off, so nothing extra is handed off.
+ * Derive (or check) the MPC response key for the deployed CALLER contract:
+ * `MPC_RESPONSE_KEY = f(MPC root key, caller contract address, "midnight
+ * response key")` — the sender-scoped derivation the real MPC uses for
+ * respond-bidirectional signing. The key depends on the caller's address, so
+ * this step MUST run after the caller deploy; the flow file then pins the
+ * key on-chain via the caller's one-shot initialise circuit. The fakenet
+ * responder derives the same key per request from its MPC_ROOT_KEY + the
+ * request's sender, so nothing extra is handed off.
  *
  * @param env - The suite's env accumulator.
  * @throws If a pre-set MPC_RESPONSE_KEY disagrees with the derivation.
@@ -159,14 +161,14 @@ export function ensureMpcResponseKey(env: NodeJS.ProcessEnv): void {
   const expected = formatSecp256k1PublicKey(
     deriveMidnightResponseKey(
       requireEnv(env, "MPC_SECP256K1_PUBKEY"),
-      requireEnv(env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
+      requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
     ),
   );
   if (env.MPC_RESPONSE_KEY) {
     console.log(`Found MPC_RESPONSE_KEY in the environment as ${env.MPC_RESPONSE_KEY}`);
     if (env.MPC_RESPONSE_KEY !== expected) {
       throw new Error(
-        `MPC_RESPONSE_KEY should be derived from MPC_ROOT_KEY + MIDNIGHT_SIGNET_CONTRACT_ADDRESS: ` +
+        `MPC_RESPONSE_KEY should be derived from MPC_ROOT_KEY + MIDNIGHT_CALLER_CONTRACT_ADDRESS: ` +
           `expected ${expected}, found ${env.MPC_RESPONSE_KEY}`,
       );
     }
@@ -175,7 +177,7 @@ export function ensureMpcResponseKey(env: NodeJS.ProcessEnv): void {
   }
   env.MPC_RESPONSE_KEY = expected;
   console.log(`derived a fresh MPC_RESPONSE_KEY=${env.MPC_RESPONSE_KEY}`);
-  console.log(` ➜ the MPC's respond-bidirectional key for this signet deployment; client deploys seal its hash`);
+  console.log(` ➜ the MPC's respond-bidirectional key for the caller contract; the flow pins its hash via initialise`);
   console.log(` ➜ 💡 Set as MPC_RESPONSE_KEY in the environment to skip this step on the next run`);
 }
 

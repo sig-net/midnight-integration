@@ -1,9 +1,14 @@
 // Caller deploy flow: builds, balances, proves and submits the caller's
 // deploy transaction using the generic plumbing in
 // @sig-net/midnight-contract-deploy. Everything contract-specific lives HERE:
-// the constructor args (the MPC response key + the signet contract
-// reference) and the (empty) private state. Requires `yarn compile:zk`
-// output (verifier keys) in src/managed.
+// the constructor arg (the signet contract reference) and the (empty)
+// private state. Requires `yarn compile:zk` output (verifier keys) in
+// src/managed.
+//
+// The MPC response key is NOT a deploy input: it is derived from THIS
+// contract's address (which only exists once the deploy transaction is
+// built), so it is pinned afterwards via the contract's one-shot
+// `initialise` circuit — see the integration-tests flow.
 
 import {
   assertDeployerFunded,
@@ -15,7 +20,6 @@ import {
   withSyncedWalletFacade,
   type TransactionIdentifier,
 } from "@sig-net/midnight-contract-deploy";
-import { parseSecp256k1PublicKey } from "@sig-net/midnight";
 
 import { callerCompiledContract } from "./providers.ts";
 import { createCallerPrivateState } from "./witnesses.ts";
@@ -31,34 +35,23 @@ export interface CallerDeployment {
 /**
  * Deploy the signet caller contract: read config from `env`, build/prove the
  * deploy transaction and submit it through a synced wallet. Progress is
- * logged to the console.
- *
- * The MPC response key for this contract (`MPC_RESPONSE_KEY`, SEC1 hex,
- * compressed or uncompressed, derived off-chain from the MPC root key +
- * this contract's address and the fixed respond-bidirectional path
- * "midnight response key") is sealed as `mpcResponseKeyHash` —
- * verifyResponse accepts only respond-bidirectional responses ECDSA-signed
- * by it. The signet contract address is sealed as the cross-contract
- * notification target.
+ * logged to the console. The one constructor argument is the signet contract
+ * address, sealed as the cross-contract notification target. The MPC
+ * response key for the freshly deployed contract must then be pinned with a
+ * separate `initialise` call (derive it from the MPC root public key + the
+ * NEW contract address + the fixed path "midnight response key").
  *
  * @param env - Environment map providing `DEPLOYER_SEED`,
- *   `MPC_RESPONSE_KEY`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` (the
- *   signet contract to seal as the cross-contract emitter) and the shared
- *   Midnight node configuration (see `getMidnightNodeConfig`).
+ *   `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` (the signet contract to seal as the
+ *   cross-contract emitter) and the shared Midnight node configuration (see
+ *   `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
- * @throws If `MPC_RESPONSE_KEY` or `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`
- *   is missing/malformed, the deployer wallet holds no funds, or submission
- *   fails.
+ * @throws If `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` is missing/malformed, the
+ *   deployer wallet holds no funds, or submission fails.
  */
 export async function deployCaller(env: Record<string, string | undefined> = process.env): Promise<CallerDeployment> {
   const deployConfig = getDeployConfig(env);
   const { networkId } = deployConfig.midnightNodeConfig;
-
-  const mpcResponseKeyRaw = env.MPC_RESPONSE_KEY?.trim();
-  if (!mpcResponseKeyRaw) {
-    throw new Error("MPC_RESPONSE_KEY is required (the MPC response key for this contract, as SEC1 hex)");
-  }
-  const mpcResponseKey = parseSecp256k1PublicKey(mpcResponseKeyRaw);
 
   // The signet contract the caller cross-contract-calls to register signature
   // request notifications — sealed into the caller as the SignetSigner
@@ -84,7 +77,6 @@ export async function deployCaller(env: Record<string, string | undefined> = pro
         networkId,
         accountKeys.shieldedSecretKeys.coinPublicKey,
         createCallerPrivateState(),
-        mpcResponseKey,
         signetSigner,
       );
       console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
@@ -100,6 +92,7 @@ export async function deployCaller(env: Record<string, string | undefined> = pro
 
   console.log(`submitted deploy tx ${txId}`);
   console.log(`deployed signet-caller at ${contractAddress}`);
+  console.log("NB: pin the MPC response key with initialise() before verifying responses");
 
   return { contractAddress, txId };
 }

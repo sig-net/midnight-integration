@@ -17,22 +17,28 @@ repo touches a network from tests. The pipeline has two halves:
 - **The flow file** (`tests/signet-caller-e2e.test.ts`, `--bail 1`): one
   ordered pipeline whose tests run in source order and feed each other
   through module-scoped state —
-  1. `submitSignatureRequest` — drive the caller contract's request circuit
+  1. `initialise` — pin the caller's MPC response key on-chain. The key is
+     derived from the caller contract's OWN address (the sender-scoped
+     derivation the MPC uses for respond-bidirectional signing), so it only
+     exists after the deploy and cannot be a constructor argument: the
+     contract pins its hash via this one-shot circuit instead. Idempotent
+     across reruns.
+  2. `submitSignatureRequest` — drive the caller contract's request circuit
      (contract-fixed minimal calldata) and read the request back MPC-style
      from the raw ledger.
-  2. Golden notification — the submit registered a decodable
+  3. Golden notification — the submit registered a decodable
      `SignBidirectionalNotification` in the signet contract's registry, read
      by field position through the hand-composed descriptors, exactly as the
      MPC reads it.
-  3. `pollSignatureResponse` — the fakenet's ECDSA response arrives on the
+  4. `pollSignatureResponse` — the fakenet's ECDSA response arrives on the
      signet contract and verifies against the caller's epsilon-derived
      account.
-  4. `verifyResponse` — verify an ECDSA respond-bidirectional response
+  5. `verifyResponse` — verify an ECDSA respond-bidirectional response
      in-circuit and consume the request. The fakenet only responds after
      observing a broadcast on the destination chain (a leg this generic
      exercise deliberately omits), so the response is signed in-test with
      the MPC response key derived from the suite's shared `MPC_ROOT_KEY`
-     and the signet contract address (the same derivation the fakenet uses).
+     and the caller contract address (the same derivation the fakenet uses).
 
 The unit tests beside it (`tests/env-file.test.ts`, `tests/mpc-keys.test.ts`)
 run offline under plain `yarn test`; the flow file gates itself with
@@ -143,7 +149,7 @@ vars in `.env` (`MIDNIGHT_SIGNET_CONTRACT_ADDRESS`,
 | `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | deployed by setup (signet appended to `.env` automatically; caller printed — save it to skip redeploys) |
 | `MPC_ROOT_KEY` | Fakenet signer root key | derived by setup, appended to `.env` |
 | `MPC_SECP256K1_PUBKEY` | MPC root public key | derived from root key |
-| `MPC_RESPONSE_KEY` | The MPC respond-bidirectional key for this signet deployment (sealed by client deploys) | derived from root key + signet contract address |
+| `MPC_RESPONSE_KEY` | The MPC respond-bidirectional key for the caller contract (pinned on-chain by the flow's initialise leg) | derived from root key + caller contract address |
 | `FAKENET_MANAGED` | `0` = setup neither writes the hand-off values to `.env` nor touches the responder container — you run the responder yourself (responder development) | unset (setup manages the responder) |
 | `FAKENET_EVM_RPC_URL` | EVM endpoint as reachable from the fakenet CONTAINER (compose-only; not read by the tests) | `http://evm:8545` |
 | `TRUST_PREBUILT_ZK_KEYS` | `1` = setup skips `compile:*:zk` when prover keys are already present. CI-only: the CI cache is keyed on the contract sources, so present ⇒ fresh; locally stale keys would poison deploys — never set it by hand | unset |

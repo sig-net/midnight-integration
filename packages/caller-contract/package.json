@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The minimal signet caller Compact contract: submits a signature request with contract-fixed calldata and verifies the MPC's Schnorr response. src/index.ts is the curated export surface \u2014 this IS the \"sdk\" face of the package.",
+  "description": "The minimal signet caller Compact contract: pins its MPC response key via initialise, submits a signature request with contract-fixed calldata and verifies the MPC's ECDSA respond-bidirectional response. src/index.ts is the curated export surface — this IS the \"sdk\" face of the package.",
   "exports": {
     ".": "./src/index.ts",
     "./managed/*": "./src/managed/*"

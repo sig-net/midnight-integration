@@ -106,6 +106,57 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
   let signatureRequestId: RequestIdHex;
 
   it(
+    "initialise [signet-caller contract method call]: pin the MPC response key for this contract",
+    async () => {
+      // The response key is derived from the CALLER's own address (setup step
+      // ensureMpcResponseKey, after the deploy), so it cannot be a
+      // constructor argument: the contract pins its hash via the one-shot
+      // initialise circuit instead. Idempotent across reruns: an existing
+      // pin is checked against MPC_RESPONSE_KEY and the call is skipped.
+      const context = await session.callerContext();
+      const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
+      const expectedHash = signetCircuits.signetKeyHash(mpcResponseKey);
+
+      const readPin = async (): Promise<Uint8Array> => {
+        const state = await context.providers.publicDataProvider.queryContractState(context.contractAddress);
+        if (!state) {
+          throw new Error(`no contract state found at ${context.contractAddress}`);
+        }
+        return callerContractLedger(state.data).mpcResponseKeyHash;
+      };
+
+      const pin = await readPin();
+      if (pin.some((byte) => byte !== 0)) {
+        expect(pin, "the existing pin must match the derived MPC_RESPONSE_KEY").toEqual(expectedHash);
+        logSkip("initialise", "the MPC response key is already pinned (rerun against a kept caller)");
+        return;
+      }
+
+      await context.caller.callTx.initialise(mpcResponseKey);
+
+      // State indexing lags finalization: poll briefly for the pin.
+      const deadline = Date.now() + MINUTE;
+      let current = await readPin();
+      while (current.every((byte) => byte === 0) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        current = await readPin();
+      }
+      expect(current, "initialise must pin signetKeyHash(MPC_RESPONSE_KEY)").toEqual(expectedHash);
+
+      banner([
+        "MPC response key pinned on the caller contract:",
+        "",
+        `  key:  ${requireEnv("MPC_RESPONSE_KEY")}`,
+        `  hash: ${Buffer.from(expectedHash).toString("hex")}`,
+        "",
+        "Derived from the MPC root key + THIS contract's address + the fixed",
+        '"midnight response key" path — the sender-scoped derivation the MPC uses.',
+      ]);
+    },
+    15 * MINUTE,
+  );
+
+  it(
     "submitSignatureRequest [signet-caller contract method call]: record a request and read it back MPC-style",
     async () => {
       // Check if a request id was given in the environment (for skipping the
@@ -270,10 +321,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // post-broadcast leg this generic exercise deliberately omits. The
       // caller contract's VERIFICATION of a response is what this leg proves,
       // so the response is signed here with the MPC response key derived from
-      // the suite's shared MPC_ROOT_KEY + the signet contract address (the
-      // exact derivation the fakenet uses; the setup sealed the matching
-      // MPC_RESPONSE_KEY into the caller at deploy), using the same compiled
-      // digest circuit the MPC uses.
+      // the suite's shared MPC_ROOT_KEY + the CALLER contract's address (the
+      // exact sender-scoped derivation the fakenet and the real MPC use; the
+      // initialise leg pinned the matching MPC_RESPONSE_KEY), using the same
+      // compiled digest circuit the MPC uses.
       expect(signatureRequestId).toBeDefined();
 
       const context = await session.callerContext();
@@ -295,7 +346,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
 
       const responseSecretKey = deriveMidnightResponseSecretKey(
         hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
-        requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
+        requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
       );
       const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
       const digest = signetCircuits.signetAttestationDigest(requestKey, serializedOutput, outputLen);

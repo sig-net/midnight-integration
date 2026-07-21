@@ -54,8 +54,9 @@ const bytes = (length: number, fill: number) =>
 
 // The "MPC" of these tests: its response key (secp256k1, derived per client
 // contract from the contract address + the fixed path "midnight response
-// key") is pinned by the constructor, exactly as a real deploy pins the
-// off-chain-derived key.
+// key") is pinned by the one-shot initialise circuit right after deploy,
+// exactly as a real deployment pins the off-chain-derived key (the key
+// depends on the contract's own address, so it cannot be a constructor arg).
 const MPC_RESPONSE_SECRET = bytes(32, 0x42);
 const MPC_RESPONSE_KEY = secp256k1PublicKeyOf(MPC_RESPONSE_SECRET);
 
@@ -101,12 +102,12 @@ const KEY_VERSION = 1n;
 
 // ---- Harness ----
 
-const deployContract = async () => {
+/** Deploy WITHOUT pinning the response key — the pre-initialise state. */
+const deployUninitialised = async () => {
   const contract = new Contract<CallerPrivateState>(witnesses);
   const { currentContractState, currentPrivateState } =
     await contract.initialState(
       createConstructorContext<CallerPrivateState>(createCallerPrivateState(), CPK),
-      MPC_RESPONSE_KEY,
       SIGNET_CONTRACT_REF,
     );
   const ctx = createCircuitContext(
@@ -122,6 +123,13 @@ const deployContract = async () => {
     BLOCK_HASH,
   );
   return { contract, ctx };
+};
+
+/** Deploy + initialise(MPC_RESPONSE_KEY): the ready-to-use contract. */
+const deployContract = async () => {
+  const { contract, ctx } = await deployUninitialised();
+  const next = (await contract.circuits.initialise(ctx, MPC_RESPONSE_KEY)).context;
+  return { contract, ctx: next };
 };
 
 /**
@@ -140,6 +148,27 @@ const requestSubmitted = async () => {
 };
 
 // ---- Tests ----
+
+describe("initialise", () => {
+  it("pins the MPC response key's hash (zero before, signetKeyHash after)", async () => {
+    const { contract, ctx } = await deployUninitialised();
+    expect(
+      ledger(ctx.callContext.currentQueryContext.state).mpcResponseKeyHash,
+    ).toEqual(new Uint8Array(32));
+
+    const next = (await contract.circuits.initialise(ctx, MPC_RESPONSE_KEY)).context;
+    expect(
+      ledger(next.callContext.currentQueryContext.state).mpcResponseKeyHash,
+    ).toEqual(signetCircuits.signetKeyHash(MPC_RESPONSE_KEY));
+  });
+
+  it("is set-once: a second initialise rejects", async () => {
+    const { contract, ctx } = await deployContract();
+    await expect(
+      contract.circuits.initialise(ctx, IMPOSTER_PUBLIC),
+    ).rejects.toThrow(/Already initialised/);
+  });
+});
 
 describe("signet-caller ledger shape", () => {
   it("signBidirectionalEventMap parses into the shared signet-midnight types", async () => {
@@ -322,6 +351,24 @@ const respond = (
 // ---- Verify-response tests ----
 
 describe("verifyResponse", () => {
+  it("rejects while uninitialised (no pinned key yet)", async () => {
+    const { contract, ctx } = await deployUninitialised();
+    const next = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION)).context;
+    const index = toSignBidirectionalEventIndex(
+      ledger(next.callContext.currentQueryContext.state).signBidirectionalEventMap,
+    );
+    const [idHex] = [...index.keys()];
+    const requestId = requestIdBytes(idHex);
+    await expect(
+      contract.circuits.verifyResponse(
+        next,
+        requestId,
+        respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
+        MPC_RESPONSE_KEY,
+      ),
+    ).rejects.toThrow(/Not initialised/);
+  });
+
   it("a genuine response verifies and consumes the request", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
 

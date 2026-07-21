@@ -11,17 +11,16 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { buildDeployTransaction } from "@sig-net/midnight-contract-deploy";
-import { secp256k1PublicKeyOf } from "@sig-net/midnight";
 
 import { callerCompiledContract, createCallerPrivateState } from "../src/index.ts";
 
 const MANAGED_DIR = fileURLToPath(new URL("../src/managed/signet-caller", import.meta.url));
 const HAS_VERIFIER_KEYS = existsSync(join(MANAGED_DIR, "keys"));
 
-// The MPC response key (secp256k1) the constructor seals.
-const MPC_RESPONSE_KEY = secp256k1PublicKeyOf(new Uint8Array(32).fill(0x42));
-
 // Stand-in signet-contract reference sealed as the cross-contract emitter.
+// (The MPC response key is NOT a constructor arg: it is pinned after deploy
+// via initialise, once the contract address — the key's derivation input —
+// exists.)
 const SIGNET_CONTRACT_REF = { bytes: new Uint8Array(32).fill(0x5e) };
 
 // Dummy coin public key (32-byte hex) for the constructor context.
@@ -36,7 +35,6 @@ describe.skipIf(!HAS_VERIFIER_KEYS)(
         "undeployed",
         CPK,
         createCallerPrivateState(),
-        MPC_RESPONSE_KEY,
         SIGNET_CONTRACT_REF,
       );
 
@@ -55,7 +53,6 @@ describe.skipIf(!HAS_VERIFIER_KEYS)(
           "undeployed",
           CPK,
           createCallerPrivateState(),
-          MPC_RESPONSE_KEY,
           { bytes: new Uint8Array(31) }, // not Bytes<32> — the generated arg validation must trip
         ),
       ).rejects.toThrow(/Failed to initialize contract/);

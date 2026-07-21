@@ -40,11 +40,11 @@ const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void
   ["setup: check/derive MPC_SECP256K1_PUBKEY public key", ensureMpcSecp256k1Pubkey],
   ["setup: compile signet-contract contract with proving keys", compileSignetContract],
   ["setup: deploy signet-contract", deploySignetContractStep],
-  ["setup: check/derive MPC_RESPONSE_KEY for this signet deployment", ensureMpcResponseKey],
   ["setup: persist fakenet hand-off values to .env (append-only)", persistFakenetHandoffToDotEnv],
   ["setup: start the fakenet responder (docker compose)", startFakenetResponder],
   ["setup: compile caller contract with proving keys", compileCallerContract],
   ["setup: deploy caller contract", deployCallerContractStep],
+  ["setup: check/derive MPC_RESPONSE_KEY for the caller contract", ensureMpcResponseKey],
 ];
 
 export async function setup(project: TestProject): Promise<void> {
