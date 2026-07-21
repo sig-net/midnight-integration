@@ -15,16 +15,16 @@ import type { Transaction } from "ethers";
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import {
   readSignetContractLedgerFromState,
-  signetResponseIndexKey,
-  type SignatureResponse,
-  type RespondBidirectional,
+  signetMapEntryKey,
+  type SignatureRespondedEvent,
+  type RespondBidirectionalEvent,
 } from "./signet-contract-state-reader.ts";
 import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
 import type { RawContractState } from "./signature-state-reading.ts";
 import {
-  signBidirectionalRequestToSignedEVMTransaction,
-  signBidirectionalRequestToUnsignedEVMTransaction,
-  type SignBidirectionalRequest,
+  signBidirectionalEventToSignedEVMTransaction,
+  signBidirectionalEventToUnsignedEVMTransaction,
+  type SignBidirectionalEvent,
   type RequestIdHex,
 } from "./signet-requests.ts";
 
@@ -69,20 +69,20 @@ export interface SignatureResponseVerdict {
   /** 0-based position of the post in the request's response log. */
   count: bigint;
   /** The posted signature record, verbatim. */
-  response: SignatureResponse;
+  response: SignatureRespondedEvent;
   /** Recovered signer address — absent when the signature did not decode. */
   signer?: string;
   /** Why the post was rejected; absent when the post is valid. */
   rejectedReason?: string;
 }
 
-/** Result of {@link SignetRequestResponseReader['getVerifiedSignatureResponse']}. */
+/** Result of {@link SignetRequestResponseReader['getVerifiedSignatureRespondedEvent']}. */
 export interface VerifiedSignatureResponseResult {
   /**
    * The first valid response (lowest count), or `undefined` when no valid
    * response has been posted yet — poll again.
    */
-  verified?: SignatureResponse;
+  verified?: SignatureRespondedEvent;
   /**
    * One verdict per post, count order. Pure data: the reader never logs, so
    * callers decide how to surface rejected posts.
@@ -102,7 +102,7 @@ export class SignetRequestResponseReader {
   // Request records never change once stored; cache them across calls.
   private readonly requestCache = new Map<
     RequestIdHex,
-    SignBidirectionalRequest
+    SignBidirectionalEvent
   >();
 
   /**
@@ -146,7 +146,7 @@ export class SignetRequestResponseReader {
    */
   async getSignatureRequest(
     requestId: RequestIdHex,
-  ): Promise<SignBidirectionalRequest> {
+  ): Promise<SignBidirectionalEvent> {
     const cached = this.requestCache.get(requestId);
     if (cached !== undefined) {
       return cached;
@@ -173,7 +173,7 @@ export class SignetRequestResponseReader {
   /**
    * Fetch every response posted for `requestId`, in post (count) order.
    * UNVERIFIED — any of them may be garbage; see
-   * {@link getVerifiedSignatureResponse}.
+   * {@link getVerifiedSignatureRespondedEvent}.
    *
    * @param requestId - The request id whose posts to enumerate.
    * @returns The posted payloads, index = count; empty when none yet.
@@ -182,18 +182,18 @@ export class SignetRequestResponseReader {
    */
   async getSignatureResponses(
     requestId: RequestIdHex,
-  ): Promise<SignatureResponse[]> {
+  ): Promise<SignatureRespondedEvent[]> {
     const raw = await this.queryRawState(
       this.config.signetContractAddress,
       "signet contract",
     );
-    const { signatureResponseCounterIndex, signatureResponseIndex } =
+    const { signatureResponseCounterMap, signatureResponseMap } =
       readSignetContractLedgerFromState(raw);
-    const totalPosts = signatureResponseCounterIndex.get(requestId) ?? 0n;
-    const responses: SignatureResponse[] = [];
+    const totalPosts = signatureResponseCounterMap.get(requestId) ?? 0n;
+    const responses: SignatureRespondedEvent[] = [];
     for (let count = 0n; count < totalPosts; count++) {
-      const response = signatureResponseIndex.get(
-        signetResponseIndexKey(requestId, count),
+      const response = signatureResponseMap.get(
+        signetMapEntryKey(requestId, count),
       );
       if (response === undefined) {
         throw new Error(
@@ -220,7 +220,7 @@ export class SignetRequestResponseReader {
    * @throws Error when either contract has no state, the request is not on
    *   the requester's ledger, or the responses ledger is inconsistent.
    */
-  async getVerifiedSignatureResponse(
+  async getVerifiedSignatureRespondedEvent(
     requestId: RequestIdHex,
     expectedSigner: string,
   ): Promise<VerifiedSignatureResponseResult> {
@@ -271,7 +271,7 @@ export class SignetRequestResponseReader {
   async getUnsignedEVMTransaction(
     requestId: RequestIdHex,
   ): Promise<Transaction> {
-    return signBidirectionalRequestToUnsignedEVMTransaction(
+    return signBidirectionalEventToUnsignedEVMTransaction(
       await this.getSignatureRequest(requestId),
     );
   }
@@ -279,7 +279,7 @@ export class SignetRequestResponseReader {
   /**
    * Assemble the broadcast-ready signed EIP-1559 transaction for `requestId`:
    * rebuild the request's transaction and attach the first VERIFIED response
-   * signed by `expectedSigner` (see {@link getVerifiedSignatureResponse} — the
+   * signed by `expectedSigner` (see {@link getVerifiedSignatureRespondedEvent} — the
    * response log is unauthenticated, so an `expectedSigner` is required and
    * unverified posts are never attached).
    *
@@ -296,40 +296,55 @@ export class SignetRequestResponseReader {
     requestId: RequestIdHex,
     expectedSigner: string,
   ): Promise<Transaction | undefined> {
-    const { verified } = await this.getVerifiedSignatureResponse(
+    const { verified } = await this.getVerifiedSignatureRespondedEvent(
       requestId,
       expectedSigner,
     );
     if (verified === undefined) {
       return undefined;
     }
-    // getSignatureRequest is cached — getVerifiedSignatureResponse already
+    // getSignatureRequest is cached — getVerifiedSignatureRespondedEvent already
     // fetched it, so this is a free lookup, not a second query.
     const request = await this.getSignatureRequest(requestId);
-    return signBidirectionalRequestToSignedEVMTransaction(request, verified);
+    return signBidirectionalEventToSignedEVMTransaction(request, verified);
   }
 
   /**
-   * Fetch the MPC's respond-bidirectional attestation for `requestId`,
-   * if posted. The signet contract verified it IN-CIRCUIT at post time
-   * (Schnorr over `(requestId, hash(serializedOutput, outputLen))` against
-   * the sealed MPC key), so it is single-slot and needs no off-chain
-   * verification or verdicts — `undefined` simply means not posted yet, poll
-   * again.
+   * Fetch every respond-bidirectional response posted for `requestId`, in
+   * post (count) order. UNVERIFIED — the signet contract stores posts without
+   * checking them, so any entry may be garbage: verify each candidate before
+   * trusting it (in-circuit at claim time, or off-chain via the compiled
+   * `pureCircuits.verifyRespondBidirectionalEvent` against the MPC derived
+   * key you expect). An empty array simply means none posted yet, poll again.
    *
-   * @param requestId - The request id whose attestation to fetch.
-   * @returns The attestation record, or `undefined` when none is posted.
-   * @throws Error when the signet contract has no state on-chain.
+   * @param requestId - The request id whose responses to enumerate.
+   * @returns The posted records, index = count; empty when none yet.
+   * @throws Error when the signet contract has no state, or its counter
+   *   disagrees with the log (inconsistent ledger).
    */
-  async getRespondBidirectional(
+  async getRespondBidirectionalEvents(
     requestId: RequestIdHex,
-  ): Promise<RespondBidirectional | undefined> {
+  ): Promise<RespondBidirectionalEvent[]> {
     const raw = await this.queryRawState(
       this.config.signetContractAddress,
       "signet contract",
     );
-    return readSignetContractLedgerFromState(raw).respondBidirectionalIndex.get(
-      requestId,
-    );
+    const { respondBidirectionalCounterMap, respondBidirectionalMap } =
+      readSignetContractLedgerFromState(raw);
+    const totalPosts = respondBidirectionalCounterMap.get(requestId) ?? 0n;
+    const responses: RespondBidirectionalEvent[] = [];
+    for (let count = 0n; count < totalPosts; count++) {
+      const response = respondBidirectionalMap.get(
+        signetMapEntryKey(requestId, count),
+      );
+      if (response === undefined) {
+        throw new Error(
+          `respond-bidirectional log has no entry ${count} for request ${requestId} ` +
+            `despite its counter reading ${totalPosts} — ledger state is inconsistent`,
+        );
+      }
+      responses.push(response);
+    }
+    return responses;
   }
 }

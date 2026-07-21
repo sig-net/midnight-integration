@@ -8,28 +8,16 @@
 // The routing constants belong in github.com/sig-net/signet.js — kept here
 // until upstreamed.
 
-/** Width of `SignBidirectionalRequest.caip2Id` (`Bytes<32>`). */
+/** Width of `SignBidirectionalEvent.caip2Id` (`Bytes<32>`). */
 export const CAIP2_ID_BYTES = 32;
 
-/** Width of `SignBidirectionalRequest.algo` (`Bytes<32>`). */
-export const ALGO_BYTES = 32;
-
-/** Width of `SignBidirectionalRequest.dest` (`Bytes<32>`). */
-export const DEST_BYTES = 32;
-
-/** Width of `SignBidirectionalRequest.params` (`Bytes<64>`). */
+/** Width of `SignBidirectionalEvent.params` (`Bytes<64>`). */
 export const MPC_PARAMS_BYTES = 64;
-
-/** Width of `SignBidirectionalRequest.outputDeserializationSchema` (`Bytes<128>`). */
-export const OUTPUT_DESERIALIZATION_SCHEMA_BYTES = 128;
-
-/** Width of `SignBidirectionalRequest.respondSerializationSchema` (`Bytes<128>`). */
-export const RESPOND_SERIALIZATION_SCHEMA_BYTES = 128;
 
 /** Width of `EVMCalldata.selector` (`Bytes<4>`) — the literal first 4 calldata bytes. */
 export const SELECTOR_BYTES = 4;
 
-/** Width of `RespondBidirectional.serializedOutput` (`Bytes<128>`). */
+/** Width of `RespondBidirectionalEvent.serializedOutput` (`Bytes<128>`). */
 export const SERIALIZED_OUTPUT_BYTES = 128;
 
 /**
@@ -63,16 +51,10 @@ export function isExecutionError(serializedOutput: Uint8Array): boolean {
   return MPC_ERROR_SENTINEL.every((byte, index) => serializedOutput[index] === byte);
 }
 
-/** Signature algorithm the MPC uses for EVM chains (`algo` field value). */
-export const SIGNET_ALGO_ECDSA = "ecdsa";
-
-/** Destination chain family for EVM requests (`dest` field value). */
-export const SIGNET_DEST_ETHEREUM = "ethereum";
-
 /**
  * Default MPC key version (`keyVersion` field value). Version 0 is the
  * unsupported legacy format — the canonical MPC (and
- * `constructSignBidirectionalRequest`) requires `keyVersion >= 1`.
+ * `constructSignBidirectionalEvent`) requires `keyVersion >= 1`.
  */
 export const SIGNET_DEFAULT_KEY_VERSION = 1n;
 

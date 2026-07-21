@@ -1,5 +1,5 @@
 // Round-trip test for the MPC-/client-style signet contract reader: encode
-// all five ledger fields with the canonical descriptors into a synthetic
+// all six ledger fields with the canonical descriptors into a synthetic
 // StateValue tree (the shape the indexer returns for the signet contract),
 // then decode them back by field position alone — no compiled contract
 // involved. Mirrors signature-requests-state-reader.test.ts. The notification
@@ -9,172 +9,166 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  CompactTypeBytes,
   CompactTypeUnsignedInteger,
   StateMap,
   StateValue,
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
+  bigintToBytes32,
   bytesToHex,
   decodeSignBidirectionalNotification,
-  deriveJubjubKeypair,
   pureCircuits,
   readSignBidirectionalNotificationIndexFromState,
   readSignetContractLedgerFromState,
   requestIdHex,
   requestIdType,
-  signatureResponseType,
-  respondBidirectionalType,
+  signatureRespondedEventType,
+  respondBidirectionalEventType,
   signBidirectionalNotificationType,
-  signetResponseIndexKey,
-  signetResponseKeyType,
-  type SignatureResponse,
-  type RespondBidirectional,
+  signetMapEntryKey,
+  signetMapKeyType,
+  type SignatureRespondedEvent,
+  type RespondBidirectionalEvent,
+  type SignBidirectionalNotificationRecord,
 } from "../src/index.ts";
 
 const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
-const bytes32 = new CompactTypeBytes(32);
 
 const REQUEST_ID = bytes(32, 0x2f);
 // Two signature responses posted for REQUEST_ID: counter reads 2, entries at
 // counts 0..1.
 const POST_COUNT = 2n;
-const RESPONSE_0: SignatureResponse = {
+const RESPONSE_0: SignatureRespondedEvent = {
   bigRx: bytes(32, 0xa0),
   bigRy: bytes(32, 0xa1),
   s: bytes(32, 0xa2),
   recoveryId: 0n,
 };
-const RESPONSE_1: SignatureResponse = {
+const RESPONSE_1: SignatureRespondedEvent = {
   bigRx: bytes(32, 0xb0),
   bigRy: bytes(32, 0xb1),
   s: bytes(32, 0xb2),
   recoveryId: 1n,
 };
 
-// One respond-bidirectional attestation for REQUEST_ID — real Jubjub points
-// so the descriptor round-trips genuine coordinates, but a synthetic scalar
-// (the reader decodes, it does not verify).
-const MPC_KEYS = deriveJubjubKeypair(bytes(32, 0x42));
-const RESPOND_BIDIRECTIONAL: RespondBidirectional = {
+// One respond-bidirectional response for REQUEST_ID — synthetic signature
+// scalars (the reader decodes, it does not verify). LE bytes as the ledger
+// stores them.
+const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
   serializedOutput: bytes(128, 0x01),
   outputLen: 32n,
-  pk: MPC_KEYS.pk,
-  announcement: deriveJubjubKeypair(bytes(32, 0x43)).pk,
-  response: 123456789n,
+  r: bigintToBytes32(123456789n),
+  s: bigintToBytes32(987654321n),
+  recoveryId: 1n,
 };
 
-const MPC_PUB_KEY_HASH = bytes(32, 0x99);
-
 // One notification registered for REQUEST_ID, packed by the compiled circuit
-// (the same packer requester contracts call in-circuit).
+// (the same packer requester contracts call in-circuit). The request id is
+// NOT in the payload — it lives in the SignetMapKey the record is stored
+// under.
 const CALLER_ADDRESS_BYTES = bytes(32, 0xc1);
-const NOTIFICATION = pureCircuits.constructSignBidirectionalNotificationV1(
+const NOTIFICATION = pureCircuits.constructSignBidirectionalEventNotificationV1(
   { bytes: CALLER_ADDRESS_BYTES },
-  REQUEST_ID,
-  0n,
+  4n,
 );
 
 /** Counter cell as the runtime stores it: a u64 in a plain cell. */
 const counterCell = (value: bigint) =>
   StateValue.newCell({ value: u64.toValue(value), alignment: u64.alignment() });
 
-const responseCell = (response: SignatureResponse) =>
-  StateValue.newCell({
-    value: signatureResponseType.toValue(response),
-    alignment: signatureResponseType.alignment(),
-  });
+/** A one-entry `Map<RequestId, Counter>` state map. */
+const counterMapOf = (count: bigint) =>
+  new StateMap().insert(
+    {
+      value: requestIdType.toValue(REQUEST_ID),
+      alignment: requestIdType.alignment(),
+    },
+    counterCell(count),
+  );
 
-const responseKey = (count: bigint) => ({
-  value: signetResponseKeyType.toValue({ count, requestId: REQUEST_ID }),
-  alignment: signetResponseKeyType.alignment(),
+const mapKey = (count: bigint) => ({
+  value: signetMapKeyType.toValue({ count, requestId: REQUEST_ID }),
+  alignment: signetMapKeyType.alignment(),
 });
 
-// Contract root state: an array of ledger fields per the signet contract
-// layout convention — signature counter index (0), signature log (1),
-// respond-bidirectional index (2), sealed MPC key hash (3), notification
-// registry (4).
+const responseCell = (response: SignatureRespondedEvent) =>
+  StateValue.newCell({
+    value: signatureRespondedEventType.toValue(response),
+    alignment: signatureRespondedEventType.alignment(),
+  });
+
+const notificationCell = (record: SignBidirectionalNotificationRecord) =>
+  StateValue.newCell({
+    value: signBidirectionalNotificationType.toValue(record),
+    alignment: signBidirectionalNotificationType.alignment(),
+  });
+
+// Contract root state: an array of ledger fields in the signet contract's
+// declaration order — notification counter map (0), notification map (1),
+// signature counter map (2), signature map (3), respond-bidirectional
+// counter map (4), respond-bidirectional map (5).
 const syntheticContractState = () => {
-  const counterMap = new StateMap().insert(
-    {
-      value: requestIdType.toValue(REQUEST_ID),
-      alignment: requestIdType.alignment(),
-    },
-    counterCell(POST_COUNT),
+  const notificationMap = new StateMap().insert(
+    mapKey(0n),
+    notificationCell(NOTIFICATION),
   );
   const responseMap = new StateMap()
-    .insert(responseKey(0n), responseCell(RESPONSE_0))
-    .insert(responseKey(1n), responseCell(RESPONSE_1));
+    .insert(mapKey(0n), responseCell(RESPONSE_0))
+    .insert(mapKey(1n), responseCell(RESPONSE_1));
   const respondBidirectionalMap = new StateMap().insert(
-    {
-      value: requestIdType.toValue(REQUEST_ID),
-      alignment: requestIdType.alignment(),
-    },
+    mapKey(0n),
     StateValue.newCell({
-      value: respondBidirectionalType.toValue(RESPOND_BIDIRECTIONAL),
-      alignment: respondBidirectionalType.alignment(),
-    }),
-  );
-  const notificationMap = new StateMap().insert(
-    {
-      value: requestIdType.toValue(REQUEST_ID),
-      alignment: requestIdType.alignment(),
-    },
-    StateValue.newCell({
-      value: signBidirectionalNotificationType.toValue(NOTIFICATION),
-      alignment: signBidirectionalNotificationType.alignment(),
+      value: respondBidirectionalEventType.toValue(RESPOND_BIDIRECTIONAL),
+      alignment: respondBidirectionalEventType.alignment(),
     }),
   );
   return StateValue.newArray()
-    .arrayPush(StateValue.newMap(counterMap))
+    .arrayPush(StateValue.newMap(counterMapOf(1n)))
+    .arrayPush(StateValue.newMap(notificationMap))
+    .arrayPush(StateValue.newMap(counterMapOf(POST_COUNT)))
     .arrayPush(StateValue.newMap(responseMap))
-    .arrayPush(StateValue.newMap(respondBidirectionalMap))
-    .arrayPush(
-      StateValue.newCell({
-        value: bytes32.toValue(MPC_PUB_KEY_HASH),
-        alignment: bytes32.alignment(),
-      }),
-    )
-    .arrayPush(StateValue.newMap(notificationMap));
+    .arrayPush(StateValue.newMap(counterMapOf(1n)))
+    .arrayPush(StateValue.newMap(respondBidirectionalMap));
 };
 
 describe("signet-contract-state-reader (MPC-style raw decode)", () => {
-  it("round-trips all five ledger fields through raw state by field position", () => {
+  it("round-trips all six ledger fields through raw state by field position", () => {
     const {
-      signatureResponseCounterIndex,
-      signatureResponseIndex,
-      respondBidirectionalIndex,
-      mpcPubKeyHash,
-      signBidirectionalNotificationIndex,
+      signBidirectionalEventNotificationCounterMap,
+      signBidirectionalEventNotificationMap,
+      signatureResponseCounterMap,
+      signatureResponseMap,
+      respondBidirectionalCounterMap,
+      respondBidirectionalMap,
     } = readSignetContractLedgerFromState(syntheticContractState());
 
-    expect(signatureResponseCounterIndex.size).toBe(1);
-    expect(signatureResponseCounterIndex.get(requestIdHex(REQUEST_ID))).toBe(
-      POST_COUNT,
-    );
+    const idHex = requestIdHex(REQUEST_ID);
 
-    expect(signatureResponseIndex.size).toBe(2);
-    expect(
-      signatureResponseIndex.get(signetResponseIndexKey(requestIdHex(REQUEST_ID), 0n)),
-    ).toEqual(RESPONSE_0);
-    expect(
-      signatureResponseIndex.get(signetResponseIndexKey(requestIdHex(REQUEST_ID), 1n)),
-    ).toEqual(RESPONSE_1);
-
-    expect(respondBidirectionalIndex.size).toBe(1);
-    expect(respondBidirectionalIndex.get(requestIdHex(REQUEST_ID))).toEqual(
-      RESPOND_BIDIRECTIONAL,
-    );
-
-    expect(mpcPubKeyHash).toEqual(MPC_PUB_KEY_HASH);
-
-    expect(signBidirectionalNotificationIndex.size).toBe(1);
-    expect(signBidirectionalNotificationIndex.get(requestIdHex(REQUEST_ID))).toEqual(
+    expect(signBidirectionalEventNotificationCounterMap.get(idHex)).toBe(1n);
+    expect(signBidirectionalEventNotificationMap.size).toBe(1);
+    expect(signBidirectionalEventNotificationMap.get(idHex)).toEqual(
       NOTIFICATION,
+    );
+
+    expect(signatureResponseCounterMap.size).toBe(1);
+    expect(signatureResponseCounterMap.get(idHex)).toBe(POST_COUNT);
+
+    expect(signatureResponseMap.size).toBe(2);
+    expect(signatureResponseMap.get(signetMapEntryKey(idHex, 0n))).toEqual(
+      RESPONSE_0,
+    );
+    expect(signatureResponseMap.get(signetMapEntryKey(idHex, 1n))).toEqual(
+      RESPONSE_1,
+    );
+
+    expect(respondBidirectionalCounterMap.get(idHex)).toBe(1n);
+    expect(respondBidirectionalMap.size).toBe(1);
+    expect(respondBidirectionalMap.get(signetMapEntryKey(idHex, 0n))).toEqual(
+      RESPOND_BIDIRECTIONAL,
     );
   });
 
@@ -186,12 +180,32 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
     expect(registry.get(requestIdHex(REQUEST_ID))).toEqual(NOTIFICATION);
   });
 
+  it("keeps the FIRST post per request id when re-notifies appended", () => {
+    const second = pureCircuits.constructSignBidirectionalEventNotificationV1(
+      { bytes: bytes(32, 0xd2) },
+      7n,
+    );
+    const notificationMap = new StateMap()
+      .insert(mapKey(0n), notificationCell(NOTIFICATION))
+      .insert(mapKey(1n), notificationCell(second));
+    const state = StateValue.newArray()
+      .arrayPush(StateValue.newMap(counterMapOf(2n)))
+      .arrayPush(StateValue.newMap(notificationMap))
+      .arrayPush(StateValue.newMap(new StateMap()))
+      .arrayPush(StateValue.newMap(new StateMap()))
+      .arrayPush(StateValue.newMap(new StateMap()))
+      .arrayPush(StateValue.newMap(new StateMap()));
+
+    const registry = readSignBidirectionalNotificationIndexFromState(state);
+    expect(registry.size).toBe(1);
+    expect(registry.get(requestIdHex(REQUEST_ID))).toEqual(NOTIFICATION);
+  });
+
   it("decodes a circuit-packed notification back to its flat fields (pack↔decode lockstep)", () => {
     expect(decodeSignBidirectionalNotification(NOTIFICATION)).toEqual({
       version: 1,
       callerAddress: bytesToHex(CALLER_ADDRESS_BYTES),
-      requestId: requestIdHex(REQUEST_ID),
-      requestsIndexField: 0,
+      requestsIndexField: 4,
     });
   });
 
@@ -206,24 +220,15 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
       .arrayPush(StateValue.newMap(new StateMap()))
       .arrayPush(StateValue.newMap(new StateMap()))
       .arrayPush(StateValue.newMap(new StateMap()))
-      .arrayPush(
-        StateValue.newCell({
-          value: bytes32.toValue(MPC_PUB_KEY_HASH),
-          alignment: bytes32.alignment(),
-        }),
-      )
+      .arrayPush(StateValue.newMap(new StateMap()))
+      .arrayPush(StateValue.newMap(new StateMap()))
       .arrayPush(StateValue.newMap(new StateMap()));
-    const {
-      signatureResponseCounterIndex,
-      signatureResponseIndex,
-      respondBidirectionalIndex,
-      mpcPubKeyHash,
-      signBidirectionalNotificationIndex,
-    } = readSignetContractLedgerFromState(fresh);
-    expect(signatureResponseCounterIndex.size).toBe(0);
-    expect(signatureResponseIndex.size).toBe(0);
-    expect(respondBidirectionalIndex.size).toBe(0);
-    expect(mpcPubKeyHash).toEqual(MPC_PUB_KEY_HASH);
-    expect(signBidirectionalNotificationIndex.size).toBe(0);
+    const ledger = readSignetContractLedgerFromState(fresh);
+    expect(ledger.signBidirectionalEventNotificationCounterMap.size).toBe(0);
+    expect(ledger.signBidirectionalEventNotificationMap.size).toBe(0);
+    expect(ledger.signatureResponseCounterMap.size).toBe(0);
+    expect(ledger.signatureResponseMap.size).toBe(0);
+    expect(ledger.respondBidirectionalCounterMap.size).toBe(0);
+    expect(ledger.respondBidirectionalMap.size).toBe(0);
   });
 });

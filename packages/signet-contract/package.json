@@ -16,9 +16,9 @@
     "dist"
   ],
   "scripts": {
-    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signet-contract.compact src/managed",
-    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/signet-contract.compact src/managed",
-    "build": "rm -rf dist && ls src/managed/keys/*.prover >/dev/null 2>&1 || { echo 'signet-contract build: no prover keys in src/managed/keys — run `yarn compile:zk` first (compile uses --skip-zk)' >&2; exit 1; } && tsc -p tsconfig.json && tsc -p tsconfig.build.json && mkdir -p dist/managed && cp -R src/managed/contract src/managed/compiler src/managed/zkir src/managed/keys dist/managed/",
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk --feature-zkir-v3 src/signet-contract.compact src/managed",
+    "compile:zk": "COMPACT_PATH=../../node_modules compact compile --feature-zkir-v3 src/signet-contract.compact src/managed",
+    "build": "rm -rf dist && ls src/managed/keys/*.prover >/dev/null 2>&1 || { echo 'signet-contract build: no prover keys in src/managed/keys \u2014 run `yarn compile:zk` first (compile uses --skip-zk)' >&2; exit 1; } && tsc -p tsconfig.json && tsc -p tsconfig.build.json && mkdir -p dist/managed && cp -R src/managed/contract src/managed/compiler src/managed/zkir src/managed/keys dist/managed/",
     "prepack": "yarn build",
     "test": "vitest run"
   },

@@ -1,11 +1,11 @@
 // Signet-contract deploy flow: builds, balances, proves and submits the
 // contract's deploy transaction using the generic plumbing in ./plumbing.
-// Everything contract-specific lives HERE: the MPC attestation key
-// constructor arg and the (empty) private state. Requires the contract
+// Everything contract-specific lives HERE: the (empty) private state — the
+// contract has no constructor arguments (every store is an unauthenticated
+// append-only log; verification is the reader's job). Requires the contract
 // package's compiled assets to carry keys (its published dist/managed
 // always does; an in-repo checkout needs `yarn compile:zk`).
 
-import { parseJubjubPublicKey } from "@sig-net/midnight";
 import {
   assertDeployerFunded,
   buildDeployTransaction,
@@ -33,16 +33,13 @@ export interface SignetContractDeployment {
 /**
  * Deploy the signet contract: read config from `env`, build and prove the
  * deploy transaction and submit it through a synced wallet. Progress is
- * logged to the console. The one constructor argument is the MPC attestation
- * key (`MPC_JUBJUB_PK`, "x,y" decimal or 0x-hex field coordinates),
- * whose hash the contract seals — remote execution responses must be signed
- * by it. Any funded wallet can deploy; nothing about the deployer is sealed.
+ * logged to the console. The contract takes no constructor arguments. Any
+ * funded wallet can deploy; nothing about the deployer is sealed.
  *
- * @param env - Environment map providing `DEPLOYER_SEED`,
- *   `MPC_JUBJUB_PK` and the shared Midnight node configuration (see `getMidnightNodeConfig`).
+ * @param env - Environment map providing `DEPLOYER_SEED` and the shared
+ *   Midnight node configuration (see `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
- * @throws If `MPC_JUBJUB_PK` is missing/malformed, the deployer
- *   wallet holds no funds, or submission fails.
+ * @throws If the deployer wallet holds no funds or submission fails.
  */
 export async function deploySignetContract(
   env: Record<string, string | undefined> = process.env,
@@ -50,16 +47,9 @@ export async function deploySignetContract(
   const deployConfig = getDeployConfig(env);
   const { networkId } = deployConfig.midnightNodeConfig;
 
-  const mpcPkRaw = env.MPC_JUBJUB_PK?.trim();
-  if (!mpcPkRaw) {
-    throw new Error("MPC_JUBJUB_PK is required (the MPC attestation key, as \"x,y\")");
-  }
-  const mpcPk = parseJubjubPublicKey(mpcPkRaw);
-
   const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
 
   console.log(`deploying signet-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`);
-  console.log(`mpc attestation key: x=${mpcPk.x} y=${mpcPk.y}`);
 
   const { contractAddress, txId } = await withSyncedWalletFacade(
     accountKeys,
@@ -72,7 +62,6 @@ export async function deploySignetContract(
         networkId,
         accountKeys.shieldedSecretKeys.coinPublicKey,
         createSignetContractPrivateState(),
-        mpcPk,
       );
       console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
 

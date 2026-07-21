@@ -130,9 +130,10 @@ export class SignetRequestFeed {
    * indexed yet is retried next cycle; undecodable or unsupported-version
    * records are likewise skipped (and logged) without being marked.
    *
-   * Dedupe and resolution key off the notification PAYLOAD's request id (the
-   * canonical one — the registry map key is caller-supplied and could
-   * disagree; the resolver's membership check authenticates the payload's).
+   * Dedupe and resolution key off the request id of the registry entry's map
+   * key (the V1 payload no longer carries one). The key is caller-supplied,
+   * so it confers no authority — the resolver's membership check against the
+   * named caller's own ledger is what authenticates it.
    *
    * @returns The newly-authenticated requests this cycle.
    * @throws Error if the signet contract has no readable state at the
@@ -152,7 +153,7 @@ export class SignetRequestFeed {
       state.data,
     );
     const out: ResolvedSignetRequest[] = [];
-    for (const [registryKey, record] of [...registry.entries()].sort(
+    for (const [requestId, record] of [...registry.entries()].sort(
       ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0),
     )) {
       let notification;
@@ -161,15 +162,15 @@ export class SignetRequestFeed {
       } catch (error) {
         console.warn(
           `SignetRequestFeed: skipping undecodable notification ` +
-            `registered under ${registryKey}: ${String(error)}`,
+            `registered under ${requestId}: ${String(error)}`,
         );
         continue;
       }
-      if (this.yielded.has(notification.requestId)) continue;
+      if (this.yielded.has(requestId)) continue;
       if (!this.allowed(notification.callerAddress)) continue;
-      const resolved = await this.resolver.resolve(notification);
+      const resolved = await this.resolver.resolve(requestId, notification);
       if (resolved === undefined) continue;
-      this.yielded.add(notification.requestId);
+      this.yielded.add(requestId);
       out.push(resolved);
     }
     return out;

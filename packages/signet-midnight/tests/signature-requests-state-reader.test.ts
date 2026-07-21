@@ -11,6 +11,8 @@ import { describe, expect, it } from "vitest";
 import { CompactTypeUnsignedInteger, StateMap, StateValue } from "@midnight-ntwrk/compact-runtime";
 
 import {
+  MPCDestination,
+  MPCSignatureAlgorithm,
   TxParamType,
   evmAddressAbiWord,
   lookupSignetRequestAt,
@@ -18,8 +20,8 @@ import {
   readSignetRequestsLedgerFromState,
   requestIdHex,
   requestIdType,
-  signBidirectionalRequestDescriptor,
-  type SignBidirectionalRequest,
+  signBidirectionalEventDescriptor,
+  type SignBidirectionalEvent,
 } from "../src/index.ts";
 
 // The ERC20 transfer(address,uint256) selector — a realistic calldata fixture
@@ -30,9 +32,17 @@ const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
 // Shared across tests: NEVER mutate; build a variation as an explicit spread.
-// The vault's shape: <2 calldata words, 0 access-list entries, 0 keys>.
-const SAMPLE_REQUEST: SignBidirectionalRequest = {
+// The vault's shape: <2 calldata words, 0 access-list entries, 0 keys> with
+// 34-byte schemas. Schema fixtures deliberately end in a non-zero byte (the
+// exact-length protocol convention the raw reader relies on).
+const SAMPLE_REQUEST: SignBidirectionalEvent = {
+  sender: { bytes: bytes(32, 0x01) },
   requestNonce: 7n,
+  keyVersion: 1n,
+  path: bytes(32, 0x03),
+  algo: MPCSignatureAlgorithm.ecdsa,
+  dest: MPCDestination.unused,
+  params: bytes(64, 0x06),
   txParamType: TxParamType.evmType2,
   txParams: {
     to: bytes(20, 0xaa),
@@ -54,18 +64,13 @@ const SAMPLE_REQUEST: SignBidirectionalRequest = {
     },
   },
   caip2Id: bytes(32, 0x02),
-  keyVersion: 1n,
-  path: bytes(256, 0x03),
-  algo: bytes(32, 0x04),
-  dest: bytes(32, 0x05),
-  params: bytes(64, 0x06),
-  outputDeserializationSchema: bytes(128, 0x07),
-  respondSerializationSchema: bytes(128, 0x08),
+  outputDeserializationSchema: bytes(34, 0x07),
+  respondSerializationSchema: bytes(34, 0x08),
 };
 
 // A wider instantiation: <2 words, 1 access-list entry, 2 storage keys> with
 // only one key in use — the reader must recover these capacities too.
-const ACCESS_LIST_REQUEST: SignBidirectionalRequest = {
+const ACCESS_LIST_REQUEST: SignBidirectionalEvent = {
   ...SAMPLE_REQUEST,
   txParams: {
     ...SAMPLE_REQUEST.txParams,
@@ -98,10 +103,16 @@ const counterCell = (value: bigint) =>
 
 /** A request record cell encoded at the given capacity instantiation. */
 const requestCell = (
-  request: SignBidirectionalRequest,
+  request: SignBidirectionalEvent,
   [words, entries, keys]: readonly [number, number, number],
 ) => {
-  const descriptor = signBidirectionalRequestDescriptor(words, entries, keys);
+  const descriptor = signBidirectionalEventDescriptor(
+    words,
+    entries,
+    keys,
+    request.outputDeserializationSchema.length,
+    request.respondSerializationSchema.length,
+  );
   return StateValue.newCell({
     value: descriptor.toValue(request),
     alignment: descriptor.alignment(),

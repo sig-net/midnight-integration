@@ -61,7 +61,7 @@ export type CallerProviders = MidnightProviders<
 // deployed signet contract's managed output (see this package's compile
 // script).
 const managedPath = fileURLToPath(new URL("./managed/signet-caller", import.meta.url));
-const signetManagedPath = fileURLToPath(new URL("./managed/SignetNotifier", import.meta.url));
+const signetManagedPath = fileURLToPath(new URL("./managed/SignetSigner", import.meta.url));
 
 /**
  * The caller's compact-js compiled-contract binding: generated module (the

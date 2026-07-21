@@ -1,7 +1,8 @@
 // The signet caller has no witnesses: both circuits work entirely on public
 // state and circuit arguments — the request is contract-composed, and the
-// response verification is CompactStandardLibrary's `jubjubSchnorrVerify`
-// (fully in-circuit). There is no private state.
+// response verification is CompactStandardLibrary's `secp256k1EcdsaVerify`
+// (fully in-circuit, via verifyRespondBidirectionalEvent). There is no
+// private state.
 
 import type { Witnesses } from "./managed/signet-caller/contract/index.js";
 

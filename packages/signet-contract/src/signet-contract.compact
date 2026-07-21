@@ -88,9 +88,12 @@ export circuit postSignatureResponse(
     );
 }
 
-// postRespondBidirectional appends the MPC's respond-bidirectional response (the attested
-// output of the foreign transaction execution) for requestId. Stored unverified: callers
-// poll the log by request id and verify the attestation themselves.
+// postRespondBidirectional appends the MPC's respond-bidirectional response (the
+// ECDSA-signed output of the foreign transaction execution) for requestId. Stored
+// unverified: callers poll the log by request id and verify the signature themselves
+// against their MPC response key (derived from the caller contract's address + the
+// fixed path "midnight response key" — see verifyRespondBidirectionalEvent in
+// Signet.compact).
 export circuit postRespondBidirectional(
     requestId: RequestId,
     respondBidirectionalEvent: RespondBidirectionalEvent

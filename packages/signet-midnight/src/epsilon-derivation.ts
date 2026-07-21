@@ -27,6 +27,18 @@ export const EPSILON_DERIVATION_PREFIX = "sig.network v1.0.0 epsilon derivation"
 export const MIDNIGHT_TESTNET_CHAIN_ID = "midnight:testnet";
 
 /**
+ * The FIXED derivation path of the MPC's respond-bidirectional RESPONSE key
+ * for Midnight client contracts (mirrors the MPC's per-chain
+ * `<chain> response key` convention — sig-net/mpc
+ * chain-signatures/node/src/respond_bidirectional.rs). The response key is
+ * derived per client contract from (contract address, this path) — it is not
+ * the MPC root key and not the key that signs the requested transaction.
+ * Client contracts pin its hash at deploy time and verify
+ * RespondBidirectionalEvents against it.
+ */
+export const MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH = "midnight response key";
+
+/**
  * Derive the EVM address the MPC network signs from for a given Midnight
  * contract and derivation path, using the sig-net v1.0.0 epsilon scheme:
  * `epsilon = keccak256("<prefix>,<chainId>,<contractAddress>,<path>")` and
