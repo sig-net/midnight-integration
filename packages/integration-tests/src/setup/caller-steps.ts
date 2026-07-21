@@ -68,6 +68,6 @@ export async function deployCallerContractStep(env: NodeJS.ProcessEnv): Promise<
   const { contractAddress } = await retryDeployWhileDustGenerates("deploy:caller-contract", () => deployCaller(env));
   env.MIDNIGHT_CALLER_CONTRACT_ADDRESS = contractAddress;
   console.log(`deployed a fresh MIDNIGHT_CALLER_CONTRACT_ADDRESS=${contractAddress}`);
-  console.log(` ➜ the minimal signet caller on Midnight — records signature requests and verifies the MPC's Schnorr responses`);
+  console.log(` ➜ the minimal signet caller on Midnight — records signature requests and verifies the MPC's ECDSA responses`);
   console.log(` ➜ 💡 Set as MIDNIGHT_CALLER_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
 }

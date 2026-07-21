@@ -5,7 +5,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { deriveEvmAddress } from "../src/index.ts";
+import {
+  deriveEvmAddress,
+  deriveMidnightResponseKey,
+  deriveMidnightResponseSecretKey,
+  secp256k1PublicKeyOf,
+} from "../src/index.ts";
 
 // Fixed MPC root key 9e3b…9e0f from the golden-vector run; its compressed
 // secp256k1 public key (also asserted in mpc-keys.test.ts).
@@ -61,5 +66,45 @@ describe("deriveEvmAddress", () => {
 
   it("rejects a malformed public key", () => {
     expect(() => deriveEvmAddress("0x1234", CONTRACT_ADDRESS, "vault")).toThrow();
+  });
+});
+
+// The root secret key behind MPC_PUBKEY (the mpc-keys golden root key).
+const MPC_ROOT_SECRET = Uint8Array.from(
+  Buffer.from("9e3b2f8d1c4a5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f", "hex"),
+);
+const SIGNET_ADDRESS = CONTRACT_ADDRESS;
+
+describe("deriveMidnightResponseKey / deriveMidnightResponseSecretKey", () => {
+  it("secret and public derivations agree: pub(secret) == derived public key", () => {
+    const secret = deriveMidnightResponseSecretKey(MPC_ROOT_SECRET, SIGNET_ADDRESS);
+    expect(secp256k1PublicKeyOf(secret)).toEqual(
+      deriveMidnightResponseKey(MPC_PUBKEY, SIGNET_ADDRESS),
+    );
+  });
+
+  it("is not the root key", () => {
+    expect(deriveMidnightResponseKey(MPC_PUBKEY, SIGNET_ADDRESS)).not.toEqual(
+      secp256k1PublicKeyOf(MPC_ROOT_SECRET),
+    );
+  });
+
+  it("is scoped per signet deployment: a different signet address derives a different key", () => {
+    const other = "ff".repeat(32);
+    expect(deriveMidnightResponseKey(MPC_PUBKEY, other)).not.toEqual(
+      deriveMidnightResponseKey(MPC_PUBKEY, SIGNET_ADDRESS),
+    );
+  });
+
+  it("normalises the signet address: 0x prefix and case do not change the key", () => {
+    const canonical = deriveMidnightResponseKey(MPC_PUBKEY, SIGNET_ADDRESS);
+    expect(deriveMidnightResponseKey(MPC_PUBKEY, `0x${SIGNET_ADDRESS}`)).toEqual(canonical);
+    expect(deriveMidnightResponseKey(MPC_PUBKEY, SIGNET_ADDRESS.toUpperCase())).toEqual(canonical);
+  });
+
+  it("rejects a root secret key that is not 32 bytes", () => {
+    expect(() =>
+      deriveMidnightResponseSecretKey(new Uint8Array(31), SIGNET_ADDRESS),
+    ).toThrow(/32 bytes/);
   });
 });

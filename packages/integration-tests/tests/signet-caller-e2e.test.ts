@@ -2,40 +2,43 @@
 // central signet contract end to end — submit a signature request (with
 // contract-fixed minimal calldata), watch the notification land in the
 // singleton's registry, poll the MPC's signature response and verify it
-// against the caller's derived account, then verify a Schnorr attestation
-// in-circuit — against contracts the caller globalSetup pipeline
-// (src/setup/caller-global-setup.ts, wired by vitest.config.ts) has
-// already compiled/deployed. Tests in THIS file run in source order and feed
-// each other through module-scoped state, so the file is one ordered
-// pipeline on purpose. Run with `yarn test:integration-tests` (or the
-// file-scoped `yarn test:integration-tests:signet-caller-e2e`) from the repo
-// root; without RUN_INTEGRATION_TESTS the whole suite skips so plain
-// `yarn test` stays offline. Set STEP_THROUGH=1 to pause before each
+// against the caller's derived account, then verify an ECDSA-signed
+// respond-bidirectional response in-circuit — against contracts the caller
+// globalSetup pipeline (src/setup/caller-global-setup.ts, wired by
+// vitest.config.ts) has already compiled/deployed. Tests in THIS file run in
+// source order and feed each other through module-scoped state, so the file
+// is one ordered pipeline on purpose. Run with `yarn test:integration-tests`
+// (or the file-scoped `yarn test:integration-tests:signet-caller-e2e`) from
+// the repo root; without RUN_INTEGRATION_TESTS the whole suite skips so
+// plain `yarn test` stays offline. Set STEP_THROUGH=1 to pause before each
 // test (after the first) until you hit Enter in the terminal.
 //
 // Deliberately EVM-free: the request exists to be SIGNED, never broadcast.
-// The fakenet's own Schnorr attestation only follows a broadcast it observed
-// on the target chain, so the in-circuit verification leg is driven with an
-// attestation signed from the suite's shared MPC_ROOT_KEY — the same key
-// material the fakenet signs with.
+// The fakenet's own respond-bidirectional post only follows a broadcast it
+// observed on the target chain, so the in-circuit verification leg is driven
+// with a response signed here from the suite's shared MPC_ROOT_KEY — the
+// same key material (and the same response-key derivation) the fakenet signs
+// with.
 
 import {
   asciiPadded,
+  bigintToBytes32,
   calculateRequestId,
   deriveEvmAddress,
-  deriveJubjubKeypair,
+  deriveMidnightResponseSecretKey,
   hexToBytes,
+  parseSecp256k1PublicKey,
   pureCircuits as signetCircuits,
   requestIdBytes,
   requestIdHex,
-  schnorrSign,
+  signAttestationDigest,
   sleepUnlessAborted,
   stripHexPrefix,
-  toSignBidirectionalRequestIndex,
+  toSignBidirectionalEventIndex,
   SIGNET_DEFAULT_KEY_VERSION,
   type RequestIdHex,
 } from "@sig-net/midnight";
-import { signBidirectionalRequestToSignedEVMTransaction } from "@sig-net/midnight";
+import { signBidirectionalEventToSignedEVMTransaction } from "@sig-net/midnight";
 import { ledger as callerContractLedger } from "@midnight-protocol/caller-contract";
 import { getAddress } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
@@ -73,10 +76,10 @@ const EVM_NONCE = 0n;
 // the calldata + path against the LIVE ledger record).
 const EXPECTED_SELECTOR = new Uint8Array([0xca, 0x11, 0xab, 0x1e]);
 const EXPECTED_WORD = asciiPadded("signet-caller:fixed-word", 32);
-const CALLER_PATH = "caller";
+const CALLER_PATH = "caller-path";
 
 /**
- * Read the caller ledger's request-index keys — present request ids as hex.
+ * Read the caller ledger's event-map keys — present request ids as hex.
  *
  * @param context - The session's caller context.
  * @returns The set of request ids currently on the caller's ledger.
@@ -87,7 +90,7 @@ const readRequestIds = async (context: CallerContext): Promise<Set<RequestIdHex>
   if (!contractState) {
     throw new Error(`no contract state found at ${context.contractAddress}`);
   }
-  const index = toSignBidirectionalRequestIndex(callerContractLedger(contractState.data).signetRequestsIndex);
+  const index = toSignBidirectionalEventIndex(callerContractLedger(contractState.data).signBidirectionalEventMap);
   return new Set(index.keys());
 };
 
@@ -142,6 +145,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       expect(record.txParams.calldata.value.selector).toEqual(EXPECTED_SELECTOR);
       expect(record.txParams.calldata.value.words[0]).toEqual(EXPECTED_WORD);
       expect(new TextDecoder().decode(record.path).replace(/\0+$/u, "")).toBe(CALLER_PATH);
+      // The event commits to its own sender: the caller contract's address.
+      expect(stripHexPrefix(Buffer.from(record.sender.bytes).toString("hex")).toLowerCase()).toBe(
+        stripHexPrefix(requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS")).toLowerCase(),
+      );
       expect(signatureRequestId).toBe(requestIdHex(calculateRequestId(record)));
 
       banner([
@@ -160,11 +167,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
   it(
     "golden notification: the caller's submit registered a decodable notification in the signet registry",
     async () => {
-      // Pins the SignBidirectionalNotification payload layout against a LIVE
-      // indexer, read exactly the way the MPC reads it — raw signet state by
-      // field position through the hand-composed descriptors. The caller's
-      // submit cross-contract-called notifyBidirectionalSignatureRequest to
-      // register this.
+      // Pins the SignBidirectionalEventNotification payload layout against a
+      // LIVE indexer, read exactly the way the MPC reads it — raw signet
+      // state by field position through the hand-composed descriptors. The
+      // caller's submit cross-contract-called signBidirectionalEvent to
+      // register this under the request id (the registry map key: the V1
+      // payload itself no longer carries one).
       expect(signatureRequestId).toBeDefined();
       const callerAddress = requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS");
 
@@ -175,19 +183,18 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       });
 
       // callerAddress points at the caller (the contract whose authenticated
-      // ledger holds the request); requestId matches; the index is at field 4
-      // (the caller contract's layout, see signet-caller.compact).
+      // ledger holds the request); the event map is at field 4 (the caller
+      // contract's layout, see signet-caller.compact).
       expect(decoded.version).toBe(1);
       expect(decoded.callerAddress).toBe(stripHexPrefix(callerAddress).toLowerCase());
-      expect(decoded.requestId).toBe(signatureRequestId);
       expect(decoded.requestsIndexField).toBe(4);
 
       banner([
-        "Golden SignBidirectionalNotification decoded from the live indexer:",
+        "Golden SignBidirectionalEventNotification decoded from the live indexer:",
         "",
         `  version:            ${decoded.version}`,
         `  callerAddress:      ${decoded.callerAddress}`,
-        `  requestId:          ${decoded.requestId}`,
+        `  registered under:   ${signatureRequestId}`,
         `  requestsIndexField: ${decoded.requestsIndexField}`,
       ]);
     },
@@ -200,9 +207,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       expect(signatureRequestId).toBeDefined();
 
       // The caller's requests are keyed under its contract-fixed path
-      // ("caller"), so the MPC signs with the account epsilon-derived from
-      // the CALLER CONTRACT's address + that path — recomputed here with the
-      // same derivation the MPC uses.
+      // ("caller-path"), so the MPC signs with the account epsilon-derived
+      // from the CALLER CONTRACT's address + that path — recomputed here with
+      // the same derivation the MPC uses.
       const expectedSigner = deriveEvmAddress(
         requireEnv("MPC_SECP256K1_PUBKEY"),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
@@ -220,7 +227,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       const timer = setTimeout(() => giveUp.abort(), 2 * MINUTE);
       try {
         while (!giveUp.signal.aborted) {
-          const { verified, verdicts } = await reader.getVerifiedSignatureResponse(signatureRequestId, expectedSigner);
+          const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(signatureRequestId, expectedSigner);
           for (const verdict of verdicts) {
             if (verdict.rejectedReason !== undefined && !warned.has(verdict.count)) {
               warned.add(verdict.count);
@@ -232,7 +239,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
             // the verified response — the typed proof that the MPC's
             // signature answers THIS request from THIS derived account.
             const request = await reader.getSignatureRequest(signatureRequestId);
-            const signedTx = signBidirectionalRequestToSignedEVMTransaction(request, verified);
+            const signedTx = signBidirectionalEventToSignedEVMTransaction(request, verified);
             expect(signedTx.from).toBe(getAddress(expectedSigner));
 
             banner([
@@ -256,16 +263,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
   );
 
   it(
-    "verifyResponse [signet-caller contract method call]: verify a Schnorr attestation in-circuit and consume the request",
+    "verifyResponse [signet-caller contract method call]: verify an ECDSA respond-bidirectional response in-circuit and consume the request",
     async () => {
-      // The fakenet posts its own Schnorr attestation only after observing
-      // the requested transaction on the destination chain — the
+      // The fakenet posts its own respond-bidirectional response only after
+      // observing the requested transaction on the destination chain — the
       // post-broadcast leg this generic exercise deliberately omits. The
-      // caller contract's VERIFICATION of an attestation is what this leg
-      // proves, so the attestation is signed here from the suite's shared
-      // MPC_ROOT_KEY (the exact key material the fakenet signs with; the
-      // setup derived the sealed MPC_JUBJUB_PK from it), using the same
-      // compiled circuits the MPC uses.
+      // caller contract's VERIFICATION of a response is what this leg proves,
+      // so the response is signed here with the MPC response key derived from
+      // the suite's shared MPC_ROOT_KEY + the signet contract address (the
+      // exact derivation the fakenet uses; the setup sealed the matching
+      // MPC_RESPONSE_KEY into the caller at deploy), using the same compiled
+      // digest circuit the MPC uses.
       expect(signatureRequestId).toBeDefined();
 
       const context = await session.callerContext();
@@ -285,24 +293,30 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       serializedOutput[0] = 1;
       const outputLen = 32n;
 
-      const mpcKeys = deriveJubjubKeypair(hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))));
-      const message = signetCircuits.signetAttestationMessage(requestKey, serializedOutput, outputLen);
-      const signature = schnorrSign(mpcKeys.sk, message, (ax, ay, px, py, m) =>
-        signetCircuits.schnorrChallenge(ax, ay, px, py, m),
+      const responseSecretKey = deriveMidnightResponseSecretKey(
+        hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
+        requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
       );
+      const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
+      const digest = signetCircuits.signetAttestationDigest(requestKey, serializedOutput, outputLen);
+      const signature = signAttestationDigest(digest, responseSecretKey);
 
-      await context.caller.callTx.verifyResponse(requestKey, {
-        serializedOutput,
-        outputLen,
-        pk: mpcKeys.pk,
-        announcement: signature.announcement,
-        response: signature.response,
-      });
+      await context.caller.callTx.verifyResponse(
+        requestKey,
+        {
+          serializedOutput,
+          outputLen,
+          r: bigintToBytes32(signature.r),
+          s: bigintToBytes32(signature.s),
+          recoveryId: BigInt(signature.recoveryId),
+        },
+        mpcResponseKey,
+      );
 
       // The consumption is the observable effect: present before (checked
       // above), absent after — and removal only happens if every in-circuit
-      // check (pk hash, Schnorr signature) passed. Poll briefly for the
-      // indexer to catch up.
+      // check (response-key hash, ECDSA signature) passed. Poll briefly for
+      // the indexer to catch up.
       const deadline = Date.now() + MINUTE;
       let stillPresent = true;
       while (stillPresent && Date.now() < deadline) {
@@ -316,8 +330,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       banner([
         `Request ${signatureRequestId} verified and consumed.`,
         "",
-        "The caller verified the MPC-keyed Schnorr attestation in-circuit and",
-        "removed the request from its ledger.",
+        "The caller verified the MPC-keyed ECDSA respond-bidirectional response",
+        "in-circuit and removed the request from its ledger.",
       ]);
     },
     15 * MINUTE,
