@@ -61,7 +61,7 @@ module Signet {
   export struct SignBidirectionalEvent<TxParams, #LenOutputDeserialization, #LenRespondDeserialization> {
     // Address of the client contract that stores and notifies of this SignBidirectionalEvent.
     // Set with kernel.self().
-    sender: Address;
+    sender: ContractAddress;
 
     // Optional nonce field settable by client contracts to ensure SignBidirectionalEvent uniqueness if desired.
     requestNonce: Uint<64>;
@@ -71,14 +71,14 @@ module Signet {
     keyVersion: Uint<8>;      // MPC root-key version to derive from. Set to 1.
     path: Bytes<32>;          // Key Derivation Path
 
-    // MPC Routing Parameters.
-    algo: Bytes<8>;            // Signature scheme, e.g. "ecdsa"
-    dest: Bytes<16>;           // Response destination, e.g. "ethereum"
-    params: Bytes<64>;         // Extra MPC parameters reserved for future use. Leave blank.    
+    // MPC Parameters.
+    algo: MPCSignatureAlgorithm;  // Signature algorth scheme, e.g. ecdsa
+    dest: MPCDestination;         // Destination field reserved for future use. Set to unused.
+    params: Bytes<64>;            // Extra MPC parameters reserved for future use. Leave blank.    
 
     // Specific destination chain Transaction parameters.
     txParamType: TxParamType; // Off-chain tag indicating what type txParams is set to.
-    txParams: TxParams;       // The generic transaction-param payload
+    txParams: TxParams; // The generic transaction-param payload
     caip2Id: Bytes<32>;       // Target chain in CAIP-2 form, e.g. "eip155:11155111"
                               // (https://chainagnostic.org/CAIPs/caip-2)
 
@@ -88,33 +88,47 @@ module Signet {
     respondSerializationSchema: Bytes<LenRespondDeserialization>;
   }
 
+  // MPCSignatureAlgorithm indicates which signature algorithm
+  // will be used by the MPC to generate requested signature.
+  export enum MPCSignatureAlgorithm {
+    ecdsa, // ECDSA signature algorithm
+    reserved, // Reserved for future use. Exists to keep enum >= 2 (proof server bug).
+  }
+
+  // MPCDestination used to specify destination field for SignBidirectionalEvent.
+  // Currently unused.
+  export enum MPCDestination {
+    unused,
+    reserved, // Reserved for future use. Exists to keep enum >= 2 (proof server bug).
+  }
+
   // TxParamType indiciates which transaction-param decomposition a request
   // contains so an off-chain consumer (e.g. the MPC) knows how to re-assemble it.
   export enum TxParamType {
     evmType2, // EVMType2TxParams: an EIP-1559 EVM transaction (envelope + calldata)
-    reserved, // Reserved for future use. Exists only to keep the enum at >= 2 variants (proof server bug).
+    reserved, // Reserved for future use. Exists to keep enum >= 2 (proof server bug).
   }
 
   // Construction helper for the canonical Signet SignBidirectionalEvent
-  export pure circuit constructSignBidirectionalEvent<TxParams>(
-    sender: Address,
+  export pure circuit constructSignBidirectionalEvent<TxParams, #LenOutputDeserialization, #LenRespondDeserialization>(
+    sender: ContractAddress,
     requestNonce: Uint<64>,
     keyVersion: Uint<8>,
     path: Bytes<32>,
-    algo: Bytes<8>,
-    dest: Bytes<16>,
+    algo: MPCSignatureAlgorithm,
+    dest: MPCDestination,
     params: Bytes<64>,
     txParamType: TxParamType,
     txParams: TxParams,
     caip2Id: Bytes<32>,
     outputDeserializationSchema: Bytes<LenOutputDeserialization>,
     respondSerializationSchema: Bytes<LenRespondDeserialization>,
-  ): SignBidirectionalEvent<TxParams> {
+  ): SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondDeserialization> {
     // validate supported values
     assert(keyVersion >= 1, "keyVersion must be >= 1");
 
     // construct and return request
-    return SignBidirectionalEvent<TxParams> {
+    return SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondDeserialization> {
       sender,
       requestNonce,
       keyVersion,
@@ -137,10 +151,10 @@ module Signet {
   export new type RequestId = Bytes<32>;
 
   // RequestId calculation helper.
-  export pure circuit calculateRequestId<TxParams>(
-    request: SignBidirectionalEvent<TxParams>
+  export pure circuit calculateRequestId<TxParams, #LenOutputDeserialization, #LenRespondDeserialization>(
+    request: SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondDeserialization>
   ): RequestId {
-    return persistentHash<SignBidirectionalEvent<TxParams>>(request) as RequestId;
+    return persistentHash<SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondDeserialization>>(request) as RequestId;
   }
 
   // ---- Client Contract: SignBidirectionalEvent Map ---------------------------------------------------
@@ -149,7 +163,7 @@ module Signet {
   // in their ledger. Client contract tells MPC field location of this map when making a cross
   // contract call, via SignetSigner, to the Signet singleton. The MPC looks here to find
   // SignBidirectionalEvents.
-  export new type SignBidirectionalEventMap<TxParams> = Map<RequestId, SignBidirectionalEvent<TxParams>>; 
+  export new type SignBidirectionalEventMap<TxParams, #LenOutputDeserialization, #LenRespondDeserialization> = Map<RequestId, SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondDeserialization>>; 
 
   // ---- Cross Contract SignBidirectionalEventNotification ---------------------------------------------
 
