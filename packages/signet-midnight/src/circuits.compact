@@ -1,0 +1,24 @@
+pragma language_version >= 0.25;
+
+// Compiled export surface of the Signet module. Signet.compact is
+// module-only and compiles to nothing on its own, so this contract-less
+// program re-exports its pure circuits: the compiler emits them as
+// pureCircuits for unit tests and off-chain code to reuse instead of
+// re-porting the algorithms. Only non-generic circuits can be exported
+// (the compiler cannot export type-parameterised circuits top-level).
+// Compile with --skip-zk and --feature-zkir-v3.
+
+import CompactStandardLibrary;
+import "./Signet";
+
+export {
+  signetAttestationDigest,
+  verifyRespondBidirectionalEvent,
+  signetKeyHash,
+  constructSignBidirectionalEventNotificationV1,
+  evmAddressAbiWord,
+  numericAbiWord,
+  boolAbiWord,
+  abiWordToUint128,
+  abiWordToBool
+};

@@ -1,0 +1,97 @@
+//                                          💡 NOTE 💡
+// This contract exists for integration testing only. For full integration examples (such as an
+// ERC20 cross chain vault example) see the Midnight Examples repository at:
+// https://github.com/sig-net/midnight-examples.
+//
+// =================== Test Caller Contract (20 field) =====================================================
+// A 20-field signet requester testing chunked ledger parsing against real compiler output:
+// - past 15 fields compactc stores ledger fields in a chunk tree (20 fields chunk to [5, 15])
+// - the raw readers in @sig-net/midnight must resolve flat field numbers through that tree
+// - signBidirectionalEventMap sits at field 19 (chunk 1 slot 14), a List sits at field 0
+//   (an array-typed node chunk detection must NOT confuse with a chunk)
+// Simulator tests only: no deploy flow, no notifier cross-call.
+// ========================================================================================================
+pragma language_version >= 0.25;
+
+import CompactStandardLibrary;
+
+import "@sig-net/midnight/src/Signet";
+
+// field 0: log of every submitted request id, newest first.
+export ledger requestLog: List<Bytes<32>>;
+
+// field 1: contract-local request counter, sources each request's nonce.
+export ledger signetRequestNonce: Counter;
+
+// fields 2..18: filler counters pushing the contract past the 15-field
+// chunking threshold.
+export ledger pad02: Counter;
+export ledger pad03: Counter;
+export ledger pad04: Counter;
+export ledger pad05: Counter;
+export ledger pad06: Counter;
+export ledger pad07: Counter;
+export ledger pad08: Counter;
+export ledger pad09: Counter;
+export ledger pad10: Counter;
+export ledger pad11: Counter;
+export ledger pad12: Counter;
+export ledger pad13: Counter;
+export ledger pad14: Counter;
+export ledger pad15: Counter;
+export ledger pad16: Counter;
+export ledger pad17: Counter;
+export ledger pad18: Counter;
+
+// field 19: the request map, addressed as chunk 1 slot 14 in raw state.
+export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
+
+// Records the smallest well-formed signet request (the test-caller-contract's
+// fixed composition minus the notifier call): the tests read the stored
+// record back MPC-style by field number, which is the point of this fixture.
+export circuit submitSignatureRequest(
+  evmNonce: Uint<64>,
+  keyVersion: Uint<8>
+): [] {
+  const calldata = EVMCalldata<1> {
+    selector: Bytes [0xca, 0x11, 0xab, 0x1e],
+    noWords: 1 as Uint<16>,
+    words: [pad(32, "signet-caller:fixed-word")]
+  };
+
+  const txParams = EVMType2TxParams<1, 0, 0> {
+    to: pad(20, "signet-caller-e2e-to"),
+    chainId: 31337 as Uint<64>,
+    nonce: evmNonce,
+    gasLimit: 100000 as Uint<64>,
+    maxFeePerGas: 30000000000 as Uint<128>,       // 30 gwei
+    maxPriorityFeePerGas: 1000000000 as Uint<128>, // 1 gwei
+    value: 0 as Uint<128>,
+    accessListEntryCount: 0,
+    accessList: [],
+    calldata: some<EVMCalldata<1>>(calldata)
+  };
+
+  const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
+  const requestNonce = signetRequestNonce as Uint<64>;
+  const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 34, 34>(
+    kernel.self(),
+    requestNonce,
+    keyVersion,
+    pad(32, "caller-path"),
+    MPCSignatureAlgorithm.ecdsa,
+    MPCDestination.unused,
+    pad(64, ""),
+    TxParamType.evmType2,
+    txParams,
+    pad(32, "eip155:31337"),
+    schema,
+    schema
+  );
+  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 34, 34>(request));
+
+  assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
+  signetRequestNonce.increment(1);
+  signBidirectionalEventMap.insert(requestId, disclose(request));
+  requestLog.pushFront(requestId as Bytes<32>);
+}

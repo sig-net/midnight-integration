@@ -1,0 +1,47 @@
+{
+  "name": "@sig-net/midnight-contract",
+  "version": "0.10.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sig-net/midnight-integration",
+    "directory": "packages/signet-contract"
+  },
+  "type": "module",
+  "description": "The central signet Compact contract on Midnight: the MPC posts signature responses (unauthenticated counted log, verified off-chain) and remote execution responses (Schnorr attestations, verified in-circuit at post time) here; clients poll it. src/index.ts is the curated export surface.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./managed/*": "./src/managed/*"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk --feature-zkir-v3 src/signet-contract.compact src/managed",
+    "compile:zk": "COMPACT_PATH=../../node_modules compact compile --feature-zkir-v3 src/signet-contract.compact src/managed",
+    "build": "rm -rf dist && ls src/managed/keys/*.prover >/dev/null 2>&1 || { echo 'signet-contract build: no prover keys in src/managed/keys — run `yarn compile:zk` first (compile uses --skip-zk)' >&2; exit 1; } && tsc -p tsconfig.json && tsc -p tsconfig.build.json && mkdir -p dist/managed && cp -R src/managed/contract src/managed/compiler src/managed/zkir src/managed/keys dist/managed/",
+    "prepack": "yarn build",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./managed/*": "./dist/managed/*"
+    }
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
+    "@midnight-ntwrk/midnight-js": "5.0.0-beta.4"
+  },
+  "devDependencies": {
+    "@sig-net/midnight": "^0.10.0",
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

@@ -1,0 +1,164 @@
+//                                          💡 NOTE 💡
+// This contract drives the Signet Contract @sig-net/contract for integration purposes.
+// While informative, for better full integration examples (such as an ERC20 cross chain vault example) see
+// the Midnight Examples repository at: https://github.com/sig-net/midnight-examples.
+//
+// =================== Test Caller Contract ================================================================
+// This minimal signet caller tests:
+// - initialisation: pinning its MPC response key once after deploy
+// - submitting a SignBidirectionalEvent signature request with contract-fixed minimal call data
+// - verification of the MPC's ECDSA-signed respond-bidirectional response of that request
+// ========================================================================================================
+pragma language_version >= 0.25;
+
+import CompactStandardLibrary;
+
+import "@sig-net/midnight/src/Signet";
+
+// Ledger layout: field numbers are declaration order and stay fixed.
+// signBidirectionalEventMap deliberately sits at field 4, after a List that
+// grows with each request, so the tests prove the MPC locates it via the
+// field position named in the notification.
+
+// field 0: log of every submitted request id, newest first.
+export ledger requestLog: List<Bytes<32>>;
+
+// field 1: request counter keeping identical submits distinct.
+export ledger signetRequestNonce: Counter;
+
+// field 2: the MPC response key for this contract, pinned by initialise().
+export ledger mpcResponseKey: Secp256k1Point;
+
+// field 3: the central signet contract, sealed at deploy; submitSignatureRequest
+// cross-contract-calls it to register the request notification the MPC polls.
+sealed ledger signetSigner: SignetSigner;
+
+// field 4: the request map the MPC reads requests back from. Sized for EVM
+// Type 2 transactions with <1 calldata word, 0 access-list entries,
+// 0 storage keys>: the fixed minimal calldata composed below.
+export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
+
+// field 5: identity commitment of the deployer; gates initialise().
+sealed ledger deployer: Bytes<32>;
+
+// field 6: whether initialise has run (0 = no, 1 = yes).
+export ledger initialised: Counter;
+
+witness deployerSecretKey(): Bytes<32>;
+
+// Exported so deploy tooling and tests can compute the commitment.
+export pure circuit deployerCommitment(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "signet-caller:deployer:"), sk]);
+}
+
+constructor(initialDeployerCommitment: Bytes<32>, signetContract: SignetSigner) {
+  deployer = disclose(initialDeployerCommitment);
+  signetSigner = disclose(signetContract);
+}
+
+// Tests the two-step configuration: the MPC response key can only be derived
+// once the contract address exists, so it is pinned here after deploy.
+// One-shot and deployer-gated.
+export circuit initialise(responseKey: Secp256k1Point): [] {
+  assert(
+    initialised == 0,
+    "Already initialised: the MPC response key is stored"
+  );
+  assert(
+    deployerCommitment(deployerSecretKey()) == deployer,
+    "Not the deployer"
+  );
+  initialised.increment(1);
+  mpcResponseKey = disclose(responseKey);
+}
+
+// Tests submitting the smallest well-formed signet request. Everything about
+// the transaction is a contract-fixed constant (a syntactically valid payload
+// to be SIGNED, never broadcast); the caller supplies only the derived
+// account's EVM nonce and the MPC key version.
+export circuit submitSignatureRequest(
+  evmNonce: Uint<64>,
+  keyVersion: Uint<8>
+): SignetMapKey {
+  const calldata = EVMCalldata<1> {
+    selector: Bytes [0xca, 0x11, 0xab, 0x1e],
+    noWords: 1 as Uint<16>,
+    words: [pad(32, "signet-caller:fixed-word")]
+  };
+
+  const txParams = EVMType2TxParams<1, 0, 0> {
+    to: pad(20, "signet-caller-e2e-to"),
+    chainId: 31337 as Uint<64>,
+    nonce: evmNonce,
+    gasLimit: 100000 as Uint<64>,
+    maxFeePerGas: 30000000000 as Uint<128>,       // 30 gwei
+    maxPriorityFeePerGas: 1000000000 as Uint<128>, // 1 gwei
+    value: 0 as Uint<128>,
+    accessListEntryCount: 0,
+    accessList: [],
+    calldata: some<EVMCalldata<1>>(calldata)
+  };
+
+  const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
+  const requestNonce = signetRequestNonce as Uint<64>;
+  const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 34, 34>(
+    kernel.self(),
+    requestNonce,
+    keyVersion,
+    pad(32, "caller-path"),
+    MPCSignatureAlgorithm.ecdsa,
+    MPCDestination.unused,
+    pad(64, ""),
+    TxParamType.evmType2,
+    txParams,
+    pad(32, "eip155:31337"),
+    schema,
+    schema
+  );
+  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 34, 34>(request));
+
+  assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
+  signetRequestNonce.increment(1);
+  signBidirectionalEventMap.insert(requestId, disclose(request));
+  requestLog.pushFront(requestId as Bytes<32>);
+
+  // Notify the MPC via the signet contract's registry: the second argument is
+  // the ledger field position of signBidirectionalEventMap (4, see layout).
+  const requestMapKey = signetSigner.signBidirectionalEvent(
+    requestId,
+    constructSignBidirectionalEventNotificationV1(
+      kernel.self(),
+      4 as Uint<8>,
+    ),
+  );
+
+  return requestMapKey;
+}
+
+// Tests in-circuit verification of the MPC's ECDSA-signed
+// respond-bidirectional response: the attestation over (requestId, output)
+// must verify against the pinned response key, and the request is consumed
+// so it cannot be verified twice.
+export circuit verifyResponse(
+  requestId: RequestId,
+  respondBidirectionalEvent: RespondBidirectionalEvent
+): [] {
+  const disclosedRequestId = disclose(requestId);
+
+  assert(
+    initialised != 0,
+    "Not initialised: no MPC response key stored"
+  );
+
+  assert(
+    verifyRespondBidirectionalEvent(
+      disclosedRequestId,
+      respondBidirectionalEvent,
+      mpcResponseKey
+    ),
+    "Invalid attestation signature"
+  );
+
+  assert(signBidirectionalEventMap.member(disclosedRequestId), "Request not found");
+  signBidirectionalEventMap.remove(disclosedRequestId);
+}
