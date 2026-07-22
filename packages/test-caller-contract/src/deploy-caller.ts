@@ -21,7 +21,7 @@ import {
   type TransactionIdentifier,
 } from "@sig-net/midnight-contract-deploy";
 
-import { pureCircuits } from "./managed/signet-caller/contract/index.js";
+import { pureCircuits } from "./managed/test-caller-contract/contract/index.js";
 import { callerCompiledContract } from "./providers.ts";
 import { createCallerPrivateState } from "./witnesses.ts";
 
@@ -95,7 +95,7 @@ export async function deployCaller(env: Record<string, string | undefined> = pro
 
   const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
 
-  console.log(`deploying signet-caller to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`);
+  console.log(`deploying test-caller-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`);
 
   const { contractAddress, txId } = await withSyncedWalletFacade(
     accountKeys,
@@ -123,7 +123,7 @@ export async function deployCaller(env: Record<string, string | undefined> = pro
   );
 
   console.log(`submitted deploy tx ${txId}`);
-  console.log(`deployed signet-caller at ${contractAddress}`);
+  console.log(`deployed test-caller-contract at ${contractAddress}`);
   console.log("NB: pin the MPC response key with initialise() before verifying responses");
 
   return { contractAddress, txId };

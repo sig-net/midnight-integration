@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Sig Network on Midnight: the central signet contract, the client-agnostic protocol SDK, and a minimal caller contract that exercises them end to end. Run `yarn compile` once before `build`/`test` — the contract packages and signet-midnight typecheck against the generated managed/ output.",
+  "description": "Sig Network on Midnight: the central signet contract, the client-agnostic protocol SDK, and a minimal test caller contract that exercises them end to end. Run `yarn compile` once before `build`/`test` — the contract packages and signet-midnight typecheck against the generated managed/ output.",
   "packageManager": "yarn@4.17.1",
   "workspaces": [
     "packages/*"
@@ -11,10 +11,10 @@
   "scripts": {
     "compile": "yarn workspaces foreach --all --exclude midnight-protocol --topological run compile",
     "compile:zk": "yarn workspaces foreach --all --exclude midnight-protocol --topological run compile:zk",
-    "compile:caller-contract": "yarn workspace @midnight-protocol/caller-contract run compile",
-    "compile:caller-contract:zk": "yarn workspace @midnight-protocol/caller-contract run compile:zk",
-    "compile:caller-contract-20-field": "yarn workspace @midnight-protocol/caller-contract-20-field run compile",
-    "deploy:caller-contract": "yarn workspace @midnight-protocol/caller-contract run deploy",
+    "compile:test-caller-contract": "yarn workspace @midnight-protocol/test-caller-contract run compile",
+    "compile:test-caller-contract:zk": "yarn workspace @midnight-protocol/test-caller-contract run compile:zk",
+    "compile:test-caller-contract-20-field": "yarn workspace @midnight-protocol/test-caller-contract-20-field run compile",
+    "deploy:test-caller-contract": "yarn workspace @midnight-protocol/test-caller-contract run deploy",
     "compile:signet-midnight": "yarn workspace @sig-net/midnight run compile",
     "build": "yarn workspaces foreach --all --exclude midnight-protocol --topological run build",
     "test": "yarn workspaces foreach --all --exclude midnight-protocol --topological run test",

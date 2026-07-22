@@ -12,7 +12,7 @@ here too. Member-specific rules:
 - **This package is chain plumbing, not app logic.** Nothing client-specific:
   it must serve any Midnight×sig-net client contract, not one application.
   Client-specific glue belongs in that client's contract package (in this
-  repo: caller-contract) or its integration tests.
+  repo: test-caller-contract) or its integration tests.
 - **Responses are polled from the signet contract** via
   `response-poller.ts` / `state-reader.ts`. The old websocket subscription is
   purged repo-wide — do not reintroduce it here of all places.

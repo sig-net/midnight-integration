@@ -1,11 +1,16 @@
-// TypeScript twins of the request-side structs in the Compact library
-// `Signet.compact` (same directory). The shapes MUST stay in lockstep with the Compact structs: the
+// TypeScript twins of the CHAIN-AGNOSTIC request-side structs in the Compact
+// library `Signet.compact` (same directory): the request record, its enums,
+// request ids, and the runtime-descriptor toolkit shared by every tx-params
+// decomposition. Everything specific to the EVM Type-2 decomposition (the
+// only decomposition so far) lives in `signet-evtype2tx-requests.ts`.
+//
+// The shapes MUST stay in lockstep with the Compact structs: the
 // compiler inlines struct types anonymously into each contract's generated
 // managed/contract/index.d.ts, and these named types match them structurally,
 // so ledger reads assign to them without casts.
 //
 // The lockstep is enforced by each consuming contract's simulator tests: the
-// "signet-caller ledger shape" test in packages/caller-contract/tests/
+// "test-caller-contract ledger shape" test in packages/test-caller-contract/tests/
 // contract.test.ts assigns the generated `ledger().signBidirectionalEventMap`
 // to the named SignBidirectionalEventLedgerMap type — the assignment itself is
 // the assertion, so any structural drift between the generated managed types
@@ -19,14 +24,10 @@ import {
   CompactTypeBytes,
   CompactTypeEnum,
   CompactTypeUnsignedInteger,
-  CompactTypeVector,
-  persistentHash,
   type CompactType,
 } from "@midnight-ntwrk/compact-runtime";
-import { getAddress, getBytes, Signature, Transaction } from "ethers";
 
-import { bigintToBytes32, bytesToBigint } from "./ecdsa-attestation.ts";
-import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts";
+import type { EVMType2TxParams } from "./signet-evtype2tx-requests.ts";
 
 /**
  * 32-byte signet request id (Compact: `new type RequestId = Bytes<32>`).
@@ -53,7 +54,7 @@ export interface ContractAddress {
  * `enum`) so the values stay structurally `number`.
  */
 export const TxParamType = {
-  /** {@link EVMType2TxParams}: an EIP-1559 EVM transaction. */
+  /** `EVMType2TxParams` (signet-evtype2tx-requests.ts): an EIP-1559 EVM transaction. */
   evmType2: 0,
   /**
    * Never emitted — mirrors the Compact-side padding variant that keeps the
@@ -96,77 +97,18 @@ export interface Maybe<T> {
 }
 
 /**
- * ABI calldata as a 4-byte selector + 32-byte word slots (Compact:
- * `EVMCalldata<#maxWords>`). Each word is a little-endian field embed (what the
- * contract's `x as Field as Bytes<32>` cast produces); the MPC re-encodes the
- * leading {@link noWords} of them big-endian to form the calldata body —
- * `data = selector || BE(words[0..noWords])`, see {@link assembleCalldata}.
- */
-export interface EVMCalldata {
-  /** The literal first 4 calldata bytes (big-endian, as broadcast). */
-  selector: Uint8Array;
-  /** How many leading {@link words} are real (Compact `noWords: Uint<16>`). */
-  noWords: bigint;
-  /** 32-byte word slots; capacity is the contract's `#maxWords` (vault: 2). */
-  words: Uint8Array[];
-}
-
-/**
- * One EIP-2930 access-list entry (Compact:
- * `EVMAccessListEntry<#maxStorageKeys>`).
- */
-export interface EVMAccessListEntry {
-  /** The pre-declared contract address, 20 display-order bytes. */
-  address: Uint8Array;
-  /** How many leading {@link storageKeys} are real. */
-  storageKeyCount: bigint;
-  /** Raw 32-byte storage keys, copied verbatim into the transaction. */
-  storageKeys: Uint8Array[];
-}
-
-/**
- * The EVM transaction to be signed, decomposed into typed fields (Compact:
- * `EVMType2TxParams<#maxCalldataWords, #maxAccessListEntries,
- * #maxStorageKeysPerEntry>`; EIP-1559 — https://eips.ethereum.org/EIPS/eip-1559).
- * Compact `Bytes<N>` fields arrive as N-byte `Uint8Array`s, `Uint<N>` as
- * `bigint`. Vector capacities are each contract's compile-time throttle;
- * the runtime counts say how many leading slots are real.
- */
-export interface EVMType2TxParams {
-  /** Call target (e.g. the ERC20 contract), 20 bytes. */
-  to: Uint8Array;
-  /** EVM chain id (also expressed in {@link SignBidirectionalEvent.caip2Id}). */
-  chainId: bigint;
-  /** Account nonce of the MPC-derived sender address. */
-  nonce: bigint;
-  /** Gas ceiling for the call. */
-  gasLimit: bigint;
-  /** Max total fee per gas, wei. */
-  maxFeePerGas: bigint;
-  /** Max priority fee per gas, wei. */
-  maxPriorityFeePerGas: bigint;
-  /** ETH sent with the call, wei. */
-  value: bigint;
-  /** How many leading {@link accessList} entries are real. */
-  accessListEntryCount: bigint;
-  /** EIP-2930 access list slots (capacity = contract's throttle). */
-  accessList: EVMAccessListEntry[];
-  /** Call data; `is_some: false` means a plain ETH transfer (`0x` data). */
-  calldata: Maybe<EVMCalldata>;
-}
-
-/**
  * Canonical signet request record (Compact:
  * `SignBidirectionalEvent<TxParams, #LenOutputDeserialization,
  * #LenRespondSerialization>`), stored per {@link RequestId} in a requesting
  * contract's `SignBidirectionalEventMap` (at whichever ledger field the
- * contract declares it — its notifications name the position). The TS twin
- * fixes the tx-params type parameter at {@link EVMType2TxParams} — the only
- * decomposition so far; new tx kinds add a union here alongside their
- * Compact struct. The schema fields carry their contract-declared byte
- * widths in their array lengths.
+ * contract declares it — its notifications name the position). Generic over
+ * the tx-params decomposition, exactly like the Compact struct; the default
+ * instantiation is {@link EVMType2TxParams} — the only decomposition so far;
+ * new tx kinds supply their own type argument alongside their Compact struct.
+ * The schema fields carry their contract-declared byte widths in their array
+ * lengths.
  */
-export interface SignBidirectionalEvent {
+export interface SignBidirectionalEvent<TxParams = EVMType2TxParams> {
   /** Address of the client contract that stores this event (`kernel.self()`). */
   sender: ContractAddress;
   /** Contract-local nonce captured when the request was created. */
@@ -184,7 +126,7 @@ export interface SignBidirectionalEvent {
   /** A {@link TxParamType} value tagging the txParams decomposition. */
   txParamType: number;
   /** The transaction decomposition. */
-  txParams: EVMType2TxParams;
+  txParams: TxParams;
   /** Target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded; 32 bytes. */
   caip2Id: Uint8Array;
   /** MPC output_deserialization_schema (destination chain -> MPC); contract-declared width. */
@@ -193,41 +135,38 @@ export interface SignBidirectionalEvent {
   respondSerializationSchema: Uint8Array;
 }
 
-// ---- Request id (TS twin of the Compact circuit) ---------------------------
+// ---- Runtime descriptor toolkit (TS twin of the compiled struct codecs) ----
 //
 // DEVIATION from the "pure circuits are compiled, never re-written in TS"
-// rule (see circuits.compact): `calculateRequestId` is generic over the
+// rule (see circuits.compact): the request-id circuit is generic over the
 // tx-params type and schema lengths, the Compact compiler cannot export
 // type-parameterized circuits from the top level, and a compiled copy would
 // have to be monomorphized at ONE capacity instantiation — a client
 // contract's choice that never belongs in this client-agnostic package. So
-// the request-id circuit alone gets a TS twin here.
+// the record descriptor (and the per-decomposition `calculateRequestId`
+// built on it, see signet-evtype2tx-requests.ts) alone gets a TS twin here.
 //
-// It is NOT a hand-port of the hash algorithm: it calls the very
+// It is NOT a hand-port of the hash algorithm: ids come from the very
 // `persistentHash` runtime builtin that compiled circuits call, over runtime
 // type descriptors mirroring the ones the compiler generates (compare
 // `_calculateRequestId_0` in any consuming contract's
 // managed/contract/index.js). What must stay in lockstep with Signet.compact
 // is exactly what this file already keeps in lockstep — the struct shapes,
-// field by field, in declaration order. Enforced by caller-contract's
+// field by field, in declaration order. Enforced by test-caller-contract's
 // "submitSignatureRequest round-trip" test, which asserts the id computed
 // here equals the ledger map key minted by the REAL compiled contract.
 
-// Runtime descriptors of the Compact base types the request record uses.
-// CompactTypeUnsignedInteger takes (maxValue, byte length) — same literals
-// the compiler emits for Uint<8/64/128>. CompactTypeEnum takes
+// Runtime descriptors of the Compact base types the generic record fields
+// use. CompactTypeUnsignedInteger takes (maxValue, byte length) — same
+// literals the compiler emits for Uint<8/64>. CompactTypeEnum takes
 // (variantCount - 1, byte length); NOTE a 1-variant enum would compile to
 // `CompactTypeEnum(0, 0)` — zero bytes, which the proof server cannot parse
 // inside persistentHash preimages. Every enum therefore carries a padding
 // `reserved` variant so it stays at (1, 1).
-const BYTES_4 = new CompactTypeBytes(4);
-const BYTES_20 = new CompactTypeBytes(20);
 const BYTES_32 = new CompactTypeBytes(32);
 const BYTES_64 = new CompactTypeBytes(64);
 const UINT_8 = new CompactTypeUnsignedInteger(2n ** 8n - 1n, 1);
-const UINT_16 = new CompactTypeUnsignedInteger(2n ** 16n - 1n, 2);
 const UINT_64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
-const UINT_128 = new CompactTypeUnsignedInteger(2n ** 128n - 1n, 16);
 const TX_PARAM_TYPE = new CompactTypeEnum(1, 1);
 const MPC_SIGNATURE_ALGORITHM = new CompactTypeEnum(1, 1);
 const MPC_DESTINATION = new CompactTypeEnum(1, 1);
@@ -254,7 +193,7 @@ const CONTRACT_ADDRESS: CompactType<ContractAddress> = {
  * @param fields - One runtime descriptor per struct field, in declaration order.
  * @returns The composed struct descriptor.
  */
-function compactStructDescriptor<T extends object>(fields: {
+export function compactStructDescriptor<T extends object>(fields: {
   readonly [K in keyof T]-?: CompactType<T[K]>;
 }): CompactType<T> {
   const entries = Object.entries(fields) as unknown as ReadonlyArray<
@@ -282,7 +221,7 @@ function compactStructDescriptor<T extends object>(fields: {
  * @param inner - Descriptor of the wrapped type.
  * @returns The Maybe struct descriptor.
  */
-function compactMaybeDescriptor<T>(inner: CompactType<T>): CompactType<Maybe<T>> {
+export function compactMaybeDescriptor<T>(inner: CompactType<T>): CompactType<Maybe<T>> {
   return compactStructDescriptor<Maybe<T>>({
     is_some: CompactTypeBoolean,
     value: inner,
@@ -290,89 +229,27 @@ function compactMaybeDescriptor<T>(inner: CompactType<T>): CompactType<Maybe<T>>
 }
 
 /**
- * Descriptor of {@link EVMCalldata} at one word capacity — the TS analogue
- * of instantiating Compact's `EVMCalldata<#maxWords>`.
+ * Descriptor of {@link SignBidirectionalEvent} over ANY tx-params
+ * decomposition — the TS analogue of Compact's generic
+ * `SignBidirectionalEvent<TxParams, #LenOutputDeserialization,
+ * #LenRespondSerialization>`. Each decomposition wraps this with its own
+ * capacity-parameterized convenience (see `signBidirectionalEventDescriptor`
+ * in signet-evtype2tx-requests.ts for the EVM Type-2 one).
  *
- * @param maxWords - The contract's calldata word capacity (the vault uses 2).
- * @returns The calldata descriptor.
- */
-export function evmCalldataDescriptor(maxWords: number): CompactType<EVMCalldata> {
-  return compactStructDescriptor<EVMCalldata>({
-    selector: BYTES_4,
-    noWords: UINT_16,
-    words: new CompactTypeVector(maxWords, BYTES_32),
-  });
-}
-
-/**
- * Descriptor of {@link EVMAccessListEntry} at one storage-key capacity
- * (Compact: `EVMAccessListEntry<#maxStorageKeys>`).
- *
- * @param maxStorageKeys - Storage-key capacity per entry.
- * @returns The entry descriptor.
- */
-export function evmAccessListEntryDescriptor(
-  maxStorageKeys: number,
-): CompactType<EVMAccessListEntry> {
-  return compactStructDescriptor<EVMAccessListEntry>({
-    address: BYTES_20,
-    storageKeyCount: UINT_8,
-    storageKeys: new CompactTypeVector(maxStorageKeys, BYTES_32),
-  });
-}
-
-/**
- * Descriptor of {@link EVMType2TxParams} at one capacity instantiation —
- * the TS analogue of Compact's `EVMType2TxParams<#maxCalldataWords,
- * #maxAccessListEntries, #maxStorageKeysPerEntry>`.
- *
- * @param maxCalldataWords - Calldata word capacity.
- * @param maxAccessListEntries - Access-list entry capacity.
- * @param maxStorageKeysPerEntry - Storage-key capacity per entry.
- * @returns The tx-params descriptor.
- */
-export function evmType2TxParamsDescriptor(
-  maxCalldataWords: number,
-  maxAccessListEntries: number,
-  maxStorageKeysPerEntry: number,
-): CompactType<EVMType2TxParams> {
-  return compactStructDescriptor<EVMType2TxParams>({
-    to: BYTES_20,
-    chainId: UINT_64,
-    nonce: UINT_64,
-    gasLimit: UINT_64,
-    maxFeePerGas: UINT_128,
-    maxPriorityFeePerGas: UINT_128,
-    value: UINT_128,
-    accessListEntryCount: UINT_8,
-    accessList: new CompactTypeVector(
-      maxAccessListEntries,
-      evmAccessListEntryDescriptor(maxStorageKeysPerEntry),
-    ),
-    calldata: compactMaybeDescriptor(evmCalldataDescriptor(maxCalldataWords)),
-  });
-}
-
-/**
- * Descriptor of {@link SignBidirectionalEvent} at one capacity instantiation.
- *
- * @param maxCalldataWords - Calldata word capacity.
- * @param maxAccessListEntries - Access-list entry capacity.
- * @param maxStorageKeysPerEntry - Storage-key capacity per entry.
+ * @param txParams - Descriptor of the tx-params decomposition, already at
+ *   its capacity instantiation.
  * @param lenOutputDeserialization - Declared byte width of
  *   `outputDeserializationSchema` (Compact `#LenOutputDeserialization`).
  * @param lenRespondSerialization - Declared byte width of
  *   `respondSerializationSchema` (Compact `#LenRespondSerialization`).
  * @returns The event record descriptor.
  */
-export function signBidirectionalEventDescriptor(
-  maxCalldataWords: number,
-  maxAccessListEntries: number,
-  maxStorageKeysPerEntry: number,
+export function signBidirectionalEventDescriptorWith<TxParams>(
+  txParams: CompactType<TxParams>,
   lenOutputDeserialization: number,
   lenRespondSerialization: number,
-): CompactType<SignBidirectionalEvent> {
-  return compactStructDescriptor<SignBidirectionalEvent>({
+): CompactType<SignBidirectionalEvent<TxParams>> {
+  return compactStructDescriptor<SignBidirectionalEvent<TxParams>>({
     sender: CONTRACT_ADDRESS,
     requestNonce: UINT_64,
     keyVersion: UINT_8,
@@ -381,269 +258,11 @@ export function signBidirectionalEventDescriptor(
     dest: MPC_DESTINATION,
     params: BYTES_64,
     txParamType: TX_PARAM_TYPE,
-    txParams: evmType2TxParamsDescriptor(
-      maxCalldataWords,
-      maxAccessListEntries,
-      maxStorageKeysPerEntry,
-    ),
+    txParams,
     caip2Id: BYTES_32,
     outputDeserializationSchema: new CompactTypeBytes(lenOutputDeserialization),
     respondSerializationSchema: new CompactTypeBytes(lenRespondSerialization),
   });
-}
-
-/**
- * Canonical id of a signet request: the persistent hash of the entire event
- * record (which commits to every field, the sender address included — there
- * is deliberately no extra domain tag). TS twin of Signet.compact's
- * `calculateRequestId` circuit (see the deviation note atop this section),
- * generic over the capacity instantiation via the record's own array
- * lengths — pass the record exactly as the ledger stores it, unused slots
- * included and schemas at their declared widths.
- *
- * @param request - The full event record (contract-shaped, all slots).
- * @returns The 32-byte request id — the record's ledger map key.
- */
-export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
-  const { txParams } = request;
-  const maxCalldataWords = txParams.calldata.value.words.length;
-  const maxAccessListEntries = txParams.accessList.length;
-  const maxStorageKeysPerEntry =
-    maxAccessListEntries === 0 ? 0 : txParams.accessList[0].storageKeys.length;
-  return persistentHash(
-    signBidirectionalEventDescriptor(
-      maxCalldataWords,
-      maxAccessListEntries,
-      maxStorageKeysPerEntry,
-      request.outputDeserializationSchema.length,
-      request.respondSerializationSchema.length,
-    ),
-    request,
-  );
-}
-
-// ---- Calldata / transaction assembly ----------------------------------------
-
-/**
- * The 32-byte value of a numeric ABI word: the little-endian field embed of
- * the number, exactly what Compact's `x as Field as Bytes<32>` cast produces
- * in-circuit. Use when building words off-chain (UIs, expected-record
- * builders, tests).
- *
- * @param value - The word's numeric value (e.g. an amount).
- * @returns The 32-byte LE embed to store in an {@link EVMCalldata} word.
- */
-export function numericAbiWordValue(value: bigint): Uint8Array {
-  return bigintToBytes32(value);
-}
-
-/**
- * The 32-byte staticArg word value for an EVM address: the BIG-ENDIAN
- * numeric reading of its 20 display-order bytes, LE-embedded. TS mirror of
- * Signet.compact's `evmAddressAbiValue` circuit (+ `as Bytes<32>`); see the
- * warning there — embedding the display-order bytes directly would come out
- * byte-reversed in the assembled calldata.
- *
- * @param address - The 20-byte address in display order.
- * @returns The 32-byte word value to store in an {@link EVMCalldata} word.
- */
-export function evmAddressAbiWord(address: Uint8Array): Uint8Array {
-  let value = 0n;
-  for (const byte of address) {
-    value = value * 256n + BigInt(byte);
-  }
-  return bigintToBytes32(value);
-}
-
-/**
- * Re-assemble the raw calldata a request's words describe:
- * `data = selector || BE(words[0..noWords])`. Each word is a little-endian
- * field embed (the contract's `x as Field as Bytes<32>` cast); the leading
- * `noWords` are re-encoded big-endian into 32-byte ABI words and any remaining
- * capacity slots are dropped. This is THE implementation of the MPC re-assembly
- * documented on `EVMCalldata` in Signet.compact.
- *
- * @param calldata - The request's calldata field.
- * @returns Hex calldata for the transaction (`"0x"` when absent).
- */
-export function assembleCalldata(calldata: Maybe<EVMCalldata>): string {
-  if (!calldata.is_some) {
-    return "0x";
-  }
-  const { selector, noWords, words } = calldata.value;
-  let data = `0x${bytesToHex(selector)}`;
-  for (let i = 0; i < Number(noWords); i++) {
-    data += bytesToHex(bigintToBytes32BE(bytesToBigint(words[i])));
-  }
-  return data;
-}
-
-/**
- * Decode the real (count-trimmed) access list of a request into the shape
- * ethers' `Transaction.from` accepts.
- *
- * @param txParams - The request's transaction decomposition.
- * @returns The access list, possibly empty.
- */
-function decodeAccessList(
-  txParams: EVMType2TxParams,
-): Array<{ address: string; storageKeys: string[] }> {
-  return txParams.accessList
-    .slice(0, Number(txParams.accessListEntryCount))
-    .map((entry) => ({
-      address: getAddress(`0x${bytesToHex(entry.address)}`),
-      storageKeys: entry.storageKeys
-        .slice(0, Number(entry.storageKeyCount))
-        .map((key) => `0x${bytesToHex(key)}`),
-    }));
-}
-
-/**
- * Rebuild the unsigned EIP-1559 transaction a request record describes,
- * byte-identical to the one the MPC assembles and signs: calldata from the
- * tagged words (see {@link assembleCalldata}), the count-trimmed access
- * list, and the stored envelope fields. This is the canonical
- * request→transaction transform; response-side verification
- * (`signature-response-verification.ts`) and the signed-transaction builder
- * below both go through it, so the transaction a client broadcasts is
- * provably the one the MPC put its signature over.
- *
- * @param request - The on-ledger request record.
- * @returns The unsigned ethers transaction (`unsignedHash` is the digest the
- *   MPC signs).
- * @throws Error if a calldata word carries an unknown kind.
- */
-export function signBidirectionalEventToUnsignedEVMTransaction(
-  request: SignBidirectionalEvent,
-): Transaction {
-  const { txParams } = request;
-  return Transaction.from({
-    type: 2,
-    chainId: txParams.chainId,
-    nonce: Number(txParams.nonce),
-    gasLimit: txParams.gasLimit,
-    maxFeePerGas: txParams.maxFeePerGas,
-    maxPriorityFeePerGas: txParams.maxPriorityFeePerGas,
-    to: getAddress(`0x${bytesToHex(txParams.to)}`),
-    value: txParams.value,
-    accessList: decodeAccessList(txParams),
-    data: assembleCalldata(txParams.calldata),
-  });
-}
-
-/**
- * Decode a response signature record (as posted to the signet contract's
- * signature response log — the canonical MPC `Signature { big_r, s,
- * recovery_id }` shape) into an ethers {@link Signature}: `r` is `bigR`'s x
- * coordinate, `v` the legacy parity derived from the recovery id.
- *
- * @param response - The posted signature record.
- * @returns The ethers signature.
- * @throws Error if the recovery id is not 0 or 1.
- */
-export function signatureRespondedEventToSignature(
-  response: SignatureRespondedEvent,
-): Signature {
-  const recoveryId = Number(response.recoveryId);
-  if (recoveryId !== 0 && recoveryId !== 1) {
-    throw new Error(`expected a recovery id of 0 or 1, got ${recoveryId}`);
-  }
-  return Signature.from({
-    r: `0x${bytesToHex(response.bigRx)}`,
-    s: `0x${bytesToHex(response.s)}`,
-    v: recoveryId + 27,
-  });
-}
-
-/** secp256k1 base field prime (2^256 - 2^32 - 977). */
-const SECP256K1_P = 2n ** 256n - 2n ** 32n - 977n;
-
-/** Modular exponentiation by squaring. */
-function modPow(base: bigint, exponent: bigint, modulus: bigint): bigint {
-  let result = 1n;
-  let b = base % modulus;
-  let e = exponent;
-  while (e > 0n) {
-    if (e & 1n) result = (result * b) % modulus;
-    b = (b * b) % modulus;
-    e >>= 1n;
-  }
-  return result;
-}
-
-/** Encode a bigint as exactly 32 BIG-endian bytes (secp256k1 scalar form). */
-function bigintToBytes32BE(value: bigint): Uint8Array {
-  const out = new Uint8Array(32);
-  let v = value;
-  for (let i = 31; i >= 0; i--) {
-    out[i] = Number(v & 0xffn);
-    v >>= 8n;
-  }
-  return out;
-}
-
-/**
- * Encode an ECDSA signature as the response record posted to the signet
- * contract — the inverse of {@link signatureRespondedEventToSignature},
- * for MPC-side posters (the fakenet signer, tests). The canonical record
- * carries `bigR` as a full affine point but an `r || s || v` signature only
- * has R.x and the parity of R.y, so R.y is recovered by decompressing the
- * point on the curve (y² = x³ + 7 over the secp256k1 base field).
- *
- * The parameter is structural (the r/s/yParity subset of an ethers
- * {@link Signature}) so signatures from ANY ethers instance qualify — posters
- * living in other repos resolve their own ethers install, and nominal class
- * typing would reject it.
- *
- * @param signature - The signature to encode (`r`/`s` as 0x hex, `yParity` 0 or 1).
- * @returns The response record, ready to post.
- * @throws Error if `r` is not the x coordinate of a curve point.
- */
-export function signatureToSignatureRespondedEvent(
-  signature: Pick<Signature, "r" | "s" | "yParity">,
-): SignatureRespondedEvent {
-  const x = BigInt(signature.r);
-  const ySquared = (modPow(x, 3n, SECP256K1_P) + 7n) % SECP256K1_P;
-  // P ≡ 3 (mod 4), so a square root (when one exists) is c^((P+1)/4).
-  let y = modPow(ySquared, (SECP256K1_P + 1n) / 4n, SECP256K1_P);
-  if ((y * y) % SECP256K1_P !== ySquared) {
-    throw new Error("signature r is not the x coordinate of a secp256k1 point");
-  }
-  if ((y & 1n) !== BigInt(signature.yParity)) {
-    y = SECP256K1_P - y;
-  }
-  return {
-    bigRx: getBytes(signature.r),
-    bigRy: bigintToBytes32BE(y),
-    s: getBytes(signature.s),
-    recoveryId: BigInt(signature.yParity),
-  };
-}
-
-/**
- * Assemble the broadcast-ready signed EIP-1559 transaction for a request from
- * its MPC signature response: rebuild the exact unsigned transaction the MPC
- * signed (see {@link signBidirectionalEventToUnsignedEVMTransaction}) and
- * attach the signature. Does NOT check that the signature recovers to the
- * requester's derived address — the response log is unauthenticated, so
- * verify first with `verifySignatureRespondedEvent`.
- *
- * @param request - The on-ledger request record.
- * @param response - The posted signature record answering it.
- * @returns The signed ethers transaction; `serialized` is the raw payload for
- *   `eth_sendRawTransaction`, `hash` its on-chain hash, `from` the recovered
- *   sender.
- * @throws Error if the request record is malformed (see
- *   {@link signBidirectionalEventToUnsignedEVMTransaction}) or the response
- *   is not a decodable signature.
- */
-export function signBidirectionalEventToSignedEVMTransaction(
-  request: SignBidirectionalEvent,
-  response: SignatureRespondedEvent,
-): Transaction {
-  const transaction = signBidirectionalEventToUnsignedEVMTransaction(request);
-  transaction.signature = signatureRespondedEventToSignature(response);
-  return transaction;
 }
 
 /**

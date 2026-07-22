@@ -39,7 +39,7 @@ import {
   type RequestIdHex,
 } from "@sig-net/midnight";
 import { signBidirectionalEventToSignedEVMTransaction } from "@sig-net/midnight";
-import { ledger as callerContractLedger } from "@midnight-protocol/caller-contract";
+import { ledger as callerContractLedger } from "@midnight-protocol/test-caller-contract";
 import { getAddress } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
 import { createCallerE2eSession, type CallerContext } from "../src/caller-session.ts";
@@ -71,7 +71,7 @@ const session = createCallerE2eSession(env);
 // transaction is signed, never broadcast) any value demonstrates the flow.
 const EVM_NONCE = 0n;
 
-// TS mirrors of the contract-fixed request constants in signet-caller.compact
+// TS mirrors of the contract-fixed request constants in test-caller-contract.compact
 // (the caller package's simulator tests pin the full set; the spec re-checks
 // the calldata + path against the LIVE ledger record).
 const EXPECTED_SELECTOR = new Uint8Array([0xca, 0x11, 0xab, 0x1e]);
@@ -236,7 +236,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
 
       // callerAddress points at the caller (the contract whose authenticated
       // ledger holds the request); the event map is at field 4 (the caller
-      // contract's layout, see signet-caller.compact).
+      // contract's layout, see test-caller-contract.compact).
       expect(decoded.version).toBe(1);
       expect(decoded.callerAddress).toBe(stripHexPrefix(callerAddress).toLowerCase());
       expect(decoded.requestsIndexField).toBe(4);

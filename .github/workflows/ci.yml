@@ -91,7 +91,7 @@ jobs:
         with:
           path: |
             packages/signet-contract/src/managed
-            packages/caller-contract/src/managed
+            packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
       - name: Ensure signet-contract prover keys (its build's publish-safety check needs them)
         run: |
@@ -170,7 +170,7 @@ jobs:
         with:
           path: |
             packages/signet-contract/src/managed
-            packages/caller-contract/src/managed
+            packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
       - name: zk keygen (both contracts, cache miss only)
         if: steps.zk.outputs.cache-hit != 'true'
@@ -181,7 +181,7 @@ jobs:
         with:
           path: |
             packages/signet-contract/src/managed
-            packages/caller-contract/src/managed
+            packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
       - name: Start the local stack (midnight node, indexer, proof server, anvil)
         run: docker compose up -d

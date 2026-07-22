@@ -37,7 +37,7 @@ the central notifier, a client contract, or the driver?*
 |---|---|---|---|
 | **Seed SDK** | `packages/signet-midnight` | Client-agnostic protocol: request/response structs, request-id hashing, Schnorr, the `CompactType` descriptors and readers, `pureCircuits` (compiled `circuits.compact`) | Anything specific to one client contract |
 | **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to register a `SignBidirectionalNotification` in its registry. The MPC discovers requesters by polling ITS state | Application logic; per-client state |
-| **Client contract** | `packages/caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit a request with contract-fixed calldata, verify the Schnorr response in-circuit. Seals the signet contract address and the MPC key at deploy | Reusable protocol code — that belongs in the seed. Business logic beyond what exercising the singleton needs |
+| **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit a request with contract-fixed calldata, verify the Schnorr response in-circuit. Seals the signet contract address and the MPC key at deploy | Reusable protocol code — that belongs in the seed. Business logic beyond what exercising the singleton needs |
 | **Driver** | `packages/integration-tests` | Orchestration a downstream app would do: build circuit args, submit calls via midnight-js, poll the signet contract, verify responses. The e2e drives the caller THROUGH these sequences | Rules a contract should enforce |
 
 Placement rule of thumb: **if a second contract would ever want it, it goes in

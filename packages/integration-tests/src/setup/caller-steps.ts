@@ -5,7 +5,7 @@
 // accounts. The generic steps (MPC keys, dust preflight, signet
 // compile/deploy, fakenet hand-off) live in steps.ts.
 
-import { deployCaller } from "@midnight-protocol/caller-contract";
+import { deployCaller } from "@midnight-protocol/test-caller-contract";
 import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 
 import { requireEnv } from "../e2e-env.ts";
@@ -41,17 +41,17 @@ export async function assertCallerEnvironment(env: NodeJS.ProcessEnv): Promise<v
  */
 export async function compileCallerContract(env: NodeJS.ProcessEnv): Promise<void> {
   if (env.MIDNIGHT_CALLER_CONTRACT_ADDRESS) {
-    logSkip("compile:caller-contract:zk", `MIDNIGHT_CALLER_CONTRACT_ADDRESS is set (${env.MIDNIGHT_CALLER_CONTRACT_ADDRESS})`);
+    logSkip("compile:test-caller-contract:zk", `MIDNIGHT_CALLER_CONTRACT_ADDRESS is set (${env.MIDNIGHT_CALLER_CONTRACT_ADDRESS})`);
     return;
   }
-  if (trustsPrebuiltZkKeys(env, "packages/caller-contract/src/managed/signet-caller/keys")) {
+  if (trustsPrebuiltZkKeys(env, "packages/test-caller-contract/src/managed/test-caller-contract/keys")) {
     logSkip(
-      "compile:caller-contract:zk",
+      "compile:test-caller-contract:zk",
       "TRUST_PREBUILT_ZK_KEYS=1 and prover keys are present (restored from a cache keyed on the contract sources)",
     );
     return;
   }
-  await runRootScript("compile:caller-contract:zk", env, 14 * MINUTE);
+  await runRootScript("compile:test-caller-contract:zk", env, 14 * MINUTE);
 }
 
 /**
@@ -82,10 +82,10 @@ export function ensureCallerDeployerIdentity(env: NodeJS.ProcessEnv): void {
  */
 export async function deployCallerContractStep(env: NodeJS.ProcessEnv): Promise<void> {
   if (env.MIDNIGHT_CALLER_CONTRACT_ADDRESS) {
-    logSkip("deploy:caller-contract", `MIDNIGHT_CALLER_CONTRACT_ADDRESS is set (${env.MIDNIGHT_CALLER_CONTRACT_ADDRESS})`);
+    logSkip("deploy:test-caller-contract", `MIDNIGHT_CALLER_CONTRACT_ADDRESS is set (${env.MIDNIGHT_CALLER_CONTRACT_ADDRESS})`);
     return;
   }
-  const { contractAddress } = await retryDeployWhileDustGenerates("deploy:caller-contract", () => deployCaller(env));
+  const { contractAddress } = await retryDeployWhileDustGenerates("deploy:test-caller-contract", () => deployCaller(env));
   env.MIDNIGHT_CALLER_CONTRACT_ADDRESS = contractAddress;
   console.log(`deployed a fresh MIDNIGHT_CALLER_CONTRACT_ADDRESS=${contractAddress}`);
   console.log(` ➜ the minimal signet caller on Midnight — records signature requests and verifies the MPC's ECDSA responses`);

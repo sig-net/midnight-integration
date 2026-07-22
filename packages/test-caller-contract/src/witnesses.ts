@@ -4,9 +4,9 @@
 // (deployerCommitment in the contract) ever reaches the ledger. It gates the
 // one-shot initialise circuit — submit and verify use no witnesses.
 
-import type { Witnesses } from "./managed/signet-caller/contract/index.js";
+import type { Witnesses } from "./managed/test-caller-contract/contract/index.js";
 
-/** Private state carried through signet-caller circuit calls. */
+/** Private state carried through test-caller-contract circuit calls. */
 export interface CallerPrivateState {
   /** The deployer's 32-byte identity secret; never disclosed on-chain. */
   readonly secretKey: Uint8Array;

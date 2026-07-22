@@ -24,7 +24,7 @@ import {
   type MidnightNodeConfig,
 } from "@sig-net/midnight-contract-deploy";
 
-import { Contract } from "./managed/signet-caller/contract/index.js";
+import { Contract } from "./managed/test-caller-contract/contract/index.js";
 import { witnesses, type CallerPrivateState } from "./witnesses.ts";
 
 /** The caller's provable circuit ids, straight from the generated contract. */
@@ -35,14 +35,14 @@ export type CallerCircuitId = keyof InstanceType<typeof Contract>["provableCircu
  * single-value union so the providers/`findDeployedContract` pairing is
  * enforced by the type system.
  */
-export type CallerPrivateStateId = "signet-caller";
+export type CallerPrivateStateId = "test-caller-contract";
 
 /**
  * Key under which midnight-js persists the caller's (empty) private state
  * locally (in the private-state store from {@link buildCallerProviders}).
  * Distinct per contract so two clients don't share an entry.
  */
-export const CALLER_PRIVATE_STATE_ID: CallerPrivateStateId = "signet-caller";
+export const CALLER_PRIVATE_STATE_ID: CallerPrivateStateId = "test-caller-contract";
 
 /** The full midnight-js provider set, typed to the caller. */
 export type CallerProviders = MidnightProviders<
@@ -60,7 +60,7 @@ export type CallerProviders = MidnightProviders<
 // proving spans both: signetManagedPath is a compile-time symlink to the
 // deployed signet contract's managed output (see this package's compile
 // script).
-const managedPath = fileURLToPath(new URL("./managed/signet-caller", import.meta.url));
+const managedPath = fileURLToPath(new URL("./managed/test-caller-contract", import.meta.url));
 const signetManagedPath = fileURLToPath(new URL("./managed/SignetSigner", import.meta.url));
 
 /**
@@ -70,7 +70,7 @@ const signetManagedPath = fileURLToPath(new URL("./managed/SignetSigner", import
  * {@link deployCaller}).
  */
 export const callerCompiledContract = makeCompiledContract<Contract<CallerPrivateState>, CallerPrivateState>(
-  "signet-caller",
+  "test-caller-contract",
   Contract,
   witnesses,
   managedPath,
@@ -108,8 +108,8 @@ export function buildCallerProviders(
     // format compliance, not secrecy. Store names are distinct per contract
     // so two clients don't share an entry.
     privateStateProvider: levelPrivateStateProvider({
-      privateStateStoreName: "signet-caller-private-states",
-      signingKeyStoreName: "signet-caller-signing-keys",
+      privateStateStoreName: "test-caller-contract-private-states",
+      signingKeyStoreName: "test-caller-contract-signing-keys",
       accountId,
       privateStoragePasswordProvider: () => "&*(BHJqwe419-signetCaller",
     }),

@@ -14,7 +14,7 @@ import { buildDeployTransaction } from "@sig-net/midnight-contract-deploy";
 
 import { callerCompiledContract, createCallerPrivateState, pureCircuits } from "../src/index.ts";
 
-const MANAGED_DIR = fileURLToPath(new URL("../src/managed/signet-caller", import.meta.url));
+const MANAGED_DIR = fileURLToPath(new URL("../src/managed/test-caller-contract", import.meta.url));
 const HAS_VERIFIER_KEYS = existsSync(join(MANAGED_DIR, "keys"));
 
 // Stand-in signet-contract reference sealed as the cross-contract emitter.
@@ -29,7 +29,7 @@ const DEPLOYER_COMMITMENT = pureCircuits.deployerCommitment(DEPLOYER_SECRET);
 const CPK = "0".repeat(64);
 
 describe.skipIf(!HAS_VERIFIER_KEYS)(
-  "caller deploy tx (SKIPPED without src/managed/keys — run `yarn workspace @midnight-protocol/caller-contract compile:zk`)",
+  "caller deploy tx (SKIPPED without src/managed/keys — run `yarn workspace @midnight-protocol/test-caller-contract compile:zk`)",
   () => {
     it("builds an unproven deploy transaction from the real managed output", async () => {
       const deployTransaction = await buildDeployTransaction(

@@ -13,9 +13,9 @@
 
 import type { CompactType } from "@midnight-ntwrk/compact-runtime";
 
+import { signBidirectionalEventDescriptor } from "./signet-evtype2tx-requests.ts";
 import {
   requestIdHex,
-  signBidirectionalEventDescriptor,
   type RequestIdHex,
   type SignBidirectionalEvent,
   type SignBidirectionalEventIndex,

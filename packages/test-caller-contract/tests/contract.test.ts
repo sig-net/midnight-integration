@@ -38,7 +38,7 @@ import * as SignetSigner from "../src/managed/SignetSigner/contract/index.js";
 
 // ---- Fixtures ----
 
-// THIS contract's ledger layout (declaration order in signet-caller.compact):
+// THIS contract's ledger layout (declaration order in test-caller-contract.compact):
 // requestLog List at field 0, counter at field 1, request map at field 4.
 // The map position must match the `4 as Uint<8>` requestsIndexField the
 // contract passes in submitSignatureRequest's notification.
@@ -93,7 +93,7 @@ const CALLER_ADDRESS = sampleContractAddress();
 const CALLER_ADDRESS_BYTES = Uint8Array.from(Buffer.from(CALLER_ADDRESS, "hex"));
 
 // The contract-fixed request constants (mirrors of the in-circuit literals in
-// signet-caller.compact; the round-trip test below is the lockstep check).
+// test-caller-contract.compact; the round-trip test below is the lockstep check).
 const EXPECTED_TO = asciiPadded("signet-caller-e2e-to", 20);
 const EXPECTED_SELECTOR = new Uint8Array([0xca, 0x11, 0xab, 0x1e]);
 const EXPECTED_WORD = asciiPadded("signet-caller:fixed-word", 32);
@@ -186,7 +186,7 @@ describe("initialise", () => {
   });
 });
 
-describe("signet-caller ledger shape", () => {
+describe("test-caller-contract ledger shape", () => {
   it("signBidirectionalEventMap parses into the shared signet-midnight types", async () => {
     const { ctx } = await deployContract();
 
