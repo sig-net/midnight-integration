@@ -5,7 +5,7 @@
 // Only the compiled-circuit surface is tested here: the generic request
 // circuits cannot be compiled into it — request construction is exercised
 // through each requester contract's simulator tests, and the request-id TS
-// twin is checked against the real compiled contract in caller-contract's
+// twin is checked against the real compiled contract in test-caller-contract's
 // submit round-trip test. The attestation digest / verify circuits have
 // their own suite (ecdsa-attestation.test.ts).
 

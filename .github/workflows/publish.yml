@@ -112,7 +112,7 @@ jobs:
         with:
           path: |
             packages/signet-contract/src/managed
-            packages/caller-contract/src/managed
+            packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
       - name: Ensure signet-contract prover keys (the published managed assets carry them)
         run: |

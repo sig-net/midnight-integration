@@ -137,7 +137,7 @@ export circuit verifyResponse(requestId: RequestId, respondBidirectional: Respon
 
 Between the two circuits sit the off-chain steps, which this package also covers: poll the central signet contract with `SignetRequestResponseReader` (configured with both contract addresses and the ledger field position of your request index) to collect and verify the MPC's secp256k1 signature (then broadcast the signed transaction to the destination chain), and later the Schnorr-attested execution output to feed back into `verifyResponse`.
 
-The [signet-caller contract](https://github.com/sig-net/midnight-integration/blob/main/packages/caller-contract/src/signet-caller.compact) is the complete, runnable version of this skeleton, exercised end to end by the repository's integration suite; a fuller application (an ERC20 cross-chain vault) lives in [sig-net/midnight-examples](https://github.com/sig-net/midnight-examples).
+The [test caller contract](https://github.com/sig-net/midnight-integration/blob/main/packages/test-caller-contract/src/test-caller-contract.compact) is the complete, runnable version of this skeleton, exercised end to end by the repository's integration suite; a fuller application (an ERC20 cross-chain vault) lives in [sig-net/midnight-examples](https://github.com/sig-net/midnight-examples).
 
 ## Related packages
 

@@ -27,7 +27,7 @@ import { Contract, ledger } from "../src/index.ts";
 // ---- Fixtures ----
 
 // THIS contract's ledger layout (declaration order in
-// signet-caller-20-field.compact): requestLog List at field 0, counter at
+// test-caller-contract-20-field.compact): requestLog List at field 0, counter at
 // field 1, filler counters at 2..18, request map at field 19. In raw state
 // the compiler stores these as chunks of [5, 15], so fields 0..4 live in
 // chunk 0 and fields 5..19 in chunk 1.

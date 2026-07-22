@@ -21,7 +21,7 @@ pragma language_version >= 0.25;
 // never belongs here. constructSignBidirectionalEvent is contract-only, so it
 // needs no off-chain copy. calculateRequestId IS needed off-chain (clients
 // recompute ledger map keys), so it alone has a documented-deviation TS twin
-// in signet-requests.ts, kept honest by caller-contract's
+// in signet-requests.ts, kept honest by test-caller-contract's
 // submitSignatureRequest round-trip test.
 //
 // Compile with --skip-zk only: pure circuits run in TS without proving keys.

@@ -7,11 +7,11 @@ node-modules`). Its members live under `packages/`:
   (the midnight-js provider adapters). The ONLY copy of these files.
 - **`packages/signet-midnight`** — the Midnight-side sig-net integration; the point
   of the repo, and the basis for a signet.js Midnight adapter.
-- **`packages/signet-contract`** / **`packages/caller-contract`** — one
+- **`packages/signet-contract`** / **`packages/test-caller-contract`** — one
   package per Compact contract, no contract/sdk split: the central signet
   singleton, and the minimal client that exercises it generically. See
   "Contract packages" below.
-- **`packages/caller-contract-20-field`** — a 20-field requester contract
+- **`packages/test-caller-contract-20-field`** — a 20-field requester contract
   kept ONLY as the lockstep fixture for chunked-ledger raw parsing (past 15
   fields compactc stores ledger fields in a chunk tree; its simulator tests
   pin `@sig-net/midnight`'s field resolver against real compiler output).
@@ -193,7 +193,7 @@ exception for that specific case.
   first consumer. This applies to every language in the repo: TypeScript,
   Compact contracts, test files, all of it.
 - **Root scripts that target one member are named `<task>:<package-dir>` — the
-  member's directory name in full, never a shorthand.** `compile:caller-contract`,
+  member's directory name in full, never a shorthand.** `compile:test-caller-contract`,
   `deploy:signet-contract`, `test:integration-tests` — never
   `compile:caller` or `deploy:signet`: abbreviations save keystrokes once and
   cost a which-package-was-that lookup forever. (Aggregate scripts like

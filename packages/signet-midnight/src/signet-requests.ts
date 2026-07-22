@@ -10,7 +10,7 @@
 // so ledger reads assign to them without casts.
 //
 // The lockstep is enforced by each consuming contract's simulator tests: the
-// "signet-caller ledger shape" test in packages/caller-contract/tests/
+// "test-caller-contract ledger shape" test in packages/test-caller-contract/tests/
 // contract.test.ts assigns the generated `ledger().signBidirectionalEventMap`
 // to the named SignBidirectionalEventLedgerMap type — the assignment itself is
 // the assertion, so any structural drift between the generated managed types
@@ -152,7 +152,7 @@ export interface SignBidirectionalEvent<TxParams = EVMType2TxParams> {
 // `_calculateRequestId_0` in any consuming contract's
 // managed/contract/index.js). What must stay in lockstep with Signet.compact
 // is exactly what this file already keeps in lockstep — the struct shapes,
-// field by field, in declaration order. Enforced by caller-contract's
+// field by field, in declaration order. Enforced by test-caller-contract's
 // "submitSignatureRequest round-trip" test, which asserts the id computed
 // here equals the ledger map key minted by the REAL compiled contract.
 

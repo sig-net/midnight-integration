@@ -1,32 +1,30 @@
+//                                          💡 NOTE 💡
+// This contract exists for integration testing only. For full integration examples (such as an
+// ERC20 cross chain vault example) see the Midnight Examples repository at:
+// https://github.com/sig-net/midnight-examples.
+//
+// =================== Test Caller Contract (20 field) =====================================================
+// A 20-field signet requester testing chunked ledger parsing against real compiler output:
+// - past 15 fields compactc stores ledger fields in a chunk tree (20 fields chunk to [5, 15])
+// - the raw readers in @sig-net/midnight must resolve flat field numbers through that tree
+// - signBidirectionalEventMap sits at field 19 (chunk 1 slot 14), a List sits at field 0
+//   (an array-typed node chunk detection must NOT confuse with a chunk)
+// Simulator tests only: no deploy flow, no notifier cross-call.
+// ========================================================================================================
 pragma language_version >= 0.25;
 
 import CompactStandardLibrary;
 
-// Shared signet library: request/response structs, request-id hashing,
-// request construction. See the module header in Signet.compact.
 import "@sig-net/midnight/src/Signet";
 
-// The 20-field signet requester: the LOCKSTEP FIXTURE for chunked ledger
-// parsing. Past 15 fields compactc stops storing fields directly in the root
-// state array and builds a chunk tree (20 fields compile to chunks of
-// [5, 15], remainder first), so raw readers must resolve flat field numbers
-// through chunk detection. This contract exists so that resolution is tested
-// against REAL compiler output rather than a hand-built emulation:
-// signBidirectionalEventMap sits at field 19 (the last leaf, chunk 1 slot 14), a
-// List (array-typed, the node shape chunk detection must NOT confuse with a
-// chunk) sits at field 0, and the chunk boundary (field 4 | field 5) crosses
-// the filler counters. Simulator tests only: no deploy flow, no notifier
-// cross-call, nothing off-chain consumes it.
-
-// field 0: log of every submitted request id, newest first. An array-typed
-// node ahead of everything else.
+// field 0: log of every submitted request id, newest first.
 export ledger requestLog: List<Bytes<32>>;
 
 // field 1: contract-local request counter, sources each request's nonce.
 export ledger signetRequestNonce: Counter;
 
-// fields 2..18: filler counters whose only job is pushing the contract past
-// the 15-field chunking threshold so the root state becomes a chunk tree.
+// fields 2..18: filler counters pushing the contract past the 15-field
+// chunking threshold.
 export ledger pad02: Counter;
 export ledger pad03: Counter;
 export ledger pad04: Counter;
@@ -46,15 +44,11 @@ export ledger pad17: Counter;
 export ledger pad18: Counter;
 
 // field 19: the request map, addressed as chunk 1 slot 14 in raw state.
-// Type configured for EVM Type 2 transactions with
-// <1 calldata word, 0 access-list entries, 0 storage keys>: the fixed
-// minimal calldata submitSignatureRequest composes.
 export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
 
-// Records the smallest well-formed signet request, mirroring the
-// signet-caller contract's fixed composition minus the notifier call: the
-// tests read the stored record back MPC-style by field number, which is the
-// whole point of this fixture.
+// Records the smallest well-formed signet request (the test-caller-contract's
+// fixed composition minus the notifier call): the tests read the stored
+// record back MPC-style by field number, which is the point of this fixture.
 export circuit submitSignatureRequest(
   evmNonce: Uint<64>,
   keyVersion: Uint<8>

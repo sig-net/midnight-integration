@@ -97,7 +97,9 @@ module Signet {
     // outputDeserializationSchema tells the MPC how to deserialise the destination chain's
     // execution output (destination chain -> MPC). respondSerializationSchema tells the MPC
     // how to serialise that output into the RespondBidirectionalEvent it posts back
-    // (MPC -> Midnight). Both are ABI-style JSON schema strings, sized per client contract.
+    // (MPC -> Midnight).
+    // Both are ABI-style JSON schema strings, sized per client contract
+    // (see: https://docs.soliditylang.org/en/v0.8.30/abi-spec.html#json)
     outputDeserializationSchema: Bytes<LenOutputDeserialization>;
     respondSerializationSchema: Bytes<LenRespondSerialization>;
   }
@@ -238,7 +240,7 @@ module Signet {
   // Posted by MPC back to Signet singleton for clients to extract, verify and deliver
   // back to the client contract. The singleton stores posts UNVERIFIED: client contracts
   // must verify the signature themselves against their MPC response key, via
-  // verifyRespondBidirectionalEvent (see verifyResponse in the caller-contract example).
+  // verifyRespondBidirectionalEvent.
   export struct RespondBidirectionalEvent {
     // ABI-encoded return data of the remote call (canonical
     // serialized_output), zero-padded. First 32-byte word == 1 signals
