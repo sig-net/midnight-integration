@@ -1,0 +1,148 @@
+# Publishes the three npm packages, in dependency order:
+#
+#   @sig-net/midnight                  (packages/signet-midnight)
+#   @sig-net/midnight-contract        (packages/signet-contract)
+#   @sig-net/midnight-contract-deploy (packages/signet-contract-deploy)
+
+name: publish
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write # OIDC trusted publishing
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+          # corepack owns yarn: the action's yarn-1 cache probe would die here
+          package-manager-cache: false
+      - name: Enable corepack (yarn 4 via the packageManager field)
+        run: corepack enable
+      # Just log the version. Upgrading npm here breaks sigstore (provenance).
+      - run: npm --version
+      - name: Restore the compact toolchain (keyed on the pinned versions)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.compact
+            ~/.local/bin/compact
+          key: compact-${{ runner.os }}-launcher0.5.1-compactc0.33.0-rc.2
+      - name: Install the compact toolchain (pinned launcher + compiler, per AGENTS.md)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
+          # Launcher pinned to compact-v0.5.1 (never releases/latest): the
+          # toolchain is frozen, so bump this tag deliberately.
+          if ! command -v compact >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -LsSf \
+              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh | sh
+          fi
+          # The workspace tracks the ledger-9 toolchain line: compactc
+          # 0.33.0-rc.2 is a PRERELEASE published on the toolchain's LF home
+          # (LFDT-Minokawa/compact), which the launcher's channel does not
+          # list. Download it directly and let the launcher adopt it. Part of
+          # the ledger-9 MATCHED SET (see docker-compose.yaml's image-tag
+          # comment). Bump it together with the npm stack.
+          RC_DIR="$HOME/.compact/versions/0.33.0-rc.2/x86_64-unknown-linux-musl"
+          if [ ! -x "$RC_DIR/compactc" ]; then
+            mkdir -p "$RC_DIR"
+            curl -fsSL -o /tmp/compactc-rc.zip \
+              https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.2/compactc_v0.33.0-rc.2_x86_64-unknown-linux-musl.zip
+            unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
+            chmod +x "$RC_DIR"/*
+          fi
+          # `compact update <ver>` adopts an already-on-disk version without
+          # downloading. If the launcher refuses (version not in its
+          # channel), wire the default symlinks it would have created.
+          compact update 0.33.0-rc.2 || ln -sfn "$RC_DIR"/* "$HOME/.compact/bin/"
+          compact compile --version
+      - name: Read the compact compiler version (part of the zk cache key)
+        id: compact
+        run: |
+          # The zk-key cache must bust whenever the compiler BUILD changes,
+          # but `compact compile --version` drops the -rc suffix (rc.0 and
+          # rc.2 both print 0.33.0), so an rc bump would silently reuse the
+          # old rc's cached managed/ output against a newer runtime. Read the
+          # rc-qualified version from the default compiler's version directory
+          # (…/versions/<version>/<arch>/compactc) instead.
+          target="$(readlink -f "$(command -v compactc)")"
+          version="$(basename "$(dirname "$(dirname "$target")")")"
+          case "$version" in [0-9]*) ;; *) version="$(compact compile --version)" ;; esac
+          echo "version=$(printf '%s' "$version" | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies (frozen, from the committed yarn.lock)
+        run: yarn install --immutable
+      - name: Verify the three package versions move in lockstep (and match the tag)
+        run: |
+          V_MIDNIGHT=$(node -p "require('./packages/signet-midnight/package.json').version")
+          V_CONTRACT=$(node -p "require('./packages/signet-contract/package.json').version")
+          V_DEPLOY=$(node -p "require('./packages/signet-contract-deploy/package.json').version")
+          if [ "$V_MIDNIGHT" != "$V_CONTRACT" ] || [ "$V_MIDNIGHT" != "$V_DEPLOY" ]; then
+            echo "::error::package versions diverge: @sig-net/midnight=$V_MIDNIGHT @sig-net/midnight-contract=$V_CONTRACT @sig-net/midnight-contract-deploy=$V_DEPLOY"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$V_MIDNIGHT" != "$TAG_VERSION" ]; then
+              echo "::error::Tag v$TAG_VERSION does not match the packages' version $V_MIDNIGHT"
+              exit 1
+            fi
+          fi
+      - name: Compile (skip-zk)
+        run: yarn compile
+      # Restore-only: ci.yml's integration job owns saving this cache (it
+      # generates BOTH contracts' keys, whereas this job generates only
+      # signet-contract's, so a save from here would poison the key).
+      - name: Restore prebuilt zk proving keys
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            packages/signet-contract/src/managed
+            packages/test-caller-contract/src/managed
+          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
+      - name: Ensure signet-contract prover keys (the published managed assets carry them)
+        run: |
+          if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
+            echo "prover keys present (restored from the cache), skipping keygen"
+          else
+            yarn compile:signet-contract:zk
+          fi
+      - name: Build (typecheck, emit each published package's dist)
+        run: yarn build
+      - name: Unit tests (simulator-only, offline)
+        run: yarn test
+      - name: Publish to npm (dependency order, versions already on npm are skipped)
+        run: |
+          set -euo pipefail
+          for entry in \
+            "signet-midnight:@sig-net/midnight" \
+            "signet-contract:@sig-net/midnight-contract" \
+            "signet-contract-deploy:@sig-net/midnight-contract-deploy"; do
+            dir="${entry%%:*}"
+            name="${entry#*:}"
+            version=$(node -p "require('./packages/$dir/package.json').version")
+            if [ -n "$(npm view "$name@$version" version 2>/dev/null || true)" ]; then
+              echo "$name@$version is already on npm, skipping"
+              continue
+            fi
+            echo "publishing $name@$version"
+            if [ "${version#*-}" != "$version" ]; then
+              yarn workspace "$name" npm publish --provenance --tag beta
+            else
+              yarn workspace "$name" npm publish --provenance
+            fi
+          done

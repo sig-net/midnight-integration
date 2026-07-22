@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.log
+logs/
+midnight-level-db/
+.env
+reports/
+package-lock.json
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+.pnp.*
+*.prover
+*.DS_Store
+*scratch*
+.env.stagenet
