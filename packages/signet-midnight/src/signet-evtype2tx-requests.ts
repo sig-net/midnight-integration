@@ -266,6 +266,20 @@ export function evmAddressAbiWord(address: Uint8Array): Uint8Array {
 }
 
 /**
+ * The ABI word for a Boolean: 31 zero bytes, then 0x01 (true) or 0x00
+ * (false). TS mirror of Signet.compact's `boolAbiWord` circuit
+ * (lockstep-tested against the compiled circuit).
+ *
+ * @param value - The word's Boolean value.
+ * @returns The ABI-ready 32-byte word to store in an {@link EVMCalldata} word.
+ */
+export function boolAbiWord(value: boolean): Uint8Array {
+  const word = new Uint8Array(32);
+  word[31] = value ? 1 : 0;
+  return word;
+}
+
+/**
  * Read a numeric ABI word back into a bigint: the big-endian reading of bytes
  * 16..31. TS mirror of Signet.compact's `abiWordToUint128` circuit, including
  * its canonicality check: the leading 16 bytes must be zero, so a word wider
@@ -287,6 +301,25 @@ export function abiWordToUint128(word: Uint8Array): bigint {
     value = value * 256n + BigInt(word[i]);
   }
   return value;
+}
+
+/**
+ * Read a Boolean ABI word back into a boolean. TS mirror of Signet.compact's
+ * `abiWordToBool` circuit, including its canonicality check: the first 31
+ * bytes must be zero and the last byte 0 or 1.
+ *
+ * @param word - The ABI-ready 32-byte word.
+ * @returns The word's Boolean value.
+ * @throws Error if the word is not 32 bytes or is not a canonical Boolean.
+ */
+export function abiWordToBool(word: Uint8Array): boolean {
+  if (word.length !== 32) {
+    throw new Error(`ABI word must be 32 bytes, got ${word.length}`);
+  }
+  if (word.slice(0, 31).some((byte) => byte !== 0) || word[31] > 1) {
+    throw new Error("ABI word is not a canonical Boolean");
+  }
+  return word[31] === 1;
 }
 
 /**

@@ -17,7 +17,9 @@ import {
   bytesToHex,
   evmAddressAbiWord,
   numericAbiWord,
+  boolAbiWord,
   abiWordToUint128,
+  abiWordToBool,
 } from "../src/index.ts";
 
 const bytes = (length: number, fill: number) =>
@@ -84,5 +86,34 @@ describe("ABI word circuits (circuit/TS lockstep)", () => {
     wide[15] = 1; // lowest byte of the forbidden high half
     expect(() => pureCircuits.abiWordToUint128(wide)).toThrow();
     expect(() => abiWordToUint128(wide)).toThrow("exceeds Uint<128>");
+  });
+
+  it("boolAbiWord: circuit and TS mirror emit identical bytes", () => {
+    for (const value of [true, false]) {
+      const circuitWord = pureCircuits.boolAbiWord(value);
+      expect(circuitWord).toHaveLength(32);
+      expect(circuitWord).toEqual(boolAbiWord(value));
+    }
+    expect(pureCircuits.boolAbiWord(false)).toEqual(new Uint8Array(32));
+    expect(pureCircuits.boolAbiWord(true)[31]).toBe(1);
+  });
+
+  it("abiWordToBool round-trips boolAbiWord, circuit and TS", () => {
+    for (const value of [true, false]) {
+      const word = pureCircuits.boolAbiWord(value);
+      expect(pureCircuits.abiWordToBool(word)).toBe(value);
+      expect(abiWordToBool(word)).toBe(value);
+    }
+  });
+
+  it("abiWordToBool rejects non-canonical words", () => {
+    const junkHigh = new Uint8Array(32);
+    junkHigh[0] = 1; // nonzero byte in the zero prefix
+    const junkLast = new Uint8Array(32);
+    junkLast[31] = 2; // last byte outside 0/1
+    for (const word of [junkHigh, junkLast]) {
+      expect(() => pureCircuits.abiWordToBool(word)).toThrow();
+      expect(() => abiWordToBool(word)).toThrow("canonical Boolean");
+    }
   });
 });
