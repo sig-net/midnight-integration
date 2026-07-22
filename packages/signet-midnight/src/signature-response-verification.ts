@@ -12,8 +12,8 @@ import { getAddress, recoverAddress } from "ethers";
 import {
   signBidirectionalEventToUnsignedEVMTransaction,
   signatureRespondedEventToSignature,
-  type SignBidirectionalEvent,
-} from "./signet-requests.ts";
+} from "./signet-evtype2tx-requests.ts";
+import type { SignBidirectionalEvent } from "./signet-requests.ts";
 import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts";
 
 /**

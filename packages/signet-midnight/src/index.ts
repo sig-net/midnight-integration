@@ -3,6 +3,7 @@
 // the compiled pure circuits of the shared Compact module.
 
 export * from "./signet-requests.ts";
+export * from "./signet-evtype2tx-requests.ts";
 export * from "./signature-state-reading.ts";
 export * from "./signature-requests-state-reader.ts";
 export * from "./signet-contract-state-reader.ts";
@@ -19,8 +20,10 @@ export * from "./ecdsa-attestation.ts";
  * executable reference implementation of the client-agnostic circuits —
  * the attestation digest (`signetAttestationDigest`), response verification
  * (`verifyRespondBidirectionalEvent`), the deploy-time key pin
- * (`signetKeyHash`), and the notification packer
- * (`constructSignBidirectionalEventNotificationV1`). Off-chain code MUST use
+ * (`signetKeyHash`), the notification packer
+ * (`constructSignBidirectionalEventNotificationV1`), and the ABI word
+ * builders/reader (`evmAddressAbiWord`, `numericAbiWord`,
+ * `abiWordToUint128`). Off-chain code MUST use
  * these instead of re-porting the algorithms — they are the same compiled
  * logic the contracts prove. The generic request circuits cannot be compiled
  * here (type-parameterized): request construction is contract-only, and

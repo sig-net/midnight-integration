@@ -358,10 +358,64 @@ module Signet {
   }
 
   // ABI calldata for the EVM call: 4-byte selector + 32-byte slots
-  // (https://docs.soliditylang.org/en/latest/abi-spec.html).
+  // (https://docs.soliditylang.org/en/latest/abi-spec.html). Every stored
+  // byte is ABI-READY: the signer broadcasts selector || words[0..noWords]
+  // VERBATIM, so what the contract stores is exactly what the MPC signs.
   export struct EVMCalldata<#maxWords> {
-    selector: Bytes<4>;  // the literal first 4 calldata bytes (big-endian, as broadcast)
+    selector: Bytes<4>;  // the literal first 4 calldata bytes (as broadcast)
     noWords: Uint<16>;   // No. of used words in the words list
-    words: Vector<maxWords, Bytes<32>>;
+    words: Vector<maxWords, Bytes<32>>; // ABI-ready big-endian words (as broadcast)
+  }
+
+  // ---- ABI calldata word construction -----------------------------------------------------
+  // The protocol's canonical word builders and reader. Words are stored in
+  // broadcast form (big-endian, per the ABI spec above): no off-chain step
+  // may reorder or reinterpret them, so the byte order must be produced HERE,
+  // in-circuit. Compact's integer<->bytes casts are little-endian, hence the
+  // explicit reversal in numericAbiWord and the explicit fold in
+  // abiWordToUint128. TS mirrors of the same names live in signet-requests.ts
+  // and are kept honest by lockstep tests against these compiled circuits.
+
+  // The ABI word for an EVM address: 12 zero bytes, then the 20 display-order
+  // address bytes, exactly as they appear in the broadcast calldata.
+  export pure circuit evmAddressAbiWord(addr: Bytes<20>): Bytes<32> {
+    return Bytes[...default<Bytes<12>>, ...addr];
+  }
+
+  // The ABI word for a numeric value (e.g. an ERC20 amount): the value as a
+  // 32-byte big-endian integer. Compact's Uint->Bytes cast is little-endian,
+  // so cast to 16 LE bytes and emit them reversed into the low half.
+  export pure circuit numericAbiWord(value: Uint<128>): Bytes<32> {
+    const le = (value as Bytes<16>) as Vector<16, Uint<8>>;
+    return Bytes[
+      ...default<Bytes<16>>,
+      le[15], le[14], le[13], le[12], le[11], le[10], le[9], le[8],
+      le[7],  le[6],  le[5],  le[4],  le[3],  le[2],  le[1], le[0]
+    ];
+  }
+
+  // Read a numeric ABI word back into a Uint<128>: the big-endian fold of
+  // bytes 16..31. The leading half must be zero (a canonical Uint<128> word);
+  // rejecting junk there keeps settle circuits from silently truncating a
+  // wider value. Max fold result is 2^128 - 1, well inside the field.
+  export pure circuit abiWordToUint128(word: Bytes<32>): Uint<128> {
+    assert(slice<16>(word, 0) as Field == 0 as Field, "ABI word exceeds Uint<128>");
+    const b0  = slice<1>(word, 16) as Field;
+    const b1  = b0  * 256 + (slice<1>(word, 17) as Field);
+    const b2  = b1  * 256 + (slice<1>(word, 18) as Field);
+    const b3  = b2  * 256 + (slice<1>(word, 19) as Field);
+    const b4  = b3  * 256 + (slice<1>(word, 20) as Field);
+    const b5  = b4  * 256 + (slice<1>(word, 21) as Field);
+    const b6  = b5  * 256 + (slice<1>(word, 22) as Field);
+    const b7  = b6  * 256 + (slice<1>(word, 23) as Field);
+    const b8  = b7  * 256 + (slice<1>(word, 24) as Field);
+    const b9  = b8  * 256 + (slice<1>(word, 25) as Field);
+    const b10 = b9  * 256 + (slice<1>(word, 26) as Field);
+    const b11 = b10 * 256 + (slice<1>(word, 27) as Field);
+    const b12 = b11 * 256 + (slice<1>(word, 28) as Field);
+    const b13 = b12 * 256 + (slice<1>(word, 29) as Field);
+    const b14 = b13 * 256 + (slice<1>(word, 30) as Field);
+    const b15 = b14 * 256 + (slice<1>(word, 31) as Field);
+    return b15 as Uint<128>;
   }
 }

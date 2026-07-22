@@ -1,47 +1,40 @@
+//                                          💡 NOTE 💡
+// This contract drives the Signet Contract @sig-net/contract for integration purposes.
+// While informative, for better full integration examples (such as an ERC20 cross chain vault example) see
+// the Midnight Examples repository at: https://github.com/sig-net/midnight-examples.
+//
+// ===================Signet Caller Contract ===============================================================
+// This minimal signet caller tests:
+// - initialisation: pinning its MPC response key once after deploy
+// - submitting a SignBidirectionalEvent signature request with contract-fixed minimal call data
+// - verification of the MPC's ECDSA-signed respond-bidirectional response of that request
+// ========================================================================================================
 pragma language_version >= 0.25;
 
 import CompactStandardLibrary;
 
-// Shared signet library: request/response structs, request-id hashing,
-// request construction, and the attestation message. See the module header in
-// Signet.compact and https://docs.sig.network/ for the protocol.
+// import signet integration library
 import "@sig-net/midnight/src/Signet";
 
-// The minimal signet caller: the SMALLEST contract that exercises the central
-// signet contract generically. It does exactly three things — pin its MPC
-// response key once after deploy (initialise), submit a signature request
-// (with contract-fixed, minimal calldata), and verify the MPC's ECDSA-signed
-// respond-bidirectional response of that request. No token, no application
-// semantics: every line here is what ANY signet caller needs, nothing more.
 
 // ---- Ledger layout -----------------------------------------------------------------
-// Field numbers are declaration order and stay fixed for the contract's
-// lifetime; the request index sits at field 4 and submitSignatureRequest
-// names that position in its notification. The List at field 0 is deliberate:
-// a List node is array-typed like a chunked field root, so a raw reader that
-// guesses layout instead of resolving the named field would misparse this
-// contract; it keeps the off-chain readers honest.
+// - field numbers are declaration order and stay fixed for the life of the contract
+// - signBidirectionalEventMap intentionally not declared first to ensure the field location passed
+//   via cross contract call in SignBidirectionalEventNotification is used
 
-// field 0: log of every submitted request id, newest first.
+// field 0: Log of every submitted request id, newest first.
+//          Intentional duplication to test reading signBidirectionalEventMap located after dynamic
+//          list type that grows with each request.
 export ledger requestLog: List<Bytes<32>>;
 
-// field 1: contract-local request counter, used to keep signature request
-// hashes different between identical calls.
+// field 1: contract-local request counter used to keep signature request hashes different
+//          between identical calls.
 export ledger signetRequestNonce: Counter;
 
-// field 2: the MPC RESPONSE key (secp256k1) for this contract, derived
-// off-chain from the MPC root key + (THIS contract's address, the fixed
-// respond-bidirectional path "midnight response key") and stored in
-// by the one-shot initialise circuitThe key depends on this
-// contract's own address, and the address is a hash over the deploy
-// (constructor arguments included), so it cannot be a constructor seal: it
-// is set ONCE, right after deploy, when the address (and therefore the
-// derived key) exists (the `initialised` counter below is the sentinel).
-// This is NOT the key that signs the requested transaction (that one is
-// scoped by the request's own path): it is the key the MPC signs
-// respond-bidirectional responses with. verifyResponse accepts only
-// responses ECDSA-signed by it. The central signet contract stores posts
-// unverified, so this key is the only authentication gate.
+// field 2: the MPC RESPONSE public key (secp256k1) for this contract, derived off-chain from:
+//   - the MPC root public key
+//   - THIS contract's address
+//   - the fixed respond-bidirectional path "midnight response key"
 export ledger mpcResponseKey: Secp256k1Point;
 
 // field 3: the central signet contract, pinned at deploy time:

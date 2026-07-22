@@ -16,7 +16,7 @@ import {
   TxParamType,
   evmAddressAbiWord,
   lookupSignetRequestAt,
-  numericAbiWordValue,
+  numericAbiWord,
   readSignetRequestsLedgerFromState,
   requestIdHex,
   requestIdType,
@@ -59,7 +59,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
       value: {
         selector: ERC20_TRANSFER_SELECTOR,
         noWords: 2n,
-        words: [evmAddressAbiWord(bytes(20, 0xee)), numericAbiWordValue(1_000_000n)],
+        words: [evmAddressAbiWord(bytes(20, 0xee)), numericAbiWord(1_000_000n)],
       },
     },
   },

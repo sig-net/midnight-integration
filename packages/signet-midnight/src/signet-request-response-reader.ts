@@ -24,8 +24,10 @@ import type { RawContractState } from "./signature-state-reading.ts";
 import {
   signBidirectionalEventToSignedEVMTransaction,
   signBidirectionalEventToUnsignedEVMTransaction,
-  type SignBidirectionalEvent,
-  type RequestIdHex,
+} from "./signet-evtype2tx-requests.ts";
+import type {
+  SignBidirectionalEvent,
+  RequestIdHex,
 } from "./signet-requests.ts";
 
 /**

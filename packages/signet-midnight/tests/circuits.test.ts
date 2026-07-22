@@ -11,7 +11,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { pureCircuits, decodeSignBidirectionalNotification, bytesToHex } from "../src/index.ts";
+import {
+  pureCircuits,
+  decodeSignBidirectionalNotification,
+  bytesToHex,
+  evmAddressAbiWord,
+  numericAbiWord,
+  abiWordToUint128,
+} from "../src/index.ts";
 
 const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
@@ -41,5 +48,41 @@ describe("constructSignBidirectionalEventNotificationV1 (compiled packer)", () =
       callerAddress: bytesToHex(CALLER.bytes),
       requestsIndexField: 7,
     });
+  });
+});
+
+describe("ABI word circuits (circuit/TS lockstep)", () => {
+  const ADDRESS = Uint8Array.from({ length: 20 }, (_, i) => 0xa0 + i);
+  const VALUES = [0n, 1n, 255n, 256n, 1_000_000n, (1n << 128n) - 1n];
+
+  it("evmAddressAbiWord: circuit and TS mirror emit identical bytes", () => {
+    const circuitWord = pureCircuits.evmAddressAbiWord(ADDRESS);
+    expect(circuitWord).toHaveLength(32);
+    expect(circuitWord).toEqual(evmAddressAbiWord(ADDRESS));
+    // Broadcast form: 12 zero bytes, then the display-order address.
+    expect(circuitWord.slice(0, 12)).toEqual(new Uint8Array(12));
+    expect(circuitWord.slice(12)).toEqual(ADDRESS);
+  });
+
+  it("numericAbiWord: circuit and TS mirror emit identical bytes", () => {
+    for (const value of VALUES) {
+      const circuitWord = pureCircuits.numericAbiWord(value);
+      expect(circuitWord).toEqual(numericAbiWord(value));
+    }
+  });
+
+  it("abiWordToUint128 round-trips numericAbiWord, circuit and TS", () => {
+    for (const value of VALUES) {
+      const word = pureCircuits.numericAbiWord(value);
+      expect(pureCircuits.abiWordToUint128(word)).toBe(value);
+      expect(abiWordToUint128(word)).toBe(value);
+    }
+  });
+
+  it("abiWordToUint128 rejects a word wider than Uint<128>", () => {
+    const wide = new Uint8Array(32);
+    wide[15] = 1; // lowest byte of the forbidden high half
+    expect(() => pureCircuits.abiWordToUint128(wide)).toThrow();
+    expect(() => abiWordToUint128(wide)).toThrow("exceeds Uint<128>");
   });
 });

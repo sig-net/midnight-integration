@@ -1,10 +1,11 @@
 // Golden cross-check of the word calldata assembly against ethers' canonical
 // ABI encoder: for each case, words are built exactly as a client (contract
 // circuit or UI) would build them, and the assembled bytes must equal
-// `Interface.encodeFunctionData` output byte for byte. This is the test that
-// pins the MPC re-assembly documented on `EVMCalldata` in Signet.compact —
-// including the big-endian address embed (a display-order LE embed would
-// assemble a byte-reversed address and fail here).
+// `Interface.encodeFunctionData` output byte for byte. This pins the
+// ABI-ready word convention documented on `EVMCalldata` in Signet.compact:
+// words are stored in broadcast form, so assembly is a verbatim
+// concatenation and the no-translation suite below proves the signed
+// transaction's data IS the stored bytes, unreordered and unreinterpreted.
 
 import { describe, expect, it } from "vitest";
 
@@ -17,7 +18,7 @@ import {
   assembleCalldata,
   bytesToHex,
   evmAddressAbiWord,
-  numericAbiWordValue,
+  numericAbiWord,
   signBidirectionalEventToUnsignedEVMTransaction,
   type EVMType2TxParams,
   type Maybe,
@@ -56,7 +57,7 @@ describe("assembleCalldata vs ethers encodeFunctionData", () => {
     const assembled = assembleCalldata(
       someCalldata(ERC20_TRANSFER_SELECTOR, [
         evmAddressAbiWord(VAULT_EVM),
-        numericAbiWordValue(AMOUNT),
+        numericAbiWord(AMOUNT),
       ]),
     );
 
@@ -76,7 +77,7 @@ describe("assembleCalldata vs ethers encodeFunctionData", () => {
         ERC20_TRANSFER_SELECTOR,
         [
           evmAddressAbiWord(VAULT_EVM),
-          numericAbiWordValue(AMOUNT),
+          numericAbiWord(AMOUNT),
           new Uint8Array(32),
           new Uint8Array(32),
         ],
@@ -97,6 +98,46 @@ describe("assembleCalldata vs ethers encodeFunctionData", () => {
   });
 });
 
+describe("no translation between stored record and signed transaction", () => {
+  it("tx data is the stored selector and words, byte for byte", () => {
+    // Deliberately arbitrary word bytes (not built by any helper): whatever
+    // the contract stored must reach the transaction untouched.
+    const word0 = Uint8Array.from({ length: 32 }, (_, i) => 0xd0 + (i % 16));
+    const word1 = Uint8Array.from({ length: 32 }, (_, i) => 0x7f - (i % 32));
+    const to = bytes(20, 0xaa);
+    const tx = signBidirectionalEventToUnsignedEVMTransaction({
+      sender: { bytes: new Uint8Array(32) },
+      requestNonce: 0n,
+      keyVersion: 1n,
+      path: new Uint8Array(32),
+      algo: MPCSignatureAlgorithm.ecdsa,
+      dest: MPCDestination.unused,
+      params: new Uint8Array(64),
+      txParamType: TxParamType.evmType2,
+      txParams: {
+        to,
+        chainId: 11155111n,
+        nonce: 7n,
+        gasLimit: 100_000n,
+        maxFeePerGas: 30_000_000_000n,
+        maxPriorityFeePerGas: 1_000_000_000n,
+        value: 0n,
+        accessListEntryCount: 0n,
+        accessList: [],
+        calldata: someCalldata(ERC20_TRANSFER_SELECTOR, [word0, word1]),
+      },
+      caip2Id: new Uint8Array(32),
+      outputDeserializationSchema: new Uint8Array(34),
+      respondSerializationSchema: new Uint8Array(34),
+    });
+
+    expect(tx.data).toBe(
+      `0x${bytesToHex(ERC20_TRANSFER_SELECTOR)}${bytesToHex(word0)}${bytesToHex(word1)}`,
+    );
+    expect(tx.to).toBe(getAddress(`0x${bytesToHex(to)}`));
+  });
+});
+
 describe("access list in the rebuilt transaction", () => {
   const baseTxParams: EVMType2TxParams = {
     to: bytes(20, 0xaa),
@@ -113,7 +154,7 @@ describe("access list in the rebuilt transaction", () => {
       value: {
         selector: ERC20_TRANSFER_SELECTOR,
         noWords: 2n,
-        words: [evmAddressAbiWord(VAULT_EVM), numericAbiWordValue(AMOUNT)],
+        words: [evmAddressAbiWord(VAULT_EVM), numericAbiWord(AMOUNT)],
       },
     },
   };

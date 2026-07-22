@@ -19,7 +19,7 @@ import {
   TxParamType,
   asciiPadded,
   evmAddressAbiWord,
-  numericAbiWordValue,
+  numericAbiWord,
   signatureToSignatureRespondedEvent,
   signBidirectionalEventToSignedEVMTransaction,
   signBidirectionalEventToUnsignedEVMTransaction,
@@ -71,7 +71,7 @@ const REQUEST: SignBidirectionalEvent = {
       value: {
         selector: ERC20_TRANSFER_SELECTOR,
         noWords: 2n,
-        words: [evmAddressAbiWord(VAULT_EVM), numericAbiWordValue(AMOUNT)],
+        words: [evmAddressAbiWord(VAULT_EVM), numericAbiWord(AMOUNT)],
       },
     },
   },
@@ -199,7 +199,7 @@ const VERIFY_CASES: VerifyCase[] = [
   },
   {
     name: "a genuine signature over a DIFFERENT request (tampered amount)",
-    request: withWord(1, numericAbiWordValue(AMOUNT + 1n)),
+    request: withWord(1, numericAbiWord(AMOUNT + 1n)),
     response: VALID_RESPONSE,
     expectedSigner: MPC_ADDRESS,
     valid: false,

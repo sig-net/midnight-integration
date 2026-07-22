@@ -34,5 +34,8 @@ export {
   signetAttestationDigest,
   verifyRespondBidirectionalEvent,
   signetKeyHash,
-  constructSignBidirectionalEventNotificationV1
+  constructSignBidirectionalEventNotificationV1,
+  evmAddressAbiWord,
+  numericAbiWord,
+  abiWordToUint128
 };

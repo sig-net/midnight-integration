@@ -11,6 +11,11 @@ The **Sign Bidirectional Flow** comprises of 5 steps:
 4. Sig Network MPC observes the foreign transaction and posts the output of the execution (signed) back to Midnight
 5. Client extracts the signed foreign execution output, then submits it back to the Midnight contract completing the foreign transaction execution.
 
+> ## 🚧 Under Construction 🚧
+>
+> This Sig Network Midnight Integration is still Under Construction.
+> Use at your own risk and expect rapid iteration.
+
 ## Derived keys
 
 Every key the MPC signs with is scoped by the requesting contract:

@@ -23,7 +23,7 @@ import {
   asciiPadded,
   bytesToHex,
   evmAddressAbiWord,
-  numericAbiWordValue,
+  numericAbiWord,
   pureCircuits,
   requestIdHex,
   requestIdType,
@@ -80,7 +80,7 @@ const REQUEST: SignBidirectionalEvent = {
       value: {
         selector: ERC20_TRANSFER_SELECTOR,
         noWords: 2n,
-        words: [evmAddressAbiWord(bytes(20, 0xee)), numericAbiWordValue(1_000_000n)],
+        words: [evmAddressAbiWord(bytes(20, 0xee)), numericAbiWord(1_000_000n)],
       },
     },
   },
