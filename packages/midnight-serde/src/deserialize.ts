@@ -7,10 +7,17 @@
 // so garbage there means a corrupt or mis-framed buffer, and failing loudly
 // off-chain is the safer default. Pass `{ ignorePadding: true }` to mirror the
 // circuit exactly.
+//
+// Compact is a strict protocol, so this module is too: the descriptor is
+// fully validated (src/validate.ts) and the input buffer type-checked before
+// any decoding, every decoded value is range-checked (booleans above 1,
+// out-of-range Uint and Field encodings all throw), and every switch has a
+// throwing backstop for anything that slips past the type system.
 
 import { FIELD_MODULUS } from './types.ts';
 import type { CompactType, CompactValue, CompactValueOf } from './types.ts';
-import { compactSerializedSize } from './serialize.ts';
+import { packedSize } from './serialize.ts';
+import { assertCompactType, assertUnreachable } from './validate.ts';
 
 export interface CompactDeserializeOptions {
   /** Skip the all-zero check on bytes after the packed value (circuit behaviour). */
@@ -28,6 +35,10 @@ export function compactDeserialize<const T extends CompactType>(
   bytes: Uint8Array,
   options: CompactDeserializeOptions = {}
 ): CompactValueOf<T> {
+  assertCompactType(type);
+  if (!(bytes instanceof Uint8Array)) {
+    throw new Error('bytes must be a Uint8Array');
+  }
   const [value, consumed] = decodeFrom(bytes, 0, type, 'value');
   if (!options.ignorePadding) {
     for (let i = consumed; i < bytes.length; i++) {
@@ -48,7 +59,7 @@ function decodeFrom(
   type: CompactType,
   label: string
 ): [CompactValue, number] {
-  const need = compactSerializedSize(type);
+  const need = packedSize(type);
   if (offset + need > bytes.length) {
     throw new Error(
       `${label}: needs ${need} bytes at offset ${offset}, buffer has ${bytes.length}`
@@ -61,8 +72,15 @@ function decodeFrom(
       return [b === 1, offset + 1];
     }
     case 'uint': {
-      const size = compactSerializedSize(type);
-      return [readUintLE(bytes, offset, size), offset + size];
+      const size = packedSize(type);
+      const value = readUintLE(bytes, offset, size);
+      // Only reachable for widths that are not byte-aligned (a byte-aligned
+      // width fills its bytes exactly). Mirrors Compact's run-time Uint range
+      // checks; not circuit-pinned since the fixtures use aligned widths.
+      if (value >= 1n << BigInt(type.bits)) {
+        throw new Error(`${label}: encoding ${value} exceeds Uint<${type.bits}>`);
+      }
+      return [value, offset + size];
     }
     case 'field': {
       const value = readUintLE(bytes, offset, 32);
@@ -95,6 +113,8 @@ function decodeFrom(
       }
       return [value, cursor];
     }
+    default:
+      return assertUnreachable(type, label);
   }
 }
 

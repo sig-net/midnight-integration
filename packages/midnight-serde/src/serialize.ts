@@ -7,35 +7,44 @@
 //   - `serialize<T, N>` places the packed value at the START of `Bytes<N>` and
 //     zero-pads on the right; N below the packed size is a compile error, and
 //     this module throws on the same condition.
+//
+// Compact is a strict protocol, so this module is too: every public entry
+// point runs the full recursive descriptor validation (src/validate.ts)
+// before touching a byte, every value is range- and shape-checked at runtime,
+// and every switch has a throwing backstop for anything that slips past the
+// type system.
 
-import { FIELD_MODULUS, MAX_UINT_BITS } from './types.ts';
+import { FIELD_MODULUS } from './types.ts';
 import type { CompactType, CompactValue, CompactValueOf } from './types.ts';
+import { assertCompactType, assertUnreachable } from './validate.ts';
 
-/** Packed byte size of a type, before `serialize<T, N>`'s right zero-padding. */
-export function compactSerializedSize(type: CompactType): number {
+/**
+ * Packed byte size of an ALREADY-VALIDATED descriptor. Package-internal: the
+ * public {@link compactSerializedSize} validates first.
+ */
+export function packedSize(type: CompactType): number {
   switch (type.kind) {
     case 'boolean':
       return 1;
     case 'uint':
-      if (!Number.isInteger(type.bits) || type.bits < 1 || type.bits > MAX_UINT_BITS) {
-        throw new Error(`Uint width ${type.bits} is out of range 1..${MAX_UINT_BITS}`);
-      }
       return Math.ceil(type.bits / 8);
     case 'field':
       return 32;
     case 'bytes':
-      if (!Number.isInteger(type.length) || type.length < 1) {
-        throw new Error(`Bytes length ${type.length} must be a positive integer`);
-      }
       return type.length;
     case 'vector':
-      if (!Number.isInteger(type.length) || type.length < 1) {
-        throw new Error(`Vector length ${type.length} must be a positive integer`);
-      }
-      return type.length * compactSerializedSize(type.element);
+      return type.length * packedSize(type.element);
     case 'struct':
-      return type.fields.reduce((sum, f) => sum + compactSerializedSize(f.type), 0);
+      return type.fields.reduce((sum, f) => sum + packedSize(f.type), 0);
+    default:
+      return assertUnreachable(type, 'packedSize');
   }
+}
+
+/** Packed byte size of a type, before `serialize<T, N>`'s right zero-padding. */
+export function compactSerializedSize(type: CompactType): number {
+  assertCompactType(type);
+  return packedSize(type);
 }
 
 /**
@@ -43,14 +52,19 @@ export function compactSerializedSize(type: CompactType): number {
  * packed value is returned unpadded, matching `serialize<T, packedSize>`.
  *
  * The value parameter is typed from the descriptor (see `CompactValueOf`), so
- * a literal descriptor gets compile-time checking of the value shape.
+ * a literal descriptor gets compile-time checking of the value shape, and the
+ * same shape is enforced again at runtime.
  */
 export function compactSerialize<const T extends CompactType>(
   type: T,
   value: CompactValueOf<T>,
   padTo?: number
 ): Uint8Array {
-  const size = compactSerializedSize(type);
+  assertCompactType(type);
+  if (padTo !== undefined && (!Number.isInteger(padTo) || padTo < 0)) {
+    throw new Error(`padTo must be a non-negative integer, got ${String(padTo)}`);
+  }
+  const size = packedSize(type);
   const total = padTo ?? size;
   if (total < size) {
     throw new Error(
@@ -77,7 +91,7 @@ function encodeInto(
     }
     case 'uint': {
       if (typeof value !== 'bigint') throw new Error(`${label}: expected bigint`);
-      const size = compactSerializedSize(type);
+      const size = packedSize(type);
       if (value >= 1n << BigInt(type.bits)) {
         throw new Error(`${label}: value ${value} exceeds Uint<${type.bits}>`);
       }
@@ -134,6 +148,8 @@ function encodeInto(
       }
       return cursor;
     }
+    default:
+      return assertUnreachable(type, label);
   }
 }
 

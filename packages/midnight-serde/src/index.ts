@@ -14,6 +14,8 @@ export {
 
 export { compactSerialize, compactSerializedSize } from './serialize.ts';
 
+export { assertCompactType, isCompactType } from './validate.ts';
+
 export {
   compactDeserialize,
   type CompactDeserializeOptions,

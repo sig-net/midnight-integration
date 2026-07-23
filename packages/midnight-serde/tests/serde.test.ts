@@ -16,10 +16,12 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import { pureCircuits } from './fixtures/managed/contract/index.js';
 import {
+  assertCompactType,
   compactDeserialize,
   compactSerialize,
   compactSerializedSize,
   FIELD_MODULUS,
+  isCompactType,
   type CompactType,
 } from '../src/index.ts';
 
@@ -355,5 +357,117 @@ describe('twin rejections', () => {
     } as const satisfies CompactType;
     const bad = new Uint8Array(32).fill(0xff);
     expect(() => compactDeserialize(F, bad)).toThrow(/Field modulus/);
+  });
+
+  it('out-of-range encodings of non-byte-aligned uints on decode', () => {
+    const U4 = {
+      kind: 'struct',
+      fields: [{ name: 'v', type: { kind: 'uint', bits: 4 } }],
+    } as const satisfies CompactType;
+    expect(compactDeserialize(U4, Uint8Array.of(0x0f))).toEqual({ v: 15n });
+    expect(() => compactDeserialize(U4, Uint8Array.of(0x1f))).toThrow(/exceeds Uint<4>/);
+  });
+});
+
+// ---- strict descriptor validation ------------------------------------------
+
+describe('strict runtime descriptor validation (TypeScript is not enough)', () => {
+  // Everything here deliberately bypasses the compile-time types the way a
+  // plain-JS caller or a bad cast would.
+  const bad = (descriptor: unknown): CompactType => descriptor as CompactType;
+
+  it('rejects unknown kinds at every entry point, never returns undefined', () => {
+    const banana = bad({ kind: 'banana' });
+    expect(() => compactSerializedSize(banana)).toThrow(/unknown descriptor kind "banana"/);
+    expect(() => compactSerialize(banana, true as never)).toThrow(/unknown descriptor kind/);
+    expect(() => compactDeserialize(banana, new Uint8Array(1))).toThrow(
+      /unknown descriptor kind/
+    );
+  });
+
+  it('rejects non-object descriptors', () => {
+    expect(() => compactSerializedSize(bad(null))).toThrow(/plain object/);
+    expect(() => compactSerializedSize(bad('uint'))).toThrow(/plain object/);
+    expect(() => compactSerializedSize(bad([]))).toThrow(/plain object/);
+  });
+
+  it('rejects unexpected extra keys (typo protection)', () => {
+    expect(() => compactSerializedSize(bad({ kind: 'uint', bits: 8, bytes: 1 }))).toThrow(
+      /unexpected key 'bytes'/
+    );
+    expect(() => compactSerializedSize(bad({ kind: 'boolean', length: 1 }))).toThrow(
+      /unexpected key 'length'/
+    );
+  });
+
+  it('rejects out-of-range and non-integer widths and lengths', () => {
+    expect(() => compactSerializedSize(bad({ kind: 'uint', bits: 0 }))).toThrow(/1\.\.248/);
+    expect(() => compactSerializedSize(bad({ kind: 'uint', bits: 249 }))).toThrow(/1\.\.248/);
+    expect(() => compactSerializedSize(bad({ kind: 'uint', bits: 8.5 }))).toThrow(/1\.\.248/);
+    expect(() => compactSerializedSize(bad({ kind: 'bytes', length: 0 }))).toThrow(
+      /positive integer/
+    );
+    expect(() =>
+      compactSerializedSize(bad({ kind: 'vector', length: 0, element: { kind: 'boolean' } }))
+    ).toThrow(/positive integer/);
+  });
+
+  it('rejects malformed structs with a path to the offending node', () => {
+    expect(() => compactSerializedSize(bad({ kind: 'struct', fields: [] }))).toThrow(
+      /non-empty array/
+    );
+    expect(() =>
+      compactSerializedSize(
+        bad({ kind: 'struct', fields: [{ name: '', type: { kind: 'boolean' } }] })
+      )
+    ).toThrow(/fields\[0\]: field name/);
+    expect(() =>
+      compactSerializedSize(
+        bad({
+          kind: 'struct',
+          fields: [
+            { name: 'a', type: { kind: 'boolean' } },
+            { name: 'a', type: { kind: 'boolean' } },
+          ],
+        })
+      )
+    ).toThrow(/duplicate field name 'a'/);
+    expect(() =>
+      compactSerializedSize(
+        bad({
+          kind: 'struct',
+          fields: [{ name: 'a', type: { kind: 'boolean' }, maxBytes: 4 }],
+        })
+      )
+    ).toThrow(/unexpected key 'maxBytes'/);
+    // The path points at the deep node, not the root.
+    expect(() =>
+      compactSerializedSize(
+        bad({
+          kind: 'struct',
+          fields: [
+            {
+              name: 'xs',
+              type: { kind: 'vector', length: 2, element: { kind: 'uint', bits: 300 } },
+            },
+          ],
+        })
+      )
+    ).toThrow(/type\.fields\[0\]\.type\.element/);
+  });
+
+  it('rejects a non-Uint8Array buffer and a fractional padTo', () => {
+    expect(() => compactDeserialize(PAIR, bad([1, 2, 3]) as never)).toThrow(
+      /must be a Uint8Array/
+    );
+    expect(() => compactSerialize(PAIR, { a: 1n, b: 2n }, 24.5)).toThrow(
+      /non-negative integer/
+    );
+  });
+
+  it('isCompactType mirrors the assertion', () => {
+    expect(isCompactType(PAIR)).toBe(true);
+    expect(isCompactType({ kind: 'banana' })).toBe(false);
+    assertCompactType(PAIR); // does not throw
   });
 });
