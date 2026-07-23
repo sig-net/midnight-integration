@@ -1,0 +1,41 @@
+{
+  "name": "@sig-net/midnight-serde",
+  "version": "0.10.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sig-net/midnight-integration",
+    "directory": "packages/midnight-serde"
+  },
+  "type": "module",
+  "description": "TypeScript twin of Compact's builtin serialize<T, N> / deserialize<T, N> byte layout, pinned byte-for-byte against compiled circuits.",
+  "//exports": "Local dev consumes raw TS source. `publishConfig.exports` below swaps this to the emitted ./dist at publish time, so npm consumers get JS + .d.ts while the monorepo keeps resolving to src.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "compile": "compact compile --skip-zk --feature-zkir-v3 tests/fixtures/serde-fixtures.compact tests/fixtures/managed",
+    "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig.build.json",
+    "prepack": "yarn build",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "devDependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

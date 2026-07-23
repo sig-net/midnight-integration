@@ -1808,6 +1808,17 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@sig-net/midnight-serde@workspace:packages/midnight-serde":
+  version: 0.0.0-use.local
+  resolution: "@sig-net/midnight-serde@workspace:packages/midnight-serde"
+  dependencies:
+    "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
+    "@types/node": "npm:^26.1.0"
+    typescript: "npm:^6.0.3"
+    vitest: "npm:^4.1.9"
+  languageName: unknown
+  linkType: soft
+
 "@sig-net/midnight@npm:*, @sig-net/midnight@npm:^0.10.0, @sig-net/midnight@workspace:packages/signet-midnight":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight@workspace:packages/signet-midnight"

@@ -1,0 +1,133 @@
+pragma language_version >= 0.25;
+
+// Test fixtures for @sig-net/midnight-serde. Every circuit here is a thin
+// wrapper around the BUILTIN serialize<T, N> / deserialize<T, N> pair from
+// CompactStandardLibrary, so the compiled output IS the ground truth the
+// TypeScript twin is pinned against. The structs deliberately exercise every
+// Compact circuit type the twin supports, plus their combinations:
+//
+//   Primitives    every numeric kind at boundary widths + Boolean + Field
+//   Buffers       Bytes<N> at 1, 20 (EVM address width) and 32
+//   VectorsPlain  vectors of uints
+//   VectorsDeep   vector of STRUCTS + vector of VECTORS (deserialize-only,
+//                 see the compactc bug note on the struct)
+//   Inner         one level of struct nesting (both directions)
+//   Nested        struct in struct in struct (deserialize-only, same bug)
+//   WithStdlib    stdlib types: ContractAddress and a specialized Maybe<T>
+//
+// Ser circuits use the EXACT packed size where instructive and a padded size
+// elsewhere, so both "N == packed size" and "N > packed size (right
+// zero-padding)" are covered.
+
+import CompactStandardLibrary;
+
+struct Pair {
+  a: Uint<128>;
+  b: Uint<64>;
+}
+
+// 1 + 1 + 8 + 16 + 31 + 32 = 89 bytes packed.
+struct Primitives {
+  flag: Boolean;
+  u8: Uint<8>;
+  u64: Uint<64>;
+  u128: Uint<128>;
+  u248: Uint<248>;
+  f: Field;
+}
+
+// 1 + 20 + 32 = 53 bytes packed.
+struct Buffers {
+  one: Bytes<1>;
+  addr20: Bytes<20>;
+  word: Bytes<32>;
+}
+
+// 24 + 32 = 56 bytes packed.
+struct VectorsPlain {
+  nums: Vector<3, Uint<64>>;
+  more: Vector<2, Uint<128>>;
+}
+
+// 2 * 24 + 2 * 2 * 1 = 52 bytes packed. DESERIALIZE-ONLY: serialize<T, N>
+// over a Vector of structs or a Vector of Vectors crashes compactc 0.33 with
+// an internal error ("encountered undefined identifier %t.0"), while
+// deserialize<T, N> of the same type compiles and works. Pinned by the tests:
+// off-chain encoders CAN emit these layouts for contracts to read, but a
+// contract cannot re-serialize them in-circuit.
+struct VectorsDeep {
+  pairs: Vector<2, Pair>;
+  matrix: Vector<2, Vector<2, Uint<8>>>;
+}
+
+// 24 + 1 = 25 bytes packed. ONE level of struct nesting: both directions work.
+struct Inner {
+  pair: Pair;
+  ok: Boolean;
+}
+
+// 24 + 25 + 1 = 50 bytes packed. DESERIALIZE-ONLY: TWO levels of struct
+// nesting crash serialize<T, N> in compactc 0.33 with the same internal error
+// as VectorsDeep, while deserialize<T, N> handles the shape fine.
+struct Nested {
+  pair: Pair;
+  inner: Inner;
+  ok: Boolean;
+}
+
+// 32 + (1 + 8) = 41 bytes packed.
+struct WithStdlib {
+  owner: ContractAddress;
+  maybe: Maybe<Uint<64>>;
+}
+
+// Exact packed size (89).
+export pure circuit serPrimitives(v: Primitives): Bytes<89> {
+  return serialize<Primitives, 89>(v);
+}
+export pure circuit dePrimitives(data: Bytes<89>): Primitives {
+  return deserialize<Primitives, 89>(data);
+}
+
+// Padded (53 packed, 64 total) to pin right zero-padding.
+export pure circuit serBuffers(v: Buffers): Bytes<64> {
+  return serialize<Buffers, 64>(v);
+}
+export pure circuit deBuffers(data: Bytes<64>): Buffers {
+  return deserialize<Buffers, 64>(data);
+}
+
+// Exact packed size (56).
+export pure circuit serVectorsPlain(v: VectorsPlain): Bytes<56> {
+  return serialize<VectorsPlain, 56>(v);
+}
+export pure circuit deVectorsPlain(data: Bytes<56>): VectorsPlain {
+  return deserialize<VectorsPlain, 56>(data);
+}
+
+// Exact packed size (52). No ser twin: see the VectorsDeep comment.
+export pure circuit deVectorsDeep(data: Bytes<52>): VectorsDeep {
+  return deserialize<VectorsDeep, 52>(data);
+}
+
+// Exact packed size (25), one nesting level, both directions.
+export pure circuit serInner(v: Inner): Bytes<25> {
+  return serialize<Inner, 25>(v);
+}
+export pure circuit deInner(data: Bytes<25>): Inner {
+  return deserialize<Inner, 25>(data);
+}
+
+// Padded (50 packed, 128 total — the signet serializedOutput width). No ser
+// twin: see the Nested comment.
+export pure circuit deNested(data: Bytes<128>): Nested {
+  return deserialize<Nested, 128>(data);
+}
+
+// Exact packed size (41).
+export pure circuit serStdlib(v: WithStdlib): Bytes<41> {
+  return serialize<WithStdlib, 41>(v);
+}
+export pure circuit deStdlib(data: Bytes<41>): WithStdlib {
+  return deserialize<WithStdlib, 41>(data);
+}
