@@ -37,6 +37,7 @@
     "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
     "@midnight-ntwrk/midnight-js-types": "5.0.0-beta.4",
     "@noble/curves": "^2.2.0",
+    "@sig-net/midnight-serde": "*",
     "ethers": "^6.17.0"
   },
   "devDependencies": {

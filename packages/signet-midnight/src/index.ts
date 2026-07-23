@@ -2,6 +2,7 @@
 // library (wire structs, state readers, request feed/resolver, crypto) plus
 // the compiled pure circuits of the shared Compact module.
 
+export * from "./abi-serde.ts";
 export * from "./signet-requests.ts";
 export * from "./signet-evtype2tx-requests.ts";
 export * from "./signature-state-reading.ts";
