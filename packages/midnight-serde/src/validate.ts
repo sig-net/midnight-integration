@@ -6,21 +6,23 @@
 // through here before doing any work.
 
 import type { CompactType } from './types.ts';
-import { MAX_UINT_BITS } from './types.ts';
+import { MAX_UINT_BITS, MAX_UINT_BOUND } from './types.ts';
 
 /** The exact keys allowed on each descriptor kind: extra keys are rejected. */
 const KIND_KEYS: Record<string, readonly string[]> = {
   boolean: ['kind'],
-  uint: ['kind', 'bits'],
+  uint: ['kind', 'bits', 'bound'],
   field: ['kind'],
   bytes: ['kind', 'length'],
+  enum: ['kind', 'variants'],
   vector: ['kind', 'length', 'element'],
+  tuple: ['kind', 'elements'],
   struct: ['kind', 'fields'],
 };
 
-function assertPositiveInteger(value: unknown, label: string): asserts value is number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-    throw new Error(`${label} must be a positive integer, got ${String(value)}`);
+function assertNonNegativeInteger(value: unknown, label: string): asserts value is number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative integer, got ${String(value)}`);
   }
 }
 
@@ -39,10 +41,12 @@ export function assertCompactType(
   }
   const record = type as Record<string, unknown>;
   const kind = record.kind;
-  if (typeof kind !== 'string' || !(kind in KIND_KEYS)) {
+  // Object.hasOwn, not `in`: `in` walks the prototype chain, so kinds like
+  // 'toString' would slip past and die later with a confusing TypeError.
+  if (typeof kind !== 'string' || !Object.hasOwn(KIND_KEYS, kind)) {
     throw new Error(
       `${label}: unknown descriptor kind ${JSON.stringify(kind)} ` +
-        `(expected 'boolean' | 'uint' | 'field' | 'bytes' | 'vector' | 'struct')`
+        `(expected 'boolean' | 'uint' | 'field' | 'bytes' | 'enum' | 'vector' | 'tuple' | 'struct')`
     );
   }
   for (const key of Object.keys(record)) {
@@ -57,33 +61,81 @@ export function assertCompactType(
       return;
 
     case 'uint': {
-      const bits = record.bits;
-      if (
-        typeof bits !== 'number' ||
-        !Number.isInteger(bits) ||
-        bits < 1 ||
-        bits > MAX_UINT_BITS
-      ) {
+      const hasBits = record.bits !== undefined;
+      const hasBound = record.bound !== undefined;
+      if (hasBits === hasBound) {
         throw new Error(
-          `${label}: uint bits must be an integer in 1..${MAX_UINT_BITS}, got ${String(bits)}`
+          `${label}: a uint descriptor needs exactly one of 'bits' (sized Uint<w>) ` +
+            `or 'bound' (bounded Uint<0..n>)`
+        );
+      }
+      if (hasBits) {
+        const bits = record.bits;
+        if (
+          typeof bits !== 'number' ||
+          !Number.isInteger(bits) ||
+          bits < 1 ||
+          bits > MAX_UINT_BITS
+        ) {
+          throw new Error(
+            `${label}: uint bits must be an integer in 1..${MAX_UINT_BITS}, got ${String(bits)}`
+          );
+        }
+        return;
+      }
+      const bound = record.bound;
+      if (typeof bound === 'number' && !Number.isSafeInteger(bound)) {
+        throw new Error(
+          `${label}: a number uint bound must be a safe integer (use a bigint ` +
+            `beyond 2^53), got ${String(bound)}`
+        );
+      }
+      if (typeof bound !== 'number' && typeof bound !== 'bigint') {
+        throw new Error(`${label}: uint bound must be a number or bigint, got ${String(bound)}`);
+      }
+      if (BigInt(bound) < 1n || BigInt(bound) > MAX_UINT_BOUND) {
+        throw new Error(
+          `${label}: uint bound must be in 1..2^248 (the bound is EXCLUSIVE, ` +
+            `matching Uint<0..n>), got ${String(bound)}`
         );
       }
       return;
     }
 
     case 'bytes':
-      assertPositiveInteger(record.length, `${label}: bytes length`);
+      assertNonNegativeInteger(record.length, `${label}: bytes length`);
       return;
 
+    case 'enum': {
+      const variants = record.variants;
+      if (typeof variants !== 'number' || !Number.isSafeInteger(variants) || variants < 1) {
+        throw new Error(
+          `${label}: enum variants must be a positive integer, got ${String(variants)}`
+        );
+      }
+      return;
+    }
+
     case 'vector':
-      assertPositiveInteger(record.length, `${label}: vector length`);
+      assertNonNegativeInteger(record.length, `${label}: vector length`);
       assertCompactType(record.element, `${label}.element`);
       return;
 
+    case 'tuple': {
+      const elements = record.elements;
+      if (!Array.isArray(elements)) {
+        throw new Error(`${label}: tuple elements must be an array`);
+      }
+      elements.forEach((element: unknown, i) => {
+        assertCompactType(element, `${label}.elements[${i}]`);
+      });
+      return;
+    }
+
     case 'struct': {
       const fields = record.fields;
-      if (!Array.isArray(fields) || fields.length === 0) {
-        throw new Error(`${label}: struct fields must be a non-empty array`);
+      if (!Array.isArray(fields)) {
+        throw new Error(`${label}: struct fields must be an array`);
       }
       const seen = new Set<string>();
       fields.forEach((field: unknown, i) => {

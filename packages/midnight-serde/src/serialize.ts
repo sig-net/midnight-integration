@@ -2,8 +2,11 @@
 // CompactStandardLibrary, pinned against compiled circuits by tests/.
 //
 // Layout rules (compactc 0.33 / language 0.25):
-//   - struct fields are packed in declaration order, no alignment gaps
-//   - every value is little-endian at its NATURAL width (see src/types.ts)
+//   - struct fields and tuple elements are packed in declaration order, no
+//     alignment gaps
+//   - every value is little-endian at its NATURAL width (see src/types.ts);
+//     bounded uints and enums are as wide as their largest legal value, which
+//     makes `Uint<0..1>` and single-variant enums ZERO bytes wide
 //   - `serialize<T, N>` places the packed value at the START of `Bytes<N>` and
 //     zero-pads on the right; N below the packed size is a compile error, and
 //     this module throws on the same condition.
@@ -15,8 +18,26 @@
 // type system.
 
 import { FIELD_MODULUS } from './types.ts';
-import type { CompactType, CompactValue, CompactValueOf } from './types.ts';
+import type { CompactType, CompactUintType, CompactValue, CompactValueOf } from './types.ts';
 import { assertCompactType, assertUnreachable } from './validate.ts';
+
+/** Byte length of the largest legal value, given the EXCLUSIVE bound. 0 for a bound of 1. */
+function widthOfBound(bound: bigint): number {
+  let max = bound - 1n;
+  let width = 0;
+  while (max > 0n) {
+    width++;
+    max >>= 8n;
+  }
+  return width;
+}
+
+/** The EXCLUSIVE upper bound of a uint descriptor, whichever form it uses. */
+export function uintBound(type: CompactUintType): bigint {
+  return 'bits' in type && type.bits !== undefined
+    ? 1n << BigInt(type.bits)
+    : BigInt((type as { bound: number | bigint }).bound);
+}
 
 /**
  * Packed byte size of an ALREADY-VALIDATED descriptor. Package-internal: the
@@ -27,13 +48,17 @@ export function packedSize(type: CompactType): number {
     case 'boolean':
       return 1;
     case 'uint':
-      return Math.ceil(type.bits / 8);
+      return widthOfBound(uintBound(type));
     case 'field':
       return 32;
     case 'bytes':
       return type.length;
+    case 'enum':
+      return widthOfBound(BigInt(type.variants));
     case 'vector':
       return type.length * packedSize(type.element);
+    case 'tuple':
+      return type.elements.reduce((sum, e) => sum + packedSize(e), 0);
     case 'struct':
       return type.fields.reduce((sum, f) => sum + packedSize(f.type), 0);
     default:
@@ -91,9 +116,10 @@ function encodeInto(
     }
     case 'uint': {
       if (typeof value !== 'bigint') throw new Error(`${label}: expected bigint`);
-      const size = packedSize(type);
-      if (value >= 1n << BigInt(type.bits)) {
-        throw new Error(`${label}: value ${value} exceeds Uint<${type.bits}>`);
+      const bound = uintBound(type);
+      const size = widthOfBound(bound);
+      if (value >= bound) {
+        throw new Error(`${label}: value ${value} exceeds ${uintName(type)}`);
       }
       writeUintLE(out, offset, value, size, label);
       return offset + size;
@@ -116,6 +142,20 @@ function encodeInto(
       out.set(value, offset);
       return offset + type.length;
     }
+    case 'enum': {
+      // Matches the generated bindings: enum values are numbers (the index).
+      if (typeof value !== 'number' || !Number.isInteger(value)) {
+        throw new Error(`${label}: expected an integer number (enum variant index)`);
+      }
+      const size = widthOfBound(BigInt(type.variants));
+      if (value < 0 || value >= type.variants) {
+        throw new Error(
+          `${label}: variant index ${value} is outside 0..${type.variants - 1}`
+        );
+      }
+      writeUintLE(out, offset, BigInt(value), size, label);
+      return offset + size;
+    }
     case 'vector': {
       if (!Array.isArray(value)) throw new Error(`${label}: expected array`);
       if (value.length !== type.length) {
@@ -126,6 +166,19 @@ function encodeInto(
       let cursor = offset;
       value.forEach((element, i) => {
         cursor = encodeInto(out, cursor, type.element, element, `${label}[${i}]`);
+      });
+      return cursor;
+    }
+    case 'tuple': {
+      if (!Array.isArray(value)) throw new Error(`${label}: expected array (tuple)`);
+      if (value.length !== type.elements.length) {
+        throw new Error(
+          `${label}: expected exactly ${type.elements.length} elements, got ${value.length}`
+        );
+      }
+      let cursor = offset;
+      type.elements.forEach((element, i) => {
+        cursor = encodeInto(out, cursor, element, value[i]!, `${label}[${i}]`);
       });
       return cursor;
     }
@@ -140,10 +193,13 @@ function encodeInto(
       }
       let cursor = offset;
       for (const field of type.fields) {
-        const fieldValue = (value as { [field: string]: CompactValue })[field.name];
-        if (fieldValue === undefined) {
+        // Own-property lookup: field names like 'toString' or '__proto__'
+        // are legal Compact identifiers and must not resolve through the
+        // JS prototype chain.
+        if (!Object.hasOwn(value, field.name)) {
           throw new Error(`${label}: missing field '${field.name}'`);
         }
+        const fieldValue = (value as { [field: string]: CompactValue })[field.name]!;
         cursor = encodeInto(out, cursor, field.type, fieldValue, `${label}.${field.name}`);
       }
       return cursor;
@@ -151,6 +207,13 @@ function encodeInto(
     default:
       return assertUnreachable(type, label);
   }
+}
+
+/** Display name of a uint descriptor in its own declaration form. */
+export function uintName(type: CompactUintType): string {
+  return 'bits' in type && type.bits !== undefined
+    ? `Uint<${type.bits}>`
+    : `Uint<0..${(type as { bound: number | bigint }).bound}>`;
 }
 
 function writeUintLE(
