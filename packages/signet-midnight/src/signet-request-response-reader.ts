@@ -210,7 +210,7 @@ export class SignetRequestResponseReader {
 
   /**
    * Fetch and verify the responses posted for `requestId`: each post's
-   * `{ bigR, s, recoveryId }` signature must recover to `expectedSigner`
+   * signature must recover to `expectedSigner`
    * (compared case-insensitively) over the signing hash of the transaction
    * the request record describes. The first valid post wins; every post gets
    * a verdict so callers can report the noise.

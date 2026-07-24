@@ -221,13 +221,36 @@ module Signet {
     };
   }
 
+  // A curve point in affine coordinates, SEC1 big-endian. Field-for-field the
+  // AffinePoint of the sig-net EVM and Solana signer contracts.
+  export struct AffinePoint {
+    x: Bytes<32>;
+    y: Bytes<32>;
+  }
+
+  // The MPC's canonical ECDSA signature: bigR the full nonce point (so consumers
+  // never decompress), s big-endian, recoveryId the parity of R.y (0 or 1).
+  // Deliberately identical to the Signature struct every other sig-net signer
+  // contract exposes (EVM ChainSignatures.sol, the Solana signet program) and to
+  // the MPC's own Signature { big_r, s, recovery_id } — one vocabulary across
+  // chains. No algorithm tag is stored: the scheme is fixed by the request's own
+  // MPCSignatureAlgorithm.
+  //
+  // Stored bytes are BIG-endian throughout. In-circuit verifiers take the scalars
+  // as explicit little-endian arguments instead of this struct (see
+  // verifyRespondBidirectionalEvent) — Compact cannot reorder bytes in-circuit,
+  // so the re-encoding happens off-chain.
+  export struct Signature {
+    bigR: AffinePoint;
+    s: Bytes<32>;
+    recoveryId: Uint<8>;
+  }
+
   // Counterpart to SignBidirectionalEvent containing MPC generated signature requested by a SignBidirectionalEvent.
   // Posted by MPC back to Signet singleton for clients to extract to build a signed transaction.
   export struct SignatureRespondedEvent {
-    bigRx: Bytes<32>;    // signature R.x
-    bigRy: Bytes<32>;    // signature R.y
-    s: Bytes<32>;        // signature s
-    recoveryId: Uint<8>; // parity of R.y for public-key recovery
+    // The requested signature over the transaction the request describes.
+    signature: Signature;
   }
 
   // Structure containing the output of a transaction executed on a foreign blockchain,
@@ -251,16 +274,10 @@ module Signet {
     // Meaningful byte count of serializedOutput.
     outputLen: Uint<8>;
 
-    // ECDSA signature scalars as LITTLE-ENDIAN 32-byte values (the byte order the
-    // `Secp256k1Scalar as Bytes<32>` cast produces). Stored as bytes because
-    // Secp256k1Scalar values cannot live in ledger state (compiler limitation).
-    // r is the MPC signature's big_r.x reduced mod the curve order.
-    r: Bytes<32>;
-    s: Bytes<32>;
-
-    // Recovery id (parity of R.y), for off-chain public key recovery only.
-    // Unused in-circuit: verification takes the public key as an explicit input.
-    recoveryId: Uint<8>;
+    // The attestation signature over signetAttestationDigest(requestId,
+    // serializedOutput, outputLen). The scalar the verify circuit takes as r
+    // is this signature's bigR.x reduced mod the curve order.
+    signature: Signature;
   }
 
   // SignetMapKey used to locate SignBidirectionalEventNotifications, SignatureRespondedEvent and
@@ -289,26 +306,31 @@ module Signet {
     return persistentHash<Vector<2, Bytes<32>>>([requestId as Bytes<32>, outHash]);
   }
 
-  // Verify a RespondBidirectionalEvent against a secp256k1 public key: the event's
+  // Verify a respond-bidirectional attestation against a secp256k1 public key: the
   // ECDSA signature must sign the attestation digest of (requestId, output). This is
   // the check client contracts run before accepting a response (the Signet singleton
   // stores posts unverified); pass the contract's MPC RESPONSE key (derived off-chain
   // from the contract's address + the fixed path "midnight response key", typically
   // hash-pinned in the contract's ledger at deploy time).
+  //
+  // Takes the signature COMPONENTS, not the stored event: the record in storage is
+  // unverified transport, so a claim circuit only needs a valid signature over the
+  // digest to exist. Callers read the stored Signature off-chain and pass r (its
+  // bigR.x reduced mod the curve order) and s here as LITTLE-ENDIAN 32-byte scalars
+  // (the byte order `as Secp256k1Scalar` reads; the stored struct is big-endian).
   export pure circuit verifyRespondBidirectionalEvent(
     requestId: RequestId,
-    respondBidirectionalEvent: RespondBidirectionalEvent,
+    serializedOutput: Bytes<128>,
+    outputLen: Uint<8>,
+    r: Bytes<32>,
+    s: Bytes<32>,
     mpcResponseKey: Secp256k1Point
   ): Boolean {
     return secp256k1EcdsaVerify(
-      signetAttestationDigest(
-        requestId,
-        respondBidirectionalEvent.serializedOutput,
-        respondBidirectionalEvent.outputLen
-      ),
+      signetAttestationDigest(requestId, serializedOutput, outputLen),
       Secp256k1EcdsaSignature {
-        r: respondBidirectionalEvent.r as Secp256k1Scalar,
-        s: respondBidirectionalEvent.s as Secp256k1Scalar,
+        r: r as Secp256k1Scalar,
+        s: s as Secp256k1Scalar,
       },
       mpcResponseKey
     );

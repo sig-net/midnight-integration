@@ -4,8 +4,8 @@
 // before trusting it: rebuild the unsigned EVM transaction from the on-ledger
 // request record — assembled exactly as the MPC assembles it (sig-net/mpc
 // response server, managed/erc20-vault/signet/calldata-builder.ts) — and
-// check that the posted `{ bigR, s, recoveryId }` signature recovers to the
-// requester's derived EVM address over that transaction's signing hash.
+// check that the posted signature record recovers to the requester's derived
+// EVM address over that transaction's signing hash.
 
 import { getAddress, recoverAddress } from "ethers";
 

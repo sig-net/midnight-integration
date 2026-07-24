@@ -353,14 +353,16 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       const signature = signAttestationDigest(digest, responseSecretKey);
 
       // No key argument: verifyResponse reads the stored MPC response key
-      // straight from the ledger (the initialise leg put it there).
-      await context.caller.callTx.verifyResponse(requestKey, {
+      // straight from the ledger (the initialise leg put it there). The
+      // signature scalars go in LITTLE-endian, derived off-chain from the
+      // stored signature's R.x and s.
+      await context.caller.callTx.verifyResponse(
+        requestKey,
         serializedOutput,
         outputLen,
-        r: bigintToBytes32(signature.r),
-        s: bigintToBytes32(signature.s),
-        recoveryId: BigInt(signature.recoveryId),
-      });
+        bigintToBytes32(signature.r),
+        bigintToBytes32(signature.s),
+      );
 
       // The consumption is the observable effect: present before (checked
       // above), absent after — and removal only happens if every in-circuit

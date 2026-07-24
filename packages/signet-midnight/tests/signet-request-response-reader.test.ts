@@ -18,7 +18,6 @@ import {
   MPCSignatureAlgorithm,
   TxParamType,
   asciiPadded,
-  bigintToBytes32,
   evmAddressAbiWord,
   numericAbiWord,
   signatureToSignatureRespondedEvent,
@@ -113,12 +112,9 @@ const signResponse = (key: SigningKey): SignatureRespondedEvent =>
 
 const GENUINE_RESPONSE = signResponse(MPC_KEY);
 const IMPOSTER_RESPONSE = signResponse(IMPOSTER_KEY);
-// An all-zero r cannot decode into a signature at all.
+// A recovery id byte of 5 cannot decode into a signature at all.
 const UNDECODABLE_RESPONSE: SignatureRespondedEvent = {
-  bigRx: bytes(32, 0),
-  bigRy: bytes(32, 0),
-  s: bytes(32, 0),
-  recoveryId: 0n,
+  signature: { ...GENUINE_RESPONSE.signature, recoveryId: 5n },
 };
 
 // ---- Synthetic ledger states (signet layout convention) ----
@@ -142,14 +138,12 @@ const requesterState = (): StateValue => {
     );
 };
 
-// A respond-bidirectional record for the response tests: synthetic LE
-// signature scalars — the reader decodes, verification is the CLIENT's job.
+// A respond-bidirectional record for the response tests: a synthetic
+// signature — the reader decodes, verification is the CLIENT's job.
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
   serializedOutput: (() => { const out = new Uint8Array(128); out[0] = 1; return out; })(),
   outputLen: 32n,
-  r: bigintToBytes32(123456789n),
-  s: bigintToBytes32(987654321n),
-  recoveryId: 1n,
+  signature: { bigR: { x: bytes(32, 0x5c), y: bytes(32, 0x5d) }, s: bytes(32, 0x5e), recoveryId: 1n },
 };
 
 /** A one-entry `Map<RequestId, Counter>` for REQUEST_ID, empty at 0. */

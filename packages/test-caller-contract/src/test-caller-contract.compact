@@ -138,10 +138,15 @@ export circuit submitSignatureRequest(
 // Tests in-circuit verification of the MPC's ECDSA-signed
 // respond-bidirectional response: the attestation over (requestId, output)
 // must verify against the pinned response key, and the request is consumed
-// so it cannot be verified twice.
+// so it cannot be verified twice. The caller reads the stored event's
+// Signature off-chain and passes r (its bigR.x mod n) and s as LITTLE-ENDIAN
+// scalars (see verifyRespondBidirectionalEvent in Signet.compact).
 export circuit verifyResponse(
   requestId: RequestId,
-  respondBidirectionalEvent: RespondBidirectionalEvent
+  serializedOutput: Bytes<128>,
+  outputLen: Uint<8>,
+  r: Bytes<32>,
+  s: Bytes<32>
 ): [] {
   const disclosedRequestId = disclose(requestId);
 
@@ -153,7 +158,10 @@ export circuit verifyResponse(
   assert(
     verifyRespondBidirectionalEvent(
       disclosedRequestId,
-      respondBidirectionalEvent,
+      serializedOutput,
+      outputLen,
+      r,
+      s,
       mpcResponseKey
     ),
     "Invalid attestation signature"

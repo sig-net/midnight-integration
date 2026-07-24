@@ -14,16 +14,20 @@ import {
 
 import {
   bigintToBytes32,
-  bytesToBigint,
+  bigintToBytes32BE,
+  ecdsaSignatureToMpcSignature,
   executionSucceeded,
   formatSecp256k1PublicKey,
   isExecutionError,
   MPC_ERROR_SENTINEL,
+  mpcSignatureToEcdsaSignature,
   parseSecp256k1PublicKey,
   SECP256K1_ORDER,
   secp256k1PublicKeyOf,
   signAttestationDigest,
   pureCircuits as signetCircuits,
+  type EcdsaSignature,
+  type MpcSignature,
   type RespondBidirectionalEvent,
 } from "../src/index.ts";
 
@@ -54,7 +58,7 @@ const OUTPUT_LEN = 32n;
 /**
  * Sign a REAL respond-bidirectional response for (requestId, output) with
  * `secretKey` — the digest comes from the compiled circuit, exactly like the
- * MPC. Signature scalars land as LE bytes, the ledger form.
+ * MPC. The signature lands in stored form (full R point), the ledger shape.
  */
 const respond = (
   secretKey: Uint8Array,
@@ -67,13 +71,10 @@ const respond = (
     serializedOutput,
     outputLen,
   );
-  const sig = signAttestationDigest(digest, secretKey);
   return {
     serializedOutput,
     outputLen,
-    r: bigintToBytes32(sig.r),
-    s: bigintToBytes32(sig.s),
-    recoveryId: BigInt(sig.recoveryId),
+    signature: ecdsaSignatureToMpcSignature(signAttestationDigest(digest, secretKey)),
   };
 };
 
@@ -94,6 +95,7 @@ describe("signetAttestationDigest (compiled circuit)", () => {
 
 describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDigest", () => {
   const valid = respond(MPC_SECRET, REQUEST_ID);
+  const validSig = mpcSignatureToEcdsaSignature(valid.signature);
 
   interface VerifyCase {
     name: string;
@@ -115,7 +117,10 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
       name: "the malleated twin (n - s) also verifies: stdlib does NOT enforce low-s",
       event: {
         ...valid,
-        s: bigintToBytes32(SECP256K1_ORDER - bytesToBigint(valid.s)),
+        signature: ecdsaSignatureToMpcSignature({
+          ...validSig,
+          s: SECP256K1_ORDER - validSig.s,
+        }),
       },
       requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
@@ -166,8 +171,19 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
   ];
 
   it.each(CASES)("$name", ({ event, requestId, pk, expected }) => {
+    // The client's exact claim path: read the stored signature off-chain,
+    // hand the circuit LITTLE-endian scalars (the order `as Secp256k1Scalar`
+    // reads).
+    const sig = mpcSignatureToEcdsaSignature(event.signature);
     expect(
-      signetCircuits.verifyRespondBidirectionalEvent(requestId, event, pk),
+      signetCircuits.verifyRespondBidirectionalEvent(
+        requestId,
+        event.serializedOutput,
+        event.outputLen,
+        bigintToBytes32(sig.r),
+        bigintToBytes32(sig.s),
+        pk,
+      ),
     ).toBe(expected);
   });
 
@@ -179,6 +195,97 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
     );
     const sig = signAttestationDigest(digest, MPC_SECRET);
     expect([0, 1]).toContain(sig.recoveryId);
+  });
+});
+
+describe("ecdsaSignatureToMpcSignature x mpcSignatureToEcdsaSignature", () => {
+  const SCALAR_SIG = signAttestationDigest(
+    signetCircuits.signetAttestationDigest(REQUEST_ID, OUTPUT_SUCCESS, OUTPUT_LEN),
+    MPC_SECRET,
+  );
+  const STORED = ecdsaSignatureToMpcSignature(SCALAR_SIG);
+
+  it("reconstructs bigR with x = r and the parity the recovery id names", () => {
+    expect(STORED.bigR.x).toEqual(bigintToBytes32BE(SCALAR_SIG.r));
+    expect(STORED.bigR.y).toHaveLength(32);
+    // Parity of a big-endian integer is its last byte's low bit.
+    expect(STORED.bigR.y[31]! & 1).toBe(SCALAR_SIG.recoveryId);
+    expect(STORED.s).toEqual(bigintToBytes32BE(SCALAR_SIG.s));
+    expect(STORED.recoveryId).toBe(BigInt(SCALAR_SIG.recoveryId));
+  });
+
+  it("round-trips back to the scalar form", () => {
+    expect(mpcSignatureToEcdsaSignature(STORED)).toEqual(SCALAR_SIG);
+  });
+
+  it("reduces a bigR.x beyond the curve order mod n on the way out", () => {
+    expect(
+      mpcSignatureToEcdsaSignature({
+        ...STORED,
+        bigR: { ...STORED.bigR, x: bigintToBytes32BE(SECP256K1_ORDER + 5n) },
+      }).r,
+    ).toBe(5n);
+  });
+
+  /** One row of the encode-reject table: a scalar signature the builder must refuse. */
+  interface EncodeRejectCase {
+    /** Test name, completing the sentence "encoding rejects <name>". */
+    name: string;
+    /** The out-of-domain scalar signature. */
+    signature: EcdsaSignature;
+    /** The expected error. */
+    error: RegExp;
+  }
+
+  const ENCODE_REJECT_CASES: EncodeRejectCase[] = [
+    {
+      name: "a recovery id of 2",
+      signature: { ...SCALAR_SIG, recoveryId: 2 },
+      error: /recovery id/,
+    },
+    {
+      // x = 5 has no square root on secp256k1 (smallest such x), so no point
+      // exists to reconstruct.
+      name: "an r that is not an x coordinate on the curve",
+      signature: { ...SCALAR_SIG, r: 5n },
+      error: /not the x coordinate/,
+    },
+  ];
+
+  it.each(ENCODE_REJECT_CASES)("encoding rejects $name", ({ signature, error }) => {
+    expect(() => ecdsaSignatureToMpcSignature(signature)).toThrow(error);
+  });
+
+  /** One row of the decode-reject table: a stored record the reader must refuse. */
+  interface DecodeRejectCase {
+    /** Test name, completing the sentence "decoding rejects <name>". */
+    name: string;
+    /** The malformed stored record. */
+    signature: MpcSignature;
+    /** The expected error. */
+    error: RegExp;
+  }
+
+  const DECODE_REJECT_CASES: DecodeRejectCase[] = [
+    {
+      name: "a recovery id of 2",
+      signature: { ...STORED, recoveryId: 2n },
+      error: /recovery id/,
+    },
+    {
+      name: "a truncated bigR.x",
+      signature: { ...STORED, bigR: { ...STORED.bigR, x: STORED.bigR.x.subarray(0, 31) } },
+      error: /32-byte/,
+    },
+    {
+      name: "an oversized s",
+      signature: { ...STORED, s: new Uint8Array(33) },
+      error: /32-byte/,
+    },
+  ];
+
+  it.each(DECODE_REJECT_CASES)("decoding rejects $name", ({ signature, error }) => {
+    expect(() => mpcSignatureToEcdsaSignature(signature)).toThrow(error);
   });
 });
 
