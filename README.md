@@ -218,15 +218,45 @@ For full integration examples (such as an ERC20 cross chain vault) see the [`sig
 
 Get set up for contributing by getting both test suites green: the offline unit tests, then the generic end to end integration suite.
 
-## Unit Tests
+## Compiling, Building and Running Unit Tests
 
-The contract packages carry simulator-level unit tests that need no docker stack at all:
+Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime, so zk keys are not needed before running them. From the root of the repository:
 
 ```sh
-yarn compile                      # generates each contract package's src/managed/ (skip-zk)
-yarn compile:signet-contract:zk   # signet-contract's build gates on its prover keys
-yarn build && yarn test           # typecheck + unit tests (simulator-only, offline)
+## --- All packages ---
+
+# Quick compile: all packages (checks syntax and generates circuits)
+# Runs the compact compiler for each package without generating zk keys (compiler output in the package's src/managed/)
+yarn compile
+
+# Longer compile: all packages that require zk keys (checks syntax, generates circuits and zk keys)
+# Runs the compact compiler with zk keys for each package that has a :zk option (compiler output in the package's src/managed/)
+yarn compile:zk
+
+# Test: all packages (typecheck + unit tests: offline simulator-only)
+# Requires 'yarn compile' to have been run (zk keys not required for unit testing).
+yarn test
+
+# Build: all packages
+# Requires both 'yarn compile' and 'yarn compile:zk': packages that ship
+# zk keys refuse to build without them.
+yarn build
+
+## --- Independently (for example) ---
+
+# The signet-contract package:
+yarn compile:signet-contract
+yarn compile:signet-contract:zk  # generates signet-contract zk keys
+yarn test:signet-contract        # requires at least 'yarn compile:signet-contract'
+yarn build:signet-contract       # requires 'yarn compile:signet-contract:zk'
+
+# The signet-midnight package:
+yarn compile:signet-midnight  # NOTE: no :zk option
+yarn test:signet-midnight     # requires 'yarn compile:signet-midnight'
+yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
 ```
+
+> **NOTE:** A build error about missing prover keys (for example "no prover keys in src/managed/keys") means the package's zk compile has not been run yet: run the associated `compile:...:zk` script to generate them.
 
 ## Integration Tests
 
