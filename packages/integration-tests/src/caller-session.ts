@@ -54,8 +54,13 @@ export interface CallerContext {
 export interface CallerE2eSession {
   /** The shared wallet-backed caller context; see {@link createCallerE2eSession}. */
   callerContext(): Promise<CallerContext>;
-  /** The shared MPC-style request/response reader; see {@link createCallerE2eSession}. */
-  responseReader(): SignetRequestResponseReader;
+  /**
+   * The shared MPC-style request/response reader for one of the caller's
+   * request maps; see {@link createCallerE2eSession}. The caller contract
+   * keeps one map per schema width, so the reader is keyed by the map's
+   * ledger field position (default 4, the bool-schema map).
+   */
+  responseReader(requestsIndexField?: number): SignetRequestResponseReader;
   /** Stop the wallet facade (call from afterAll); safe when never started. */
   stop(): Promise<void>;
 }
@@ -75,12 +80,13 @@ export interface CallerE2eSession {
 export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession {
   let sharedWallet: { facade: WalletFacade; context: CallerContext } | undefined;
 
-  // MPC-style reader over the caller (requester) / signet contract pair,
-  // built lazily on first use. Backed by a fresh indexerPublicDataProvider so
-  // it reads RAW ledger state exactly as the response server does; it caches
-  // fetched request records, so repeated lookups across tests cost one query
-  // each.
-  let sharedReader: SignetRequestResponseReader | undefined;
+  // MPC-style readers over the caller (requester) / signet contract pair,
+  // built lazily on first use and keyed by the request map's ledger field
+  // position (the caller keeps one map per schema width). Backed by a fresh
+  // indexerPublicDataProvider so they read RAW ledger state exactly as the
+  // response server does; each caches fetched request records, so repeated
+  // lookups across tests cost one query each.
+  const sharedReaders = new Map<number, SignetRequestResponseReader>();
 
   return {
     async callerContext(): Promise<CallerContext> {
@@ -113,23 +119,24 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
       return sharedWallet.context;
     },
 
-    responseReader(): SignetRequestResponseReader {
-      if (!sharedReader) {
+    // Default field 4: the bool-schema map every submit circuit's
+    // notification names except submitCheckAndDoubleRequest's (field 7).
+    responseReader(requestsIndexField = 4): SignetRequestResponseReader {
+      let reader = sharedReaders.get(requestsIndexField);
+      if (!reader) {
         const nodeConfig = getMidnightNodeConfig(env);
-        sharedReader = new SignetRequestResponseReader({
+        reader = new SignetRequestResponseReader({
           requesterContractAddress: requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
-          // The caller contract declares its request index as ledger field 4:
-          // the requestsIndexField its notification passes
-          // (test-caller-contract.compact, submitSignatureRequest).
-          requesterRequestsIndexField: 4,
+          requesterRequestsIndexField: requestsIndexField,
           signetContractAddress: requireEnv(env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
           publicDataProvider: indexerPublicDataProvider({
             queryURL: nodeConfig.indexerUrl,
             subscriptionURL: nodeConfig.indexerWsUrl,
           }),
         });
+        sharedReaders.set(requestsIndexField, reader);
       }
-      return sharedReader;
+      return reader;
     },
 
     async stop(): Promise<void> {

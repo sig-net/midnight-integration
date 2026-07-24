@@ -5,10 +5,13 @@
 // Without RUN_INTEGRATION_TESTS this is a no-op so plain `yarn test` stays
 // offline.
 //
-// The pipeline is exactly what the caller e2e needs and nothing more: stack
-// checks, MPC keys, the dust preflight, signet compile/deploy, the fakenet
-// hand-off, caller compile/deploy. No EVM chain, no token, no derived-account
-// funding — the caller's request exists to be SIGNED, never broadcast.
+// The pipeline serves BOTH flow files: the EVM-free base flow (whose request
+// exists to be SIGNED, never broadcast) and the real-EVM flow (which
+// broadcasts against the SignetEvmTarget contract on the local anvil). So on
+// top of the stack checks, MPC keys, dust preflight, signet compile/deploy,
+// fakenet hand-off and caller compile/deploy, it deploys the EVM target
+// (early: fast and midnight-free) and funds the caller's derived EVM sender
+// (last: the derivation needs the deployed caller's address).
 
 import type { TestProject } from "vitest/node";
 import { buildBaseEnv } from "../e2e-env.ts";
@@ -29,12 +32,14 @@ import {
   persistFakenetHandoffToDotEnv,
   startFakenetResponder,
 } from "./steps.ts";
+import { deployEvmTargetStep, fundDerivedSenderStep } from "./evm-steps.ts";
 import { ensureWalletSeeds, ensureWalletsFunded } from "./wallets.ts";
 
 /** Step names are what the operator greps for and what STEP_THROUGH
  * prompts show. */
 const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void>][] = [
   ["environment: midnight stack reachable, compact on PATH", assertCallerEnvironment],
+  ["setup: deploy the SignetEvmTarget EVM contract (hardhat compile + anvil deploy)", deployEvmTargetStep],
   ["setup: resolve/generate wallet seeds (root + deployer/invoker/mpc responder)", ensureWalletSeeds],
   ["setup: preflight root funding + fund the role wallets from root", ensureWalletsFunded],
   ["setup: check/derive MPC root key", ensureMpcRootKey],
@@ -47,6 +52,7 @@ const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void
   ["setup: resolve caller deployer identity (gates initialise)", ensureCallerDeployerIdentity],
   ["setup: deploy caller contract", deployCallerContractStep],
   ["setup: check/derive MPC_RESPONSE_KEY for the caller contract", ensureMpcResponseKey],
+  ["setup: fund the caller's derived EVM sender with ETH", fundDerivedSenderStep],
 ];
 
 export async function setup(project: TestProject): Promise<void> {

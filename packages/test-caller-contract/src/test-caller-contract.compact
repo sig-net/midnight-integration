@@ -7,7 +7,10 @@
 // This minimal signet caller tests:
 // - initialisation: pinning its MPC response key once after deploy
 // - submitting a SignBidirectionalEvent signature request with contract-fixed minimal call data
-// - verification of the MPC's ECDSA-signed respond-bidirectional response of that request
+//   (signed, never broadcast) plus real-EVM requests against the SignetEvmTarget Solidity contract
+//   (one submit circuit per target method, growing in ABI complexity over time)
+// - verification of the MPC's ECDSA-signed respond-bidirectional response of those requests,
+//   one verify circuit per respond-schema packed width
 // ========================================================================================================
 pragma language_version >= 0.25;
 
@@ -35,7 +38,12 @@ sealed ledger signetSigner: SignetSigner;
 
 // field 4: the request map the MPC reads requests back from. Sized for EVM
 // Type 2 transactions with <1 calldata word, 0 access-list entries,
-// 0 storage keys>: the fixed minimal calldata composed below.
+// 0 storage keys> and the exact-width 34-byte single-bool schema. Shared by
+// every request of that shape: submitSignatureRequest and
+// submitIsEvenRequest. Schemas are EXACT-length by protocol convention
+// (never NUL-padded: the MPC's raw reader recovers the width from the
+// stored bytes, and trailing zeros would be trimmed), so a request with a
+// different schema length needs its own map: see field 7.
 export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
 
 // field 5: identity commitment of the deployer; gates initialise().
@@ -43,6 +51,13 @@ sealed ledger deployer: Bytes<32>;
 
 // field 6: whether initialise has run (0 = no, 1 = yes).
 export ledger initialised: Counter;
+
+// field 7: the request map for the 69-byte bool+uint256 schema
+// (submitCheckAndDoubleRequest). One map per schema WIDTH is the growth
+// pattern: the notification names each map's field position, so the MPC
+// locates whichever map a request lives in. New fields append AFTER this
+// one, existing positions stay fixed.
+export ledger signBidirectionalEventMap69: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 69, 69>;
 
 witness deployerSecretKey(): Bytes<32>;
 
@@ -135,13 +150,147 @@ export circuit submitSignatureRequest(
   return requestMapKey;
 }
 
+// Real EVM leg, stage 1a: SignetEvmTarget.isEven(uint256) on the local
+// anvil. Unlike submitSignatureRequest's payload, this request IS broadcast:
+// the e2e funds the derived sender and sends the signed transaction, and
+// the MPC observes the execution and attests its output. The selector is
+// the first 4 bytes of keccak256("isEven(uint256)"), pinned here and
+// lockstep-checked against ethers in the e2e. The respond schema is the
+// same exact-width single bool as submitSignatureRequest's, so the request
+// SHARES the field-4 map and its responses verify via verifyResponse
+// (packed respond payload: 1 byte).
+export circuit submitIsEvenRequest(
+  evmNonce: Uint<64>,
+  keyVersion: Uint<8>,
+  to: Bytes<20>,
+  argWord: Bytes<32>
+): SignetMapKey {
+  const calldata = EVMCalldata<1> {
+    selector: Bytes [0x2a, 0x2e, 0x13, 0x20],
+    noWords: 1 as Uint<16>,
+    words: [argWord]
+  };
+
+  const txParams = EVMType2TxParams<1, 0, 0> {
+    to: to,
+    chainId: 31337 as Uint<64>,
+    nonce: evmNonce,
+    gasLimit: 100000 as Uint<64>,
+    maxFeePerGas: 30000000000 as Uint<128>,       // 30 gwei
+    maxPriorityFeePerGas: 1000000000 as Uint<128>, // 1 gwei
+    value: 0 as Uint<128>,
+    accessListEntryCount: 0,
+    accessList: [],
+    calldata: some<EVMCalldata<1>>(calldata)
+  };
+
+  const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
+  const requestNonce = signetRequestNonce as Uint<64>;
+  const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 34, 34>(
+    kernel.self(),
+    requestNonce,
+    keyVersion,
+    pad(32, "caller-path"),
+    MPCSignatureAlgorithm.ecdsa,
+    MPCDestination.unused,
+    pad(64, ""),
+    TxParamType.evmType2,
+    txParams,
+    pad(32, "eip155:31337"),
+    schema,
+    schema
+  );
+  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 34, 34>(request));
+
+  assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
+  signetRequestNonce.increment(1);
+  signBidirectionalEventMap.insert(requestId, disclose(request));
+  requestLog.pushFront(requestId as Bytes<32>);
+
+  return signetSigner.signBidirectionalEvent(
+    requestId,
+    constructSignBidirectionalEventNotificationV1(
+      kernel.self(),
+      4 as Uint<8>,
+    ),
+  );
+}
+
+// Real EVM leg, stage 1b: SignetEvmTarget.checkAndDouble(uint256) on the
+// local anvil, also broadcast by the e2e. The selector is the first 4 bytes
+// of keccak256("checkAndDouble(uint256)"), pinned here and lockstep-checked
+// against ethers in the e2e. The respond schema is bool + uint256 (69
+// bytes, a different exact width than field 4's), so the request lives in
+// the field-7 map (named in the notification) and its responses verify via
+// verifyCheckAndDoubleResponse (packed respond payload: 33 bytes).
+export circuit submitCheckAndDoubleRequest(
+  evmNonce: Uint<64>,
+  keyVersion: Uint<8>,
+  to: Bytes<20>,
+  argWord: Bytes<32>
+): SignetMapKey {
+  const calldata = EVMCalldata<1> {
+    selector: Bytes [0xe6, 0xcf, 0x21, 0x87],
+    noWords: 1 as Uint<16>,
+    words: [argWord]
+  };
+
+  const txParams = EVMType2TxParams<1, 0, 0> {
+    to: to,
+    chainId: 31337 as Uint<64>,
+    nonce: evmNonce,
+    gasLimit: 100000 as Uint<64>,
+    maxFeePerGas: 30000000000 as Uint<128>,       // 30 gwei
+    maxPriorityFeePerGas: 1000000000 as Uint<128>, // 1 gwei
+    value: 0 as Uint<128>,
+    accessListEntryCount: 0,
+    accessList: [],
+    calldata: some<EVMCalldata<1>>(calldata)
+  };
+
+  const schema = "[{\"name\":\"success\",\"type\":\"bool\"},{\"name\":\"amount\",\"type\":\"uint256\"}]" as Bytes<69>;
+  const requestNonce = signetRequestNonce as Uint<64>;
+  const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 69, 69>(
+    kernel.self(),
+    requestNonce,
+    keyVersion,
+    pad(32, "caller-path"),
+    MPCSignatureAlgorithm.ecdsa,
+    MPCDestination.unused,
+    pad(64, ""),
+    TxParamType.evmType2,
+    txParams,
+    pad(32, "eip155:31337"),
+    schema,
+    schema
+  );
+  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 69, 69>(request));
+
+  assert(!signBidirectionalEventMap69.member(requestId), "Request already exists");
+  signetRequestNonce.increment(1);
+  signBidirectionalEventMap69.insert(requestId, disclose(request));
+  requestLog.pushFront(requestId as Bytes<32>);
+
+  return signetSigner.signBidirectionalEvent(
+    requestId,
+    constructSignBidirectionalEventNotificationV1(
+      kernel.self(),
+      7 as Uint<8>,
+    ),
+  );
+}
+
 // Tests in-circuit verification of the MPC's ECDSA-signed
 // respond-bidirectional response: the attestation over (requestId, output)
 // must verify against the pinned response key, and the request is consumed
-// so it cannot be verified twice.
+// so it cannot be verified twice. The output width is the client contract's
+// own declaration: the single-bool respond schema (submitSignatureRequest
+// and submitIsEvenRequest) packs to exactly 1 byte (no padding: the digest
+// hashes the output at its exact length).
 export circuit verifyResponse(
   requestId: RequestId,
-  respondBidirectionalEvent: RespondBidirectionalEvent
+  respondBidirectionalEvent: RespondBidirectionalEvent,
+  serializedOutput: Bytes<1>
 ): [] {
   const disclosedRequestId = disclose(requestId);
 
@@ -151,8 +300,9 @@ export circuit verifyResponse(
   );
 
   assert(
-    verifyRespondBidirectionalEvent(
+    verifyRespondBidirectionalEvent<1>(
       disclosedRequestId,
+      serializedOutput,
       respondBidirectionalEvent,
       mpcResponseKey
     ),
@@ -161,4 +311,36 @@ export circuit verifyResponse(
 
   assert(signBidirectionalEventMap.member(disclosedRequestId), "Request not found");
   signBidirectionalEventMap.remove(disclosedRequestId);
+}
+
+// Same in-circuit verification as verifyResponse but for the checkAndDouble
+// respond schema (bool + uint256), whose packed respond payload is exactly
+// 33 bytes: a 1-byte bool followed by a 32-byte little-endian Field. The
+// request is consumed from the field-7 map those requests live in.
+// Duplicated rather than factored: contract-level circuits cannot be
+// generic over the output width.
+export circuit verifyCheckAndDoubleResponse(
+  requestId: RequestId,
+  respondBidirectionalEvent: RespondBidirectionalEvent,
+  serializedOutput: Bytes<33>
+): [] {
+  const disclosedRequestId = disclose(requestId);
+
+  assert(
+    initialised != 0,
+    "Not initialised: no MPC response key stored"
+  );
+
+  assert(
+    verifyRespondBidirectionalEvent<33>(
+      disclosedRequestId,
+      serializedOutput,
+      respondBidirectionalEvent,
+      mpcResponseKey
+    ),
+    "Invalid attestation signature"
+  );
+
+  assert(signBidirectionalEventMap69.member(disclosedRequestId), "Request not found");
+  signBidirectionalEventMap69.remove(disclosedRequestId);
 }

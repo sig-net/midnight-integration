@@ -6,9 +6,11 @@
   "description": "The generic signet-caller e2e: drives the central signet contract through the minimal caller contract against a running Midnight stack. Env-gated: the flow file skips entirely unless RUN_INTEGRATION_TESTS is set.",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "compile:evm": "hardhat compile",
     "test": "vitest run",
     "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run --disable-console-intercept --bail 1",
-    "test:integration:signet-caller-e2e": "yarn test:integration tests/signet-caller-e2e.test.ts"
+    "test:integration:signet-caller-e2e": "yarn test:integration tests/signet-caller-e2e.test.ts",
+    "test:integration:signet-caller-evm-e2e": "yarn test:integration tests/signet-caller-evm-e2e.test.ts"
   },
   "dependencies": {
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.4",
@@ -20,6 +22,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
+    "hardhat": "^3.9.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   }

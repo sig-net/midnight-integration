@@ -1,9 +1,9 @@
 // Setup steps specific to the generic signet-caller e2e pipeline (see
-// caller-global-setup.ts). Deliberately EVM-free: the caller's request is
-// composed entirely from contract constants and exists to be SIGNED, never
-// broadcast, so this pipeline needs no EVM chain, token, or funded derived
-// accounts. The generic steps (MPC keys, dust preflight, signet
-// compile/deploy, fakenet hand-off) live in steps.ts.
+// caller-global-setup.ts). The steps HERE are EVM-free (Midnight stack
+// checks, caller compile/deploy); the real-EVM flow's steps (target deploy,
+// derived-sender funding) live in evm-steps.ts, and the generic steps (MPC
+// keys, dust preflight, signet compile/deploy, fakenet hand-off) in
+// steps.ts.
 
 import { deployCaller } from "@midnight-protocol/test-caller-contract";
 import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";

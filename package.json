@@ -20,6 +20,7 @@
     "test": "yarn workspaces foreach --all --exclude midnight-protocol --topological run test",
     "test:integration-tests": "yarn workspace @midnight-protocol/integration-tests run test:integration",
     "test:integration-tests:signet-caller-e2e": "yarn workspace @midnight-protocol/integration-tests run test:integration:signet-caller-e2e",
+    "test:integration-tests:signet-caller-evm-e2e": "yarn workspace @midnight-protocol/integration-tests run test:integration:signet-caller-evm-e2e",
     "compile:signet-contract": "yarn workspace @sig-net/midnight-contract run compile",
     "compile:signet-contract:zk": "yarn workspace @sig-net/midnight-contract run compile:zk",
     "deploy:signet-contract": "yarn workspace @sig-net/midnight-contract-deploy run deploy"
