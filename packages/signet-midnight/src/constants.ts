@@ -25,6 +25,17 @@ export const SELECTOR_BYTES = 4;
 export const MPC_ERROR_SENTINEL = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
 
 /**
+ * The complete serialised output the MPC attests for a FAILED remote
+ * execution (reverted or replaced transaction): the error sentinel followed
+ * by one `0x01` byte. Schema-independent by design, mirroring the canonical
+ * MPC's Borsh-format failure payload (sig-net/mpc,
+ * node/src/respond_bidirectional.rs), so every respond schema shares one
+ * fixed 5-byte failure width. Clients recompute their failure candidate from
+ * this constant alone: no receipt or schema needed.
+ */
+export const MPC_FAILURE_OUTPUT = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01]);
+
+/**
  * Whether an attested serialised output reports a successful remote
  * execution: the first byte is 1 — the packed little-endian encoding of a
  * leading boolean success flag. The output is the exact unpadded respond

@@ -17,6 +17,7 @@ import {
   formatSecp256k1PublicKey,
   isExecutionError,
   MPC_ERROR_SENTINEL,
+  MPC_FAILURE_OUTPUT,
   parseSecp256k1PublicKey,
   SECP256K1_ORDER,
   secp256k1PublicKeyOf,
@@ -286,7 +287,23 @@ const DECODE_CASES: DecodeCase[] = [
     succeeded: false,
     error: true,
   },
+  {
+    name: "the canonical failure output (sentinel plus 0x01)",
+    serializedOutput: MPC_FAILURE_OUTPUT,
+    succeeded: false,
+    error: true,
+  },
 ];
+
+// The failure output is a wire constant shared by the responder and every
+// client's refund circuit: pin its exact bytes.
+describe("MPC_FAILURE_OUTPUT", () => {
+  it("is the error sentinel followed by a single 0x01 byte", () => {
+    expect(MPC_FAILURE_OUTPUT).toEqual(
+      Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01]),
+    );
+  });
+});
 
 describe("serializedOutput decoding", () => {
   it.each(DECODE_CASES)("decodes $name", ({ serializedOutput, succeeded, error }) => {
