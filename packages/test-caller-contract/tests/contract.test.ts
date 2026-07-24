@@ -24,7 +24,6 @@ import {
   signAttestationDigest,
   signetFieldNode,
   toSignBidirectionalEventIndex,
-  type RespondBidirectionalEvent,
   type SignBidirectionalEventLedgerMap,
 } from "@sig-net/midnight";
 
@@ -342,26 +341,21 @@ const OUTPUT_LEN = 32n;
 /**
  * Sign a REAL respond-bidirectional response for (requestId, output) with
  * `secretKey` — the digest comes from the compiled circuit, exactly like the
- * MPC. Signature scalars land as LE bytes, the ledger form.
+ * MPC — and return the LITTLE-endian scalar args verifyResponse takes (the
+ * scalars a client derives off-chain from the stored signature's R.x and s).
  */
 const respond = (
   secretKey: Uint8Array,
   requestId: Uint8Array,
   serializedOutput: Uint8Array,
-): RespondBidirectionalEvent => {
+): { r: Uint8Array; s: Uint8Array } => {
   const digest = signetCircuits.signetAttestationDigest(
     requestId,
     serializedOutput,
     OUTPUT_LEN,
   );
   const sig = signAttestationDigest(digest, secretKey);
-  return {
-    serializedOutput,
-    outputLen: OUTPUT_LEN,
-    r: bigintToBytes32(sig.r),
-    s: bigintToBytes32(sig.s),
-    recoveryId: BigInt(sig.recoveryId),
-  };
+  return { r: bigintToBytes32(sig.r), s: bigintToBytes32(sig.s) };
 };
 
 // ---- Verify-response tests ----
@@ -375,23 +369,31 @@ describe("verifyResponse", () => {
     );
     const [idHex] = [...index.keys()];
     const requestId = requestIdBytes(idHex);
+    const sig = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     await expect(
       contract.circuits.verifyResponse(
         next,
         requestId,
-        respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
+        OUTPUT_SUCCESS,
+        OUTPUT_LEN,
+        sig.r,
+        sig.s,
       ),
     ).rejects.toThrow(/Not initialised/);
   });
 
   it("a genuine response verifies and consumes the request", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
+    const sig = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
 
     const next = (
       await contract.circuits.verifyResponse(
         ctx,
         requestId,
-        respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
+        OUTPUT_SUCCESS,
+        OUTPUT_LEN,
+        sig.r,
+        sig.s,
       )
     ).context;
 
@@ -401,25 +403,32 @@ describe("verifyResponse", () => {
 
   it("rejects an imposter's signature (verified against the STORED key)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
+    const sig = respond(IMPOSTER_SECRET, requestId, OUTPUT_SUCCESS);
     await expect(
       contract.circuits.verifyResponse(
         ctx,
         requestId,
-        respond(IMPOSTER_SECRET, requestId, OUTPUT_SUCCESS),
+        OUTPUT_SUCCESS,
+        OUTPUT_LEN,
+        sig.r,
+        sig.s,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
   it("rejects a tampered response (output differs from what was signed)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    const response = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
+    const sig = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     const tamperedOutput = new Uint8Array(128);
     tamperedOutput[0] = 2;
     await expect(
       contract.circuits.verifyResponse(
         ctx,
         requestId,
-        { ...response, serializedOutput: tamperedOutput },
+        tamperedOutput,
+        OUTPUT_LEN,
+        sig.r,
+        sig.s,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
@@ -429,11 +438,15 @@ describe("verifyResponse", () => {
     // Signed for some OTHER id: the digest binds the request id, so the
     // signature cannot be replayed onto this pending request.
     const otherId = bytes(32, 0xab);
+    const sig = respond(MPC_RESPONSE_SECRET, otherId, OUTPUT_SUCCESS);
     await expect(
       contract.circuits.verifyResponse(
         ctx,
         requestId,
-        respond(MPC_RESPONSE_SECRET, otherId, OUTPUT_SUCCESS),
+        OUTPUT_SUCCESS,
+        OUTPUT_LEN,
+        sig.r,
+        sig.s,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
@@ -441,22 +454,30 @@ describe("verifyResponse", () => {
   it("rejects a genuinely signed id that has no pending request", async () => {
     const { contract, ctx } = await requestSubmitted();
     const unknownId = bytes(32, 0xab);
+    const sig = respond(MPC_RESPONSE_SECRET, unknownId, OUTPUT_SUCCESS);
     await expect(
       contract.circuits.verifyResponse(
         ctx,
         unknownId,
-        respond(MPC_RESPONSE_SECRET, unknownId, OUTPUT_SUCCESS),
+        OUTPUT_SUCCESS,
+        OUTPUT_LEN,
+        sig.r,
+        sig.s,
       ),
     ).rejects.toThrow(/Request not found/);
   });
 
   it("a second verify of the SAME request rejects (the first consumed it)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
+    const sig = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     const next = (
       await contract.circuits.verifyResponse(
         ctx,
         requestId,
-        respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
+        OUTPUT_SUCCESS,
+        OUTPUT_LEN,
+        sig.r,
+        sig.s,
       )
     ).context;
 
@@ -464,7 +485,10 @@ describe("verifyResponse", () => {
       contract.circuits.verifyResponse(
         next,
         requestId,
-        respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
+        OUTPUT_SUCCESS,
+        OUTPUT_LEN,
+        sig.r,
+        sig.s,
       ),
     ).rejects.toThrow(/Request not found/);
   });

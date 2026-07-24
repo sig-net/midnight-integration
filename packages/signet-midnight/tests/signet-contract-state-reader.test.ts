@@ -15,7 +15,6 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
-  bigintToBytes32,
   bytesToHex,
   decodeSignBidirectionalNotification,
   pureCircuits,
@@ -40,30 +39,21 @@ const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 
 const REQUEST_ID = bytes(32, 0x2f);
 // Two signature responses posted for REQUEST_ID: counter reads 2, entries at
-// counts 0..1.
+// counts 0..1. Synthetic signatures — the reader decodes, it does not verify.
 const POST_COUNT = 2n;
 const RESPONSE_0: SignatureRespondedEvent = {
-  bigRx: bytes(32, 0xa0),
-  bigRy: bytes(32, 0xa1),
-  s: bytes(32, 0xa2),
-  recoveryId: 0n,
+  signature: { bigR: { x: bytes(32, 0xa0), y: bytes(32, 0xa1) }, s: bytes(32, 0xa2), recoveryId: 0n },
 };
 const RESPONSE_1: SignatureRespondedEvent = {
-  bigRx: bytes(32, 0xb0),
-  bigRy: bytes(32, 0xb1),
-  s: bytes(32, 0xb2),
-  recoveryId: 1n,
+  signature: { bigR: { x: bytes(32, 0xb0), y: bytes(32, 0xb1) }, s: bytes(32, 0xb2), recoveryId: 1n },
 };
 
-// One respond-bidirectional response for REQUEST_ID — synthetic signature
-// scalars (the reader decodes, it does not verify). LE bytes as the ledger
-// stores them.
+// One respond-bidirectional response for REQUEST_ID, its signature equally
+// synthetic.
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
   serializedOutput: bytes(128, 0x01),
   outputLen: 32n,
-  r: bigintToBytes32(123456789n),
-  s: bigintToBytes32(987654321n),
-  recoveryId: 1n,
+  signature: { bigR: { x: bytes(32, 0x5c), y: bytes(32, 0x5d) }, s: bytes(32, 0x5e), recoveryId: 1n },
 };
 
 // One notification registered for REQUEST_ID, packed by the compiled circuit

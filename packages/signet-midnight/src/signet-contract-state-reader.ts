@@ -58,38 +58,51 @@ export const RESPOND_BIDIRECTIONAL_MAP_FIELD = 5;
 // sequentially, so field order and width here must match the Compact structs
 // exactly — a mismatch is silent data corruption, not an error.
 
-/** Descriptor for a 32-byte scalar / hash (`Bytes<32>`). */
-const bytes32 = new CompactTypeBytes(32);
-
 /** Descriptor for the response's serialized output (`Bytes<128>`). */
 const bytes128 = new CompactTypeBytes(128);
+
+/** Descriptor for a 32-byte scalar / coordinate (`Bytes<32>`). */
+const bytes32 = new CompactTypeBytes(32);
 
 /** Descriptor for a Compact `Uint<8>` (1-byte unsigned integer). */
 const u8 = new CompactTypeUnsignedInteger(255n, 1);
 
 /**
- * The MPC's secp256k1 signature over the requested EVM transaction (Compact
- * `SignatureRespondedEvent` — the canonical MPC `Signature { big_r, s,
- * recovery_id }` with `big_r` decomposed into affine coordinates, big-endian
- * scalar bytes). The request id it answers lives in the map key, not here.
+ * A curve point in affine coordinates (Compact `AffinePoint`), SEC1
+ * big-endian — the same shape the sig-net EVM and Solana signer contracts
+ * expose.
  */
-export interface SignatureRespondedEvent {
-  /** Signature R.x, 32 big-endian bytes. */
-  bigRx: Uint8Array;
-  /** Signature R.y, 32 big-endian bytes. */
-  bigRy: Uint8Array;
-  /** Signature s, 32 big-endian bytes. */
+export interface AffinePoint {
+  /** The x coordinate, 32 big-endian bytes. */
+  x: Uint8Array;
+  /** The y coordinate, 32 big-endian bytes. */
+  y: Uint8Array;
+}
+
+/**
+ * The MPC's canonical ECDSA signature as both respond events store it
+ * (Compact `Signature`, matching the MPC's own
+ * `Signature { big_r, s, recovery_id }` and the EVM/Solana signer
+ * contracts): `bigR` the full nonce point so consumers never decompress,
+ * `s` big-endian, `recoveryId` the parity of R.y. Stored UNVERIFIED like
+ * everything else on the singleton; convert with
+ * `ecdsaSignatureToMpcSignature` / `mpcSignatureToEcdsaSignature`.
+ */
+export interface MpcSignature {
+  /** The signature's nonce point R. */
+  bigR: AffinePoint;
+  /** Signature scalar s, 32 big-endian bytes. */
   s: Uint8Array;
-  /** Parity of R.y for public-key recovery (0 or 1). */
+  /** Recovery id (parity of R.y): 0 or 1. */
   recoveryId: bigint;
 }
 
 /**
- * Hand-composed descriptor for {@link SignatureRespondedEvent}. Field
- * order (bigRx, bigRy, s, recoveryId) must match the Compact struct.
+ * Hand-composed descriptor for {@link MpcSignature}. Leaf order
+ * (bigR.x, bigR.y, s, recoveryId) must match the nested Compact structs.
  */
-export const signatureRespondedEventType: CompactType<SignatureRespondedEvent> = {
-  /** @returns Compound alignment of the struct's fields in declaration order. */
+const mpcSignatureType: CompactType<MpcSignature> = {
+  /** @returns Compound alignment of the struct's leaves in declaration order. */
   alignment() {
     return bytes32
       .alignment()
@@ -98,32 +111,70 @@ export const signatureRespondedEventType: CompactType<SignatureRespondedEvent> =
       .concat(u8.alignment());
   },
   /**
-   * Decode one signature response from an aligned value, consuming it field
-   * by field.
+   * Decode one signature from an aligned value, consuming it leaf by leaf.
    *
    * @param value - Mutable aligned value cursor; pass a copy.
-   * @returns The decoded record.
+   * @returns The decoded signature.
    */
   fromValue(value) {
     return {
-      bigRx: bytes32.fromValue(value),
-      bigRy: bytes32.fromValue(value),
+      bigR: { x: bytes32.fromValue(value), y: bytes32.fromValue(value) },
       s: bytes32.fromValue(value),
       recoveryId: u8.fromValue(value),
     };
   },
   /**
-   * Encode a signature response into its aligned on-ledger representation.
+   * Encode a signature into its aligned on-ledger representation.
    *
-   * @param record - The record to encode.
-   * @returns The aligned value, fields concatenated in declaration order.
+   * @param record - The signature to encode.
+   * @returns The aligned value, leaves concatenated in declaration order.
    */
   toValue(record) {
     return bytes32
-      .toValue(record.bigRx)
-      .concat(bytes32.toValue(record.bigRy))
+      .toValue(record.bigR.x)
+      .concat(bytes32.toValue(record.bigR.y))
       .concat(bytes32.toValue(record.s))
       .concat(u8.toValue(record.recoveryId));
+  },
+};
+
+/**
+ * The MPC's signature over the requested EVM transaction (Compact
+ * `SignatureRespondedEvent`) — decode to an ethers signature with
+ * `signatureRespondedEventToSignature`. The request id it answers lives in
+ * the map key, not here.
+ */
+export interface SignatureRespondedEvent {
+  /** The requested signature over the transaction the request describes. */
+  signature: MpcSignature;
+}
+
+/**
+ * Hand-composed descriptor for {@link SignatureRespondedEvent}: the single
+ * {@link MpcSignature} field, matching the Compact struct.
+ */
+export const signatureRespondedEventType: CompactType<SignatureRespondedEvent> = {
+  /** @returns Alignment of the struct's single signature field. */
+  alignment() {
+    return mpcSignatureType.alignment();
+  },
+  /**
+   * Decode one signature response from an aligned value.
+   *
+   * @param value - Mutable aligned value cursor; pass a copy.
+   * @returns The decoded record.
+   */
+  fromValue(value) {
+    return { signature: mpcSignatureType.fromValue(value) };
+  },
+  /**
+   * Encode a signature response into its aligned on-ledger representation.
+   *
+   * @param record - The record to encode.
+   * @returns The aligned value.
+   */
+  toValue(record) {
+    return mpcSignatureType.toValue(record.signature);
   },
 };
 
@@ -141,12 +192,8 @@ export interface RespondBidirectionalEvent {
   serializedOutput: Uint8Array;
   /** Meaningful byte count of {@link serializedOutput}. */
   outputLen: bigint;
-  /** Signature scalar r (= R.x mod n), 32 LITTLE-endian bytes (the `Secp256k1Scalar as Bytes<32>` cast). */
-  r: Uint8Array;
-  /** Signature scalar s, 32 LITTLE-endian bytes. */
-  s: Uint8Array;
-  /** Recovery id (parity of R.y), for off-chain public-key recovery. */
-  recoveryId: bigint;
+  /** ECDSA signature over the attestation digest. */
+  signature: MpcSignature;
 }
 
 /**
@@ -197,8 +244,8 @@ export const signetMapKeyType: CompactType<SignetMapKey> = {
 
 /**
  * Hand-composed descriptor for {@link RespondBidirectionalEvent}. Field
- * order (serializedOutput, outputLen, r, s, recoveryId) must match the
- * Compact struct.
+ * order (serializedOutput, outputLen, signature) must match the Compact
+ * struct.
  */
 export const respondBidirectionalEventType: CompactType<RespondBidirectionalEvent> = {
   /** @returns Compound alignment of the struct's fields in declaration order. */
@@ -206,9 +253,7 @@ export const respondBidirectionalEventType: CompactType<RespondBidirectionalEven
     return bytes128
       .alignment()
       .concat(u8.alignment())
-      .concat(bytes32.alignment())
-      .concat(bytes32.alignment())
-      .concat(u8.alignment());
+      .concat(mpcSignatureType.alignment());
   },
   /**
    * Decode one response record from an aligned value, consuming it field
@@ -221,9 +266,7 @@ export const respondBidirectionalEventType: CompactType<RespondBidirectionalEven
     return {
       serializedOutput: bytes128.fromValue(value),
       outputLen: u8.fromValue(value),
-      r: bytes32.fromValue(value),
-      s: bytes32.fromValue(value),
-      recoveryId: u8.fromValue(value),
+      signature: mpcSignatureType.fromValue(value),
     };
   },
   /**
@@ -236,9 +279,7 @@ export const respondBidirectionalEventType: CompactType<RespondBidirectionalEven
     return bytes128
       .toValue(record.serializedOutput)
       .concat(u8.toValue(record.outputLen))
-      .concat(bytes32.toValue(record.r))
-      .concat(bytes32.toValue(record.s))
-      .concat(u8.toValue(record.recoveryId));
+      .concat(mpcSignatureType.toValue(record.signature));
   },
 };
 

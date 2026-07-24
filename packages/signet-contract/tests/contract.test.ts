@@ -16,7 +16,6 @@ import {
 import {
   bytesToHex,
   decodeSignBidirectionalNotification,
-  bigintToBytes32,
   readSignetContractLedgerFromState,
   requestIdHex,
   signetMapEntryKey,
@@ -42,24 +41,18 @@ const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
 // Request ids the posts below answer, and signature response records.
+// SYNTHETIC signatures, deliberately not verifiable — the contract must
+// store them anyway (verification is the reader's job, not this contract's).
 const REQUEST_A = bytes(32, 0xaa);
 const REQUEST_B = bytes(32, 0xbb);
 const SIG_1: SignatureRespondedEvent = {
-  bigRx: bytes(32, 0x01),
-  bigRy: bytes(32, 0x02),
-  s: bytes(32, 0x03),
-  recoveryId: 0n,
+  signature: { bigR: { x: bytes(32, 0x01), y: bytes(32, 0x02) }, s: bytes(32, 0x03), recoveryId: 0n },
 };
 const SIG_2: SignatureRespondedEvent = {
-  bigRx: bytes(32, 0x04),
-  bigRy: bytes(32, 0x05),
-  s: bytes(32, 0x06),
-  recoveryId: 1n,
+  signature: { bigR: { x: bytes(32, 0x04), y: bytes(32, 0x05) }, s: bytes(32, 0x06), recoveryId: 1n },
 };
 
-// Respond-bidirectional records: SYNTHETIC signatures, deliberately not
-// verifiable — the contract must store them anyway (verification is the
-// reader's job, not this contract's).
+// Respond-bidirectional records, signatures equally synthetic.
 const OUTPUT_SUCCESS = (() => {
   const out = new Uint8Array(128);
   out[0] = 1;
@@ -68,16 +61,12 @@ const OUTPUT_SUCCESS = (() => {
 const RESPOND_1: RespondBidirectionalEvent = {
   serializedOutput: OUTPUT_SUCCESS,
   outputLen: 32n,
-  r: bigintToBytes32(111n),
-  s: bigintToBytes32(222n),
-  recoveryId: 0n,
+  signature: { bigR: { x: bytes(32, 0x07), y: bytes(32, 0x08) }, s: bytes(32, 0x09), recoveryId: 0n },
 };
 const RESPOND_2: RespondBidirectionalEvent = {
   serializedOutput: bytes(128, 0x5a),
   outputLen: 64n,
-  r: bigintToBytes32(333n),
-  s: bigintToBytes32(444n),
-  recoveryId: 1n,
+  signature: { bigR: { x: bytes(32, 0x0a), y: bytes(32, 0x0b) }, s: bytes(32, 0x0c), recoveryId: 1n },
 };
 
 // A caller contract address as the packer consumes it (raw 32 bytes) — the
@@ -330,6 +319,30 @@ describe("postSignatureResponse", () => {
       }
     },
   );
+
+  it("MPC-style raw read agrees with the generated ledger()", async () => {
+    // Pins signatureRespondedEventType against REAL contract state. The
+    // nested Signature descriptor is shared with the respond-bidirectional
+    // record, but this event wraps it as a struct's only field — a different
+    // alignment path, so it needs its own lockstep check. Both posts are
+    // read back because SIG_1 and SIG_2 differ in recoveryId: a decoder that
+    // dropped that field would still match a single 0-valued fixture.
+    const { contract, ctx } = await deployContract("postSignatureResponse");
+    const first = await contract.circuits.postSignatureResponse(ctx, REQUEST_A, SIG_1);
+    const { context } = await contract.circuits.postSignatureResponse(
+      first.context,
+      REQUEST_A,
+      SIG_2,
+    );
+
+    const raw = readSignetContractLedgerFromState(
+      context.callContext.currentQueryContext.state,
+    );
+    const idHex = requestIdHex(REQUEST_A);
+    expect(raw.signatureResponseCounterMap.get(idHex)).toBe(2n);
+    expect(raw.signatureResponseMap.get(signetMapEntryKey(idHex, 0n))).toEqual(SIG_1);
+    expect(raw.signatureResponseMap.get(signetMapEntryKey(idHex, 1n))).toEqual(SIG_2);
+  });
 });
 
 describe("postRespondBidirectional", () => {
@@ -403,21 +416,23 @@ describe("postRespondBidirectional", () => {
   });
 
   it("MPC-style raw read agrees with the generated ledger()", async () => {
+    // Both posts are read back because RESPOND_1 and RESPOND_2 differ in
+    // outputLen and recoveryId: a decoder that dropped either field would
+    // still match a single fixture whose values happen to be its default.
     const { contract, ctx } = await deployContract("postRespondBidirectional");
+    const first = await contract.circuits.postRespondBidirectional(ctx, REQUEST_A, RESPOND_1);
     const { context } = await contract.circuits.postRespondBidirectional(
-      ctx,
+      first.context,
       REQUEST_A,
-      RESPOND_1,
+      RESPOND_2,
     );
 
     const raw = readSignetContractLedgerFromState(
       context.callContext.currentQueryContext.state,
     );
-    expect(raw.respondBidirectionalCounterMap.get(requestIdHex(REQUEST_A))).toBe(1n);
-    expect(
-      raw.respondBidirectionalMap.get(
-        signetMapEntryKey(requestIdHex(REQUEST_A), 0n),
-      ),
-    ).toEqual(RESPOND_1);
+    const idHex = requestIdHex(REQUEST_A);
+    expect(raw.respondBidirectionalCounterMap.get(idHex)).toBe(2n);
+    expect(raw.respondBidirectionalMap.get(signetMapEntryKey(idHex, 0n))).toEqual(RESPOND_1);
+    expect(raw.respondBidirectionalMap.get(signetMapEntryKey(idHex, 1n))).toEqual(RESPOND_2);
   });
 });
