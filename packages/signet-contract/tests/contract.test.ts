@@ -57,24 +57,17 @@ const SIG_2: SignatureRespondedEvent = {
   recoveryId: 1n,
 };
 
-// Respond-bidirectional records: SYNTHETIC signatures, deliberately not
-// verifiable — the contract must store them anyway (verification is the
-// reader's job, not this contract's).
-const OUTPUT_SUCCESS = (() => {
-  const out = new Uint8Array(128);
-  out[0] = 1;
-  return out;
-})();
+// Respond-bidirectional records: SYNTHETIC digests and signatures,
+// deliberately not verifiable — the contract must store them anyway
+// (verification is the reader's job, not this contract's).
 const RESPOND_1: RespondBidirectionalEvent = {
-  serializedOutput: OUTPUT_SUCCESS,
-  outputLen: 32n,
+  attestationDigest: bytes(32, 0xd1),
   r: bigintToBytes32(111n),
   s: bigintToBytes32(222n),
   recoveryId: 0n,
 };
 const RESPOND_2: RespondBidirectionalEvent = {
-  serializedOutput: bytes(128, 0x5a),
-  outputLen: 64n,
+  attestationDigest: bytes(32, 0xd2),
   r: bigintToBytes32(333n),
   s: bigintToBytes32(444n),
   recoveryId: 1n,

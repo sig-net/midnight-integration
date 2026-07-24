@@ -29,13 +29,14 @@
 //                                        (via SignetSigner interface) to notify the MPC of a SignBidirectionalEvent.
 //  - SignatureRespondedEvent: Counterpart to SignBidirectionalEvent containing MPC generated signature requested by a SignBidirectionalEvent.
 //                             Posted by MPC back to Signet singleton for clients to extract to build a signed transaction.
-//  - RespondBidirectionalEvent: Structure containing the output of a transaction executed on a foreign blockchain,
-//                               ECDSA-signed over the request id and output (see signetAttestationDigest) by the
-//                               MPC's RESPONSE key for the requesting contract: the key derived from the client
-//                               contract's address + the fixed path "midnight response key" (not the root key,
-//                               and not the request-signing key). Posted by MPC back to Signet singleton for
-//                               clients to extract, verify (see verifyRespondBidirectionalEvent) and deliver back
-//                               to the client contract.
+//  - RespondBidirectionalEvent: Attestation of a transaction executed on a foreign blockchain: the attestation
+//                               digest of the request id and serialised output (see calculateSignetAttestationDigest)
+//                               plus the MPC's ECDSA signature over that digest, signed with the MPC's RESPONSE
+//                               key for the requesting contract: the key derived from the client contract's
+//                               address + the fixed path "midnight response key" (not the root key, and not the
+//                               request-signing key). The output itself travels off chain. Posted by MPC back to
+//                               Signet singleton for clients to extract, verify (see verifyRespondBidirectionalEvent)
+//                               and deliver back to the client contract.
 //
 // These key types are best understood within the sign bidirectional flow that they enable:
 // 1. Client contract stores a SignBidirectionalEvent in a SignBidirectionalEventMap its own ledger
@@ -230,26 +231,27 @@ module Signet {
     recoveryId: Uint<8>; // parity of R.y for public-key recovery
   }
 
-  // Structure containing the output of a transaction executed on a foreign blockchain,
-  // ECDSA-signed (secp256k1) over the attestation digest of the request id and output
-  // (see signetAttestationDigest) by the MPC's RESPONSE key for the requesting contract:
+  // Attestation of a transaction executed on a foreign blockchain. The event does
+  // NOT carry the execution output itself (the output is unbounded): it carries the
+  // 32-byte attestation digest of the request id and serialised output (see
+  // calculateSignetAttestationDigest) plus the MPC's ECDSA (secp256k1) signature
+  // over that digest, signed with the MPC's RESPONSE key for the requesting contract:
   //   mpcResponseKey = f(mpcRootKey[keyVersion], sender, "midnight response key")
   // i.e. the same derivation as request-signing keys but with the FIXED
   // respond-bidirectional path, so it is per-client-contract yet independent of any
   // request's own path (mirrors the MPC's per-chain "<chain> response key" convention).
   // Posted by MPC back to Signet singleton for clients to extract, verify and deliver
-  // back to the client contract. The singleton stores posts UNVERIFIED: client contracts
-  // must verify the signature themselves against their MPC response key, via
-  // verifyRespondBidirectionalEvent.
+  // back to the client contract. Clients fetch the full output off chain, recompute
+  // the digest and verify via verifyRespondBidirectionalEvent. The singleton stores
+  // posts UNVERIFIED: client contracts must verify the signature themselves against
+  // their MPC response key.
   export struct RespondBidirectionalEvent {
-    // ABI-encoded return data of the remote call (canonical
-    // serialized_output), zero-padded. First 32-byte word == 1 signals
-    // success; a 0xdeadbeef prefix is the MPC's error sentinel for a
-    // failed/absent execution.
-    serializedOutput: Bytes<128>;
-
-    // Meaningful byte count of serializedOutput.
-    outputLen: Uint<8>;
+    // The attestation digest the signature signs: keccak256 of the request id
+    // concatenated with the serialised output (see calculateSignetAttestationDigest).
+    // A checkpoint for off-chain readers: match a fetched output against the
+    // attestation (and check the signature) without any other inputs.
+    // verifyRespondBidirectionalEvent binds it to the actual output bytes in-circuit.
+    attestationDigest: Bytes<32>;
 
     // ECDSA signature scalars as LITTLE-ENDIAN 32-byte values (the byte order the
     // `Secp256k1Scalar as Bytes<32>` cast produces). Stored as bytes because
@@ -270,48 +272,58 @@ module Signet {
     requestId: RequestId;
   };
 
-  // The 32-byte digest the MPC ECDSA-signs to attest a remote execution:
-  // the persistent hash of the request id together with hash(serializedOutput, outputLen).
-  // The inner hash binds the output together with its length so neither can be swapped
-  // under a reused signature. secp256k1EcdsaVerify interprets the digest as a BIG-ENDIAN
-  // integer reduced mod the curve order (RFC 6979 convention). ONE implementation for
-  // everyone: client contracts verify against it in-circuit, and off-chain signers (the
-  // MPC, tests) call the compiled copy via circuits.compact, never a TS re-implementation.
-  export pure circuit signetAttestationDigest(
+  // The 32-byte attestation digest the MPC ECDSA-signs to attest a remote execution:
+  // keccak256 over the request id concatenated with the serialised output, exactly
+  // the MPC's respond-bidirectional construction (hash(request_id || serialized_output):
+  // one flat concatenation, one hash). The output is hashed AS GIVEN, at its exact
+  // width: no padding and no length binding. The width is a generic parameter, fixed
+  // by each client contract from its own respond serialisation schema. The digest
+  // commits to the output byte-for-byte: the keccak preimage of the
+  // [RequestId, Bytes<N>] pair is the raw concatenated bytes.
+  // secp256k1EcdsaVerify interprets the digest as a BIG-ENDIAN integer reduced mod
+  // the curve order (RFC 6979 convention). ONE implementation for everyone: client
+  // contracts call this in-circuit. The compiler cannot export a size-generic circuit
+  // top-level, so off-chain code uses the TS twin (calculateSignetAttestationDigest
+  // in ecdsa-attestation.ts), pinned byte-for-byte against the fixed-width
+  // instantiations circuits.compact exports as test oracles.
+  export pure circuit calculateSignetAttestationDigest<#serializedOutputLength>(
     requestId: RequestId,
-    serializedOutput: Bytes<128>,
-    outputLen: Uint<8>
+    serializedOutput: Bytes<serializedOutputLength>,
   ): Bytes<32> {
-    const outHash = persistentHash<Vector<2, Bytes<32>>>([
-      persistentHash<Bytes<128>>(serializedOutput),
-      outputLen as Field as Bytes<32>
-    ]);
-    return persistentHash<Vector<2, Bytes<32>>>([requestId as Bytes<32>, outHash]);
+    return keccak256<[RequestId, Bytes<serializedOutputLength>]>([requestId, serializedOutput]);
   }
 
-  // Verify a RespondBidirectionalEvent against a secp256k1 public key: the event's
-  // ECDSA signature must sign the attestation digest of (requestId, output). This is
-  // the check client contracts run before accepting a response (the Signet singleton
-  // stores posts unverified); pass the contract's MPC RESPONSE key (derived off-chain
-  // from the contract's address + the fixed path "midnight response key", typically
-  // hash-pinned in the contract's ledger at deploy time).
-  export pure circuit verifyRespondBidirectionalEvent(
+  // Verify a RespondBidirectionalEvent against the serialised output it attests and
+  // a secp256k1 public key: the event's digest checkpoint must equal the recomputed
+  // attestation digest of (requestId, serializedOutput), and the event's ECDSA
+  // signature must sign that digest. This is the check client contracts run before
+  // accepting a response (the Signet singleton stores posts unverified); pass the
+  // contract's MPC RESPONSE key (derived off-chain from the contract's address + the
+  // fixed path "midnight response key", typically hash-pinned in the contract's
+  // ledger at deploy time). The caller supplies serializedOutput at its exact
+  // unpadded width, per calculateSignetAttestationDigest.
+  export pure circuit verifyRespondBidirectionalEvent<#serializedOutputLength>(
     requestId: RequestId,
+    serializedOutput: Bytes<serializedOutputLength>,
     respondBidirectionalEvent: RespondBidirectionalEvent,
     mpcResponseKey: Secp256k1Point
   ): Boolean {
-    return secp256k1EcdsaVerify(
-      signetAttestationDigest(
-        requestId,
-        respondBidirectionalEvent.serializedOutput,
-        respondBidirectionalEvent.outputLen
-      ),
+    const digest = calculateSignetAttestationDigest<serializedOutputLength>(
+      requestId,
+      serializedOutput,
+    );
+    // Two consts rather than one `&&` expression: compactc 0.33 ICEs when the
+    // secp256k1EcdsaVerify call (its scalar casts) sits inside a subexpression.
+    const checkpointMatches = digest == respondBidirectionalEvent.attestationDigest;
+    const signatureValid = secp256k1EcdsaVerify(
+      digest,
       Secp256k1EcdsaSignature {
         r: respondBidirectionalEvent.r as Secp256k1Scalar,
         s: respondBidirectionalEvent.s as Secp256k1Scalar,
       },
       mpcResponseKey
     );
+    return checkpointMatches && signatureValid;
   }
 
   // Hash a secp256k1 public key exactly as client contracts pin it at deploy time

@@ -55,12 +55,11 @@ const RESPONSE_1: SignatureRespondedEvent = {
   recoveryId: 1n,
 };
 
-// One respond-bidirectional response for REQUEST_ID — synthetic signature
-// scalars (the reader decodes, it does not verify). LE bytes as the ledger
-// stores them.
+// One respond-bidirectional response for REQUEST_ID — a synthetic digest and
+// signature scalars (the reader decodes, it does not verify). LE bytes as
+// the ledger stores them.
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
-  serializedOutput: bytes(128, 0x01),
-  outputLen: 32n,
+  attestationDigest: bytes(32, 0xd1),
   r: bigintToBytes32(123456789n),
   s: bigintToBytes32(987654321n),
   recoveryId: 1n,

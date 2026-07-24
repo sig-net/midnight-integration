@@ -17,23 +17,21 @@ export const MPC_PARAMS_BYTES = 64;
 /** Width of `EVMCalldata.selector` (`Bytes<4>`) — the literal first 4 calldata bytes. */
 export const SELECTOR_BYTES = 4;
 
-/** Width of `RespondBidirectionalEvent.serializedOutput` (`Bytes<128>`). */
-export const SERIALIZED_OUTPUT_BYTES = 128;
-
 /**
- * The MPC's error sentinel: `serializedOutput` beginning with these four
+ * The MPC's error sentinel: a serialised output beginning with these four
  * bytes marks a failed/absent remote execution (mirrors the sig-net MPC's
  * MAGIC_ERROR_PREFIX).
  */
 export const MPC_ERROR_SENTINEL = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
 
 /**
- * Whether an attestation's serialized output reports a successful remote
- * execution: the first byte is 1 — the little-endian encoding of the
- * ABI-decoded success flag, matching the circuits'
- * `serializedOutput as Field == 1` check.
+ * Whether an attested serialised output reports a successful remote
+ * execution: the first byte is 1 — the packed little-endian encoding of a
+ * leading boolean success flag. The output is the exact unpadded respond
+ * payload (see `serializeRespondOutput`); its length follows from the
+ * request's respond schema, not from any fixed width.
  *
- * @param serializedOutput - The attestation's serialized output.
+ * @param serializedOutput - The attested serialised output.
  * @returns `true` when the remote call succeeded.
  */
 export function executionSucceeded(serializedOutput: Uint8Array): boolean {
@@ -41,10 +39,10 @@ export function executionSucceeded(serializedOutput: Uint8Array): boolean {
 }
 
 /**
- * Whether an attestation's serialized output is the MPC's error sentinel
+ * Whether an attested serialised output is the MPC's error sentinel
  * (see {@link MPC_ERROR_SENTINEL}) rather than a call result.
  *
- * @param serializedOutput - The attestation's serialized output.
+ * @param serializedOutput - The attested serialised output.
  * @returns `true` when the MPC reported an execution error.
  */
 export function isExecutionError(serializedOutput: Uint8Array): boolean {

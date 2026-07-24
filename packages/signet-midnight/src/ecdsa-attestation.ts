@@ -1,18 +1,23 @@
 // secp256k1 ECDSA helpers: the TS side of the respond-bidirectional
-// attestation flow in Signet.compact — SIGNING (which needs the secret
-// scalar, so it cannot be a circuit), key parsing/formatting, and the
+// attestation flow in Signet.compact: SIGNING (which needs the secret
+// scalar, so it cannot be a circuit), key parsing/formatting, the
 // byte-order conversions between noble's bigints and the ledger-stored
-// little-endian scalar bytes. Everything provable stays in Compact: the
-// attestation digest is the COMPILED `pureCircuits.signetAttestationDigest`,
-// verification is `pureCircuits.verifyRespondBidirectionalEvent` (the same
-// check client contracts run in-circuit), and the deploy-time key pin is
-// `pureCircuits.signetKeyHash` — this file never re-implements any of them.
+// little-endian scalar bytes, and the attestation digest's TS twin.
+// Everything provable stays in Compact where possible: in-circuit
+// verification is `verifyRespondBidirectionalEvent`, the deploy-time key pin
+// is `pureCircuits.signetKeyHash`. The digest circuit is size-generic and the
+// compiler cannot export size-generic circuits top-level, so the digest is
+// the ONE sanctioned TS twin here, pinned byte-for-byte against the
+// fixed-width oracle circuits circuits.compact exports (see
+// tests/ecdsa-attestation.test.ts).
 //
-// This belongs in github.com/sig-net/signet.js as its Midnight adapter —
+// This belongs in github.com/sig-net/signet.js as its Midnight adapter,
 // kept here until upstreamed.
 
+import { ethers } from "ethers";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
+import type { RequestId } from "./signet-requests.ts";
 
 // Re-exported because it appears throughout this module's public signatures —
 // SDK consumers shouldn't have to depend on compact-runtime just for the type.
@@ -35,7 +40,9 @@ export const BLS_ORDER = 5243587517512619047944774050818596583769055250052763782
 export function bytesToBigint(bytes: Uint8Array): bigint {
   let result = 0n;
   for (let i = bytes.length - 1; i >= 0; i--) {
-    result = (result << 8n) | BigInt(bytes[i]);
+    // The index is in range by construction; the assertion satisfies
+    // consumers compiling with noUncheckedIndexedAccess.
+    result = (result << 8n) | BigInt(bytes[i]!);
   }
   return result;
 }
@@ -89,8 +96,8 @@ export interface EcdsaSignature {
  * interpreted big-endian with NO extra hashing (`prehash: false`) — the same
  * convention `secp256k1EcdsaVerify` checks in-circuit.
  *
- * @param digest - The 32-byte digest to sign (e.g. the compiled
- *   `pureCircuits.signetAttestationDigest` output).
+ * @param digest - The 32-byte digest to sign (e.g. the
+ *   {@link calculateSignetAttestationDigest} output).
  * @param secretKey - The 32-byte secp256k1 secret key.
  * @returns The signature with its recovery id.
  */
@@ -168,4 +175,33 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
     y: bytesToBigintBE(uncompressed.slice(33, 65)),
     identity: false,
   };
+}
+
+/**
+ * The attestation digest of a respond-bidirectional response:
+ * `keccak256(requestId || serializedOutput)`, the 32-byte digest the MPC
+ * ECDSA-signs to attest a remote execution.
+ *
+ * TS twin of the size-generic Compact circuit
+ * `calculateSignetAttestationDigest` (which the compiler cannot export
+ * compiled, so this is the one sanctioned re-implementation, pinned
+ * byte-for-byte against the fixed-width oracle circuits in
+ * circuits.compact). The constructions agree because the circuit's keccak
+ * preimage of the `[RequestId, Bytes<N>]` pair is the raw concatenated
+ * bytes, and it matches the MPC's respond-bidirectional hash
+ * (`hash(request_id || serialized_output)`: one flat concatenation, one
+ * hash). The output is hashed AS GIVEN, at its exact length: no padding and
+ * no length binding.
+ *
+ * @param requestId - The 32-byte request id the response answers.
+ * @param serializedOutput - The serialised execution output, exact unpadded bytes.
+ * @returns The 32-byte attestation digest.
+ */
+export function calculateSignetAttestationDigest(
+  requestId: RequestId,
+  serializedOutput: Uint8Array,
+): Uint8Array {
+  return ethers.getBytes(
+    ethers.keccak256(ethers.concat([requestId, serializedOutput])),
+  );
 }

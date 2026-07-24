@@ -28,7 +28,6 @@ import {
   deriveMidnightResponseSecretKey,
   hexToBytes,
   parseSecp256k1PublicKey,
-  pureCircuits as signetCircuits,
   requestIdBytes,
   requestIdHex,
   signAttestationDigest,
@@ -37,6 +36,7 @@ import {
   toSignBidirectionalEventIndex,
   SIGNET_DEFAULT_KEY_VERSION,
   type RequestIdHex,
+  calculateSignetAttestationDigest,
 } from "@sig-net/midnight";
 import { signBidirectionalEventToSignedEVMTransaction } from "@sig-net/midnight";
 import { ledger as callerContractLedger } from "@midnight-protocol/test-caller-contract";
@@ -325,7 +325,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // the suite's shared MPC_ROOT_KEY + the CALLER contract's address (the
       // exact sender-scoped derivation the fakenet and the real MPC use; the
       // initialise leg pinned the matching MPC_RESPONSE_KEY), using the same
-      // compiled digest circuit the MPC uses.
+      // digest construction the MPC uses (the TS twin, pinned against the
+      // compiled oracle circuits).
       expect(signatureRequestId).toBeDefined();
 
       const context = await session.callerContext();
@@ -339,28 +340,30 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
         return;
       }
 
-      // A successful remote execution output: first byte 1, 32 meaningful
-      // bytes (one ABI word) — what the MPC posts for a succeeded call.
-      const serializedOutput = new Uint8Array(128);
-      serializedOutput[0] = 1;
-      const outputLen = 32n;
+      // A successful remote execution's serialised output: the caller's
+      // respond schema is a single bool, whose exact unpadded packed payload
+      // is ONE byte (0x01 = true) — what the MPC posts for a succeeded call.
+      const serializedOutput = Uint8Array.from([1]);
 
       const responseSecretKey = deriveMidnightResponseSecretKey(
         hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
       );
-      const digest = signetCircuits.signetAttestationDigest(requestKey, serializedOutput, outputLen);
-      const signature = signAttestationDigest(digest, responseSecretKey);
+      const attestationDigest = calculateSignetAttestationDigest(requestKey, serializedOutput);
+      const signature = signAttestationDigest(attestationDigest, responseSecretKey);
 
       // No key argument: verifyResponse reads the stored MPC response key
       // straight from the ledger (the initialise leg put it there).
-      await context.caller.callTx.verifyResponse(requestKey, {
+      await context.caller.callTx.verifyResponse(
+        requestKey,
+        {
+          attestationDigest,
+          r: bigintToBytes32(signature.r),
+          s: bigintToBytes32(signature.s),
+          recoveryId: BigInt(signature.recoveryId),
+        },
         serializedOutput,
-        outputLen,
-        r: bigintToBytes32(signature.r),
-        s: bigintToBytes32(signature.s),
-        recoveryId: BigInt(signature.recoveryId),
-      });
+      );
 
       // The consumption is the observable effect: present before (checked
       // above), absent after — and removal only happens if every in-circuit

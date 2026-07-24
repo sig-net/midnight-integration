@@ -61,9 +61,6 @@ export const RESPOND_BIDIRECTIONAL_MAP_FIELD = 5;
 /** Descriptor for a 32-byte scalar / hash (`Bytes<32>`). */
 const bytes32 = new CompactTypeBytes(32);
 
-/** Descriptor for the response's serialized output (`Bytes<128>`). */
-const bytes128 = new CompactTypeBytes(128);
-
 /** Descriptor for a Compact `Uint<8>` (1-byte unsigned integer). */
 const u8 = new CompactTypeUnsignedInteger(255n, 1);
 
@@ -128,19 +125,18 @@ export const signatureRespondedEventType: CompactType<SignatureRespondedEvent> =
 };
 
 /**
- * The MPC's respond-bidirectional response for a request's remote EVM
- * execution (Compact `RespondBidirectionalEvent`): the serialized execution
- * output plus the ECDSA signature over the attestation digest of
- * `(requestId, serializedOutput, outputLen)`. Stored UNVERIFIED by the signet
- * contract — clients verify it themselves (in-circuit via
- * `verifyRespondBidirectionalEvent`, or off-chain via the compiled
- * `pureCircuits.verifyRespondBidirectionalEvent`).
+ * The MPC's respond-bidirectional attestation of a request's remote EVM
+ * execution (Compact `RespondBidirectionalEvent`): the attestation digest
+ * `keccak256(requestId || serializedOutput)` plus the ECDSA signature over
+ * it. The output itself travels off chain: readers fetch it, recompute the
+ * digest (`calculateSignetAttestationDigest`) and match it against
+ * {@link attestationDigest}. Stored UNVERIFIED by the signet contract —
+ * clients verify the signature themselves against their MPC response key
+ * (in-circuit via `verifyRespondBidirectionalEvent`).
  */
 export interface RespondBidirectionalEvent {
-  /** ABI-encoded return data (canonical serialized_output), zero-padded to 128 bytes. */
-  serializedOutput: Uint8Array;
-  /** Meaningful byte count of {@link serializedOutput}. */
-  outputLen: bigint;
+  /** The signed attestation digest: `keccak256(requestId || serializedOutput)`. */
+  attestationDigest: Uint8Array;
   /** Signature scalar r (= R.x mod n), 32 LITTLE-endian bytes (the `Secp256k1Scalar as Bytes<32>` cast). */
   r: Uint8Array;
   /** Signature scalar s, 32 LITTLE-endian bytes. */
@@ -197,15 +193,13 @@ export const signetMapKeyType: CompactType<SignetMapKey> = {
 
 /**
  * Hand-composed descriptor for {@link RespondBidirectionalEvent}. Field
- * order (serializedOutput, outputLen, r, s, recoveryId) must match the
- * Compact struct.
+ * order (attestationDigest, r, s, recoveryId) must match the Compact struct.
  */
 export const respondBidirectionalEventType: CompactType<RespondBidirectionalEvent> = {
   /** @returns Compound alignment of the struct's fields in declaration order. */
   alignment() {
-    return bytes128
+    return bytes32
       .alignment()
-      .concat(u8.alignment())
       .concat(bytes32.alignment())
       .concat(bytes32.alignment())
       .concat(u8.alignment());
@@ -219,8 +213,7 @@ export const respondBidirectionalEventType: CompactType<RespondBidirectionalEven
    */
   fromValue(value) {
     return {
-      serializedOutput: bytes128.fromValue(value),
-      outputLen: u8.fromValue(value),
+      attestationDigest: bytes32.fromValue(value),
       r: bytes32.fromValue(value),
       s: bytes32.fromValue(value),
       recoveryId: u8.fromValue(value),
@@ -233,9 +226,8 @@ export const respondBidirectionalEventType: CompactType<RespondBidirectionalEven
    * @returns The aligned value, fields concatenated in declaration order.
    */
   toValue(record) {
-    return bytes128
-      .toValue(record.serializedOutput)
-      .concat(u8.toValue(record.outputLen))
+    return bytes32
+      .toValue(record.attestationDigest)
       .concat(bytes32.toValue(record.r))
       .concat(bytes32.toValue(record.s))
       .concat(u8.toValue(record.recoveryId));
@@ -360,6 +352,12 @@ export function decodeSignBidirectionalNotification(
   );
   const requestsIndexField =
     record.payload[NOTIFICATION_REQUESTS_INDEX_FIELD_OFFSET];
+  if (requestsIndexField === undefined) {
+    throw new Error(
+      `SignBidirectionalEventNotification payload is ${record.payload.length} bytes — ` +
+        `too short for the V1 requestsIndexField at offset ${NOTIFICATION_REQUESTS_INDEX_FIELD_OFFSET}`,
+    );
+  }
   return {
     version: Number(record.version),
     callerAddress,

@@ -142,11 +142,11 @@ const requesterState = (): StateValue => {
     );
 };
 
-// A respond-bidirectional record for the response tests: synthetic LE
-// signature scalars — the reader decodes, verification is the CLIENT's job.
+// A respond-bidirectional record for the response tests: a synthetic digest
+// and LE signature scalars — the reader decodes, verification is the
+// CLIENT's job.
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
-  serializedOutput: (() => { const out = new Uint8Array(128); out[0] = 1; return out; })(),
-  outputLen: 32n,
+  attestationDigest: new Uint8Array(32).fill(0xd1),
   r: bigintToBytes32(123456789n),
   s: bigintToBytes32(987654321n),
   recoveryId: 1n,

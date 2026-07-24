@@ -218,7 +218,7 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
   const maxCalldataWords = txParams.calldata.value.words.length;
   const maxAccessListEntries = txParams.accessList.length;
   const maxStorageKeysPerEntry =
-    maxAccessListEntries === 0 ? 0 : txParams.accessList[0].storageKeys.length;
+    maxAccessListEntries === 0 ? 0 : txParams.accessList[0]!.storageKeys.length;
   return persistentHash(
     signBidirectionalEventDescriptor(
       maxCalldataWords,
@@ -298,7 +298,7 @@ export function abiWordToUint128(word: Uint8Array): bigint {
   }
   let value = 0n;
   for (let i = 16; i < 32; i++) {
-    value = value * 256n + BigInt(word[i]);
+    value = value * 256n + BigInt(word[i]!);
   }
   return value;
 }
@@ -316,7 +316,7 @@ export function abiWordToBool(word: Uint8Array): boolean {
   if (word.length !== 32) {
     throw new Error(`ABI word must be 32 bytes, got ${word.length}`);
   }
-  if (word.slice(0, 31).some((byte) => byte !== 0) || word[31] > 1) {
+  if (word.slice(0, 31).some((byte) => byte !== 0) || word[31]! > 1) {
     throw new Error("ABI word is not a canonical Boolean");
   }
   return word[31] === 1;
@@ -340,7 +340,7 @@ export function assembleCalldata(calldata: Maybe<EVMCalldata>): string {
   const { selector, noWords, words } = calldata.value;
   let data = `0x${bytesToHex(selector)}`;
   for (let i = 0; i < Number(noWords); i++) {
-    data += bytesToHex(words[i]);
+    data += bytesToHex(words[i]!);
   }
   return data;
 }
