@@ -17,9 +17,14 @@ import {
   persistentHash,
   type CompactType,
 } from "@midnight-ntwrk/compact-runtime";
-import { getAddress, getBytes, Signature, Transaction } from "ethers";
+import { getAddress, Signature, toBeHex, Transaction } from "ethers";
 
 import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts";
+import {
+  bigintToBytes32BE,
+  ecdsaSignatureToMpcSignature,
+  mpcSignatureToEcdsaSignature,
+} from "./ecdsa-attestation.ts";
 import {
   bytesToHex,
   compactMaybeDescriptor,
@@ -242,6 +247,7 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
  *
  * @param value - The word's numeric value (e.g. an amount).
  * @returns The ABI-ready 32-byte word to store in an {@link EVMCalldata} word.
+ * @throws Error if the value is negative or does not fit 32 bytes.
  */
 export function numericAbiWord(value: bigint): Uint8Array {
   return bigintToBytes32BE(value);
@@ -400,62 +406,34 @@ export function signBidirectionalEventToUnsignedEVMTransaction(
 
 /**
  * Decode a response signature record (as posted to the signet contract's
- * signature response log — the canonical MPC `Signature { big_r, s,
- * recovery_id }` shape) into an ethers {@link Signature}: `r` is `bigR`'s x
- * coordinate, `v` the legacy parity derived from the recovery id.
+ * signature response log) into an ethers {@link Signature}. Goes through
+ * {@link mpcSignatureToEcdsaSignature} rather than reading the record's
+ * fields directly, so this and in-circuit claims decode a post identically:
+ * ethers' `r` is the ECDSA scalar (`bigR.x` reduced mod the curve order),
+ * not the raw coordinate, and a malformed record is rejected the same way
+ * in both paths.
  *
  * @param response - The posted signature record.
  * @returns The ethers signature.
- * @throws Error if the recovery id is not 0 or 1.
+ * @throws Error if the record is malformed (see {@link mpcSignatureToEcdsaSignature}).
  */
 export function signatureRespondedEventToSignature(
   response: SignatureRespondedEvent,
 ): Signature {
-  const recoveryId = Number(response.recoveryId);
-  if (recoveryId !== 0 && recoveryId !== 1) {
-    throw new Error(`expected a recovery id of 0 or 1, got ${recoveryId}`);
-  }
+  const { r, s, recoveryId } = mpcSignatureToEcdsaSignature(response.signature);
   return Signature.from({
-    r: `0x${bytesToHex(response.bigRx)}`,
-    s: `0x${bytesToHex(response.s)}`,
+    r: toBeHex(r, 32),
+    s: toBeHex(s, 32),
     v: recoveryId + 27,
   });
 }
 
-/** secp256k1 base field prime (2^256 - 2^32 - 977). */
-const SECP256K1_P = 2n ** 256n - 2n ** 32n - 977n;
-
-/** Modular exponentiation by squaring. */
-function modPow(base: bigint, exponent: bigint, modulus: bigint): bigint {
-  let result = 1n;
-  let b = base % modulus;
-  let e = exponent;
-  while (e > 0n) {
-    if (e & 1n) result = (result * b) % modulus;
-    b = (b * b) % modulus;
-    e >>= 1n;
-  }
-  return result;
-}
-
-/** Encode a bigint as exactly 32 BIG-endian bytes (secp256k1 scalar form). */
-function bigintToBytes32BE(value: bigint): Uint8Array {
-  const out = new Uint8Array(32);
-  let v = value;
-  for (let i = 31; i >= 0; i--) {
-    out[i] = Number(v & 0xffn);
-    v >>= 8n;
-  }
-  return out;
-}
-
 /**
  * Encode an ECDSA signature as the response record posted to the signet
- * contract — the inverse of {@link signatureRespondedEventToSignature},
- * for MPC-side posters (the fakenet signer, tests). The canonical record
- * carries `bigR` as a full affine point but an `r || s || v` signature only
- * has R.x and the parity of R.y, so R.y is recovered by decompressing the
- * point on the curve (y² = x³ + 7 over the secp256k1 base field).
+ * contract — the inverse of {@link signatureRespondedEventToSignature}, for
+ * MPC-side posters (the fakenet signer, tests). An `r || s || v` signature
+ * carries only R.x and the parity of R.y, so the full R point the record
+ * stores is recovered on-curve (see {@link ecdsaSignatureToMpcSignature}).
  *
  * The parameter is structural (the r/s/yParity subset of an ethers
  * {@link Signature}) so signatures from ANY ethers instance qualify — posters
@@ -464,26 +442,17 @@ function bigintToBytes32BE(value: bigint): Uint8Array {
  *
  * @param signature - The signature to encode (`r`/`s` as 0x hex, `yParity` 0 or 1).
  * @returns The response record, ready to post.
- * @throws Error if `r` is not the x coordinate of a curve point.
+ * @throws Error if `r` is not the x coordinate of a secp256k1 point.
  */
 export function signatureToSignatureRespondedEvent(
   signature: Pick<Signature, "r" | "s" | "yParity">,
 ): SignatureRespondedEvent {
-  const x = BigInt(signature.r);
-  const ySquared = (modPow(x, 3n, SECP256K1_P) + 7n) % SECP256K1_P;
-  // P ≡ 3 (mod 4), so a square root (when one exists) is c^((P+1)/4).
-  let y = modPow(ySquared, (SECP256K1_P + 1n) / 4n, SECP256K1_P);
-  if ((y * y) % SECP256K1_P !== ySquared) {
-    throw new Error("signature r is not the x coordinate of a secp256k1 point");
-  }
-  if ((y & 1n) !== BigInt(signature.yParity)) {
-    y = SECP256K1_P - y;
-  }
   return {
-    bigRx: getBytes(signature.r),
-    bigRy: bigintToBytes32BE(y),
-    s: getBytes(signature.s),
-    recoveryId: BigInt(signature.yParity),
+    signature: ecdsaSignatureToMpcSignature({
+      r: BigInt(signature.r),
+      s: BigInt(signature.s),
+      recoveryId: signature.yParity,
+    }),
   };
 }
 
