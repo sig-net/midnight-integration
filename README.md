@@ -204,7 +204,7 @@ signetSigner.signBidirectional(
 
    ```compact
    assert(
-      verifyRespondBidirectionalEvent(requestId, serializedOutput, r, s, mpcResponseKey),
+      verifyRespondBidirectionalEvent(requestId, respondBidirectionalEvent, mpcResponseKey),
       "Invalid attestation signature"
    );
    signBidirectionalEventMap.remove(requestId);
@@ -273,8 +273,8 @@ Use your /e2e skill to get the integration suite running for me, from fresh clon
 
 | Package | npm | What it is |
 |---|---|---|
-| [`packages/signet-midnight`](packages/signet-midnight) | `@sig-net/midnight` | Client-agnostic signet protocol library: shared Compact modules, TS twins of the wire structs, state readers, request feed/resolver, crypto (epsilon derivation, Schnorr) |
-| [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: signature-response log (in-circuit Schnorr verified) + request-notification registry |
+| [`packages/signet-midnight`](packages/signet-midnight) | `@sig-net/midnight` | Client-agnostic signet protocol library: shared Compact modules, TS twins of the wire structs, state readers, request feed/resolver, crypto (epsilon derivation, secp256k1 ECDSA attestations) |
+| [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: unverified counted response logs + request-notification registry |
 | [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the singleton + the generic deploy/wallet plumbing |
 | [`packages/test-caller-contract`](packages/test-caller-contract) | repo-private | Integration-testing caller contract: submit a signature request, verify the response, the smallest thing that drives the protocol. Testing only, not an integration example |
 | [`packages/test-caller-contract-20-field`](packages/test-caller-contract-20-field) | repo-private | Integration-testing caller contract: the 20-field lockstep fixture proving the raw ledger readers resolve field numbers through the compiler's chunked (>15-field) state layout. Testing only |

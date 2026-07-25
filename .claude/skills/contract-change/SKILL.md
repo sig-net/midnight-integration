@@ -35,9 +35,9 @@ the central notifier, a client contract, or the driver?*
 
 | Layer | Package | Owns | NEVER holds |
 |---|---|---|---|
-| **Seed SDK** | `packages/signet-midnight` | Client-agnostic protocol: request/response structs, request-id hashing, Schnorr, the `CompactType` descriptors and readers, `pureCircuits` (compiled `circuits.compact`) | Anything specific to one client contract |
+| **Seed SDK** | `packages/signet-midnight` | Client-agnostic protocol: request/response structs, request-id hashing, secp256k1 ECDSA attestations, the `CompactType` descriptors and readers, `pureCircuits` (compiled `circuits.compact`) | Anything specific to one client contract |
 | **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to register a `SignBidirectionalNotification` in its registry. The MPC discovers requesters by polling ITS state | Application logic; per-client state |
-| **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit a request with contract-fixed calldata, verify the Schnorr response in-circuit. Seals the signet contract address and the MPC key at deploy | Reusable protocol code — that belongs in the seed. Business logic beyond what exercising the singleton needs |
+| **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit a request with contract-fixed calldata, verify the ECDSA response in-circuit. Seals the signet contract address and the MPC key at deploy | Reusable protocol code — that belongs in the seed. Business logic beyond what exercising the singleton needs |
 | **Driver** | `packages/integration-tests` | Orchestration a downstream app would do: build circuit args, submit calls via midnight-js, poll the signet contract, verify responses. The e2e drives the caller THROUGH these sequences | Rules a contract should enforce |
 
 Placement rule of thumb: **if a second contract would ever want it, it goes in
@@ -67,8 +67,9 @@ before touching any stage:
 3. **Poll signed tx** — the e2e reconstructs a typed ethers `Transaction`
    from the request + response and verifies it recovers to the caller's
    epsilon-derived account.
-4. **Settle** — the client circuit (`verifyResponse`) verifies a Schnorr
-   attestation IN-CIRCUIT (MPC pk hash, signature, the attested output) and
+4. **Settle** — the client circuit (`verifyResponse`) verifies a secp256k1
+   ECDSA attestation IN-CIRCUIT against the response key pinned at initialise,
+   over the request id and the attested output, and
    **removes the request** (double-settle protection). The fakenet only
    attests after observing a broadcast, so the generic e2e signs the
    attestation in-test from the suite's `MPC_ROOT_KEY` — the same key
