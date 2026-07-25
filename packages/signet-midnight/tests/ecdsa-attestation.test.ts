@@ -9,7 +9,6 @@ import { describe, expect, it } from "vitest";
 import { hexlify, keccak256 } from "ethers";
 
 import {
-  bigintToBytes32,
   bigintToBytes32BE,
   ecdsaSignatureToMpcSignature,
   executionSucceeded,
@@ -198,19 +197,8 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
   ];
 
   it.each(CASES)("$name", ({ event, requestId, pk, expected }) => {
-    // The client's exact claim path: read the stored signature off-chain,
-    // hand the circuit LITTLE-endian scalars (the order `as Secp256k1Scalar`
-    // reads).
-    const sig = mpcSignatureToEcdsaSignature(event.signature);
-    expect(
-      signetCircuits.verifyRespondBidirectionalEvent(
-        requestId,
-        event.serializedOutput,
-        bigintToBytes32(sig.r),
-        bigintToBytes32(sig.s),
-        pk,
-      ),
-    ).toBe(expected);
+    // The client's exact claim path: hand over the stored record as read.
+    expect(signetCircuits.verifyRespondBidirectionalEvent(requestId, event, pk)).toBe(expected);
   });
 
   it("the recovery id recovers the signing key from the digest", () => {

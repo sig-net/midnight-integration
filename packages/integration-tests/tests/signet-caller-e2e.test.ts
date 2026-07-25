@@ -22,10 +22,10 @@
 
 import {
   asciiPadded,
-  bigintToBytes32,
   calculateRequestId,
   deriveEvmAddress,
   deriveMidnightResponseSecretKey,
+  ecdsaSignatureToMpcSignature,
   hexToBytes,
   parseSecp256k1PublicKey,
   pureCircuits as signetCircuits,
@@ -352,15 +352,13 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       const signature = signAttestationDigest(digest, responseSecretKey);
 
       // No key argument: verifyResponse reads the stored MPC response key
-      // straight from the ledger (the initialise leg put it there). The
-      // signature scalars go in LITTLE-endian, derived off-chain from the
-      // stored signature's R.x and s.
-      await context.caller.callTx.verifyResponse(
-        requestKey,
+      // straight from the ledger (the initialise leg put it there), and takes
+      // the response in the shape the singleton stores it.
+      await context.caller.callTx.verifyResponse(requestKey, {
         serializedOutput,
-        bigintToBytes32(signature.r),
-        bigintToBytes32(signature.s),
-      );
+        outputLen: 32n,
+        signature: ecdsaSignatureToMpcSignature(signature),
+      });
 
       // The consumption is the observable effect: present before (checked
       // above), absent after — and removal only happens if every in-circuit
