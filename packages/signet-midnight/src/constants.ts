@@ -14,7 +14,7 @@ export const CAIP2_ID_BYTES = 32;
 /** Width of `SignBidirectionalEvent.params` (`Bytes<64>`). */
 export const MPC_PARAMS_BYTES = 64;
 
-/** Width of `EVMCalldata.selector` (`Bytes<4>`) — the literal first 4 calldata bytes. */
+/** Width of `EvmCalldata.selector` (`Bytes<4>`) — the literal first 4 calldata bytes. */
 export const SELECTOR_BYTES = 4;
 
 /** Width of `RespondBidirectionalEvent.serializedOutput` (`Bytes<128>`). */

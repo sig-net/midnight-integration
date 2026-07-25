@@ -6,8 +6,8 @@
 // declaration-order layout:
 //   field 0: signBidirectionalEventNotificationCounterMap (Map<RequestId, Counter>)
 //   field 1: signBidirectionalEventNotificationMap (Map<SignetMapKey, Notification>)
-//   field 2: signatureResponseCounterMap (Map<RequestId, Counter>)
-//   field 3: signatureResponseMap (Map<SignetMapKey, SignatureRespondedEvent>)
+//   field 2: respondCounterMap (Map<RequestId, Counter>)
+//   field 3: respondMap (Map<SignetMapKey, SignatureRespondedEvent>)
 //   field 4: respondBidirectionalCounterMap (Map<RequestId, Counter>)
 //   field 5: respondBidirectionalMap (Map<SignetMapKey, RespondBidirectionalEvent>)
 // Every store is an unauthenticated append-only log keyed by
@@ -41,11 +41,11 @@ export const SIGN_BIDIRECTIONAL_EVENT_NOTIFICATION_COUNTER_MAP_FIELD = 0;
 /** Signet contract layout: the notification map is ledger field 1. */
 export const SIGN_BIDIRECTIONAL_EVENT_NOTIFICATION_MAP_FIELD = 1;
 
-/** Signet contract layout: the signature response counter map is ledger field 2. */
-export const SIGNATURE_RESPONSE_COUNTER_MAP_FIELD = 2;
+/** Signet contract layout: the `respond` counter map is ledger field 2. */
+export const RESPOND_COUNTER_MAP_FIELD = 2;
 
-/** Signet contract layout: the signature response map is ledger field 3. */
-export const SIGNATURE_RESPONSE_MAP_FIELD = 3;
+/** Signet contract layout: the `respond` post log is ledger field 3. */
+export const RESPOND_MAP_FIELD = 3;
 
 /** Signet contract layout: the respond-bidirectional counter map is ledger field 4. */
 export const RESPOND_BIDIRECTIONAL_COUNTER_MAP_FIELD = 4;
@@ -182,7 +182,8 @@ export const signatureRespondedEventType: CompactType<SignatureRespondedEvent> =
  * The MPC's respond-bidirectional response for a request's remote EVM
  * execution (Compact `RespondBidirectionalEvent`): the serialized execution
  * output plus the ECDSA signature over the attestation digest of
- * `(requestId, serializedOutput, outputLen)`. Stored UNVERIFIED by the signet
+ * `(requestId, serializedOutput)`. `outputLen` is carried but NOT signed over, so
+ * anything relying on it must pin it separately. Stored UNVERIFIED by the signet
  * contract — clients verify it themselves (in-circuit via
  * `verifyRespondBidirectionalEvent`, or off-chain via the compiled
  * `pureCircuits.verifyRespondBidirectionalEvent`).
@@ -552,10 +553,10 @@ export interface SignetContractLedger {
    * (count-0 post).
    */
   signBidirectionalEventNotificationMap: SignBidirectionalNotificationIndex;
-  /** Signature response post counts per request id (ledger field 2). */
-  signatureResponseCounterMap: SignetCounterIndex;
-  /** The signature response log (ledger field 3), keyed by {@link signetMapEntryKey}. */
-  signatureResponseMap: SignatureResponseIndex;
+  /** `respond` post counts per request id (ledger field 2). */
+  respondCounterMap: SignetCounterIndex;
+  /** The `respond` post log (ledger field 3), keyed by {@link signetMapEntryKey}. */
+  respondMap: SignatureResponseIndex;
   /** Respond-bidirectional post counts per request id (ledger field 4). */
   respondBidirectionalCounterMap: SignetCounterIndex;
   /** The respond-bidirectional log (ledger field 5), keyed by {@link signetMapEntryKey}. */
@@ -583,13 +584,13 @@ export function readSignetContractLedgerFromState(
     ),
     signBidirectionalEventNotificationMap:
       readSignBidirectionalNotificationIndexFromState(raw),
-    signatureResponseCounterMap: readCounterMap(
+    respondCounterMap: readCounterMap(
       raw,
-      SIGNATURE_RESPONSE_COUNTER_MAP_FIELD,
+      RESPOND_COUNTER_MAP_FIELD,
     ),
-    signatureResponseMap: readSignetKeyedMap(
+    respondMap: readSignetKeyedMap(
       raw,
-      SIGNATURE_RESPONSE_MAP_FIELD,
+      RESPOND_MAP_FIELD,
       signatureRespondedEventType,
     ),
     respondBidirectionalCounterMap: readCounterMap(

@@ -95,18 +95,18 @@ const deployContract = async (circuitId: string) => {
 
 describe("constructor", () => {
   it("deploys with all six maps empty", async () => {
-    const { ctx } = await deployContract("postSignatureResponse");
+    const { ctx } = await deployContract("respond");
     const state = ledger(ctx.callContext.currentQueryContext.state);
     expect(state.signBidirectionalEventNotificationCounterMap.isEmpty()).toBe(true);
     expect(state.signBidirectionalEventNotificationMap.isEmpty()).toBe(true);
-    expect(state.signatureResponseCounterMap.isEmpty()).toBe(true);
-    expect(state.signatureResponseMap.isEmpty()).toBe(true);
+    expect(state.respondCounterMap.isEmpty()).toBe(true);
+    expect(state.respondMap.isEmpty()).toBe(true);
     expect(state.respondBidirectionalCounterMap.isEmpty()).toBe(true);
     expect(state.respondBidirectionalMap.isEmpty()).toBe(true);
   });
 });
 
-describe("signBidirectionalEvent", () => {
+describe("signBidirectional", () => {
   const notification = (requestsIndexField: bigint) =>
     signetCircuits.constructSignBidirectionalEventNotificationV1(
       NOTIFYING_CALLER,
@@ -114,9 +114,9 @@ describe("signBidirectionalEvent", () => {
     );
 
   it("stores the notification under (requestId, 0) and returns that map key", async () => {
-    const { contract, ctx } = await deployContract("signBidirectionalEvent");
+    const { contract, ctx } = await deployContract("signBidirectional");
 
-    const { result, context } = await contract.circuits.signBidirectionalEvent(
+    const { result, context } = await contract.circuits.signBidirectional(
       ctx,
       REQUEST_A,
       notification(4n),
@@ -137,14 +137,14 @@ describe("signBidirectionalEvent", () => {
   });
 
   it("appends a repeat notify under the next count — nothing overwritten", async () => {
-    const { contract, ctx } = await deployContract("signBidirectionalEvent");
+    const { contract, ctx } = await deployContract("signBidirectional");
 
-    const first = await contract.circuits.signBidirectionalEvent(
+    const first = await contract.circuits.signBidirectional(
       ctx,
       REQUEST_A,
       notification(4n),
     );
-    const second = await contract.circuits.signBidirectionalEvent(
+    const second = await contract.circuits.signBidirectional(
       first.context,
       REQUEST_A,
       notification(7n), // different index field — both posts must survive
@@ -171,9 +171,9 @@ describe("signBidirectionalEvent", () => {
   });
 
   it("rejects a notification whose version is not 1", async () => {
-    const { contract, ctx } = await deployContract("signBidirectionalEvent");
+    const { contract, ctx } = await deployContract("signBidirectional");
     await expect(
-      contract.circuits.signBidirectionalEvent(ctx, REQUEST_A, {
+      contract.circuits.signBidirectional(ctx, REQUEST_A, {
         ...notification(4n),
         version: 2n,
       }),
@@ -181,8 +181,8 @@ describe("signBidirectionalEvent", () => {
   });
 
   it("MPC-style raw read decodes the stored notification from real contract state", async () => {
-    const { contract, ctx } = await deployContract("signBidirectionalEvent");
-    const { context } = await contract.circuits.signBidirectionalEvent(
+    const { contract, ctx } = await deployContract("signBidirectional");
+    const { context } = await contract.circuits.signBidirectional(
       ctx,
       REQUEST_A,
       notification(4n),
@@ -217,7 +217,7 @@ interface Post {
 interface PostCase {
   /** Test name, completing the sentence "stores <name>". */
   name: string;
-  /** Posts applied in order, each through postSignatureResponse. */
+  /** Posts applied in order, each through respond. */
   posts: Post[];
   /** The FULL expected counter map: total posts per request id. */
   expectedCounters: { requestId: Uint8Array; total: bigint }[];
@@ -279,16 +279,16 @@ const POST_CASES: PostCase[] = [
   },
 ];
 
-describe("postSignatureResponse", () => {
+describe("respond", () => {
   it.each(POST_CASES)(
     "stores $name",
     async ({ posts, expectedCounters, expectedEntries }) => {
-      const { contract, ctx } = await deployContract("postSignatureResponse");
+      const { contract, ctx } = await deployContract("respond");
 
       let finalCtx = ctx;
       for (const { requestId, signature } of posts) {
         finalCtx = (
-          await contract.circuits.postSignatureResponse(
+          await contract.circuits.respond(
             finalCtx,
             requestId,
             signature,
@@ -299,21 +299,21 @@ describe("postSignatureResponse", () => {
 
       // The counter map holds EXACTLY the expected requests, each counter
       // reading that request's total number of posts.
-      expect(state.signatureResponseCounterMap.size()).toBe(
+      expect(state.respondCounterMap.size()).toBe(
         BigInt(expectedCounters.length),
       );
       for (const { requestId, total } of expectedCounters) {
-        expect(state.signatureResponseCounterMap.lookup(requestId).read()).toBe(
+        expect(state.respondCounterMap.lookup(requestId).read()).toBe(
           total,
         );
       }
 
       // The response log holds EXACTLY the expected (requestId, count) keys.
-      expect(state.signatureResponseMap.size()).toBe(
+      expect(state.respondMap.size()).toBe(
         BigInt(expectedEntries.length),
       );
       for (const { requestId, count, signature } of expectedEntries) {
-        expect(state.signatureResponseMap.lookup({ count, requestId })).toEqual(
+        expect(state.respondMap.lookup({ count, requestId })).toEqual(
           signature,
         );
       }
@@ -327,9 +327,9 @@ describe("postSignatureResponse", () => {
     // alignment path, so it needs its own lockstep check. Both posts are
     // read back because SIG_1 and SIG_2 differ in recoveryId: a decoder that
     // dropped that field would still match a single 0-valued fixture.
-    const { contract, ctx } = await deployContract("postSignatureResponse");
-    const first = await contract.circuits.postSignatureResponse(ctx, REQUEST_A, SIG_1);
-    const { context } = await contract.circuits.postSignatureResponse(
+    const { contract, ctx } = await deployContract("respond");
+    const first = await contract.circuits.respond(ctx, REQUEST_A, SIG_1);
+    const { context } = await contract.circuits.respond(
       first.context,
       REQUEST_A,
       SIG_2,
@@ -339,17 +339,17 @@ describe("postSignatureResponse", () => {
       context.callContext.currentQueryContext.state,
     );
     const idHex = requestIdHex(REQUEST_A);
-    expect(raw.signatureResponseCounterMap.get(idHex)).toBe(2n);
-    expect(raw.signatureResponseMap.get(signetMapEntryKey(idHex, 0n))).toEqual(SIG_1);
-    expect(raw.signatureResponseMap.get(signetMapEntryKey(idHex, 1n))).toEqual(SIG_2);
+    expect(raw.respondCounterMap.get(idHex)).toBe(2n);
+    expect(raw.respondMap.get(signetMapEntryKey(idHex, 0n))).toEqual(SIG_1);
+    expect(raw.respondMap.get(signetMapEntryKey(idHex, 1n))).toEqual(SIG_2);
   });
 });
 
-describe("postRespondBidirectional", () => {
+describe("respondBidirectional", () => {
   it("stores a post under (requestId, 0) — UNVERIFIED by design", async () => {
-    const { contract, ctx } = await deployContract("postRespondBidirectional");
+    const { contract, ctx } = await deployContract("respondBidirectional");
 
-    const { context } = await contract.circuits.postRespondBidirectional(
+    const { context } = await contract.circuits.respondBidirectional(
       ctx,
       REQUEST_A,
       RESPOND_1,
@@ -366,14 +366,14 @@ describe("postRespondBidirectional", () => {
   });
 
   it("appends a second post for the same request — nothing overwritten", async () => {
-    const { contract, ctx } = await deployContract("postRespondBidirectional");
+    const { contract, ctx } = await deployContract("respondBidirectional");
 
-    const first = await contract.circuits.postRespondBidirectional(
+    const first = await contract.circuits.respondBidirectional(
       ctx,
       REQUEST_A,
       RESPOND_1,
     );
-    const second = await contract.circuits.postRespondBidirectional(
+    const second = await contract.circuits.respondBidirectional(
       first.context,
       REQUEST_A,
       RESPOND_2,
@@ -391,14 +391,14 @@ describe("postRespondBidirectional", () => {
   });
 
   it("tracks posts per request id", async () => {
-    const { contract, ctx } = await deployContract("postRespondBidirectional");
+    const { contract, ctx } = await deployContract("respondBidirectional");
 
-    const first = await contract.circuits.postRespondBidirectional(
+    const first = await contract.circuits.respondBidirectional(
       ctx,
       REQUEST_A,
       RESPOND_1,
     );
-    const second = await contract.circuits.postRespondBidirectional(
+    const second = await contract.circuits.respondBidirectional(
       first.context,
       REQUEST_B,
       RESPOND_2,
@@ -419,9 +419,9 @@ describe("postRespondBidirectional", () => {
     // Both posts are read back because RESPOND_1 and RESPOND_2 differ in
     // outputLen and recoveryId: a decoder that dropped either field would
     // still match a single fixture whose values happen to be its default.
-    const { contract, ctx } = await deployContract("postRespondBidirectional");
-    const first = await contract.circuits.postRespondBidirectional(ctx, REQUEST_A, RESPOND_1);
-    const { context } = await contract.circuits.postRespondBidirectional(
+    const { contract, ctx } = await deployContract("respondBidirectional");
+    const first = await contract.circuits.respondBidirectional(ctx, REQUEST_A, RESPOND_1);
+    const { context } = await contract.circuits.respondBidirectional(
       first.context,
       REQUEST_A,
       RESPOND_2,

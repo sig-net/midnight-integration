@@ -44,7 +44,7 @@ export ledger pad17: Counter;
 export ledger pad18: Counter;
 
 // field 19: the request map, addressed as chunk 1 slot 14 in raw state.
-export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
+export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EvmType2TxParams<1, 0, 0>, 34, 34>;
 
 // Records the smallest well-formed signet request (the test-caller-contract's
 // fixed composition minus the notifier call): the tests read the stored
@@ -53,28 +53,29 @@ export circuit submitSignatureRequest(
   evmNonce: Uint<64>,
   keyVersion: Uint<8>
 ): [] {
-  const calldata = EVMCalldata<1> {
+  const calldata = EvmCalldata<1> {
     selector: Bytes [0xca, 0x11, 0xab, 0x1e],
     noWords: 1 as Uint<16>,
     words: [pad(32, "signet-caller:fixed-word")]
   };
 
-  const txParams = EVMType2TxParams<1, 0, 0> {
-    to: pad(20, "signet-caller-e2e-to"),
+  // Declaration order (canonical EIP-1559), which is also the request-id hash order.
+  const txParams = EvmType2TxParams<1, 0, 0> {
     chainId: 31337 as Uint<64>,
     nonce: evmNonce,
-    gasLimit: 100000 as Uint<64>,
-    maxFeePerGas: 30000000000 as Uint<128>,       // 30 gwei
     maxPriorityFeePerGas: 1000000000 as Uint<128>, // 1 gwei
+    maxFeePerGas: 30000000000 as Uint<128>,        // 30 gwei
+    gasLimit: 100000 as Uint<64>,
+    to: pad(20, "signet-caller-e2e-to"),
     value: 0 as Uint<128>,
+    calldata: some<EvmCalldata<1>>(calldata),
     accessListEntryCount: 0,
-    accessList: [],
-    calldata: some<EVMCalldata<1>>(calldata)
+    accessList: []
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
   const requestNonce = signetRequestNonce as Uint<64>;
-  const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 34, 34>(
+  const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(
     kernel.self(),
     requestNonce,
     keyVersion,
@@ -88,7 +89,7 @@ export circuit submitSignatureRequest(
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 34, 34>(request));
+  const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signetRequestNonce.increment(1);

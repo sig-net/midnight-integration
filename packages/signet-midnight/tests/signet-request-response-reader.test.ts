@@ -21,8 +21,8 @@ import {
   evmAddressAbiWord,
   numericAbiWord,
   signatureToSignatureRespondedEvent,
-  signBidirectionalEventToSignedEVMTransaction,
-  signBidirectionalEventToUnsignedEVMTransaction,
+  signBidirectionalEventToSignedEvmTransaction,
+  signBidirectionalEventToUnsignedEvmTransaction,
   requestIdHex,
   requestIdType,
   signBidirectionalEventDescriptor,
@@ -47,7 +47,7 @@ const bytes = (length: number, fill: number) =>
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 
-/** The sample request's capacities (the vault's EVMType2TxParams<2, 0, 0>). */
+/** The sample request's capacities (the vault's EvmType2TxParams<2, 0, 0>). */
 const REQUEST_DESCRIPTOR = signBidirectionalEventDescriptor(2, 0, 0, 34, 34);
 
 const REQUEST_ID = bytes(32, 0x2f);
@@ -106,7 +106,7 @@ const IMPOSTER_ADDRESS = computeAddress(IMPOSTER_KEY.publicKey);
 const signResponse = (key: SigningKey): SignatureRespondedEvent =>
   signatureToSignatureRespondedEvent(
     key.sign(
-      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalEventToUnsignedEvmTransaction(REQUEST).unsignedHash,
     ),
   );
 
@@ -392,14 +392,14 @@ describe("getVerifiedSignatureRespondedEvent", () => {
   );
 });
 
-describe("getUnsignedEVMTransaction", () => {
+describe("getUnsignedEvmTransaction", () => {
   it("rebuilds the request's unsigned transaction", async () => {
     const { reader, queries } = makeReader([]);
-    const tx = await reader.getUnsignedEVMTransaction(REQUEST_ID_HEX);
+    const tx = await reader.getUnsignedEvmTransaction(REQUEST_ID_HEX);
 
     expect(tx.isSigned()).toBe(false);
     expect(tx.unsignedHash).toBe(
-      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalEventToUnsignedEvmTransaction(REQUEST).unsignedHash,
     );
     // Unsigned needs only the request record — never touches the signet contract.
     expect(queries.responses).toBe(0);
@@ -408,21 +408,21 @@ describe("getUnsignedEVMTransaction", () => {
   it("throws for a request id not on the ledger", async () => {
     const { reader } = makeReader([]);
     await expect(
-      reader.getUnsignedEVMTransaction(UNKNOWN_ID_HEX),
+      reader.getUnsignedEvmTransaction(UNKNOWN_ID_HEX),
     ).rejects.toThrow(/not on the requester contract's ledger/);
   });
 });
 
-describe("getSignedEVMTransaction", () => {
+describe("getSignedEvmTransaction", () => {
   it("attaches the first verified response, ready to broadcast", async () => {
     const { reader } = makeReader([IMPOSTER_RESPONSE, GENUINE_RESPONSE]);
-    const tx = await reader.getSignedEVMTransaction(REQUEST_ID_HEX, MPC_ADDRESS);
+    const tx = await reader.getSignedEvmTransaction(REQUEST_ID_HEX, MPC_ADDRESS);
 
     expect(tx?.isSigned()).toBe(true);
     expect(tx?.from).toBe(MPC_ADDRESS);
     // Identical to assembling it directly from the request and genuine post.
     expect(tx?.serialized).toBe(
-      signBidirectionalEventToSignedEVMTransaction(REQUEST, GENUINE_RESPONSE)
+      signBidirectionalEventToSignedEvmTransaction(REQUEST, GENUINE_RESPONSE)
         .serialized,
     );
   });
@@ -430,14 +430,14 @@ describe("getSignedEVMTransaction", () => {
   it("returns undefined when no posted response verifies", async () => {
     const { reader } = makeReader([IMPOSTER_RESPONSE, UNDECODABLE_RESPONSE]);
     expect(
-      await reader.getSignedEVMTransaction(REQUEST_ID_HEX, MPC_ADDRESS),
+      await reader.getSignedEvmTransaction(REQUEST_ID_HEX, MPC_ADDRESS),
     ).toBeUndefined();
   });
 
   it("returns undefined when nothing is posted yet", async () => {
     const { reader } = makeReader([]);
     expect(
-      await reader.getSignedEVMTransaction(REQUEST_ID_HEX, MPC_ADDRESS),
+      await reader.getSignedEvmTransaction(REQUEST_ID_HEX, MPC_ADDRESS),
     ).toBeUndefined();
   });
 });

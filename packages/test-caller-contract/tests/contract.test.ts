@@ -31,7 +31,7 @@ import { Contract, ledger, pureCircuits as callerCircuits, witnesses, type Calle
 import { createCallerPrivateState } from "../src/witnesses.ts";
 // The signet contract (callee) module — the same one the caller's generated
 // code cross-contract-calls. submitSignatureRequest ends in a call to its
-// signBidirectionalEvent, so the simulator needs its state (see
+// signBidirectional, so the simulator needs its state (see
 // signetStateProvider) to execute that path.
 import * as SignetSigner from "../src/managed/SignetSigner/contract/index.js";
 
@@ -75,7 +75,7 @@ const BLOCK_HASH = "0".repeat(64);
 /**
  * A ContractStateProvider serving the signet contract's initial state to the
  * simulator's cross-contract call — how submitSignatureRequest reaches
- * signBidirectionalEvent in-process (no node/indexer). Returns the state for
+ * signBidirectional in-process (no node/indexer). Returns the state for
  * any address: the caller only calls the single sealed signet contract.
  */
 const signetStateProvider = async () => {
@@ -336,8 +336,6 @@ const IMPOSTER_PUBLIC = secp256k1PublicKeyOf(IMPOSTER_SECRET);
 const OUTPUT_SUCCESS = new Uint8Array(128);
 OUTPUT_SUCCESS[0] = 1;
 
-const OUTPUT_LEN = 32n;
-
 /**
  * Sign a REAL respond-bidirectional response for (requestId, output) with
  * `secretKey` — the digest comes from the compiled circuit, exactly like the
@@ -349,11 +347,7 @@ const respond = (
   requestId: Uint8Array,
   serializedOutput: Uint8Array,
 ): { r: Uint8Array; s: Uint8Array } => {
-  const digest = signetCircuits.signetAttestationDigest(
-    requestId,
-    serializedOutput,
-    OUTPUT_LEN,
-  );
+  const digest = signetCircuits.signetAttestationDigest(requestId, serializedOutput);
   const sig = signAttestationDigest(digest, secretKey);
   return { r: bigintToBytes32(sig.r), s: bigintToBytes32(sig.s) };
 };
@@ -375,7 +369,6 @@ describe("verifyResponse", () => {
         next,
         requestId,
         OUTPUT_SUCCESS,
-        OUTPUT_LEN,
         sig.r,
         sig.s,
       ),
@@ -391,7 +384,6 @@ describe("verifyResponse", () => {
         ctx,
         requestId,
         OUTPUT_SUCCESS,
-        OUTPUT_LEN,
         sig.r,
         sig.s,
       )
@@ -409,7 +401,6 @@ describe("verifyResponse", () => {
         ctx,
         requestId,
         OUTPUT_SUCCESS,
-        OUTPUT_LEN,
         sig.r,
         sig.s,
       ),
@@ -426,7 +417,6 @@ describe("verifyResponse", () => {
         ctx,
         requestId,
         tamperedOutput,
-        OUTPUT_LEN,
         sig.r,
         sig.s,
       ),
@@ -444,7 +434,6 @@ describe("verifyResponse", () => {
         ctx,
         requestId,
         OUTPUT_SUCCESS,
-        OUTPUT_LEN,
         sig.r,
         sig.s,
       ),
@@ -460,7 +449,6 @@ describe("verifyResponse", () => {
         ctx,
         unknownId,
         OUTPUT_SUCCESS,
-        OUTPUT_LEN,
         sig.r,
         sig.s,
       ),
@@ -475,7 +463,6 @@ describe("verifyResponse", () => {
         ctx,
         requestId,
         OUTPUT_SUCCESS,
-        OUTPUT_LEN,
         sig.r,
         sig.s,
       )
@@ -486,7 +473,6 @@ describe("verifyResponse", () => {
         next,
         requestId,
         OUTPUT_SUCCESS,
-        OUTPUT_LEN,
         sig.r,
         sig.s,
       ),

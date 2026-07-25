@@ -14,6 +14,7 @@ import {
   MPCDestination,
   MPCSignatureAlgorithm,
   TxParamType,
+  calculateRequestId,
   evmAddressAbiWord,
   lookupSignetRequestAt,
   numericAbiWord,
@@ -91,8 +92,11 @@ const CAPACITIES = {
   accessList: [2, 1, 2],
 } as const;
 
-const SAMPLE_REQUEST_ID = bytes(32, 0x2f);
-const ACCESS_LIST_REQUEST_ID = bytes(32, 0x31);
+// Real ids, not filler: an access-list record's atom count is also a valid
+// calldata-only split, so the reader can only tell them apart by the id the
+// record is filed under.
+const SAMPLE_REQUEST_ID = calculateRequestId(SAMPLE_REQUEST);
+const ACCESS_LIST_REQUEST_ID = calculateRequestId(ACCESS_LIST_REQUEST);
 const NONCE = 8n;
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);

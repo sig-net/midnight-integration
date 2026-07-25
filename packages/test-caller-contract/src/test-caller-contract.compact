@@ -36,7 +36,7 @@ sealed ledger signetSigner: SignetSigner;
 // field 4: the request map the MPC reads requests back from. Sized for EVM
 // Type 2 transactions with <1 calldata word, 0 access-list entries,
 // 0 storage keys>: the fixed minimal calldata composed below.
-export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
+export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EvmType2TxParams<1, 0, 0>, 34, 34>;
 
 // field 5: identity commitment of the deployer; gates initialise().
 sealed ledger deployer: Bytes<32>;
@@ -80,28 +80,29 @@ export circuit submitSignatureRequest(
   evmNonce: Uint<64>,
   keyVersion: Uint<8>
 ): SignetMapKey {
-  const calldata = EVMCalldata<1> {
+  const calldata = EvmCalldata<1> {
     selector: Bytes [0xca, 0x11, 0xab, 0x1e],
     noWords: 1 as Uint<16>,
     words: [pad(32, "signet-caller:fixed-word")]
   };
 
-  const txParams = EVMType2TxParams<1, 0, 0> {
-    to: pad(20, "signet-caller-e2e-to"),
+  // Declaration order (canonical EIP-1559), which is also the request-id hash order.
+  const txParams = EvmType2TxParams<1, 0, 0> {
     chainId: 31337 as Uint<64>,
     nonce: evmNonce,
-    gasLimit: 100000 as Uint<64>,
-    maxFeePerGas: 30000000000 as Uint<128>,       // 30 gwei
     maxPriorityFeePerGas: 1000000000 as Uint<128>, // 1 gwei
+    maxFeePerGas: 30000000000 as Uint<128>,        // 30 gwei
+    gasLimit: 100000 as Uint<64>,
+    to: pad(20, "signet-caller-e2e-to"),
     value: 0 as Uint<128>,
+    calldata: some<EvmCalldata<1>>(calldata),
     accessListEntryCount: 0,
-    accessList: [],
-    calldata: some<EVMCalldata<1>>(calldata)
+    accessList: []
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
   const requestNonce = signetRequestNonce as Uint<64>;
-  const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 34, 34>(
+  const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(
     kernel.self(),
     requestNonce,
     keyVersion,
@@ -115,7 +116,7 @@ export circuit submitSignatureRequest(
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 34, 34>(request));
+  const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signetRequestNonce.increment(1);
@@ -124,7 +125,7 @@ export circuit submitSignatureRequest(
 
   // Notify the MPC via the signet contract's registry: the second argument is
   // the ledger field position of signBidirectionalEventMap (4, see layout).
-  const requestMapKey = signetSigner.signBidirectionalEvent(
+  const requestMapKey = signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
@@ -144,7 +145,6 @@ export circuit submitSignatureRequest(
 export circuit verifyResponse(
   requestId: RequestId,
   serializedOutput: Bytes<128>,
-  outputLen: Uint<8>,
   r: Bytes<32>,
   s: Bytes<32>
 ): [] {
@@ -159,7 +159,6 @@ export circuit verifyResponse(
     verifyRespondBidirectionalEvent(
       disclosedRequestId,
       serializedOutput,
-      outputLen,
       r,
       s,
       mpcResponseKey

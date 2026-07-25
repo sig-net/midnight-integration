@@ -1,5 +1,5 @@
 // The EVM Type-2 (EIP-1559) instantiation of the signet request protocol:
-// TypeScript twins of the `EVMType2TxParams` decomposition structs in
+// TypeScript twins of the `EvmType2TxParams` decomposition structs in
 // `Signet.compact`, their runtime descriptors, the ABI-word helpers, and the
 // request -> transaction assembly the signer runs. Everything chain-agnostic
 // (the request record itself, ids, the descriptor toolkit) lives in
@@ -14,7 +14,7 @@ import {
   CompactTypeBytes,
   CompactTypeUnsignedInteger,
   CompactTypeVector,
-  persistentHash,
+  keccak256,
   type CompactType,
 } from "@midnight-ntwrk/compact-runtime";
 import { getAddress, Signature, toBeHex, Transaction } from "ethers";
@@ -37,12 +37,12 @@ import {
 
 /**
  * ABI calldata as a 4-byte selector + 32-byte word slots (Compact:
- * `EVMCalldata<#maxWords>`). Every stored byte is ABI-READY: the calldata the
+ * `EvmCalldata<#maxWords>`). Every stored byte is ABI-READY: the calldata the
  * MPC signs is `selector || words[0..noWords]` VERBATIM (see
  * {@link assembleCalldata}), so words are big-endian broadcast-form ABI words,
  * built in-circuit by Signet.compact's `evmAddressAbiWord` / `numericAbiWord`.
  */
-export interface EVMCalldata {
+export interface EvmCalldata {
   /** The literal first 4 calldata bytes (as broadcast). */
   selector: Uint8Array;
   /** How many leading {@link words} are real (Compact `noWords: Uint<16>`). */
@@ -56,9 +56,9 @@ export interface EVMCalldata {
 
 /**
  * One EIP-2930 access-list entry (Compact:
- * `EVMAccessListEntry<#maxStorageKeys>`).
+ * `EvmAccessListEntry<#maxStorageKeys>`).
  */
-export interface EVMAccessListEntry {
+export interface EvmAccessListEntry {
   /** The pre-declared contract address, 20 display-order bytes. */
   address: Uint8Array;
   /** How many leading {@link storageKeys} are real. */
@@ -69,33 +69,33 @@ export interface EVMAccessListEntry {
 
 /**
  * The EVM transaction to be signed, decomposed into typed fields (Compact:
- * `EVMType2TxParams<#maxCalldataWords, #maxAccessListEntries,
+ * `EvmType2TxParams<#maxCalldataWords, #maxAccessListEntries,
  * #maxStorageKeysPerEntry>`; EIP-1559 — https://eips.ethereum.org/EIPS/eip-1559).
  * Compact `Bytes<N>` fields arrive as N-byte `Uint8Array`s, `Uint<N>` as
  * `bigint`. Vector capacities are each contract's compile-time throttle;
  * the runtime counts say how many leading slots are real.
  */
-export interface EVMType2TxParams {
-  /** Call target (e.g. the ERC20 contract), 20 bytes. */
-  to: Uint8Array;
+export interface EvmType2TxParams {
   /** EVM chain id (also expressed in the record's `caip2Id`). */
   chainId: bigint;
   /** Account nonce of the MPC-derived sender address. */
   nonce: bigint;
-  /** Gas ceiling for the call. */
-  gasLimit: bigint;
-  /** Max total fee per gas, wei. */
-  maxFeePerGas: bigint;
   /** Max priority fee per gas, wei. */
   maxPriorityFeePerGas: bigint;
+  /** Max total fee per gas, wei. */
+  maxFeePerGas: bigint;
+  /** Gas ceiling for the call. */
+  gasLimit: bigint;
+  /** Call target (e.g. the ERC20 contract), 20 bytes. */
+  to: Uint8Array;
   /** ETH sent with the call, wei. */
   value: bigint;
+  /** Call data; `is_some: false` means a plain ETH transfer (`0x` data). */
+  calldata: Maybe<EvmCalldata>;
   /** How many leading {@link accessList} entries are real. */
   accessListEntryCount: bigint;
   /** EIP-2930 access list slots (capacity = contract's throttle). */
-  accessList: EVMAccessListEntry[];
-  /** Call data; `is_some: false` means a plain ETH transfer (`0x` data). */
-  calldata: Maybe<EVMCalldata>;
+  accessList: EvmAccessListEntry[];
 }
 
 // ---- Runtime descriptors (see the deviation note in signet-requests.ts) ----
@@ -110,14 +110,14 @@ const UINT_64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
 const UINT_128 = new CompactTypeUnsignedInteger(2n ** 128n - 1n, 16);
 
 /**
- * Descriptor of {@link EVMCalldata} at one word capacity — the TS analogue
- * of instantiating Compact's `EVMCalldata<#maxWords>`.
+ * Descriptor of {@link EvmCalldata} at one word capacity — the TS analogue
+ * of instantiating Compact's `EvmCalldata<#maxWords>`.
  *
  * @param maxWords - The contract's calldata word capacity (the vault uses 2).
  * @returns The calldata descriptor.
  */
-export function evmCalldataDescriptor(maxWords: number): CompactType<EVMCalldata> {
-  return compactStructDescriptor<EVMCalldata>({
+export function evmCalldataDescriptor(maxWords: number): CompactType<EvmCalldata> {
+  return compactStructDescriptor<EvmCalldata>({
     selector: BYTES_4,
     noWords: UINT_16,
     words: new CompactTypeVector(maxWords, BYTES_32),
@@ -125,16 +125,16 @@ export function evmCalldataDescriptor(maxWords: number): CompactType<EVMCalldata
 }
 
 /**
- * Descriptor of {@link EVMAccessListEntry} at one storage-key capacity
- * (Compact: `EVMAccessListEntry<#maxStorageKeys>`).
+ * Descriptor of {@link EvmAccessListEntry} at one storage-key capacity
+ * (Compact: `EvmAccessListEntry<#maxStorageKeys>`).
  *
  * @param maxStorageKeys - Storage-key capacity per entry.
  * @returns The entry descriptor.
  */
 export function evmAccessListEntryDescriptor(
   maxStorageKeys: number,
-): CompactType<EVMAccessListEntry> {
-  return compactStructDescriptor<EVMAccessListEntry>({
+): CompactType<EvmAccessListEntry> {
+  return compactStructDescriptor<EvmAccessListEntry>({
     address: BYTES_20,
     storageKeyCount: UINT_8,
     storageKeys: new CompactTypeVector(maxStorageKeys, BYTES_32),
@@ -142,8 +142,8 @@ export function evmAccessListEntryDescriptor(
 }
 
 /**
- * Descriptor of {@link EVMType2TxParams} at one capacity instantiation —
- * the TS analogue of Compact's `EVMType2TxParams<#maxCalldataWords,
+ * Descriptor of {@link EvmType2TxParams} at one capacity instantiation —
+ * the TS analogue of Compact's `EvmType2TxParams<#maxCalldataWords,
  * #maxAccessListEntries, #maxStorageKeysPerEntry>`.
  *
  * @param maxCalldataWords - Calldata word capacity.
@@ -155,21 +155,22 @@ export function evmType2TxParamsDescriptor(
   maxCalldataWords: number,
   maxAccessListEntries: number,
   maxStorageKeysPerEntry: number,
-): CompactType<EVMType2TxParams> {
-  return compactStructDescriptor<EVMType2TxParams>({
-    to: BYTES_20,
+): CompactType<EvmType2TxParams> {
+  // Key order IS the encoding order: keep it identical to the Compact struct's.
+  return compactStructDescriptor<EvmType2TxParams>({
     chainId: UINT_64,
     nonce: UINT_64,
-    gasLimit: UINT_64,
-    maxFeePerGas: UINT_128,
     maxPriorityFeePerGas: UINT_128,
+    maxFeePerGas: UINT_128,
+    gasLimit: UINT_64,
+    to: BYTES_20,
     value: UINT_128,
+    calldata: compactMaybeDescriptor(evmCalldataDescriptor(maxCalldataWords)),
     accessListEntryCount: UINT_8,
     accessList: new CompactTypeVector(
       maxAccessListEntries,
       evmAccessListEntryDescriptor(maxStorageKeysPerEntry),
     ),
-    calldata: compactMaybeDescriptor(evmCalldataDescriptor(maxCalldataWords)),
   });
 }
 
@@ -224,7 +225,7 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
   const maxAccessListEntries = txParams.accessList.length;
   const maxStorageKeysPerEntry =
     maxAccessListEntries === 0 ? 0 : txParams.accessList[0].storageKeys.length;
-  return persistentHash(
+  return keccak256(
     signBidirectionalEventDescriptor(
       maxCalldataWords,
       maxAccessListEntries,
@@ -246,7 +247,7 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
  * builders, tests).
  *
  * @param value - The word's numeric value (e.g. an amount).
- * @returns The ABI-ready 32-byte word to store in an {@link EVMCalldata} word.
+ * @returns The ABI-ready 32-byte word to store in an {@link EvmCalldata} word.
  * @throws Error if the value is negative or does not fit 32 bytes.
  */
 export function numericAbiWord(value: bigint): Uint8Array {
@@ -259,7 +260,7 @@ export function numericAbiWord(value: bigint): Uint8Array {
  * `evmAddressAbiWord` circuit (lockstep-tested against the compiled circuit).
  *
  * @param address - The 20-byte address in display order.
- * @returns The ABI-ready 32-byte word to store in an {@link EVMCalldata} word.
+ * @returns The ABI-ready 32-byte word to store in an {@link EvmCalldata} word.
  * @throws Error if the address is not exactly 20 bytes.
  */
 export function evmAddressAbiWord(address: Uint8Array): Uint8Array {
@@ -277,7 +278,7 @@ export function evmAddressAbiWord(address: Uint8Array): Uint8Array {
  * (lockstep-tested against the compiled circuit).
  *
  * @param value - The word's Boolean value.
- * @returns The ABI-ready 32-byte word to store in an {@link EVMCalldata} word.
+ * @returns The ABI-ready 32-byte word to store in an {@link EvmCalldata} word.
  */
 export function boolAbiWord(value: boolean): Uint8Array {
   const word = new Uint8Array(32);
@@ -331,15 +332,15 @@ export function abiWordToBool(word: Uint8Array): boolean {
 /**
  * Assemble the raw calldata a request's words describe:
  * `data = selector || words[0..noWords]`, VERBATIM. Words are stored
- * ABI-ready (see {@link EVMCalldata}), so no byte of the stored record is
+ * ABI-ready (see {@link EvmCalldata}), so no byte of the stored record is
  * reordered or reinterpreted on the way into the transaction; slots past
  * `noWords` are unused capacity and are dropped. This is THE implementation
- * of the signer-side assembly documented on `EVMCalldata` in Signet.compact.
+ * of the signer-side assembly documented on `EvmCalldata` in Signet.compact.
  *
  * @param calldata - The request's calldata field.
  * @returns Hex calldata for the transaction (`"0x"` when absent).
  */
-export function assembleCalldata(calldata: Maybe<EVMCalldata>): string {
+export function assembleCalldata(calldata: Maybe<EvmCalldata>): string {
   if (!calldata.is_some) {
     return "0x";
   }
@@ -359,7 +360,7 @@ export function assembleCalldata(calldata: Maybe<EVMCalldata>): string {
  * @returns The access list, possibly empty.
  */
 function decodeAccessList(
-  txParams: EVMType2TxParams,
+  txParams: EvmType2TxParams,
 ): Array<{ address: string; storageKeys: string[] }> {
   return txParams.accessList
     .slice(0, Number(txParams.accessListEntryCount))
@@ -386,7 +387,7 @@ function decodeAccessList(
  *   MPC signs).
  * @throws Error if a calldata word carries an unknown kind.
  */
-export function signBidirectionalEventToUnsignedEVMTransaction(
+export function signBidirectionalEventToUnsignedEvmTransaction(
   request: SignBidirectionalEvent,
 ): Transaction {
   const { txParams } = request;
@@ -459,7 +460,7 @@ export function signatureToSignatureRespondedEvent(
 /**
  * Assemble the broadcast-ready signed EIP-1559 transaction for a request from
  * its MPC signature response: rebuild the exact unsigned transaction the MPC
- * signed (see {@link signBidirectionalEventToUnsignedEVMTransaction}) and
+ * signed (see {@link signBidirectionalEventToUnsignedEvmTransaction}) and
  * attach the signature. Does NOT check that the signature recovers to the
  * requester's derived address — the response log is unauthenticated, so
  * verify first with `verifySignatureRespondedEvent`.
@@ -470,14 +471,14 @@ export function signatureToSignatureRespondedEvent(
  *   `eth_sendRawTransaction`, `hash` its on-chain hash, `from` the recovered
  *   sender.
  * @throws Error if the request record is malformed (see
- *   {@link signBidirectionalEventToUnsignedEVMTransaction}) or the response
+ *   {@link signBidirectionalEventToUnsignedEvmTransaction}) or the response
  *   is not a decodable signature.
  */
-export function signBidirectionalEventToSignedEVMTransaction(
+export function signBidirectionalEventToSignedEvmTransaction(
   request: SignBidirectionalEvent,
   response: SignatureRespondedEvent,
 ): Transaction {
-  const transaction = signBidirectionalEventToUnsignedEVMTransaction(request);
+  const transaction = signBidirectionalEventToUnsignedEvmTransaction(request);
   transaction.signature = signatureRespondedEventToSignature(response);
   return transaction;
 }

@@ -27,7 +27,7 @@ import {
   type CompactType,
 } from "@midnight-ntwrk/compact-runtime";
 
-import type { EVMType2TxParams } from "./signet-evtype2tx-requests.ts";
+import type { EvmType2TxParams } from "./signet-evtype2tx-requests.ts";
 
 /**
  * 32-byte signet request id (Compact: `new type RequestId = Bytes<32>`).
@@ -54,7 +54,7 @@ export interface ContractAddress {
  * `enum`) so the values stay structurally `number`.
  */
 export const TxParamType = {
-  /** `EVMType2TxParams` (signet-evtype2tx-requests.ts): an EIP-1559 EVM transaction. */
+  /** `EvmType2TxParams` (signet-evtype2tx-requests.ts): an EIP-1559 EVM transaction. */
   evmType2: 0,
   /**
    * Never emitted — mirrors the Compact-side padding variant that keeps the
@@ -103,12 +103,12 @@ export interface Maybe<T> {
  * contract's `SignBidirectionalEventMap` (at whichever ledger field the
  * contract declares it — its notifications name the position). Generic over
  * the tx-params decomposition, exactly like the Compact struct; the default
- * instantiation is {@link EVMType2TxParams} — the only decomposition so far;
+ * instantiation is {@link EvmType2TxParams} — the only decomposition so far;
  * new tx kinds supply their own type argument alongside their Compact struct.
  * The schema fields carry their contract-declared byte widths in their array
  * lengths.
  */
-export interface SignBidirectionalEvent<TxParams = EVMType2TxParams> {
+export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
   /** Address of the client contract that stores this event (`kernel.self()`). */
   sender: ContractAddress;
   /** Contract-local nonce captured when the request was created. */

@@ -88,7 +88,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    // Configured and sized here for an EVM Type 2 transaction with
    // <1 calldata word, 0 access-list entries, 0 storage keys> and
    // 34-byte serialisation schemas.
-   export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
+   export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EvmType2TxParams<1, 0, 0>, 34, 34>;
 
    // Required: The Signet singleton signer interface, set at deploy.
    // Used to notify the MPC of events you add to your signBidirectionalEventMap.
@@ -176,8 +176,8 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
 
    ```compact
    // Construct SignBidirectionalEvent signature request and calculate its RequestId
-   const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 34, 34>(/* ... */);
-   const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 34, 34>(request));
+   const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(/* ... */);
+   const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
    // Store the signature request in your signBidirectionalEventMap for MPC to discover
    signetRequestNonce.increment(1);
@@ -185,7 +185,7 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
 
    // Notify the MPC of the SignBidirectionalEvent and the location of your signBidirectionalEventMap.
    // The location is 0 here based on the position of the declaration in Setup step 2.
-   signetSigner.signBidirectionalEvent(
+   signetSigner.signBidirectional(
       requestId,
       constructSignBidirectionalEventNotificationV1(kernel.self(), 0 as Uint<8>),
    );
@@ -205,7 +205,7 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
    ```ts
    import { JsonRpcProvider } from "ethers";
 
-   const signedTx = await reader.getSignedEVMTransaction(requestId, expectedSigner);
+   const signedTx = await reader.getSignedEvmTransaction(requestId, expectedSigner);
    await new JsonRpcProvider(foreignChainRpcUrl).broadcastTransaction(signedTx.serialized);
    ```
 
@@ -220,7 +220,7 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
 
    ```compact
    assert(
-      verifyRespondBidirectionalEvent(requestId, respondBidirectionalEvent, mpcResponseKey),
+      verifyRespondBidirectionalEvent(requestId, serializedOutput, r, s, mpcResponseKey),
       "Invalid attestation signature"
    );
    signBidirectionalEventMap.remove(requestId);
@@ -228,7 +228,7 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
 
 ## EVM Type 2 transactions and ABI calldata words
 
-An `EVMType2TxParams` request decomposes the EVM transaction into typed fields your contract can enforce field by field in-circuit. Its optional `calldata` is an `EVMCalldata<maxWords>`: the 4-byte function selector plus a list of 32-byte ABI words, per the [Solidity ABI spec](https://docs.soliditylang.org/en/latest/abi-spec.html). Slots past `noWords` are unused capacity and never reach the transaction.
+An `EvmType2TxParams` request decomposes the EVM transaction into typed fields your contract can enforce field by field in-circuit. Its optional `calldata` is an `EvmCalldata<maxWords>`: the 4-byte function selector plus a list of 32-byte ABI words, per the [Solidity ABI spec](https://docs.soliditylang.org/en/latest/abi-spec.html). Slots past `noWords` are unused capacity and never reach the transaction.
 
 Every word must be stored in canonical ABI form (big-endian). The MPC signs a transaction whose calldata is exactly `selector || words[0..noWords]`, byte for byte, so a word stored in any other form becomes a signed transaction calling the foreign contract with garbage arguments. Compact's integer casts are little-endian, so do not hand-roll the byte order: build every word with the module's helper circuits, and read words back with the matching readers.
 
@@ -243,7 +243,7 @@ Every word must be stored in canonical ABI form (big-endian). The MPC signs a tr
 `transfer(address,uint256)`, selector `0xa9059cbb`, takes an address word and a numeric word:
 
 ```compact
-const calldata = EVMCalldata<2> {
+const calldata = EvmCalldata<2> {
   selector: Bytes[0xa9, 0x05, 0x9c, 0xbb],
   noWords: 2 as Uint<16>,
   words: [
@@ -258,7 +258,7 @@ const calldata = EVMCalldata<2> {
 `setApprovalForAll(address,bool)`, selector `0xa22cb465`:
 
 ```compact
-const calldata = EVMCalldata<2> {
+const calldata = EvmCalldata<2> {
   selector: Bytes[0xa2, 0x2c, 0xb4, 0x65],
   noWords: 2 as Uint<16>,
   words: [

@@ -130,8 +130,8 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
     const {
       signBidirectionalEventNotificationCounterMap,
       signBidirectionalEventNotificationMap,
-      signatureResponseCounterMap,
-      signatureResponseMap,
+      respondCounterMap,
+      respondMap,
       respondBidirectionalCounterMap,
       respondBidirectionalMap,
     } = readSignetContractLedgerFromState(syntheticContractState());
@@ -144,14 +144,14 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
       NOTIFICATION,
     );
 
-    expect(signatureResponseCounterMap.size).toBe(1);
-    expect(signatureResponseCounterMap.get(idHex)).toBe(POST_COUNT);
+    expect(respondCounterMap.size).toBe(1);
+    expect(respondCounterMap.get(idHex)).toBe(POST_COUNT);
 
-    expect(signatureResponseMap.size).toBe(2);
-    expect(signatureResponseMap.get(signetMapEntryKey(idHex, 0n))).toEqual(
+    expect(respondMap.size).toBe(2);
+    expect(respondMap.get(signetMapEntryKey(idHex, 0n))).toEqual(
       RESPONSE_0,
     );
-    expect(signatureResponseMap.get(signetMapEntryKey(idHex, 1n))).toEqual(
+    expect(respondMap.get(signetMapEntryKey(idHex, 1n))).toEqual(
       RESPONSE_1,
     );
 
@@ -216,8 +216,8 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
     const ledger = readSignetContractLedgerFromState(fresh);
     expect(ledger.signBidirectionalEventNotificationCounterMap.size).toBe(0);
     expect(ledger.signBidirectionalEventNotificationMap.size).toBe(0);
-    expect(ledger.signatureResponseCounterMap.size).toBe(0);
-    expect(ledger.signatureResponseMap.size).toBe(0);
+    expect(ledger.respondCounterMap.size).toBe(0);
+    expect(ledger.respondMap.size).toBe(0);
     expect(ledger.respondBidirectionalCounterMap.size).toBe(0);
     expect(ledger.respondBidirectionalMap.size).toBe(0);
   });
