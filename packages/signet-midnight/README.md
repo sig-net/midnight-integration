@@ -220,7 +220,7 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
 
    ```compact
    assert(
-      verifyRespondBidirectionalEvent(requestId, serializedOutput, r, s, mpcResponseKey),
+      verifyRespondBidirectionalEvent(requestId, respondBidirectionalEvent, mpcResponseKey),
       "Invalid attestation signature"
    );
    signBidirectionalEventMap.remove(requestId);

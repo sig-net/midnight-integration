@@ -238,10 +238,9 @@ module Signet {
   // chains. No algorithm tag is stored: the scheme is fixed by the request's own
   // MPCSignatureAlgorithm.
   //
-  // Stored bytes are BIG-endian throughout. In-circuit verifiers take the scalars
-  // as explicit little-endian arguments instead of this struct (see
-  // verifyRespondBidirectionalEvent) — Compact cannot reorder bytes in-circuit,
-  // so the re-encoding happens off-chain.
+  // Stored bytes are BIG-endian throughout, the canonical SEC1 order. The scalar
+  // casts read little-endian, so verifyRespondBidirectionalEvent reverses on the
+  // way in rather than making the stored record non-canonical.
   export struct Signature {
     bigR: AffinePoint;
     s: Bytes<32>;
@@ -306,6 +305,17 @@ module Signet {
     return keccak256<Bytes<160>>(Bytes[...requestIdBytes, ...serializedOutput]);
   }
 
+  // Same Bytes -> Vector<Uint<8>> idiom numericAbiWord uses. Pulls in a byte-decomposition
+  // lookup table, a fixed cost the calling circuit pays once and shares with any other
+  // byte-level work it does, so reverse at the boundary and never per element.
+  pure circuit reverseBytes32(b: Bytes<32>): Bytes<32> {
+    const v = b as Vector<32, Uint<8>>;
+    return Bytes[v[31], v[30], v[29], v[28], v[27], v[26], v[25], v[24],
+                 v[23], v[22], v[21], v[20], v[19], v[18], v[17], v[16],
+                 v[15], v[14], v[13], v[12], v[11], v[10], v[9],  v[8],
+                 v[7],  v[6],  v[5],  v[4],  v[3],  v[2],  v[1],  v[0]];
+  }
+
   // Verify a respond-bidirectional attestation against a secp256k1 public key: the
   // ECDSA signature must sign the attestation digest of (requestId, output). This is
   // the check client contracts run before accepting a response (the Signet singleton
@@ -313,23 +323,23 @@ module Signet {
   // from the contract's address + the fixed path "midnight response key", typically
   // hash-pinned in the contract's ledger at deploy time).
   //
-  // Takes the signature COMPONENTS, not the stored event: the record in storage is
-  // unverified transport, so a claim circuit only needs a valid signature over the
-  // digest to exist. Callers read the stored Signature off-chain and pass r (its
-  // bigR.x reduced mod the curve order) and s here as LITTLE-ENDIAN 32-byte scalars
-  // (the byte order `as Secp256k1Scalar` reads; the stored struct is big-endian).
+  // Takes the event as stored: the caller hands over the record it read, and the
+  // big-endian-to-little-endian re-encoding happens here instead of in every
+  // integrator.
+  //
+  // ECDSA's r is bigR.x reduced mod the curve order; bigR.x is taken as-is because it
+  // is already below the order for all but a ~2^-128 fraction of signatures, and one
+  // that is not simply fails to verify.
   export pure circuit verifyRespondBidirectionalEvent(
     requestId: RequestId,
-    serializedOutput: Bytes<128>,
-    r: Bytes<32>,
-    s: Bytes<32>,
+    respondBidirectionalEvent: RespondBidirectionalEvent,
     mpcResponseKey: Secp256k1Point
   ): Boolean {
     return secp256k1EcdsaVerify(
-      signetAttestationDigest(requestId, serializedOutput),
+      signetAttestationDigest(requestId, respondBidirectionalEvent.serializedOutput),
       Secp256k1EcdsaSignature {
-        r: r as Secp256k1Scalar,
-        s: s as Secp256k1Scalar,
+        r: reverseBytes32(respondBidirectionalEvent.signature.bigR.x) as Secp256k1Scalar,
+        s: reverseBytes32(respondBidirectionalEvent.signature.s) as Secp256k1Scalar,
       },
       mpcResponseKey
     );

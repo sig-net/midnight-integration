@@ -184,11 +184,11 @@ export function ecdsaSignatureToMpcSignature(signature: EcdsaSignature): MpcSign
 
 /**
  * Read a stored-form signature back into scalar form — the inverse of
- * {@link ecdsaSignatureToMpcSignature}, and the read side every consumer
- * runs off-chain. `r` comes out as `bigR.x` reduced mod the curve order, the
- * scalar in-circuit verification takes: re-encode it (and `s`) little-endian
- * with {@link bigintToBytes32} for circuit arguments. Rejects records that
- * do not even hold the shape — posts are unauthenticated, so a malformed
+ * {@link ecdsaSignatureToMpcSignature}, for off-chain consumers building a
+ * transaction from the response. In-circuit verification does not need this:
+ * `verifyRespondBidirectionalEvent` takes the stored record as-is. `r` comes
+ * out as `bigR.x` reduced mod the curve order. Rejects records that do not
+ * even hold the shape, since posts are unauthenticated and a malformed
  * record is garbage, not a signature. `bigR.y` is NOT checked against the
  * curve or the recovery id: signature verification is the authority, not
  * this decoder.
