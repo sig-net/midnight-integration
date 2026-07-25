@@ -6,11 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  CompactTypeBytes,
-  CompactTypeVector,
-  persistentHash,
-} from "@midnight-ntwrk/compact-runtime";
+import { hexlify, keccak256 } from "ethers";
 
 import {
   bigintToBytes32,
@@ -66,11 +62,7 @@ const respond = (
   serializedOutput: Uint8Array = OUTPUT_SUCCESS,
   outputLen: bigint = OUTPUT_LEN,
 ): RespondBidirectionalEvent => {
-  const digest = signetCircuits.signetAttestationDigest(
-    requestId,
-    serializedOutput,
-    outputLen,
-  );
+  const digest = signetCircuits.signetAttestationDigest(requestId, serializedOutput);
   return {
     serializedOutput,
     outputLen,
@@ -78,18 +70,60 @@ const respond = (
   };
 };
 
+/**
+ * keccak256 of the 160-byte attestation preimage requestId ++ serializedOutput, hex.
+ * Built on ethers rather than the compact runtime's hashing, so the oracle shares no
+ * code with what it checks.
+ *
+ * @param requestId - The 32-byte request id the attestation is bound to.
+ * @param serializedOutput - The zero-padded 128-byte execution output.
+ * @returns The expected digest, `0x`-prefixed.
+ */
+const attestationOracle = (requestId: Uint8Array, serializedOutput: Uint8Array): string => {
+  const preimage = new Uint8Array(160);
+  preimage.set(requestId, 0);
+  preimage.set(serializedOutput, 32);
+  return keccak256(preimage);
+};
+
 describe("signetAttestationDigest (compiled circuit)", () => {
-  it("hashes (requestId, hash(serializedOutput, outputLen)) into one 32-byte digest", () => {
-    // Oracle for the circuit's nested hash: hash the output bytes with the
-    // length's 32-byte LE field embed, then hash that alongside the id.
-    const vec2 = new CompactTypeVector(2, new CompactTypeBytes(32));
-    const outHash = persistentHash(vec2, [
-      persistentHash(new CompactTypeBytes(128), OUTPUT_SUCCESS),
-      bigintToBytes32(OUTPUT_LEN),
-    ]);
-    expect(
-      signetCircuits.signetAttestationDigest(REQUEST_ID, OUTPUT_SUCCESS, OUTPUT_LEN),
-    ).toEqual(persistentHash(vec2, [REQUEST_ID, outHash]));
+  it("is a standard keccak256 over requestId ++ serializedOutput", () => {
+    // Load-bearing: any standard keccak reproduces this off-chain, so the MPC's
+    // chain-agnostic respond-bidirectional digest needs no Midnight branch.
+    expect(hexlify(signetCircuits.signetAttestationDigest(REQUEST_ID, OUTPUT_SUCCESS))).toEqual(
+      attestationOracle(REQUEST_ID, OUTPUT_SUCCESS),
+    );
+  });
+
+  it("hashes the full declared 128-byte width, trailing zeros included", () => {
+    // Bytes<N> atoms are stored trailing-zero-trimmed, but the digest must cover the
+    // padded width or it stops matching a raw keccak over 160 bytes.
+    const trailingZeroOutput = new Uint8Array(128);
+    trailingZeroOutput.set([0xde, 0xad, 0xbe, 0xef], 0);
+    expect(hexlify(signetCircuits.signetAttestationDigest(REQUEST_ID, trailingZeroOutput))).toEqual(
+      attestationOracle(REQUEST_ID, trailingZeroOutput),
+    );
+  });
+
+  it("never receives outputLen, so a stored outputLen is unauthenticated", () => {
+    // Arity is the proof: the digest cannot depend on a value it never receives, so a
+    // stored event may carry any outputLen under a valid signature. Asserted against the
+    // runtime's arity guard rather than a tampered event, because no verification path
+    // takes outputLen at all, so a tampering case would pass whatever the circuit did.
+    // The cast forces the invalid third argument. If this stops throwing, outputLen is
+    // back in the digest and the malleability note needs revisiting.
+    const overArity = signetCircuits.signetAttestationDigest as unknown as (
+      ...args: readonly unknown[]
+    ) => Uint8Array;
+    expect(() => overArity(REQUEST_ID, OUTPUT_SUCCESS, OUTPUT_LEN)).toThrow(/expected 2 arguments/);
+  });
+
+  it("binds the request id, so the same output under another id is a different digest", () => {
+    const otherId = new Uint8Array(REQUEST_ID);
+    otherId[0] ^= 0xff;
+    expect(signetCircuits.signetAttestationDigest(REQUEST_ID, OUTPUT_SUCCESS)).not.toEqual(
+      signetCircuits.signetAttestationDigest(otherId, OUTPUT_SUCCESS),
+    );
   });
 });
 
@@ -155,13 +189,6 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
       expected: false,
     },
     {
-      name: "fails when the output length was tampered with",
-      event: { ...valid, outputLen: OUTPUT_LEN + 1n },
-      requestId: REQUEST_ID,
-      pk: MPC_PUBLIC,
-      expected: false,
-    },
-    {
       name: "fails for an imposter's signature over the same content",
       event: respond(IMPOSTER_SECRET, REQUEST_ID),
       requestId: REQUEST_ID,
@@ -179,7 +206,6 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
       signetCircuits.verifyRespondBidirectionalEvent(
         requestId,
         event.serializedOutput,
-        event.outputLen,
         bigintToBytes32(sig.r),
         bigintToBytes32(sig.s),
         pk,
@@ -188,11 +214,7 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
   });
 
   it("the recovery id recovers the signing key from the digest", () => {
-    const digest = signetCircuits.signetAttestationDigest(
-      REQUEST_ID,
-      OUTPUT_SUCCESS,
-      OUTPUT_LEN,
-    );
+    const digest = signetCircuits.signetAttestationDigest(REQUEST_ID, OUTPUT_SUCCESS);
     const sig = signAttestationDigest(digest, MPC_SECRET);
     expect([0, 1]).toContain(sig.recoveryId);
   });
@@ -200,7 +222,7 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
 
 describe("ecdsaSignatureToMpcSignature x mpcSignatureToEcdsaSignature", () => {
   const SCALAR_SIG = signAttestationDigest(
-    signetCircuits.signetAttestationDigest(REQUEST_ID, OUTPUT_SUCCESS, OUTPUT_LEN),
+    signetCircuits.signetAttestationDigest(REQUEST_ID, OUTPUT_SUCCESS),
     MPC_SECRET,
   );
   const STORED = ecdsaSignatureToMpcSignature(SCALAR_SIG);

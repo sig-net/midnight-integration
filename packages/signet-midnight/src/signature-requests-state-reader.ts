@@ -13,7 +13,10 @@
 
 import type { CompactType } from "@midnight-ntwrk/compact-runtime";
 
-import { signBidirectionalEventDescriptor } from "./signet-evtype2tx-requests.ts";
+import {
+  calculateRequestId,
+  signBidirectionalEventDescriptor,
+} from "./signet-evtype2tx-requests.ts";
 import {
   requestIdHex,
   type RequestIdHex,
@@ -35,8 +38,8 @@ import {
  * Aligned-value entry count of an event record EXCLUDING the capacity-scaled
  * vectors: sender (1) + requestNonce (1) + keyVersion (1) + path (1) +
  * algo (1) + dest (1) + params (1) + txParamType (1, enums are one atom
- * whatever their byte width) + the EVMType2TxParams fixed fields
- * (to..value = 7, accessListEntryCount = 1) + the calldata Maybe's
+ * whatever their byte width) + the EvmType2TxParams fixed fields
+ * (chainId..value = 7, accessListEntryCount = 1) + the calldata Maybe's
  * is_some (1), selector (1) and noWords (1) + caip2Id (1) + the two schema
  * fields (1 each). A stored event cell therefore holds
  *   `REQUEST_FIXED_VALUE_ATOMS + maxCalldataWords
@@ -66,11 +69,14 @@ export const REQUEST_FIXED_VALUE_ATOMS = 22;
  * fail the request-id recompute, which is the authoritative check anyway.
  *
  * @param atoms - The record cell's aligned value (a fresh copy per attempt).
+ * @param expectedRequestId - The id the record is stored under, used to pick
+ *   between splits when more than one decodes cleanly.
  * @returns The decoded record.
  * @throws Error if no capacity split decodes the value cleanly.
  */
 function decodeSignBidirectionalEvent(
   atoms: AlignedValue,
+  expectedRequestId: RequestIdHex,
 ): SignBidirectionalEvent {
   const variable = atoms.length - REQUEST_FIXED_VALUE_ATOMS;
   if (variable < 0) {
@@ -101,23 +107,37 @@ function decodeSignBidirectionalEvent(
       return undefined;
     }
   };
+  // Several splits can decode cleanly — an access-list entry's 20-byte address atom
+  // re-pads into a 32-byte calldata word just as well — so only the id the record is
+  // filed under separates them. This disambiguates; it does not authenticate (the MPC
+  // recomputes against the sender-bound id before signing).
+  //
+  // First match wins, so the common access-list-free case stays at one decode.
+  // `fallback` preserves the pre-recompute behaviour when no split matches the id.
+  let fallback: SignBidirectionalEvent | undefined;
+  const take = (record: SignBidirectionalEvent | undefined): boolean => {
+    if (record === undefined) return false;
+    fallback ??= record;
+    return requestIdHex(calculateRequestId(record)) === expectedRequestId;
+  };
   // No access list: variable atoms are calldata words alone (one atom each).
-  {
-    const record = attempt(variable, 0, 0);
-    if (record !== undefined) return record;
-  }
+  const accessListFree = attempt(variable, 0, 0);
+  if (take(accessListFree)) return accessListFree!;
   // With an access list: E entries of (2 + K) atoms, the rest words.
   for (let entries = 1; entries * 2 <= variable; entries++) {
     for (let keys = 0; entries * (2 + keys) <= variable; keys++) {
       const words = variable - entries * (2 + keys);
       const record = attempt(words, entries, keys);
-      if (record !== undefined) return record;
+      if (take(record)) return record!;
     }
   }
-  throw new Error(
-    `request record with ${atoms.length} value entries matches no ` +
-      `(calldata words, access-list entries, storage keys) capacity split`,
-  );
+  if (fallback === undefined) {
+    throw new Error(
+      `request record with ${atoms.length} value entries matches no ` +
+        `(calldata words, access-list entries, storage keys) capacity split`,
+    );
+  }
+  return fallback;
 }
 
 /**
@@ -163,13 +183,10 @@ export function readSignetRequestsLedgerFromState(
   const requestsIndex: SignBidirectionalEventIndex = new Map();
   for (const key of map.keys()) {
     // fromValue consumes its input, so hand each descriptor a copy.
-    const requestId = requestIdType.fromValue([...key.value]);
+    const requestId = requestIdHex(requestIdType.fromValue([...key.value]));
     const cell = map.get(key)?.asCell();
     if (cell === undefined) continue;
-    requestsIndex.set(
-      requestIdHex(requestId),
-      decodeSignBidirectionalEvent(cell.value),
-    );
+    requestsIndex.set(requestId, decodeSignBidirectionalEvent(cell.value, requestId));
   }
 
   const nonceCell = signetFieldNode(raw, nonceField).asCell();
@@ -231,7 +248,7 @@ export function lookupSignetRequestAt(
       return undefined;
     }
     try {
-      return decodeSignBidirectionalEvent(cell.value);
+      return decodeSignBidirectionalEvent(cell.value, requestId);
     } catch {
       return undefined; // a cell that is not a decodable request record
     }

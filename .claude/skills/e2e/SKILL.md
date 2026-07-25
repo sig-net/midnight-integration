@@ -123,7 +123,7 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   `docker compose --profile fakenet restart fakenet` re-discovers
   unresponded requests via its startup backfill. Restart the proof server
   only while the responder log shows no in-flight post (every
-  `postSignatureResponse … started` line has its `took Ns`/`FAILED` twin) —
+  `respond … started` line has its `took Ns`/`FAILED` twin) —
   the idle poll loop writes every few seconds, so raw log growth never
   stops.
 - `Failed Proof Server response … /check … 400` with

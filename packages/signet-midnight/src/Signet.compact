@@ -121,7 +121,7 @@ module Signet {
   // TxParamType indicates which transaction-param decomposition a request
   // contains so an off-chain consumer (e.g. the MPC) knows how to re-assemble it.
   export enum TxParamType {
-    evmType2, // EVMType2TxParams: an EIP-1559 EVM transaction (envelope + calldata)
+    evmType2, // EvmType2TxParams: an EIP-1559 EVM transaction (envelope + calldata)
     reserved, // Reserved for future use. Exists to keep enum >= 2 (proof server bug).
   }
 
@@ -166,14 +166,16 @@ module Signet {
   // (see calculateRequestId).
   export new type RequestId = Bytes<32>;
 
-  // RequestId calculation helper: the persistent hash of the full event record, so the id
-  // commits to every field, including the sender address (which scopes ids per contract).
-  // There is deliberately no extra domain-separation tag. Off-chain consumers (the MPC,
-  // clients) must compute this exact hash to locate and authenticate requests.
+  // keccak256 of the whole record, so the id commits to every field including sender
+  // (which scopes ids per contract). No domain-separation tag, deliberately.
+  //
+  // Hashes the field-aligned binary representation (each field re-padded to its declared
+  // width), NOT an ABI/EIP-712 field encoding, so off-chain consumers must reproduce that
+  // layout exactly. Type argument is the INPUT type; the return is always Bytes<32>.
   export pure circuit calculateRequestId<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
     request: SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>
   ): RequestId {
-    return persistentHash<SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>>(request) as RequestId;
+    return keccak256<SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>>(request) as RequestId;
   }
 
   // ---- Client Contract: SignBidirectionalEvent Map ---------------------------------------------------
@@ -190,7 +192,7 @@ module Signet {
   // Signet singleton to notify the MPC of a SignBidirectionalEvent.
   export contract SignetSigner {
     // Called by client contracts to notify the MPC of a SignBidirectionalEvent.
-    circuit signBidirectionalEvent(
+    circuit signBidirectional(
       // Canonical id of the SignBidirectionalEvent (calculate with calculateRequestId).
       requestId: RequestId,
       // Versioned notification of the SignBidirectionalEvent
@@ -274,9 +276,8 @@ module Signet {
     // Meaningful byte count of serializedOutput.
     outputLen: Uint<8>;
 
-    // The attestation signature over signetAttestationDigest(requestId,
-    // serializedOutput, outputLen). The scalar the verify circuit takes as r
-    // is this signature's bigR.x reduced mod the curve order.
+    // Signs signetAttestationDigest(requestId, serializedOutput) — outputLen above is
+    // NOT covered. The verify circuit's r is this signature's bigR.x mod the curve order.
     signature: Signature;
   }
 
@@ -287,23 +288,22 @@ module Signet {
     requestId: RequestId;
   };
 
-  // The 32-byte digest the MPC ECDSA-signs to attest a remote execution:
-  // the persistent hash of the request id together with hash(serializedOutput, outputLen).
-  // The inner hash binds the output together with its length so neither can be swapped
-  // under a reused signature. secp256k1EcdsaVerify interprets the digest as a BIG-ENDIAN
-  // integer reduced mod the curve order (RFC 6979 convention). ONE implementation for
-  // everyone: client contracts verify against it in-circuit, and off-chain signers (the
-  // MPC, tests) call the compiled copy via circuits.compact, never a TS re-implementation.
+  // The 32-byte digest the MPC ECDSA-signs to attest a remote execution: keccak256 over
+  // requestId (32) ++ serializedOutput (128). The output is hashed as the full zero-padded
+  // Bytes<128>, not at its meaningful length, because Compact cannot hash a runtime-length
+  // prefix — an off-chain signer must pad to exactly 128 before hashing.
+  //
+  // outputLen is NOT covered. A consumer that treats it as attested must pin it itself.
+  //
+  // secp256k1EcdsaVerify reads the digest as a BIG-ENDIAN integer mod the curve order
+  // (RFC 6979). ONE implementation for everyone: off-chain signers call the compiled copy
+  // via circuits.compact, never a TS re-implementation.
   export pure circuit signetAttestationDigest(
     requestId: RequestId,
-    serializedOutput: Bytes<128>,
-    outputLen: Uint<8>
+    serializedOutput: Bytes<128>
   ): Bytes<32> {
-    const outHash = persistentHash<Vector<2, Bytes<32>>>([
-      persistentHash<Bytes<128>>(serializedOutput),
-      outputLen as Field as Bytes<32>
-    ]);
-    return persistentHash<Vector<2, Bytes<32>>>([requestId as Bytes<32>, outHash]);
+    const requestIdBytes = requestId as Bytes<32>;
+    return keccak256<Bytes<160>>(Bytes[...requestIdBytes, ...serializedOutput]);
   }
 
   // Verify a respond-bidirectional attestation against a secp256k1 public key: the
@@ -321,13 +321,12 @@ module Signet {
   export pure circuit verifyRespondBidirectionalEvent(
     requestId: RequestId,
     serializedOutput: Bytes<128>,
-    outputLen: Uint<8>,
     r: Bytes<32>,
     s: Bytes<32>,
     mpcResponseKey: Secp256k1Point
   ): Boolean {
     return secp256k1EcdsaVerify(
-      signetAttestationDigest(requestId, serializedOutput, outputLen),
+      signetAttestationDigest(requestId, serializedOutput),
       Secp256k1EcdsaSignature {
         r: r as Secp256k1Scalar,
         s: s as Secp256k1Scalar,
@@ -359,23 +358,26 @@ module Signet {
   // count that says how many leading slots are real. Off-chain consumers use
   // the counts; unused capacity is hashed as part of the record (zero-fill by
   // convention) but never reaches the assembled transaction.
-  export struct EVMType2TxParams<#maxCalldataWords, #maxAccessListEntries, #maxStorageKeysPerEntry> {
-    to: Bytes<20>;                   // call target (e.g. the ERC20 contract)
+  // Canonical EIP-1559 payload order, which is the RLP order the MPC re-assembles into.
+  // Each count sits directly before the slot it bounds. This order is also the
+  // request-id hash order, so it is part of the wire contract.
+  export struct EvmType2TxParams<#maxCalldataWords, #maxAccessListEntries, #maxStorageKeysPerEntry> {
     chainId: Uint<64>;               // EVM chain id (also expressed in caip2Id)
     nonce: Uint<64>;                 // account nonce of the derived sender
-    gasLimit: Uint<64>;              // gas ceiling for the call
-    maxFeePerGas: Uint<128>;         // wei
     maxPriorityFeePerGas: Uint<128>; // wei
+    maxFeePerGas: Uint<128>;         // wei
+    gasLimit: Uint<64>;              // gas ceiling for the call
+    to: Bytes<20>;                   // call target (e.g. the ERC20 contract)
     value: Uint<128>;                // ETH sent with the call, in wei
+    calldata: Maybe<EvmCalldata<maxCalldataWords>>; // none = plain ETH transfer ("0x" data)
     accessListEntryCount: Uint<8>;   // how many leading accessList entries are real
-    accessList: Vector<maxAccessListEntries, EVMAccessListEntry<maxStorageKeysPerEntry>>;
-    calldata: Maybe<EVMCalldata<maxCalldataWords>>; // none = plain ETH transfer ("0x" data)
+    accessList: Vector<maxAccessListEntries, EvmAccessListEntry<maxStorageKeysPerEntry>>;
   }
 
   // One EIP-2930 access-list entry (https://eips.ethereum.org/EIPS/eip-2930):
   // an address plus the storage keys the transaction pre-declares. Keys are
   // raw 32-byte values, copied verbatim into the RLP encoding.
-  export struct EVMAccessListEntry<#maxStorageKeys> {
+  export struct EvmAccessListEntry<#maxStorageKeys> {
     address: Bytes<20>;
     storageKeyCount: Uint<8>; // how many leading storageKeys are real
     storageKeys: Vector<maxStorageKeys, Bytes<32>>;
@@ -387,7 +389,7 @@ module Signet {
   // the MPC signs a transaction composed of exactly these words. See the
   // ABI Calldata Word Construction Utilities below for help constructing
   // canonical ABI words for common types.
-  export struct EVMCalldata<#maxWords> {
+  export struct EvmCalldata<#maxWords> {
     selector: Bytes<4>;  // the literal first 4 calldata bytes
     noWords: Uint<16>;   // No. of used words in the words list
     words: Vector<maxWords, Bytes<32>>; // canonical ABI words (big-endian)

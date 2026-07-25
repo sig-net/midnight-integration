@@ -20,8 +20,8 @@ import {
   evmAddressAbiWord,
   numericAbiWord,
   signatureToSignatureRespondedEvent,
-  signBidirectionalEventToSignedEVMTransaction,
-  signBidirectionalEventToUnsignedEVMTransaction,
+  signBidirectionalEventToSignedEvmTransaction,
+  signBidirectionalEventToUnsignedEvmTransaction,
   recoverSignatureResponseSigner,
   verifySignatureRespondedEvent,
   type SignBidirectionalEvent,
@@ -92,7 +92,7 @@ const signResponse = (
 ): SignatureRespondedEvent =>
   signatureToSignatureRespondedEvent(
     key.sign(
-      signBidirectionalEventToUnsignedEVMTransaction(request).unsignedHash,
+      signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash,
     ),
   );
 
@@ -125,9 +125,9 @@ const withWord = (
 
 // ---- Tests ----
 
-describe("signBidirectionalEventToUnsignedEVMTransaction", () => {
+describe("signBidirectionalEventToUnsignedEvmTransaction", () => {
   it("rebuilds the exact EIP-1559 transaction the request describes", () => {
-    const tx = signBidirectionalEventToUnsignedEVMTransaction(REQUEST);
+    const tx = signBidirectionalEventToUnsignedEvmTransaction(REQUEST);
 
     expect(tx.type).toBe(2);
     expect(tx.chainId).toBe(11155111n);
@@ -234,9 +234,9 @@ describe("verifySignatureRespondedEvent", () => {
   );
 });
 
-describe("signBidirectionalEventToSignedEVMTransaction", () => {
+describe("signBidirectionalEventToSignedEvmTransaction", () => {
   it("attaches the response signature to the request's transaction", () => {
-    const signed = signBidirectionalEventToSignedEVMTransaction(
+    const signed = signBidirectionalEventToSignedEvmTransaction(
       REQUEST,
       VALID_RESPONSE,
     );
@@ -245,7 +245,7 @@ describe("signBidirectionalEventToSignedEVMTransaction", () => {
     // Signing is non-destructive: the signed tx carries the same body as the
     // unsigned one, so its signing hash is unchanged.
     expect(signed.unsignedHash).toBe(
-      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalEventToUnsignedEvmTransaction(REQUEST).unsignedHash,
     );
     // The attached signature recovers to the MPC signer...
     expect(signed.from).toBe(MPC_ADDRESS);
@@ -258,7 +258,7 @@ describe("signBidirectionalEventToSignedEVMTransaction", () => {
 
   it("rejects a response with an out-of-range recovery id", () => {
     expect(() =>
-      signBidirectionalEventToSignedEVMTransaction(REQUEST, withRecoveryId(5n)),
+      signBidirectionalEventToSignedEvmTransaction(REQUEST, withRecoveryId(5n)),
     ).toThrow(/recovery id/);
   });
 });

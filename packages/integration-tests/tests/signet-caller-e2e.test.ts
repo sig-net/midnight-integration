@@ -38,7 +38,7 @@ import {
   SIGNET_DEFAULT_KEY_VERSION,
   type RequestIdHex,
 } from "@sig-net/midnight";
-import { signBidirectionalEventToSignedEVMTransaction } from "@sig-net/midnight";
+import { signBidirectionalEventToSignedEvmTransaction } from "@sig-net/midnight";
 import { ledger as callerContractLedger } from "@midnight-protocol/test-caller-contract";
 import { getAddress } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
@@ -222,7 +222,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // Pins the SignBidirectionalEventNotification payload layout against a
       // LIVE indexer, read exactly the way the MPC reads it — raw signet
       // state by field position through the hand-composed descriptors. The
-      // caller's submit cross-contract-called signBidirectionalEvent to
+      // caller's submit cross-contract-called signBidirectional to
       // register this under the request id (the registry map key: the V1
       // payload itself no longer carries one).
       expect(signatureRequestId).toBeDefined();
@@ -291,7 +291,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
             // the verified response — the typed proof that the MPC's
             // signature answers THIS request from THIS derived account.
             const request = await reader.getSignatureRequest(signatureRequestId);
-            const signedTx = signBidirectionalEventToSignedEVMTransaction(request, verified);
+            const signedTx = signBidirectionalEventToSignedEvmTransaction(request, verified);
             expect(signedTx.from).toBe(getAddress(expectedSigner));
 
             banner([
@@ -343,13 +343,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // bytes (one ABI word) — what the MPC posts for a succeeded call.
       const serializedOutput = new Uint8Array(128);
       serializedOutput[0] = 1;
-      const outputLen = 32n;
 
       const responseSecretKey = deriveMidnightResponseSecretKey(
         hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
       );
-      const digest = signetCircuits.signetAttestationDigest(requestKey, serializedOutput, outputLen);
+      const digest = signetCircuits.signetAttestationDigest(requestKey, serializedOutput);
       const signature = signAttestationDigest(digest, responseSecretKey);
 
       // No key argument: verifyResponse reads the stored MPC response key
@@ -359,7 +358,6 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       await context.caller.callTx.verifyResponse(
         requestKey,
         serializedOutput,
-        outputLen,
         bigintToBytes32(signature.r),
         bigintToBytes32(signature.s),
       );

@@ -22,8 +22,8 @@ import {
 import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
 import type { RawContractState } from "./signature-state-reading.ts";
 import {
-  signBidirectionalEventToSignedEVMTransaction,
-  signBidirectionalEventToUnsignedEVMTransaction,
+  signBidirectionalEventToSignedEvmTransaction,
+  signBidirectionalEventToUnsignedEvmTransaction,
 } from "./signet-evtype2tx-requests.ts";
 import type {
   SignBidirectionalEvent,
@@ -189,12 +189,12 @@ export class SignetRequestResponseReader {
       this.config.signetContractAddress,
       "signet contract",
     );
-    const { signatureResponseCounterMap, signatureResponseMap } =
+    const { respondCounterMap, respondMap } =
       readSignetContractLedgerFromState(raw);
-    const totalPosts = signatureResponseCounterMap.get(requestId) ?? 0n;
+    const totalPosts = respondCounterMap.get(requestId) ?? 0n;
     const responses: SignatureRespondedEvent[] = [];
     for (let count = 0n; count < totalPosts; count++) {
-      const response = signatureResponseMap.get(
+      const response = respondMap.get(
         signetMapEntryKey(requestId, count),
       );
       if (response === undefined) {
@@ -270,10 +270,10 @@ export class SignetRequestResponseReader {
    * @throws Error when the requester contract has no state or holds no
    *   request under `requestId`.
    */
-  async getUnsignedEVMTransaction(
+  async getUnsignedEvmTransaction(
     requestId: RequestIdHex,
   ): Promise<Transaction> {
-    return signBidirectionalEventToUnsignedEVMTransaction(
+    return signBidirectionalEventToUnsignedEvmTransaction(
       await this.getSignatureRequest(requestId),
     );
   }
@@ -294,7 +294,7 @@ export class SignetRequestResponseReader {
    * @throws Error when either contract has no state, the request is not on the
    *   requester's ledger, or the responses ledger is inconsistent.
    */
-  async getSignedEVMTransaction(
+  async getSignedEvmTransaction(
     requestId: RequestIdHex,
     expectedSigner: string,
   ): Promise<Transaction | undefined> {
@@ -308,7 +308,7 @@ export class SignetRequestResponseReader {
     // getSignatureRequest is cached — getVerifiedSignatureRespondedEvent already
     // fetched it, so this is a free lookup, not a second query.
     const request = await this.getSignatureRequest(requestId);
-    return signBidirectionalEventToSignedEVMTransaction(request, verified);
+    return signBidirectionalEventToSignedEvmTransaction(request, verified);
   }
 
   /**

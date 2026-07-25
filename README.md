@@ -77,7 +77,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    // Configured and sized here for an EVM Type 2 transaction with
    // <1 calldata word, 0 access-list entries, 0 storage keys> and
    // 34-byte serialisation schemas.
-   export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
+   export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EvmType2TxParams<1, 0, 0>, 34, 34>;
 
    // Required: The Signet singleton signer interface, set at deploy.
    // Used to notify the MPC of events you add to your signBidirectionalEventMap.
@@ -161,15 +161,15 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
 
 ```compact
 // Construct SignBidirectionalEvent signature request and calculate its RequestId
-const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 34, 34>(/* ... */);
-const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 34, 34>(request));
+const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(/* ... */);
+const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
 // Store the signature request in your signBidirectionalEventMap for MPC to discover
 signBidirectionalEventMap.insert(requestId, disclose(request));
 
 // Notify the MPC of the SignBidirectionalEvent and the location of your signBidirectionalEventMap.
 // The location is 0 here based on the position of the declaration in Setup step 3.
-signetSigner.signBidirectionalEvent(
+signetSigner.signBidirectional(
    requestId,
    constructSignBidirectionalEventNotificationV1(kernel.self(), 0 as Uint<8>),
 );
@@ -189,7 +189,7 @@ signetSigner.signBidirectionalEvent(
    ```ts
    import { JsonRpcProvider } from "ethers";
 
-   const signedTx = await reader.getSignedEVMTransaction(requestId, expectedSigner);
+   const signedTx = await reader.getSignedEvmTransaction(requestId, expectedSigner);
    await new JsonRpcProvider(foreignChainRpcUrl).broadcastTransaction(signedTx.serialized);
    ```
 
@@ -204,7 +204,7 @@ signetSigner.signBidirectionalEvent(
 
    ```compact
    assert(
-      verifyRespondBidirectionalEvent(requestId, respondBidirectionalEvent, mpcResponseKey),
+      verifyRespondBidirectionalEvent(requestId, serializedOutput, r, s, mpcResponseKey),
       "Invalid attestation signature"
    );
    signBidirectionalEventMap.remove(requestId);
