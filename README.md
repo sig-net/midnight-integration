@@ -7,6 +7,16 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 > This Sig Network Midnight Integration is still Under Construction.
 > Use at your own risk and expect rapid iteration.
 
+> ## Version notice
+>
+> This branch documents **0.11.0**, published on npm under the `next` tag. The current `latest` is **0.10.0**, which is what a plain `npm install @sig-net/midnight` installs.
+>
+> 0.11.0 is a breaking protocol release and is not servable yet: it needs a fakenet MPC responder image built against it, and that image has not shipped. Install 0.11.0 only if you are tracking the migration.
+>
+> For the 0.10.0 documentation, read this file at the [`v0.10.0` tag](https://github.com/sig-net/midnight-integration/tree/v0.10.0), with one correction: that revision describes remote execution responses as Schnorr attestations by the MPC's Jubjub key, verified in-circuit by the singleton. That was never the case. Nothing in the protocol uses Schnorr or Jubjub, the singleton stores responses unverified, and the client contract must verify them in its own circuit. This applies to 0.10.0 as well as to 0.11.0.
+>
+> Migrating from 0.10.0 to 0.11.0 requires recompiling and redeploying your contracts: every request id and every derived address changes. The protocol surface was also renamed. `EVMType2TxParams`, `EVMCalldata` and `EVMAccessListEntry` became `EvmType2TxParams`, `EvmCalldata` and `EvmAccessListEntry`; the signer circuit `signBidirectionalEvent` became `signBidirectional`; and `getSignedEVMTransaction` became `getSignedEvmTransaction`.
+
 This integration achieves this this by exposing the MPC's [sign bidirectional flow](https://docs.sig.network/architecture/sign-bidirectional) to contracts on Midnight.
 
 This repository contains the pieces that make that flow available on Midnight: the Sig Network protocol singleton contract, the client-agnostic SDK that contract builders integrate against, and two test caller contracts that exercise the protocol end to end. Example applications built on this integration (such as an ERC20 cross chain vault demo) live in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples).
@@ -268,6 +278,22 @@ Use your /e2e skill to get the integration suite running for me, from fresh clon
 **NOTE:** every `compact compile` against this stack must pass the `--feature-zkir-v3` flag: it is part of the pinned ledger-9 matched set (compiler, node, indexer, proof server), and output compiled without it is not compatible with that stack. This repository's compile scripts already pass it. Integrators compiling their own contracts must pass it themselves (as shown in the [Integrator Guide](#integrator-guide)).
 
 **NOTE:** the midnight proof server is quite heavy. It is recommended that you allocate at least 16 GB of RAM to your docker environment, otherwise expect to have to restart the tests as the proof server hangs.
+
+## Matched set
+
+These versions move together. Bumping one alone produces a stack that compiles but does not interoperate, and the failure is usually silent rather than loud: a responder that does not recognise a request simply never answers it.
+
+| Component | Version | Pinned in |
+| ------- | ------ | ------ |
+| `@sig-net/*` npm packages | 0.11.0 | [`packages/*/package.json`](packages) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:latest` | [`docker-compose.yaml`](docker-compose.yaml) |
+| Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml) |
+| Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight indexer | 4.4.0-pre-alpha.16 (`l91r3-n2r3` build) | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
+| `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
+
+**NOTE:** the fakenet responder is the one member of this set that is not pinned to an exact version. It tracks `:latest`, so the responder you get depends on when you pulled rather than on what this repository records. Each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/signet-solana-program/tags)); `fakenet-v0.6.0` is built against 0.10.0.
 
 # Packages
 
