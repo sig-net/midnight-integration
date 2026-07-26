@@ -7,8 +7,8 @@
 //    - client contract(s): contracts on the Midnight blockchain that integrate with the Signet Distributed MPC
 //                       to execute arbitrary transactions on foreign blockchains.
 //    - Signet singleton: a single contract on the Midnight blockchain holding the Signet registry for transaction
-//                        signature requests and responses, as well as the signed output of transactions executed
-//                        on foreign blockchains.
+//                        signature requests and responses, as well as signed attestations of transactions executed
+//                        on foreign blockchains (the execution outputs themselves travel off chain).
 //
 //  Usage:
 //   // Import this module at the start of a contract (resolved through node_modules via COMPACT_PATH):

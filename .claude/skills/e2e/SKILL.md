@@ -26,6 +26,7 @@ the fakenet responder's config needs a reachable EVM endpoint to boot.
 corepack enable
 yarn install
 compact update 0.33.0-rc.2   # NEVER a bare `compact update`: see ground rules
+yarn compile                 # run before the suites
 docker compose up -d          # node :9944, indexer :8088, proof server :6300, anvil :8545
 cd <repo-root>
 yarn test:integration-tests > /tmp/caller-e2e.log 2>&1 &
@@ -86,7 +87,7 @@ contract it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to
 `.env` (docker compose interpolates the `fakenet` service's environment from
 that file) and runs
 `docker compose --profile fakenet up -d [--force-recreate] fakenet`
-(`ghcr.io/sig-net/fakenet:latest`, built from
+(`ghcr.io/sig-net/fakenet:0.7.0`, built from
 sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 
 - Healthy startup (`docker logs -f fakenet-responder`) prints
@@ -104,8 +105,9 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   it, every post fails verification: publish + re-release the image, or
   (local iteration) bind-mount `./packages/signet-contract/src/managed`
   over the container's key directory.
-- `docker compose pull fakenet` refreshes `:latest` after a `fakenet-v*`
-  release.
+- The image tag is pinned in `docker-compose.yaml` (part of the matched
+  set). On a `fakenet-v*` release, bump the tag there and
+  `docker compose pull fakenet`.
 
 ## Reading failures
 

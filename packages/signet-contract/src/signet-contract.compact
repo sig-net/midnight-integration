@@ -89,7 +89,8 @@ export circuit respond(
 }
 
 // respondBidirectional appends the MPC's respond-bidirectional response (the
-// ECDSA-signed output of the foreign transaction execution) for requestId. Stored
+// ECDSA-signed attestation of the foreign transaction execution: the attestation
+// digest plus the signature over it, never the output itself) for requestId. Stored
 // unverified: callers poll the log by request id and verify the signature themselves
 // against their MPC response key (derived from the caller contract's address + the
 // fixed path "midnight response key", see verifyRespondBidirectionalEvent in

@@ -1,7 +1,8 @@
-# Integration Tests — the generic signet-caller e2e
+# Integration Tests: the signet-caller e2e suites
 
-Everything that needs a **running stack** lives here — nowhere else in the
-repo touches a network from tests. The pipeline has two halves:
+Everything that needs a **running stack** lives here (nowhere else in the
+repo touches a network from tests). The pipeline has a shared setup half
+and two flow files:
 
 - **Setup** (`src/setup/`, run by vitest **globalSetup** — see
   `vitest.config.ts`): environment preflight → MPC key derivation → the
@@ -11,10 +12,11 @@ repo touches a network from tests. The pipeline has two halves:
   in vitest's main process before ANY test file, including single-file runs.
   Every step skips itself when its env var is already set (the hand-off
   steps: when the values are already in `.env` / the responder already runs
-  with them). The pipeline is deliberately **EVM-free**: the caller's
-  request exists to be SIGNED, never broadcast, so no EVM chain, token, or
-  funded derived accounts are involved.
-- **The flow file** (`tests/signet-caller-e2e.test.ts`, `--bail 1`): one
+  with them). The setup pipeline is deliberately **EVM-free**: the generic
+  flow's request exists to be SIGNED, never broadcast, and the real-EVM
+  flow does its own EVM-side setup in-file (target contract deploy and
+  derived-sender funding from the anvil dev funder account).
+- **The generic flow file** (`tests/signet-caller-e2e.test.ts`, `--bail 1`): one
   ordered pipeline whose tests run in source order and feed each other
   through module-scoped state —
   1. `initialise` — pin the caller's MPC response key on-chain. The key is
@@ -33,12 +35,24 @@ repo touches a network from tests. The pipeline has two halves:
   4. `pollSignatureResponse` — the fakenet's ECDSA response arrives on the
      signet contract and verifies against the caller's epsilon-derived
      account.
-  5. `verifyResponse` — verify an ECDSA respond-bidirectional response
-     in-circuit and consume the request. The fakenet only responds after
-     observing a broadcast on the destination chain (a leg this generic
-     exercise deliberately omits), so the response is signed in-test with
-     the MPC response key derived from the suite's shared `MPC_ROOT_KEY`
-     and the caller contract address (the same derivation the fakenet uses).
+  5. `verifyResponse` — verify an ECDSA respond-bidirectional attestation
+     (the digest of the request id and serialised output, plus the MPC's
+     signature over it) in-circuit and consume the request. The event never
+     carries the output itself, so the circuit takes the output bytes as an
+     argument and re-hashes them. The fakenet only attests after observing
+     a broadcast on the destination chain (a leg this generic exercise
+     deliberately omits), so the attestation is signed in-test with the MPC
+     response key derived from the suite's shared `MPC_ROOT_KEY` and the
+     caller contract address (the same derivation the fakenet uses).
+- **The real-EVM flow file** (`tests/signet-caller-evm-e2e.test.ts`): the
+  continuation past signing. The caller contract requests calls against the
+  `SignetEvmTarget` Solidity contract, the suite broadcasts the MPC-signed
+  transaction on the local anvil chain, the fakenet observes the mined
+  execution and posts its attestation, and the suite fetches the raw output
+  from the fakenet's public `/responses/{requestId}` helper API,
+  digest-matches it and verifies it in-circuit. Self-sufficient (its own
+  idempotent initialise stage), so it never depends on the generic flow
+  file having run first.
 
 The unit tests beside it (`tests/env-file.test.ts`, `tests/mpc-keys.test.ts`)
 run offline under plain `yarn test`; the flow file gates itself with
@@ -55,7 +69,7 @@ run offline under plain `yarn test`; the flow file gates itself with
 - **compact compiler** on PATH, then `yarn install` + `yarn compile` from
   the root.
 - For the signature-response leg: the fakenet MPC responder — the `fakenet`
-  compose service (`ghcr.io/sig-net/fakenet:latest`, built from
+  compose service (`ghcr.io/sig-net/fakenet:0.7.0`, built from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)).
   **The setup starts it for you**: right after deploying the signet contract
   it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to `.env`
@@ -69,7 +83,7 @@ run offline under plain `yarn test`; the flow file gates itself with
   ```sh
   docker compose --profile fakenet up -d --force-recreate fakenet
   docker logs -f fakenet-responder     # responder log
-  docker compose pull fakenet          # refresh :latest after a fakenet-v* release
+  docker compose pull fakenet          # pull the pinned image (bump its tag in docker-compose.yaml on a fakenet-v* release)
   ```
 
   The container's config interpolates from the same repo-root `.env`
@@ -79,8 +93,10 @@ run offline under plain `yarn test`; the flow file gates itself with
 ## Running
 
 ```sh
-yarn test:integration-tests                        # from the repo root
-yarn test:integration-tests:signet-caller-e2e      # just the caller flow file
+# All three from the repo root. Run 'yarn compile' first.
+yarn test:integration-tests                            # both flow files
+yarn test:integration-tests:signet-caller-e2e          # just the generic (EVM-free) caller flow file
+yarn test:integration-tests:signet-caller-evm-e2e      # just the real-EVM flow file (broadcast, attestation, /responses fetch)
 ```
 
 Either way the globalSetup pipeline runs first — setup is never skipped by
