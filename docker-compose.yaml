@@ -90,6 +90,12 @@ services:
         condition: service_started
     extra_hosts: # To let the container reach services on the HOST (e.g. a hardhat node)
       - 'host.docker.internal:host-gateway'
+    ports:
+      # The public /responses/{requestId} helper API: the integration tests
+      # fetch each request's raw traced EVM output from here. It is
+      # unauthenticated, so clients digest-match and signature-verify what
+      # they fetch.
+      - '127.0.0.1:3040:3040'
     environment:
       VERBOSE: '${VERBOSE:-false}'
       DISABLE_SOLANA: '${DISABLE_SOLANA:-true}'
