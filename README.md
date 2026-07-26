@@ -9,13 +9,13 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 
 > ## Version notice
 >
-> This branch documents **0.11.0**, published on npm under the `next` tag. The current `latest` is **0.10.0**, which is what a plain `npm install @sig-net/midnight` installs.
+> This branch documents **0.12.0**, the version a plain `npm install @sig-net/midnight` installs.
 >
-> 0.11.0 is a breaking protocol release and is not servable yet: it needs a fakenet MPC responder image built against it, and that image has not shipped. Install 0.11.0 only if you are tracking the migration.
+> 0.12.0 is a breaking protocol release. It pairs with the fakenet MPC responder image built against it (see the matched set below): older responder images do not recognise 0.12.0 requests and simply never answer them. 0.11.0 shipped part of this migration but no responder image was ever built for it, so treat 0.12.0 as the migration target.
 >
-> For the 0.10.0 documentation, read this file at the [`v0.10.0` tag](https://github.com/sig-net/midnight-integration/tree/v0.10.0), with one correction: that revision describes remote execution responses as Schnorr attestations by the MPC's Jubjub key, verified in-circuit by the singleton. That was never the case. Nothing in the protocol uses Schnorr or Jubjub, the singleton stores responses unverified, and the client contract must verify them in its own circuit. This applies to 0.10.0 as well as to 0.11.0.
+> For the 0.10.0 documentation, read this file at the [`v0.10.0` tag](https://github.com/sig-net/midnight-integration/tree/v0.10.0), with one correction: that revision describes remote execution responses as Schnorr attestations by the MPC's Jubjub key, verified in-circuit by the singleton. That was never the case. Nothing in the protocol uses Schnorr or Jubjub, the singleton stores responses unverified, and the client contract must verify them in its own circuit. This applies to 0.10.0 and every later release.
 >
-> Migrating from 0.10.0 to 0.11.0 requires recompiling and redeploying your contracts: every request id and every derived address changes. The protocol surface was also renamed: `EVMType2TxParams`, `EVMCalldata` and `EVMAccessListEntry` became `EvmType2TxParams`, `EvmCalldata` and `EvmAccessListEntry`, the signer circuit `signBidirectionalEvent` became `signBidirectional`, and `getSignedEVMTransaction` became `getSignedEvmTransaction`.
+> Migrating from 0.10.0 requires recompiling and redeploying your contracts: every request id and every derived address changes. The protocol surface was renamed: `EVMType2TxParams`, `EVMCalldata` and `EVMAccessListEntry` became `EvmType2TxParams`, `EvmCalldata` and `EvmAccessListEntry`, the signer circuit `signBidirectionalEvent` became `signBidirectional`, and `getSignedEVMTransaction` became `getSignedEvmTransaction`. The respond-bidirectional event is now hash-only: it carries the 32-byte attestation digest `keccak256(requestId || serializedOutput)` plus the MPC's `Signature`, the serialized output itself travels off chain, and `verifyRespondBidirectionalEvent` takes the output bytes as an argument. Key derivation moved to the sig.network v2.0.0 epsilon scheme.
 
 This integration achieves this by exposing the MPC's [sign bidirectional flow](https://docs.sig.network/architecture/sign-bidirectional) to contracts on Midnight.
 
@@ -285,7 +285,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.11.0 | [`packages/*/package.json`](packages) |
+| `@sig-net/*` npm packages | 0.12.0 | [`packages/*/package.json`](packages) |
 | fakenet MPC responder | `ghcr.io/sig-net/fakenet:latest` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml) |
 | Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
