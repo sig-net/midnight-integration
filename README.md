@@ -7,16 +7,6 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 > This Sig Network Midnight Integration is still Under Construction.
 > Use at your own risk and expect rapid iteration.
 
-> ## Version notice
->
-> This branch documents **0.12.0**, the version a plain `npm install @sig-net/midnight` installs.
->
-> 0.12.0 is a breaking protocol release. It pairs with the fakenet MPC responder image built against it (see the matched set below): older responder images do not recognise 0.12.0 requests and simply never answer them. 0.11.0 shipped part of this migration but no responder image was ever built for it, so treat 0.12.0 as the migration target.
->
-> For the 0.10.0 documentation, read this file at the [`v0.10.0` tag](https://github.com/sig-net/midnight-integration/tree/v0.10.0), with one correction: that revision describes remote execution responses as Schnorr attestations by the MPC's Jubjub key, verified in-circuit by the singleton. That was never the case. Nothing in the protocol uses Schnorr or Jubjub, the singleton stores responses unverified, and the client contract must verify them in its own circuit. This applies to 0.10.0 and every later release.
->
-> Migrating from 0.10.0 requires recompiling and redeploying your contracts: every request id and every derived address changes. The protocol surface was renamed: `EVMType2TxParams`, `EVMCalldata` and `EVMAccessListEntry` became `EvmType2TxParams`, `EvmCalldata` and `EvmAccessListEntry`, the signer circuit `signBidirectionalEvent` became `signBidirectional`, and `getSignedEVMTransaction` became `getSignedEvmTransaction`. The respond-bidirectional event is now hash-only: it carries the 32-byte attestation digest `keccak256(requestId || serializedOutput)` plus the MPC's `Signature`, the serialized output itself travels off chain, and `verifyRespondBidirectionalEvent` takes the output bytes as an argument. Key derivation moved to the sig.network v2.0.0 epsilon scheme.
-
 This integration achieves this by exposing the MPC's [sign bidirectional flow](https://docs.sig.network/architecture/sign-bidirectional) to contracts on Midnight.
 
 This repository contains the pieces that make that flow available on Midnight: the Sig Network protocol singleton contract, the client-agnostic SDK that contract builders integrate against, and two test caller contracts that exercise the protocol end to end. Example applications built on this integration (such as an ERC20 cross chain vault demo) live in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples).
