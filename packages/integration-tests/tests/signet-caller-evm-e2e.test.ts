@@ -1,19 +1,19 @@
 // The REAL-EVM signet e2e flow: the caller contract requests calls against
 // the SignetEvmTarget Solidity contract on the local anvil, the MPC signs,
-// THIS SUITE broadcasts (the MPC only signs — broadcasting is a client
+// THIS SUITE broadcasts (the MPC only signs: broadcasting is a client
 // responsibility), the fakenet observes the mined execution and posts a
 // respond-bidirectional attestation, and the suite independently recomputes
 // the respond bytes (eth_call mirroring the fakenet, deserializeEvmOutput,
 // serializeRespondOutput, calculateSignetAttestationDigest) and matches the
 // attested digest before in-circuit verification. Both abi-serde functions
-// therefore run twice per method — producer side in the fakenet, verifier
-// side here — with byte-equality pinned by the keccak digest.
+// therefore run twice per method (producer side in the fakenet, verifier
+// side here) with byte-equality pinned by the keccak digest.
 //
 // One ordered pipeline per target method, driven by the METHODS config
 // below: adding a Solidity method later means one Solidity function, one
 // submit/verify circuit pair (a new exact-width request map when the schema
 // width is new), and one METHODS entry. Tests run in source order and feed
-// each other through per-method state; the file is self-sufficient (its own
+// each other through per-method state. The file is self-sufficient (its own
 // idempotent initialise stage), so it does not depend on the base EVM-free
 // flow file having run first.
 //
@@ -32,7 +32,7 @@ import {
   requestIdBytes,
   requestIdHex,
   serializeRespondOutput,
-  signBidirectionalEventToSignedEVMTransaction,
+  signBidirectionalEventToSignedEvmTransaction,
   stripHexPrefix,
   toSignBidirectionalEventIndex,
   SIGNET_DEFAULT_KEY_VERSION,
@@ -61,15 +61,15 @@ const env = injectE2eEnv();
 const requireEnv = (name: string): string => requireEnvOf(env, name);
 
 // Wallet facade + caller context + MPC-style readers shared by every test in
-// this file (lazily built, so the offline path never touches the network);
-// stopped once in afterAll.
+// this file (lazily built, so the offline path never touches the network).
+// Stopped once in afterAll.
 const session = createCallerE2eSession(env);
 
 /** The two per-schema-width request maps the caller contract keeps. */
 type CallerRequestMap = "signBidirectionalEventMap" | "signBidirectionalEventMap69";
 
 /**
- * Read one caller request map's keys — present request ids as hex.
+ * Read one caller request map's keys, presented as hex request ids.
  *
  * @param context - The session's caller context.
  * @param map - Which per-width map to read.
@@ -97,7 +97,7 @@ const BOOL_UINT_SCHEMA: AbiSchema = [
 ];
 
 /**
- * One SignetEvmTarget method's flow configuration — the unit of growth.
+ * One SignetEvmTarget method's flow configuration: the unit of growth.
  * Adding a method later means one Solidity function, one submit/verify
  * circuit pair, and one entry here.
  */
@@ -179,9 +179,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
   it(
     "initialise [signet-caller contract method call]: the MPC response key is stored (idempotent)",
     async () => {
-      // Same idempotent logic as the base flow file's initialise stage: this
-      // file must be self-sufficient, vitest's sequencer does not guarantee
-      // the base file ran first.
+      // Same idempotent logic as the base flow file's initialise stage. This
+      // file must be self-sufficient, as vitest's sequencer does not
+      // guarantee the base file ran first.
       const context = await session.callerContext();
       const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
 
@@ -321,7 +321,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           }
           if (verified !== undefined) {
             const request = await reader.getSignatureRequest(requestId);
-            signedTx = signBidirectionalEventToSignedEVMTransaction(request, verified);
+            signedTx = signBidirectionalEventToSignedEvmTransaction(request, verified);
             expect(signedTx.from).toBe(getAddress(expectedSigner));
             return;
           }
@@ -430,7 +430,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           return;
         }
 
-        // The RECOMPUTED bytes go into the circuit — nothing output-shaped
+        // The RECOMPUTED bytes go into the circuit: nothing output-shaped
         // is taken from the fakenet, only the attestation being verified.
         await method.verify(context, requestIdBytes(requestId), attestedEvent, respondBytes);
 

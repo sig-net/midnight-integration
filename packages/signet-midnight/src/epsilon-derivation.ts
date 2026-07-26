@@ -1,14 +1,12 @@
 // Epsilon key derivation: contract address + path -> derived EVM account.
 //
-// This belongs in github.com/sig-net/signet.js — kept here until upstreamed.
-// It is NOT imported from signet.js because signet.js's `deriveChildPublicKey`
-// implements the v2.0.0 COLON-separated epsilon format
-// (`sig.network v2.0.0 epsilon derivation:<chainId>:<requester>:<path>`),
-// which is incompatible with the live sig-net response server's v1.0.0
-// COMMA-separated format (see solana-signet-program
-// clients/response-server/src/modules/CryptoUtils.ts). The two schemes hash
-// different strings and therefore derive different accounts; this module
-// matches the server.
+// This belongs in github.com/sig-net/signet.js, kept here until upstreamed.
+//
+// v2.0.0 (COLON-separated) is the only scheme the MPC answers. The v1.0.0
+// COMMA-separated form is `key_version 0` in the MPC's KDF and is not served;
+// the Compact contracts also assert `keyVersion >= 1`, which selects v2. The
+// two schemes hash different strings and derive different accounts, so a
+// v1 signer silently gets the wrong address rather than an error.
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { computeAddress, keccak256, SigningKey, toUtf8Bytes } from "ethers";
@@ -16,11 +14,11 @@ import { computeAddress, keccak256, SigningKey, toUtf8Bytes } from "ethers";
 import { SECP256K1_ORDER, type Secp256k1Point } from "./ecdsa-attestation.ts";
 
 /**
- * Domain prefix of the sig-net v1.0.0 epsilon derivation scheme, as used by
- * the live response server. The full derivation string is
- * `<prefix>,<chainId>,<requester>,<path>` (comma-separated).
+ * Domain prefix of the sig-net v2.0.0 epsilon derivation scheme. The full
+ * derivation string is `<prefix>:<chainId>:<requester>:<path>` (colon-separated),
+ * matching `caip2_derivation_path` in the MPC's `crypto/src/kdf.rs`.
  */
-export const EPSILON_DERIVATION_PREFIX = "sig.network v1.0.0 epsilon derivation";
+export const EPSILON_DERIVATION_PREFIX = "sig.network v2.0.0 epsilon derivation";
 
 /**
  * CAIP-2 chain id under which the MPC derives keys for requests originating
@@ -48,8 +46,8 @@ export const MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH = "midnight response key";
 
 /**
  * Derive the EVM address the MPC network signs from for a given Midnight
- * contract and derivation path, using the sig-net v1.0.0 epsilon scheme:
- * `epsilon = keccak256("<prefix>,<chainId>,<contractAddress>,<path>")` and
+ * contract and derivation path, using the sig-net v2.0.0 epsilon scheme:
+ * `epsilon = keccak256("<prefix>:<chainId>:<contractAddress>:<path>")` and
  * `derivedPubKey = mpcRootPubKey + epsilon * G` on secp256k1.
  *
  * The MPC treats `path` as an opaque string: the vault's own account uses the
@@ -76,8 +74,8 @@ export function deriveEvmAddress(
 }
 
 /**
- * The epsilon scalar of the sig-net v1.0.0 derivation scheme:
- * `keccak256("<prefix>,<chainId>,<requester>,<path>")` reduced mod the
+ * The epsilon scalar of the sig-net v2.0.0 derivation scheme:
+ * `keccak256("<prefix>:<chainId>:<requester>:<path>")` reduced mod the
  * secp256k1 curve order. Child keys are `root + epsilon` (secret side) and
  * `rootPubKey + epsilon * G` (public side).
  *
@@ -92,7 +90,7 @@ export function deriveEpsilon(
   path: string,
   chainId: string = MIDNIGHT_TESTNET_CHAIN_ID,
 ): bigint {
-  const fullPath = `${EPSILON_DERIVATION_PREFIX},${chainId},${requester},${path}`;
+  const fullPath = `${EPSILON_DERIVATION_PREFIX}:${chainId}:${requester}:${path}`;
   // Reduce mod n before using: noble throws on scalars >= n, whereas the
   // server's scalar arithmetic reduces implicitly.
   return BigInt(keccak256(toUtf8Bytes(fullPath))) % SECP256K1_ORDER;

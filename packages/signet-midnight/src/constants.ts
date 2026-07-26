@@ -1,11 +1,10 @@
 // MPC routing constants + the padded-ASCII codec for the signet request
-// structs. Field widths mirror Signet.compact (the wire format —
-// keep in lockstep); the string constants are the values the MPC network
+// structs. Field widths mirror Signet.compact (the wire format: keep in
+// lockstep), and the string constants are the values the MPC network
 // routes on. Ported from the MVP's contract-cli signet/constants.ts, adapted
-// to the refactor's zero-padded convention (Compact `pad(N, "text")`) — the
-// MVP's 2-byte length-prefixed codec is gone with the old layout.
+// to the refactor's zero-padded convention (Compact `pad(N, "text")`).
 //
-// The routing constants belong in github.com/sig-net/signet.js — kept here
+// The routing constants belong in github.com/sig-net/signet.js, kept here
 // until upstreamed.
 
 /** Width of `SignBidirectionalEvent.caip2Id` (`Bytes<32>`). */
@@ -14,7 +13,7 @@ export const CAIP2_ID_BYTES = 32;
 /** Width of `SignBidirectionalEvent.params` (`Bytes<64>`). */
 export const MPC_PARAMS_BYTES = 64;
 
-/** Width of `EVMCalldata.selector` (`Bytes<4>`) — the literal first 4 calldata bytes. */
+/** Width of `EvmCalldata.selector` (`Bytes<4>`): the literal first 4 calldata bytes. */
 export const SELECTOR_BYTES = 4;
 
 /**
@@ -37,10 +36,10 @@ export const MPC_FAILURE_OUTPUT = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01])
 
 /**
  * Whether an attested serialised output reports a successful remote
- * execution: the first byte is 1 — the packed little-endian encoding of a
+ * execution: the first byte is 1, the packed little-endian encoding of a
  * leading boolean success flag. The output is the exact unpadded respond
- * payload (see `serializeRespondOutput`); its length follows from the
- * request's respond schema, not from any fixed width.
+ * payload (see `serializeRespondOutput`), so its length follows from the
+ * request's respond schema.
  *
  * @param serializedOutput - The attested serialised output.
  * @returns `true` when the remote call succeeded.
@@ -51,7 +50,7 @@ export function executionSucceeded(serializedOutput: Uint8Array): boolean {
 
 /**
  * Whether an attested serialised output is the MPC's error sentinel
- * (see {@link MPC_ERROR_SENTINEL}) rather than a call result.
+ * (see {@link MPC_ERROR_SENTINEL}).
  *
  * @param serializedOutput - The attested serialised output.
  * @returns `true` when the MPC reported an execution error.
@@ -62,13 +61,13 @@ export function isExecutionError(serializedOutput: Uint8Array): boolean {
 
 /**
  * Default MPC key version (`keyVersion` field value). Version 0 is the
- * unsupported legacy format — the canonical MPC (and
+ * unsupported legacy format: the canonical MPC (and
  * `constructSignBidirectionalEvent`) requires `keyVersion >= 1`.
  */
 export const SIGNET_DEFAULT_KEY_VERSION = 1n;
 
 /**
- * Encode text as zero-padded ASCII bytes — the Compact `pad(N, "text")`
+ * Encode text as zero-padded ASCII bytes, the Compact `pad(N, "text")`
  * convention every string-ish field of the request structs uses (consumers
  * NUL-trim on decode).
  *
@@ -80,7 +79,7 @@ export const SIGNET_DEFAULT_KEY_VERSION = 1n;
 export function asciiPadded(text: string, length: number): Uint8Array {
   const encoded = new TextEncoder().encode(text);
   if (encoded.length > length) {
-    throw new Error(`"${text}" is ${encoded.length} bytes — does not fit the ${length}-byte field`);
+    throw new Error(`"${text}" is ${encoded.length} bytes: does not fit the ${length}-byte field`);
   }
   const out = new Uint8Array(length);
   out.set(encoded);

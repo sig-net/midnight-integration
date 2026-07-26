@@ -2,7 +2,7 @@
 // ABI encoder: for each case, words are built exactly as a client (contract
 // circuit or UI) would build them, and the assembled bytes must equal
 // `Interface.encodeFunctionData` output byte for byte. This pins the
-// ABI-ready word convention documented on `EVMCalldata` in Signet.compact:
+// ABI-ready word convention documented on `EvmCalldata` in Signet.compact:
 // words are stored in broadcast form, so assembly is a verbatim
 // concatenation and the no-translation suite below proves the signed
 // transaction's data IS the stored bytes, unreordered and unreinterpreted.
@@ -19,15 +19,15 @@ import {
   bytesToHex,
   evmAddressAbiWord,
   numericAbiWord,
-  signBidirectionalEventToUnsignedEVMTransaction,
-  type EVMType2TxParams,
+  signBidirectionalEventToUnsignedEvmTransaction,
+  type EvmType2TxParams,
   type Maybe,
-  type EVMCalldata,
+  type EvmCalldata,
   type SignBidirectionalEvent,
 } from "../src/index.ts";
 
-// The ERC20 transfer(address,uint256) selector — a realistic calldata fixture
-// (the app-level constant lives in the cli, not the SDK).
+// The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
+// (the app-level constant lives in the cli).
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
 const bytes = (length: number, fill: number) =>
@@ -41,7 +41,7 @@ const someCalldata = (
   selector: Uint8Array,
   words: Uint8Array[],
   noWords: bigint = BigInt(words.length),
-): Maybe<EVMCalldata> => ({
+): Maybe<EvmCalldata> => ({
   is_some: true,
   value: { selector, noWords, words },
 });
@@ -105,7 +105,7 @@ describe("no translation between stored record and signed transaction", () => {
     const word0 = Uint8Array.from({ length: 32 }, (_, i) => 0xd0 + (i % 16));
     const word1 = Uint8Array.from({ length: 32 }, (_, i) => 0x7f - (i % 32));
     const to = bytes(20, 0xaa);
-    const tx = signBidirectionalEventToUnsignedEVMTransaction({
+    const tx = signBidirectionalEventToUnsignedEvmTransaction({
       sender: { bytes: new Uint8Array(32) },
       requestNonce: 0n,
       keyVersion: 1n,
@@ -139,7 +139,7 @@ describe("no translation between stored record and signed transaction", () => {
 });
 
 describe("access list in the rebuilt transaction", () => {
-  const baseTxParams: EVMType2TxParams = {
+  const baseTxParams: EvmType2TxParams = {
     to: bytes(20, 0xaa),
     chainId: 11155111n,
     nonce: 7n,
@@ -159,7 +159,7 @@ describe("access list in the rebuilt transaction", () => {
     },
   };
 
-  const request = (txParams: EVMType2TxParams): SignBidirectionalEvent => ({
+  const request = (txParams: EvmType2TxParams): SignBidirectionalEvent => ({
     sender: { bytes: new Uint8Array(32) },
     requestNonce: 0n,
     keyVersion: 1n,
@@ -179,7 +179,7 @@ describe("access list in the rebuilt transaction", () => {
     const key0 = bytes(32, 0x11);
     // Capacity 2 keys, only 1 in use; the second slot is zero-fill noise the
     // count must exclude.
-    const tx = signBidirectionalEventToUnsignedEVMTransaction(
+    const tx = signBidirectionalEventToUnsignedEvmTransaction(
       request({
         ...baseTxParams,
         accessListEntryCount: 1n,
@@ -205,7 +205,7 @@ describe("access list in the rebuilt transaction", () => {
   });
 
   it("an all-capacity-unused access list serializes as empty", () => {
-    const tx = signBidirectionalEventToUnsignedEVMTransaction(
+    const tx = signBidirectionalEventToUnsignedEvmTransaction(
       request({
         ...baseTxParams,
         accessList: [

@@ -2,27 +2,30 @@
 // circuit. The digest TS twin (`calculateSignetAttestationDigest`) is pinned
 // byte-for-byte against the fixed-width oracle circuits circuits.compact
 // exports, and the signing helper is checked against the COMPILED
-// verification circuit (`pureCircuits.verifyRespondBidirectionalEvent32`) —
-// the same check client contracts run in-circuit at claim time — so the
+// verification circuit (`pureCircuits.verifyRespondBidirectionalEvent32`),
+// the same check client contracts run in-circuit at claim time, so the
 // off-chain signer and the on-chain verifier are pinned against each other
 // in-process.
 
 import { describe, expect, it } from "vitest";
 
 import {
-  bigintToBytes32,
-  bytesToBigint,
+  bigintToBytes32BE,
   calculateSignetAttestationDigest,
+  ecdsaSignatureToMpcSignature,
   executionSucceeded,
   formatSecp256k1PublicKey,
   isExecutionError,
   MPC_ERROR_SENTINEL,
   MPC_FAILURE_OUTPUT,
+  mpcSignatureToEcdsaSignature,
   parseSecp256k1PublicKey,
   SECP256K1_ORDER,
   secp256k1PublicKeyOf,
   signAttestationDigest,
   pureCircuits as signetCircuits,
+  type EcdsaSignature,
+  type MpcSignature,
   type RespondBidirectionalEvent,
 } from "../src/index.ts";
 
@@ -32,7 +35,7 @@ const bytes = (length: number, fill: number) =>
 // Fixed keypairs so every run (and the RFC 6979 deterministic signature) is
 // byte-for-byte reproducible. MPC_SECRET plays the MPC's response key (the
 // per-client-contract key derived from the contract address + the fixed
-// "midnight response key" path); the other is an imposter.
+// "midnight response key" path). The other is an imposter.
 const MPC_SECRET = Uint8Array.from(
   Buffer.from("a3b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1", "hex"),
 );
@@ -46,13 +49,13 @@ const REQUEST_ID = bytes(32, 0x2f);
 
 // A 32-byte serialised output (one ABI word's worth) for the verify tests.
 // The exact unpadded respond payload of a real request follows from its
-// respond schema; the verify circuit never inspects the content.
+// respond schema. The verify circuit never inspects the content.
 const OUTPUT_32 = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
 
 /**
  * Sign a REAL respond-bidirectional response for (requestId, output) with
- * `secretKey` — the digest comes from the TS twin, exactly like the MPC.
- * Signature scalars land as LE bytes, the ledger form.
+ * `secretKey`: the digest comes from the TS twin, exactly like the MPC.
+ * The signature lands in stored form (full R point), the ledger shape.
  */
 const respond = (
   secretKey: Uint8Array,
@@ -63,12 +66,11 @@ const respond = (
     requestId,
     serializedOutput,
   );
-  const sig = signAttestationDigest(attestationDigest, secretKey);
   return {
     attestationDigest,
-    r: bigintToBytes32(sig.r),
-    s: bigintToBytes32(sig.s),
-    recoveryId: BigInt(sig.recoveryId),
+    signature: ecdsaSignatureToMpcSignature(
+      signAttestationDigest(attestationDigest, secretKey),
+    ),
   };
 };
 
@@ -121,6 +123,7 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
 
 describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestationDigest", () => {
   const valid = respond(MPC_SECRET, REQUEST_ID);
+  const validSig = mpcSignatureToEcdsaSignature(valid.signature);
 
   interface VerifyCase {
     name: string;
@@ -144,7 +147,10 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
       name: "the malleated twin (n - s) also verifies: stdlib does NOT enforce low-s",
       event: {
         ...valid,
-        s: bigintToBytes32(SECP256K1_ORDER - bytesToBigint(valid.s)),
+        signature: ecdsaSignatureToMpcSignature({
+          ...validSig,
+          s: SECP256K1_ORDER - validSig.s,
+        }),
       },
       serializedOutput: OUTPUT_32,
       requestId: REQUEST_ID,
@@ -198,6 +204,7 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
   ];
 
   it.each(CASES)("$name", ({ event, serializedOutput, requestId, pk, expected }) => {
+    // The client's exact claim path: hand over the stored record as read.
     expect(
       signetCircuits.verifyRespondBidirectionalEvent32(requestId, serializedOutput, event, pk),
     ).toBe(expected);
@@ -207,6 +214,97 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
     const digest = calculateSignetAttestationDigest(REQUEST_ID, OUTPUT_32);
     const sig = signAttestationDigest(digest, MPC_SECRET);
     expect([0, 1]).toContain(sig.recoveryId);
+  });
+});
+
+describe("ecdsaSignatureToMpcSignature x mpcSignatureToEcdsaSignature", () => {
+  const SCALAR_SIG = signAttestationDigest(
+    calculateSignetAttestationDigest(REQUEST_ID, OUTPUT_32),
+    MPC_SECRET,
+  );
+  const STORED = ecdsaSignatureToMpcSignature(SCALAR_SIG);
+
+  it("reconstructs bigR with x = r and the parity the recovery id names", () => {
+    expect(STORED.bigR.x).toEqual(bigintToBytes32BE(SCALAR_SIG.r));
+    expect(STORED.bigR.y).toHaveLength(32);
+    // Parity of a big-endian integer is its last byte's low bit.
+    expect(STORED.bigR.y[31]! & 1).toBe(SCALAR_SIG.recoveryId);
+    expect(STORED.s).toEqual(bigintToBytes32BE(SCALAR_SIG.s));
+    expect(STORED.recoveryId).toBe(BigInt(SCALAR_SIG.recoveryId));
+  });
+
+  it("round-trips back to the scalar form", () => {
+    expect(mpcSignatureToEcdsaSignature(STORED)).toEqual(SCALAR_SIG);
+  });
+
+  it("reduces a bigR.x beyond the curve order mod n on the way out", () => {
+    expect(
+      mpcSignatureToEcdsaSignature({
+        ...STORED,
+        bigR: { ...STORED.bigR, x: bigintToBytes32BE(SECP256K1_ORDER + 5n) },
+      }).r,
+    ).toBe(5n);
+  });
+
+  /** One row of the encode-reject table: a scalar signature the builder must refuse. */
+  interface EncodeRejectCase {
+    /** Test name, completing the sentence "encoding rejects <name>". */
+    name: string;
+    /** The out-of-domain scalar signature. */
+    signature: EcdsaSignature;
+    /** The expected error. */
+    error: RegExp;
+  }
+
+  const ENCODE_REJECT_CASES: EncodeRejectCase[] = [
+    {
+      name: "a recovery id of 2",
+      signature: { ...SCALAR_SIG, recoveryId: 2 },
+      error: /recovery id/,
+    },
+    {
+      // x = 5 has no square root on secp256k1 (smallest such x), so no point
+      // exists to reconstruct.
+      name: "an r that is not an x coordinate on the curve",
+      signature: { ...SCALAR_SIG, r: 5n },
+      error: /not the x coordinate/,
+    },
+  ];
+
+  it.each(ENCODE_REJECT_CASES)("encoding rejects $name", ({ signature, error }) => {
+    expect(() => ecdsaSignatureToMpcSignature(signature)).toThrow(error);
+  });
+
+  /** One row of the decode-reject table: a stored record the reader must refuse. */
+  interface DecodeRejectCase {
+    /** Test name, completing the sentence "decoding rejects <name>". */
+    name: string;
+    /** The malformed stored record. */
+    signature: MpcSignature;
+    /** The expected error. */
+    error: RegExp;
+  }
+
+  const DECODE_REJECT_CASES: DecodeRejectCase[] = [
+    {
+      name: "a recovery id of 2",
+      signature: { ...STORED, recoveryId: 2n },
+      error: /recovery id/,
+    },
+    {
+      name: "a truncated bigR.x",
+      signature: { ...STORED, bigR: { ...STORED.bigR, x: STORED.bigR.x.subarray(0, 31) } },
+      error: /32-byte/,
+    },
+    {
+      name: "an oversized s",
+      signature: { ...STORED, s: new Uint8Array(33) },
+      error: /32-byte/,
+    },
+  ];
+
+  it.each(DECODE_REJECT_CASES)("decoding rejects $name", ({ signature, error }) => {
+    expect(() => mpcSignatureToEcdsaSignature(signature)).toThrow(error);
   });
 });
 

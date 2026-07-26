@@ -43,7 +43,7 @@ export function evmRpcUrl(env: NodeJS.ProcessEnv): string {
 }
 
 /**
- * Assert `rpcUrl` is the local dev chain (id 31337) — the gate on every
+ * Assert `rpcUrl` is the local dev chain (id 31337): the gate on every
  * dev-funder-signed action in this module.
  *
  * @param rpcUrl - The JSON-RPC endpoint to probe.
@@ -55,7 +55,7 @@ export async function assertLocalDevChain(rpcUrl: string): Promise<void> {
     const { chainId } = await provider.getNetwork();
     if (chainId !== LOCAL_DEV_CHAIN_ID) {
       throw new Error(
-        `EVM endpoint ${rpcUrl} reports chain id ${chainId} — the e2e's dev-funder ` +
+        `EVM endpoint ${rpcUrl} reports chain id ${chainId}: the e2e's dev-funder ` +
           `actions (deploy, funding) only run against the local anvil (${LOCAL_DEV_CHAIN_ID})`,
       );
     }
@@ -100,7 +100,7 @@ export async function deployEvmContract(
 }
 
 /**
- * Whether an address holds contract code — the "kept address survived an
+ * Whether an address holds contract code: the "kept address survived an
  * anvil restart" check.
  *
  * @param rpcUrl - The JSON-RPC endpoint.
@@ -130,7 +130,7 @@ export async function topUpEth(rpcUrl: string, address: string): Promise<bigint>
   try {
     // NonceManager: the provider coalesces identical RPC calls for ~250ms,
     // and with instant automine a second tx's nonce lookup can hit that
-    // cache and reuse the first tx's nonce — track the nonce locally instead.
+    // cache and reuse the first tx's nonce, so track the nonce locally.
     const funder = new NonceManager(new Wallet(LOCAL_FUNDER_PRIVATE_KEY, provider));
     const ethBalance = await provider.getBalance(address);
     if (ethBalance < LOCAL_ETH_TARGET) {
@@ -149,7 +149,7 @@ export async function topUpEth(rpcUrl: string, address: string): Promise<bigint>
 }
 
 /**
- * The chain nonce a fresh request must carry for `address` — the MPC signs
+ * The chain nonce a fresh request must carry for `address`: the MPC signs
  * exactly the nonce the request declares, so it must be current at submit
  * time.
  *
@@ -187,14 +187,13 @@ function isAlreadySubmitted(err: unknown): boolean {
 /**
  * Broadcast an MPC-signed EVM transaction and wait for one confirmation,
  * returning the RECEIPT (the recompute stage needs its block number).
- * Idempotent: a signed tx is content-addressed, so it can only mine once —
- * an existing receipt short-circuits, an already-submitted error is
- * swallowed, and a burned nonce (a different tx took the slot) errors rather
- * than hanging.
+ * Idempotent: a signed tx is content-addressed, so it can only mine once.
+ * An existing receipt short-circuits, an already-submitted error is
+ * swallowed, and a burned nonce (a different tx took the slot) fails fast.
  *
  * @param rpcUrl - The JSON-RPC endpoint.
  * @param transaction - The signed transaction (e.g. from
- *   `signBidirectionalEventToSignedEVMTransaction`).
+ *   `signBidirectionalEventToSignedEvmTransaction`).
  * @returns The mined receipt (status 1).
  * @throws Error when the transaction reverted on-chain (status 0), or its
  *   nonce was consumed by a different transaction.
@@ -218,10 +217,10 @@ export async function broadcastSignedTx(
 
     try {
       await provider.broadcastTransaction(transaction.serialized);
-      console.log(`broadcast: ${hash} (nonce ${nonce}) — waiting for 1 confirmation…`);
+      console.log(`broadcast: ${hash} (nonce ${nonce}), waiting for 1 confirmation…`);
     } catch (err) {
       if (!isAlreadySubmitted(err)) throw err;
-      console.log(`already submitted — waiting for 1 confirmation…`);
+      console.log(`already submitted, waiting for 1 confirmation…`);
     }
 
     for (;;) {
@@ -230,7 +229,7 @@ export async function broadcastSignedTx(
         receipt = await provider.waitForTransaction(hash, 1, 15_000);
       } catch (err) {
         // ethers v6 REJECTS with TIMEOUT at the window edge (it does not
-        // resolve null) — treat as "not yet" and re-check the nonce below.
+        // resolve null): treat as "not yet" and re-check the nonce below.
         if ((err as { code?: string })?.code !== "TIMEOUT") throw err;
         receipt = null;
       }
@@ -247,11 +246,11 @@ export async function broadcastSignedTx(
           return assertMinedOk(latestReceipt, hash);
         }
         throw new Error(
-          `nonce ${nonce} for ${from} was consumed by a different transaction; ` +
-            `this signed tx (${hash}) can never mine`,
+          `nonce ${nonce} for ${from} was consumed by a different transaction, ` +
+            `so this signed tx (${hash}) can never mine`,
         );
       }
-      console.log(`still pending (account nonce ${latestNonce}) — waiting…`);
+      console.log(`still pending (account nonce ${latestNonce}), waiting…`);
     }
   } finally {
     provider.destroy();
@@ -260,7 +259,7 @@ export async function broadcastSignedTx(
 
 /**
  * A mined receipt with `status: 0` means the tx was included but reverted
- * (nonce consumed, gas burned, state rolled back) — a failure, not a result.
+ * (nonce consumed, gas burned, state rolled back): a failure, not a result.
  */
 function assertMinedOk(receipt: TransactionReceipt, hash: string): TransactionReceipt {
   if (receipt.status === 0) {

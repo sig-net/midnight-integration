@@ -1,7 +1,7 @@
 // Round-trip test for the MPC-/client-style signet contract reader: encode
 // all six ledger fields with the canonical descriptors into a synthetic
 // StateValue tree (the shape the indexer returns for the signet contract),
-// then decode them back by field position alone — no compiled contract
+// then decode them back by field position alone, with no compiled contract
 // involved. Mirrors signature-requests-state-reader.test.ts. The notification
 // fixtures are packed by the REAL compiled circuit, pinning the pack↔decode
 // lockstep in-process.
@@ -15,7 +15,6 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 
 import {
-  bigintToBytes32,
   bytesToHex,
   decodeSignBidirectionalNotification,
   pureCircuits,
@@ -40,34 +39,25 @@ const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 
 const REQUEST_ID = bytes(32, 0x2f);
 // Two signature responses posted for REQUEST_ID: counter reads 2, entries at
-// counts 0..1.
+// counts 0..1. Synthetic signatures (the reader decodes, it does not verify).
 const POST_COUNT = 2n;
 const RESPONSE_0: SignatureRespondedEvent = {
-  bigRx: bytes(32, 0xa0),
-  bigRy: bytes(32, 0xa1),
-  s: bytes(32, 0xa2),
-  recoveryId: 0n,
+  signature: { bigR: { x: bytes(32, 0xa0), y: bytes(32, 0xa1) }, s: bytes(32, 0xa2), recoveryId: 0n },
 };
 const RESPONSE_1: SignatureRespondedEvent = {
-  bigRx: bytes(32, 0xb0),
-  bigRy: bytes(32, 0xb1),
-  s: bytes(32, 0xb2),
-  recoveryId: 1n,
+  signature: { bigR: { x: bytes(32, 0xb0), y: bytes(32, 0xb1) }, s: bytes(32, 0xb2), recoveryId: 1n },
 };
 
-// One respond-bidirectional response for REQUEST_ID — a synthetic digest and
-// signature scalars (the reader decodes, it does not verify). LE bytes as
-// the ledger stores them.
+// One respond-bidirectional response for REQUEST_ID: a synthetic digest and
+// an equally synthetic signature (the reader decodes, it does not verify).
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
   attestationDigest: bytes(32, 0xd1),
-  r: bigintToBytes32(123456789n),
-  s: bigintToBytes32(987654321n),
-  recoveryId: 1n,
+  signature: { bigR: { x: bytes(32, 0x5c), y: bytes(32, 0x5d) }, s: bytes(32, 0x5e), recoveryId: 1n },
 };
 
 // One notification registered for REQUEST_ID, packed by the compiled circuit
 // (the same packer requester contracts call in-circuit). The request id is
-// NOT in the payload — it lives in the SignetMapKey the record is stored
+// NOT in the payload: it lives in the SignetMapKey the record is stored
 // under.
 const CALLER_ADDRESS_BYTES = bytes(32, 0xc1);
 const NOTIFICATION = pureCircuits.constructSignBidirectionalEventNotificationV1(
@@ -107,7 +97,7 @@ const notificationCell = (record: SignBidirectionalNotificationRecord) =>
   });
 
 // Contract root state: an array of ledger fields in the signet contract's
-// declaration order — notification counter map (0), notification map (1),
+// declaration order: notification counter map (0), notification map (1),
 // signature counter map (2), signature map (3), respond-bidirectional
 // counter map (4), respond-bidirectional map (5).
 const syntheticContractState = () => {
@@ -139,8 +129,8 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
     const {
       signBidirectionalEventNotificationCounterMap,
       signBidirectionalEventNotificationMap,
-      signatureResponseCounterMap,
-      signatureResponseMap,
+      respondCounterMap,
+      respondMap,
       respondBidirectionalCounterMap,
       respondBidirectionalMap,
     } = readSignetContractLedgerFromState(syntheticContractState());
@@ -153,14 +143,14 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
       NOTIFICATION,
     );
 
-    expect(signatureResponseCounterMap.size).toBe(1);
-    expect(signatureResponseCounterMap.get(idHex)).toBe(POST_COUNT);
+    expect(respondCounterMap.size).toBe(1);
+    expect(respondCounterMap.get(idHex)).toBe(POST_COUNT);
 
-    expect(signatureResponseMap.size).toBe(2);
-    expect(signatureResponseMap.get(signetMapEntryKey(idHex, 0n))).toEqual(
+    expect(respondMap.size).toBe(2);
+    expect(respondMap.get(signetMapEntryKey(idHex, 0n))).toEqual(
       RESPONSE_0,
     );
-    expect(signatureResponseMap.get(signetMapEntryKey(idHex, 1n))).toEqual(
+    expect(respondMap.get(signetMapEntryKey(idHex, 1n))).toEqual(
       RESPONSE_1,
     );
 
@@ -225,8 +215,8 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
     const ledger = readSignetContractLedgerFromState(fresh);
     expect(ledger.signBidirectionalEventNotificationCounterMap.size).toBe(0);
     expect(ledger.signBidirectionalEventNotificationMap.size).toBe(0);
-    expect(ledger.signatureResponseCounterMap.size).toBe(0);
-    expect(ledger.signatureResponseMap.size).toBe(0);
+    expect(ledger.respondCounterMap.size).toBe(0);
+    expect(ledger.respondMap.size).toBe(0);
     expect(ledger.respondBidirectionalCounterMap.size).toBe(0);
     expect(ledger.respondBidirectionalMap.size).toBe(0);
   });

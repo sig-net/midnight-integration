@@ -7,7 +7,17 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 > This Sig Network Midnight Integration is still Under Construction.
 > Use at your own risk and expect rapid iteration.
 
-This integration achieves this this by exposing the MPC's [sign bidirectional flow](https://docs.sig.network/architecture/sign-bidirectional) to contracts on Midnight.
+> ## Version notice
+>
+> This branch documents **0.11.0**, published on npm under the `next` tag. The current `latest` is **0.10.0**, which is what a plain `npm install @sig-net/midnight` installs.
+>
+> 0.11.0 is a breaking protocol release and is not servable yet: it needs a fakenet MPC responder image built against it, and that image has not shipped. Install 0.11.0 only if you are tracking the migration.
+>
+> For the 0.10.0 documentation, read this file at the [`v0.10.0` tag](https://github.com/sig-net/midnight-integration/tree/v0.10.0), with one correction: that revision describes remote execution responses as Schnorr attestations by the MPC's Jubjub key, verified in-circuit by the singleton. That was never the case. Nothing in the protocol uses Schnorr or Jubjub, the singleton stores responses unverified, and the client contract must verify them in its own circuit. This applies to 0.10.0 as well as to 0.11.0.
+>
+> Migrating from 0.10.0 to 0.11.0 requires recompiling and redeploying your contracts: every request id and every derived address changes. The protocol surface was also renamed: `EVMType2TxParams`, `EVMCalldata` and `EVMAccessListEntry` became `EvmType2TxParams`, `EvmCalldata` and `EvmAccessListEntry`, the signer circuit `signBidirectionalEvent` became `signBidirectional`, and `getSignedEVMTransaction` became `getSignedEvmTransaction`.
+
+This integration achieves this by exposing the MPC's [sign bidirectional flow](https://docs.sig.network/architecture/sign-bidirectional) to contracts on Midnight.
 
 This repository contains the pieces that make that flow available on Midnight: the Sig Network protocol singleton contract, the client-agnostic SDK that contract builders integrate against, and two test caller contracts that exercise the protocol end to end. Example applications built on this integration (such as an ERC20 cross chain vault demo) live in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples).
 
@@ -77,7 +87,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    // Configured and sized here for an EVM Type 2 transaction with
    // <1 calldata word, 0 access-list entries, 0 storage keys> and
    // 34-byte serialisation schemas.
-   export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
+   export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EvmType2TxParams<1, 0, 0>, 34, 34>;
 
    // Required: The Signet singleton signer interface, set at deploy.
    // Used to notify the MPC of events you add to your signBidirectionalEventMap.
@@ -94,7 +104,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    sealed ledger deployer: Bytes<32>;
 
    // Recommended: supplies the deployer's identity secret from private state
-   // off-chain; only its commitment (below) ever reaches the ledger.
+   // off-chain. Only its commitment (below) ever reaches the ledger.
    witness witnessDeployerSecretKey(): Bytes<32>;
 
    // Recommended: the deployer identity commitment scheme. Exported so deploy
@@ -161,15 +171,15 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
 
 ```compact
 // Construct SignBidirectionalEvent signature request and calculate its RequestId
-const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 34, 34>(/* ... */);
-const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 34, 34>(request));
+const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(/* ... */);
+const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
 // Store the signature request in your signBidirectionalEventMap for MPC to discover
 signBidirectionalEventMap.insert(requestId, disclose(request));
 
 // Notify the MPC of the SignBidirectionalEvent and the location of your signBidirectionalEventMap.
 // The location is 0 here based on the position of the declaration in Setup step 3.
-signetSigner.signBidirectionalEvent(
+signetSigner.signBidirectional(
    requestId,
    constructSignBidirectionalEventNotificationV1(kernel.self(), 0 as Uint<8>),
 );
@@ -189,7 +199,7 @@ signetSigner.signBidirectionalEvent(
    ```ts
    import { JsonRpcProvider } from "ethers";
 
-   const signedTx = await reader.getSignedEVMTransaction(requestId, expectedSigner);
+   const signedTx = await reader.getSignedEvmTransaction(requestId, expectedSigner);
    await new JsonRpcProvider(foreignChainRpcUrl).broadcastTransaction(signedTx.serialized);
    ```
 
@@ -246,35 +256,51 @@ The generic end to end integration suite drives the smallest possible client (th
    ```sh
    yarn test:integration-tests
    ```
-   Green looks like `Tests  4 passed (4)`. Afterwards, save the printed `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips compile and deploy (~2 minutes; the signet contract address is appended to `.env` automatically).
+   Green looks like `Tests  4 passed (4)`. Afterwards, save the printed `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips compile and deploy (~2 minutes). The signet contract address is appended to `.env` automatically.
 
 **TIP:** If you are using Claude Code you can ask it to do all of this for you using this [skill](.claude/skills/e2e/SKILL.md), for example:
 ```
 Use your /e2e skill to get the integration suite running for me, from fresh clone to green. Recover the run yourself if anything fails along the way.
 ```
 
-**NOTE:** The most common reason that a run fails is the proof server hanging or crashing when it exhausts memory on a proving leg. This most often presents as the test failing with `connect ECONNREFUSED 127.0.0.1:6300`, with `docker ps -a` showing the proof server container as `Exited (137)`, i.e. OOM-killed. If this happens, restart the proof server and rerun; with the contract addresses kept in `.env` the rerun skips straight to the flow.
+**NOTE:** The most common reason that a run fails is the proof server hanging or crashing when it exhausts memory on a proving leg. This most often presents as the test failing with `connect ECONNREFUSED 127.0.0.1:6300`, with `docker ps -a` showing the proof server container as `Exited (137)`, i.e. OOM-killed. If this happens, restart the proof server and rerun. With the contract addresses kept in `.env` the rerun skips straight to the flow.
 
 # Prerequisites
 
 | Prerequisite | Version | Check With | Where to Get It |
 | ------- | ------| ------  |----------- |
 | Node | ≥ 20 (22+ recommended) | `node --version` | [nodejs.org](https://nodejs.org) or your version manager (nvm, fnm, …) |
-| Yarn 4 (via Corepack) | 4.x | `corepack enable && yarn --version` | Corepack ships with Node; the repo's `packageManager` field pins the Yarn version |
+| Yarn 4 (via Corepack) | 4.x | `corepack enable && yarn --version` | Corepack ships with Node, and the repo's `packageManager` field pins the Yarn version |
 | Compact toolchain | compiler 0.33.0-rc.2, invoked with `--feature-zkir-v3` (see note) | `compact compile --version` → `0.33.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.33.0-rc.2` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)). If the launcher refuses the rc version, use the direct-download recipe in [.github/workflows/ci.yml](.github/workflows/ci.yml) |
 | A docker environment | any recent engine | `docker --version` | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS/Windows) or your distro's engine, with **≥ 16 GB RAM allocated** (see note) |
-| Docker Compose v2 | ≥ 2.x | `docker compose version` | Included with Docker Desktop; plugin package on Linux |
+| Docker Compose v2 | ≥ 2.x | `docker compose version` | Included with Docker Desktop (plugin package on Linux) |
 
 **NOTE:** every `compact compile` against this stack must pass the `--feature-zkir-v3` flag: it is part of the pinned ledger-9 matched set (compiler, node, indexer, proof server), and output compiled without it is not compatible with that stack. This repository's compile scripts already pass it. Integrators compiling their own contracts must pass it themselves (as shown in the [Integrator Guide](#integrator-guide)).
 
 **NOTE:** the midnight proof server is quite heavy. It is recommended that you allocate at least 16 GB of RAM to your docker environment, otherwise expect to have to restart the tests as the proof server hangs.
 
+## Matched set
+
+These versions move together. Bumping one alone produces a stack that compiles but does not interoperate, and the failure is usually silent: a responder that does not recognise a request simply never answers it.
+
+| Component | Version | Pinned in |
+| ------- | ------ | ------ |
+| `@sig-net/*` npm packages | 0.11.0 | [`packages/*/package.json`](packages) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:latest` | [`docker-compose.yaml`](docker-compose.yaml) |
+| Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml) |
+| Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight indexer | 4.4.0-pre-alpha.16 (`l91r3-n2r3` build) | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
+| `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
+
+**NOTE:** the fakenet responder is the one member of this set that is not pinned to an exact version. It tracks `:latest`, so the responder you get depends on when you pulled rather than on what this repository records. Each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/signet-solana-program/tags)). `fakenet-v0.6.0` is built against 0.10.0.
+
 # Packages
 
 | Package | npm | What it is |
 |---|---|---|
-| [`packages/signet-midnight`](packages/signet-midnight) | `@sig-net/midnight` | Client-agnostic signet protocol library: shared Compact modules, TS twins of the wire structs, state readers, request feed/resolver, crypto (epsilon derivation, Schnorr) |
-| [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: signature-response log (in-circuit Schnorr verified) + request-notification registry |
+| [`packages/signet-midnight`](packages/signet-midnight) | `@sig-net/midnight` | Client-agnostic signet protocol library: shared Compact modules, TS twins of the wire structs, state readers, request feed/resolver, crypto (epsilon derivation, secp256k1 ECDSA attestations) |
+| [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: unverified counted response logs + request-notification registry |
 | [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the singleton + the generic deploy/wallet plumbing |
 | [`packages/midnight-serde`](packages/midnight-serde) | `@sig-net/midnight-serde` | TypeScript twin of Compact's builtin `serialize<T,N>`/`deserialize<T,N>` byte layout, pinned byte-for-byte against compiled fixture circuits. Zero runtime dependencies |
 | [`packages/test-caller-contract`](packages/test-caller-contract) | repo-private | Integration-testing caller contract: submit a signature request, verify the response, the smallest thing that drives the protocol. Testing only, not an integration example |

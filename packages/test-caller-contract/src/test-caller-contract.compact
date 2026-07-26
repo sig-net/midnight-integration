@@ -32,7 +32,7 @@ export ledger signetRequestNonce: Counter;
 // field 2: the MPC response key for this contract, pinned by initialise().
 export ledger mpcResponseKey: Secp256k1Point;
 
-// field 3: the central signet contract, sealed at deploy; submitSignatureRequest
+// field 3: the central signet contract, sealed at deploy. submitSignatureRequest
 // cross-contract-calls it to register the request notification the MPC polls.
 sealed ledger signetSigner: SignetSigner;
 
@@ -44,9 +44,9 @@ sealed ledger signetSigner: SignetSigner;
 // (never NUL-padded: the MPC's raw reader recovers the width from the
 // stored bytes, and trailing zeros would be trimmed), so a request with a
 // different schema length needs its own map: see field 7.
-export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 34, 34>;
+export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EvmType2TxParams<1, 0, 0>, 34, 34>;
 
-// field 5: identity commitment of the deployer; gates initialise().
+// field 5: identity commitment of the deployer, gating initialise().
 sealed ledger deployer: Bytes<32>;
 
 // field 6: whether initialise has run (0 = no, 1 = yes).
@@ -57,7 +57,7 @@ export ledger initialised: Counter;
 // pattern: the notification names each map's field position, so the MPC
 // locates whichever map a request lives in. New fields append AFTER this
 // one, existing positions stay fixed.
-export ledger signBidirectionalEventMap69: SignBidirectionalEventMap<EVMType2TxParams<1, 0, 0>, 69, 69>;
+export ledger signBidirectionalEventMap69: SignBidirectionalEventMap<EvmType2TxParams<1, 0, 0>, 69, 69>;
 
 witness deployerSecretKey(): Bytes<32>;
 
@@ -89,34 +89,35 @@ export circuit initialise(responseKey: Secp256k1Point): [] {
 
 // Tests submitting the smallest well-formed signet request. Everything about
 // the transaction is a contract-fixed constant (a syntactically valid payload
-// to be SIGNED, never broadcast); the caller supplies only the derived
+// to be SIGNED, never broadcast). The caller supplies only the derived
 // account's EVM nonce and the MPC key version.
 export circuit submitSignatureRequest(
   evmNonce: Uint<64>,
   keyVersion: Uint<8>
 ): SignetMapKey {
-  const calldata = EVMCalldata<1> {
+  const calldata = EvmCalldata<1> {
     selector: Bytes [0xca, 0x11, 0xab, 0x1e],
     noWords: 1 as Uint<16>,
     words: [pad(32, "signet-caller:fixed-word")]
   };
 
-  const txParams = EVMType2TxParams<1, 0, 0> {
-    to: pad(20, "signet-caller-e2e-to"),
+  // Declaration order (canonical EIP-1559), which is also the request-id hash order.
+  const txParams = EvmType2TxParams<1, 0, 0> {
     chainId: 31337 as Uint<64>,
     nonce: evmNonce,
-    gasLimit: 100000 as Uint<64>,
-    maxFeePerGas: 30000000000 as Uint<128>,       // 30 gwei
     maxPriorityFeePerGas: 1000000000 as Uint<128>, // 1 gwei
+    maxFeePerGas: 30000000000 as Uint<128>,        // 30 gwei
+    gasLimit: 100000 as Uint<64>,
+    to: pad(20, "signet-caller-e2e-to"),
     value: 0 as Uint<128>,
+    calldata: some<EvmCalldata<1>>(calldata),
     accessListEntryCount: 0,
-    accessList: [],
-    calldata: some<EVMCalldata<1>>(calldata)
+    accessList: []
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
   const requestNonce = signetRequestNonce as Uint<64>;
-  const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 34, 34>(
+  const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(
     kernel.self(),
     requestNonce,
     keyVersion,
@@ -130,7 +131,7 @@ export circuit submitSignatureRequest(
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 34, 34>(request));
+  const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signetRequestNonce.increment(1);
@@ -139,7 +140,7 @@ export circuit submitSignatureRequest(
 
   // Notify the MPC via the signet contract's registry: the second argument is
   // the ledger field position of signBidirectionalEventMap (4, see layout).
-  const requestMapKey = signetSigner.signBidirectionalEvent(
+  const requestMapKey = signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
@@ -165,28 +166,28 @@ export circuit submitIsEvenRequest(
   to: Bytes<20>,
   argWord: Bytes<32>
 ): SignetMapKey {
-  const calldata = EVMCalldata<1> {
+  const calldata = EvmCalldata<1> {
     selector: Bytes [0x2a, 0x2e, 0x13, 0x20],
     noWords: 1 as Uint<16>,
     words: [argWord]
   };
 
-  const txParams = EVMType2TxParams<1, 0, 0> {
-    to: to,
+  const txParams = EvmType2TxParams<1, 0, 0> {
     chainId: 31337 as Uint<64>,
     nonce: evmNonce,
-    gasLimit: 100000 as Uint<64>,
-    maxFeePerGas: 30000000000 as Uint<128>,       // 30 gwei
     maxPriorityFeePerGas: 1000000000 as Uint<128>, // 1 gwei
+    maxFeePerGas: 30000000000 as Uint<128>,        // 30 gwei
+    gasLimit: 100000 as Uint<64>,
+    to: to,
     value: 0 as Uint<128>,
+    calldata: some<EvmCalldata<1>>(calldata),
     accessListEntryCount: 0,
-    accessList: [],
-    calldata: some<EVMCalldata<1>>(calldata)
+    accessList: []
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
   const requestNonce = signetRequestNonce as Uint<64>;
-  const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 34, 34>(
+  const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(
     kernel.self(),
     requestNonce,
     keyVersion,
@@ -200,14 +201,14 @@ export circuit submitIsEvenRequest(
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 34, 34>(request));
+  const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signetRequestNonce.increment(1);
   signBidirectionalEventMap.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 
-  return signetSigner.signBidirectionalEvent(
+  return signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
@@ -229,28 +230,28 @@ export circuit submitCheckAndDoubleRequest(
   to: Bytes<20>,
   argWord: Bytes<32>
 ): SignetMapKey {
-  const calldata = EVMCalldata<1> {
+  const calldata = EvmCalldata<1> {
     selector: Bytes [0xe6, 0xcf, 0x21, 0x87],
     noWords: 1 as Uint<16>,
     words: [argWord]
   };
 
-  const txParams = EVMType2TxParams<1, 0, 0> {
-    to: to,
+  const txParams = EvmType2TxParams<1, 0, 0> {
     chainId: 31337 as Uint<64>,
     nonce: evmNonce,
-    gasLimit: 100000 as Uint<64>,
-    maxFeePerGas: 30000000000 as Uint<128>,       // 30 gwei
     maxPriorityFeePerGas: 1000000000 as Uint<128>, // 1 gwei
+    maxFeePerGas: 30000000000 as Uint<128>,        // 30 gwei
+    gasLimit: 100000 as Uint<64>,
+    to: to,
     value: 0 as Uint<128>,
+    calldata: some<EvmCalldata<1>>(calldata),
     accessListEntryCount: 0,
-    accessList: [],
-    calldata: some<EVMCalldata<1>>(calldata)
+    accessList: []
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"},{\"name\":\"amount\",\"type\":\"uint256\"}]" as Bytes<69>;
   const requestNonce = signetRequestNonce as Uint<64>;
-  const request = constructSignBidirectionalEvent<EVMType2TxParams<1, 0, 0>, 69, 69>(
+  const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 69, 69>(
     kernel.self(),
     requestNonce,
     keyVersion,
@@ -264,14 +265,14 @@ export circuit submitCheckAndDoubleRequest(
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestId<EVMType2TxParams<1, 0, 0>, 69, 69>(request));
+  const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 69, 69>(request));
 
   assert(!signBidirectionalEventMap69.member(requestId), "Request already exists");
   signetRequestNonce.increment(1);
   signBidirectionalEventMap69.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 
-  return signetSigner.signBidirectionalEvent(
+  return signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
@@ -286,7 +287,9 @@ export circuit submitCheckAndDoubleRequest(
 // so it cannot be verified twice. The output width is the client contract's
 // own declaration: the single-bool respond schema (submitSignatureRequest
 // and submitIsEvenRequest) packs to exactly 1 byte (no padding: the digest
-// hashes the output at its exact length).
+// hashes the output at its exact length). The event is taken exactly as the
+// singleton stores it, with no off-chain unpacking or byte-order handling
+// by the caller.
 export circuit verifyResponse(
   requestId: RequestId,
   respondBidirectionalEvent: RespondBidirectionalEvent,
@@ -303,7 +306,7 @@ export circuit verifyResponse(
     verifyRespondBidirectionalEvent<1>(
       disclosedRequestId,
       serializedOutput,
-      respondBidirectionalEvent,
+      disclose(respondBidirectionalEvent),
       mpcResponseKey
     ),
     "Invalid attestation signature"
@@ -317,8 +320,8 @@ export circuit verifyResponse(
 // respond schema (bool + uint256), whose packed respond payload is exactly
 // 33 bytes: a 1-byte bool followed by a 32-byte little-endian Field. The
 // request is consumed from the field-7 map those requests live in.
-// Duplicated rather than factored: contract-level circuits cannot be
-// generic over the output width.
+// Duplicated per width: contract-level circuits cannot be generic over
+// the output width.
 export circuit verifyCheckAndDoubleResponse(
   requestId: RequestId,
   respondBidirectionalEvent: RespondBidirectionalEvent,
@@ -335,7 +338,7 @@ export circuit verifyCheckAndDoubleResponse(
     verifyRespondBidirectionalEvent<33>(
       disclosedRequestId,
       serializedOutput,
-      respondBidirectionalEvent,
+      disclose(respondBidirectionalEvent),
       mpcResponseKey
     ),
     "Invalid attestation signature"

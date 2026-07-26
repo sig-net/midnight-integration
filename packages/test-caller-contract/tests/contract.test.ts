@@ -1,5 +1,5 @@
 // Simulator-level unit tests: the contract runs entirely in-process via
-// @midnight-ntwrk/compact-runtime — no ledger, no network, no proving.
+// @midnight-ntwrk/compact-runtime (no ledger, no network, no proving).
 
 import { describe, expect, it } from "vitest";
 
@@ -14,8 +14,8 @@ import {
   MPCSignatureAlgorithm,
   TxParamType,
   asciiPadded,
-  bigintToBytes32,
   calculateRequestId,
+  ecdsaSignatureToMpcSignature,
   readSignetRequestsLedgerFromState,
   requestIdBytes,
   requestIdHex,
@@ -30,9 +30,9 @@ import {
 
 import { Contract, ledger, pureCircuits as callerCircuits, witnesses, type CallerPrivateState } from "../src/index.ts";
 import { createCallerPrivateState } from "../src/witnesses.ts";
-// The signet contract (callee) module — the same one the caller's generated
+// The signet contract (callee) module: the same one the caller's generated
 // code cross-contract-calls. submitSignatureRequest ends in a call to its
-// signBidirectionalEvent, so the simulator needs its state (see
+// signBidirectional, so the simulator needs its state (see
 // signetStateProvider) to execute that path.
 import * as SignetSigner from "../src/managed/SignetSigner/contract/index.js";
 
@@ -75,8 +75,8 @@ const BLOCK_HASH = "0".repeat(64);
 
 /**
  * A ContractStateProvider serving the signet contract's initial state to the
- * simulator's cross-contract call — how submitSignatureRequest reaches
- * signBidirectionalEvent in-process (no node/indexer). Returns the state for
+ * simulator's cross-contract call: how submitSignatureRequest reaches
+ * signBidirectional in-process (no node/indexer). Returns the state for
  * any address: the caller only calls the single sealed signet contract.
  */
 const signetStateProvider = async () => {
@@ -87,13 +87,13 @@ const signetStateProvider = async () => {
   return { getContractState: async () => currentContractState };
 };
 
-// The simulated caller's own contract address; kernel.self() inside the
-// circuits — and therefore the request's sender field.
+// The simulated caller's own contract address: kernel.self() inside the
+// circuits, and therefore the request's sender field.
 const CALLER_ADDRESS = sampleContractAddress();
 const CALLER_ADDRESS_BYTES = Uint8Array.from(Buffer.from(CALLER_ADDRESS, "hex"));
 
 // The contract-fixed request constants (mirrors of the in-circuit literals in
-// test-caller-contract.compact; the round-trip test below is the lockstep check).
+// test-caller-contract.compact: the round-trip test below is the lockstep check).
 const EXPECTED_TO = asciiPadded("signet-caller-e2e-to", 20);
 const EXPECTED_SELECTOR = new Uint8Array([0xca, 0x11, 0xab, 0x1e]);
 const EXPECTED_WORD = asciiPadded("signet-caller:fixed-word", 32);
@@ -130,8 +130,8 @@ const SELECTOR_CHECK_AND_DOUBLE = new Uint8Array([0xe6, 0xcf, 0x21, 0x87]); // c
 // ---- Harness ----
 
 /**
- * Deploy WITHOUT pinning the response key — the pre-initialise state. The
- * constructor seals the DEPLOYER_SECRET's commitment; `witnessSecret` is
+ * Deploy WITHOUT pinning the response key: the pre-initialise state. The
+ * constructor seals the DEPLOYER_SECRET's commitment. `witnessSecret` is
  * what the private state answers the deployerSecretKey witness with (pass an
  * imposter's secret to exercise the initialise gate).
  */
@@ -226,8 +226,8 @@ describe("test-caller-contract ledger shape", () => {
     const { ctx } = await deployContract();
 
     const rawState = ctx.callContext.currentQueryContext.state;
-    // The List at field 0 is array-typed exactly like a chunked field root;
-    // resolving the map behind it is the point of this layout.
+    // The List at field 0 is array-typed exactly like a chunked field root,
+    // and resolving the map behind it is the point of this layout.
     expect(signetFieldNode(rawState, REQUEST_LOG_FIELD).type()).toBe("array");
     const node = signetFieldNode(rawState, REQUESTS_INDEX_FIELD);
     expect(node.type()).toBe("map");
@@ -261,7 +261,7 @@ describe("submitSignatureRequest round-trip", () => {
     const typedIndex = toSignBidirectionalEventIndex(
       ledger(state).signBidirectionalEventMap,
     );
-    // Read 2: MPC-style raw read — no compiled contract involved.
+    // Read 2: MPC-style raw read (no compiled contract involved).
     const rawLedger = readSignetRequestsLedgerFromState(
       state,
       REQUESTS_INDEX_FIELD,
@@ -295,7 +295,7 @@ describe("submitSignatureRequest round-trip", () => {
     });
 
     // The contract-fixed request fields come back exactly as the TS mirrors
-    // expect — the LOCKSTEP CHECK for the in-circuit literals (including the
+    // expect: the LOCKSTEP CHECK for the in-circuit literals (including the
     // escaped JSON schema and the sender = kernel.self()).
     expect(record.sender).toEqual({ bytes: CALLER_ADDRESS_BYTES });
     expect(record.requestNonce).toBe(0n);
@@ -316,7 +316,7 @@ describe("submitSignatureRequest round-trip", () => {
     expect(calldata.value.words).toHaveLength(1);
     expect(calldata.value.words[0]).toEqual(EXPECTED_WORD);
 
-    // The map key IS the persistent hash of the record — recomputed
+    // The map key IS the persistent hash of the record, recomputed
     // off-chain with the library's TS twin of the request-id circuit.
     expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
 
@@ -326,7 +326,7 @@ describe("submitSignatureRequest round-trip", () => {
 
   it("two identical submits mint DISTINCT request ids (nonce-keyed)", async () => {
     // Everything but the request nonce is a contract constant, so uniqueness
-    // of the id rests entirely on signetRequestNonce — pin that here.
+    // of the id rests entirely on signetRequestNonce: pin that here.
     const { contract, ctx } = await deployContract();
     const afterFirst = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION)).context;
     const afterSecond = (
@@ -380,7 +380,7 @@ describe("EVM target submit circuits round-trip", () => {
     expect(typedIndex.size).toBe(1);
     const [idHex, record] = [...typedIndex.entries()][0];
 
-    // Caller-supplied fields land verbatim; the rest is the same fixed
+    // Caller-supplied fields land verbatim, and the rest is the same fixed
     // envelope as submitSignatureRequest.
     const { calldata, ...envelope } = record.txParams;
     expect(envelope).toEqual({
@@ -434,15 +434,16 @@ const IMPOSTER_PUBLIC = secp256k1PublicKeyOf(IMPOSTER_SECRET);
 
 // A successful remote execution's serialised output: this contract's respond
 // schema is a single bool, whose exact unpadded packed payload is ONE byte
-// (0x01 = true). The circuit never inspects the output's content — only the
-// digest and signature over it — but this matches what the MPC posts.
+// (0x01 = true). The circuit never inspects the output's content (only the
+// digest and signature over it), but this matches what the MPC posts.
 const OUTPUT_SUCCESS = Uint8Array.from([1]);
 
 /**
  * Sign a REAL respond-bidirectional response for (requestId, output) with
- * `secretKey` — the digest comes from the TS twin (pinned against the
- * compiled oracle circuits), exactly like the MPC. Signature scalars land as
- * LE bytes, the ledger form.
+ * `secretKey`: the digest comes from the TS twin (pinned against the
+ * compiled oracle circuits), exactly like the MPC. The result is the event
+ * as the singleton stores it (full R point, big-endian bytes), which is
+ * what a client reads and hands to verifyResponse.
  */
 const respond = (
   secretKey: Uint8Array,
@@ -453,12 +454,11 @@ const respond = (
     requestId,
     serializedOutput,
   );
-  const sig = signAttestationDigest(attestationDigest, secretKey);
   return {
     attestationDigest,
-    r: bigintToBytes32(sig.r),
-    s: bigintToBytes32(sig.s),
-    recoveryId: BigInt(sig.recoveryId),
+    signature: ecdsaSignatureToMpcSignature(
+      signAttestationDigest(attestationDigest, secretKey),
+    ),
   };
 };
 
@@ -473,26 +473,18 @@ describe("verifyResponse", () => {
     );
     const [idHex] = [...index.keys()];
     const requestId = requestIdBytes(idHex);
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(
-        next,
-        requestId,
-        respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
-        OUTPUT_SUCCESS,
-      ),
+      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Not initialised/);
   });
 
   it("a genuine response verifies and consumes the request", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
 
     const next = (
-      await contract.circuits.verifyResponse(
-        ctx,
-        requestId,
-        respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
-        OUTPUT_SUCCESS,
-      )
+      await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS)
     ).context;
 
     const state = ledger(next.callContext.currentQueryContext.state);
@@ -501,13 +493,9 @@ describe("verifyResponse", () => {
 
   it("rejects an imposter's signature (verified against the STORED key)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
+    const event = respond(IMPOSTER_SECRET, requestId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(
-        ctx,
-        requestId,
-        respond(IMPOSTER_SECRET, requestId, OUTPUT_SUCCESS),
-        OUTPUT_SUCCESS,
-      ),
+      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -543,47 +531,30 @@ describe("verifyResponse", () => {
     // Signed for some OTHER id: the digest binds the request id, so the
     // signature cannot be replayed onto this pending request.
     const otherId = bytes(32, 0xab);
+    const event = respond(MPC_RESPONSE_SECRET, otherId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(
-        ctx,
-        requestId,
-        respond(MPC_RESPONSE_SECRET, otherId, OUTPUT_SUCCESS),
-        OUTPUT_SUCCESS,
-      ),
+      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
   it("rejects a genuinely signed id that has no pending request", async () => {
     const { contract, ctx } = await requestSubmitted();
     const unknownId = bytes(32, 0xab);
+    const event = respond(MPC_RESPONSE_SECRET, unknownId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(
-        ctx,
-        unknownId,
-        respond(MPC_RESPONSE_SECRET, unknownId, OUTPUT_SUCCESS),
-        OUTPUT_SUCCESS,
-      ),
+      contract.circuits.verifyResponse(ctx, unknownId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Request not found/);
   });
 
   it("a second verify of the SAME request rejects (the first consumed it)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     const next = (
-      await contract.circuits.verifyResponse(
-        ctx,
-        requestId,
-        respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
-        OUTPUT_SUCCESS,
-      )
+      await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS)
     ).context;
 
     await expect(
-      contract.circuits.verifyResponse(
-        next,
-        requestId,
-        respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS),
-        OUTPUT_SUCCESS,
-      ),
+      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Request not found/);
   });
 });

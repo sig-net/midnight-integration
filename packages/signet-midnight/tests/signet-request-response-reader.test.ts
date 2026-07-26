@@ -1,7 +1,7 @@
 // SignetRequestResponseReader over synthetic contract states: the requester
 // and responses ledgers are encoded with the canonical descriptors into
 // StateValue trees (the shape the indexer returns), served through a stub
-// state source — no network, no compiled contract.
+// state source: no network, no compiled contract.
 
 import { describe, expect, it } from "vitest";
 
@@ -18,12 +18,11 @@ import {
   MPCSignatureAlgorithm,
   TxParamType,
   asciiPadded,
-  bigintToBytes32,
   evmAddressAbiWord,
   numericAbiWord,
   signatureToSignatureRespondedEvent,
-  signBidirectionalEventToSignedEVMTransaction,
-  signBidirectionalEventToUnsignedEVMTransaction,
+  signBidirectionalEventToSignedEvmTransaction,
+  signBidirectionalEventToUnsignedEvmTransaction,
   requestIdHex,
   requestIdType,
   signBidirectionalEventDescriptor,
@@ -37,8 +36,8 @@ import {
   type RespondBidirectionalEvent,
 } from "../src/index.ts";
 
-// The ERC20 transfer(address,uint256) selector — a realistic calldata fixture
-// (the app-level constant lives in the cli, not the SDK).
+// The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
+// (the app-level constant lives in the cli).
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
 // ---- Fixtures ----
@@ -48,7 +47,7 @@ const bytes = (length: number, fill: number) =>
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 
-/** The sample request's capacities (the vault's EVMType2TxParams<2, 0, 0>). */
+/** The sample request's capacities (the vault's EvmType2TxParams<2, 0, 0>). */
 const REQUEST_DESCRIPTOR = signBidirectionalEventDescriptor(2, 0, 0, 34, 34);
 
 const REQUEST_ID = bytes(32, 0x2f);
@@ -59,7 +58,7 @@ const REQUESTER_ADDRESS = "requester-contract-address";
 const SIGNET_CONTRACT_ADDRESS = "signet-contract-address";
 
 /**
- * Known-good request record for a `transfer(vault, amount)` deposit — the
+ * Known-good request record for a `transfer(vault, amount)` deposit: the
  * base every test uses. Shared across tests: NEVER mutate.
  */
 const REQUEST: SignBidirectionalEvent = {
@@ -107,18 +106,15 @@ const IMPOSTER_ADDRESS = computeAddress(IMPOSTER_KEY.publicKey);
 const signResponse = (key: SigningKey): SignatureRespondedEvent =>
   signatureToSignatureRespondedEvent(
     key.sign(
-      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalEventToUnsignedEvmTransaction(REQUEST).unsignedHash,
     ),
   );
 
 const GENUINE_RESPONSE = signResponse(MPC_KEY);
 const IMPOSTER_RESPONSE = signResponse(IMPOSTER_KEY);
-// An all-zero r cannot decode into a signature at all.
+// A recovery id byte of 5 cannot decode into a signature at all.
 const UNDECODABLE_RESPONSE: SignatureRespondedEvent = {
-  bigRx: bytes(32, 0),
-  bigRy: bytes(32, 0),
-  s: bytes(32, 0),
-  recoveryId: 0n,
+  signature: { ...GENUINE_RESPONSE.signature, recoveryId: 5n },
 };
 
 // ---- Synthetic ledger states (signet layout convention) ----
@@ -143,13 +139,11 @@ const requesterState = (): StateValue => {
 };
 
 // A respond-bidirectional record for the response tests: a synthetic digest
-// and LE signature scalars — the reader decodes, verification is the
-// CLIENT's job.
+// and an equally synthetic signature (the reader decodes, verification is
+// the CLIENT's job).
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
   attestationDigest: new Uint8Array(32).fill(0xd1),
-  r: bigintToBytes32(123456789n),
-  s: bigintToBytes32(987654321n),
-  recoveryId: 1n,
+  signature: { bigR: { x: bytes(32, 0x5c), y: bytes(32, 0x5d) }, s: bytes(32, 0x5e), recoveryId: 1n },
 };
 
 /** A one-entry `Map<RequestId, Counter>` for REQUEST_ID, empty at 0. */
@@ -337,7 +331,7 @@ const VERDICT_CASES: VerdictCase[] = [
     rejectedReasons: [undefined],
   },
   {
-    name: "a genuine post behind noise — first VALID wins, noise gets reasons",
+    name: "a genuine post behind noise: first VALID wins, noise gets reasons",
     posts: [UNDECODABLE_RESPONSE, IMPOSTER_RESPONSE, GENUINE_RESPONSE],
     expectedSigner: MPC_ADDRESS,
     verifiedPost: 2,
@@ -355,7 +349,7 @@ const VERDICT_CASES: VerdictCase[] = [
     rejectedReasons: [undefined],
   },
   {
-    name: "only an imposter post — nothing verifies",
+    name: "only an imposter post: nothing verifies",
     posts: [IMPOSTER_RESPONSE],
     expectedSigner: MPC_ADDRESS,
     rejectedReasons: [/signed by 0x.*expected 0x/],
@@ -398,37 +392,37 @@ describe("getVerifiedSignatureRespondedEvent", () => {
   );
 });
 
-describe("getUnsignedEVMTransaction", () => {
+describe("getUnsignedEvmTransaction", () => {
   it("rebuilds the request's unsigned transaction", async () => {
     const { reader, queries } = makeReader([]);
-    const tx = await reader.getUnsignedEVMTransaction(REQUEST_ID_HEX);
+    const tx = await reader.getUnsignedEvmTransaction(REQUEST_ID_HEX);
 
     expect(tx.isSigned()).toBe(false);
     expect(tx.unsignedHash).toBe(
-      signBidirectionalEventToUnsignedEVMTransaction(REQUEST).unsignedHash,
+      signBidirectionalEventToUnsignedEvmTransaction(REQUEST).unsignedHash,
     );
-    // Unsigned needs only the request record — never touches the signet contract.
+    // Unsigned needs only the request record: it never touches the signet contract.
     expect(queries.responses).toBe(0);
   });
 
   it("throws for a request id not on the ledger", async () => {
     const { reader } = makeReader([]);
     await expect(
-      reader.getUnsignedEVMTransaction(UNKNOWN_ID_HEX),
+      reader.getUnsignedEvmTransaction(UNKNOWN_ID_HEX),
     ).rejects.toThrow(/not on the requester contract's ledger/);
   });
 });
 
-describe("getSignedEVMTransaction", () => {
+describe("getSignedEvmTransaction", () => {
   it("attaches the first verified response, ready to broadcast", async () => {
     const { reader } = makeReader([IMPOSTER_RESPONSE, GENUINE_RESPONSE]);
-    const tx = await reader.getSignedEVMTransaction(REQUEST_ID_HEX, MPC_ADDRESS);
+    const tx = await reader.getSignedEvmTransaction(REQUEST_ID_HEX, MPC_ADDRESS);
 
     expect(tx?.isSigned()).toBe(true);
     expect(tx?.from).toBe(MPC_ADDRESS);
     // Identical to assembling it directly from the request and genuine post.
     expect(tx?.serialized).toBe(
-      signBidirectionalEventToSignedEVMTransaction(REQUEST, GENUINE_RESPONSE)
+      signBidirectionalEventToSignedEvmTransaction(REQUEST, GENUINE_RESPONSE)
         .serialized,
     );
   });
@@ -436,14 +430,14 @@ describe("getSignedEVMTransaction", () => {
   it("returns undefined when no posted response verifies", async () => {
     const { reader } = makeReader([IMPOSTER_RESPONSE, UNDECODABLE_RESPONSE]);
     expect(
-      await reader.getSignedEVMTransaction(REQUEST_ID_HEX, MPC_ADDRESS),
+      await reader.getSignedEvmTransaction(REQUEST_ID_HEX, MPC_ADDRESS),
     ).toBeUndefined();
   });
 
   it("returns undefined when nothing is posted yet", async () => {
     const { reader } = makeReader([]);
     expect(
-      await reader.getSignedEVMTransaction(REQUEST_ID_HEX, MPC_ADDRESS),
+      await reader.getSignedEvmTransaction(REQUEST_ID_HEX, MPC_ADDRESS),
     ).toBeUndefined();
   });
 });

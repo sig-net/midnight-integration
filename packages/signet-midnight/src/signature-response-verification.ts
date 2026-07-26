@@ -2,15 +2,15 @@
 // signet contract's signature response log is UNAUTHENTICATED (see "Signet
 // Layout" in Signet.compact), so a poller must verify every posted response
 // before trusting it: rebuild the unsigned EVM transaction from the on-ledger
-// request record — assembled exactly as the MPC assembles it (sig-net/mpc
-// response server, managed/erc20-vault/signet/calldata-builder.ts) — and
-// check that the posted `{ bigR, s, recoveryId }` signature recovers to the
-// requester's derived EVM address over that transaction's signing hash.
+// request record, assembled exactly as the MPC assembles it (sig-net/mpc
+// response server, managed/erc20-vault/signet/calldata-builder.ts), and
+// check that the posted signature record recovers to the requester's derived
+// EVM address over that transaction's signing hash.
 
 import { getAddress, recoverAddress } from "ethers";
 
 import {
-  signBidirectionalEventToUnsignedEVMTransaction,
+  signBidirectionalEventToUnsignedEvmTransaction,
   signatureRespondedEventToSignature,
 } from "./signet-evtype2tx-requests.ts";
 import type { SignBidirectionalEvent } from "./signet-requests.ts";
@@ -25,21 +25,21 @@ import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts"
  * @returns The checksummed recovered signer address.
  * @throws Error if the response is not a decodable signature or the request
  *   record is malformed (see
- *   {@link signBidirectionalEventToUnsignedEVMTransaction}).
+ *   {@link signBidirectionalEventToUnsignedEvmTransaction}).
  */
 export function recoverSignatureResponseSigner(
   request: SignBidirectionalEvent,
   response: SignatureRespondedEvent,
 ): string {
   return recoverAddress(
-    signBidirectionalEventToUnsignedEVMTransaction(request).unsignedHash,
+    signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash,
     signatureRespondedEventToSignature(response),
   );
 }
 
 /**
  * Verify a posted response against its request: does the signature recover
- * to `expectedSigner`? Never throws — a response that is malformed or signed
+ * to `expectedSigner`? Never throws: a response that is malformed or signed
  * by anyone else is simply not valid, which is the expected state of affairs
  * on an unauthenticated log.
  *

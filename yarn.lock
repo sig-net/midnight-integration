@@ -1076,9 +1076,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@nomicfoundation/hardhat-utils@npm:^4.1.2, @nomicfoundation/hardhat-utils@npm:^4.1.5":
-  version: 4.1.5
-  resolution: "@nomicfoundation/hardhat-utils@npm:4.1.5"
+"@nomicfoundation/hardhat-utils@npm:^4.1.2, @nomicfoundation/hardhat-utils@npm:^4.1.5, @nomicfoundation/hardhat-utils@npm:^4.1.6":
+  version: 4.1.6
+  resolution: "@nomicfoundation/hardhat-utils@npm:4.1.6"
   dependencies:
     "@streamparser/json-node": "npm:^0.0.22"
     env-paths: "npm:^2.2.0"
@@ -1087,7 +1087,7 @@ __metadata:
     json-stream-stringify: "npm:^3.1.6"
     rfdc: "npm:^1.3.1"
     undici: "npm:^6.16.1"
-  checksum: 10c0/a1c5b6a81ed03c2277a4fec28ccabd9e11f1683e84eae815abe46d40af7e71fcc40f24eea34bddbc2120fdd9afe7af57f661c772013795b0cfc98109d27b71b6
+  checksum: 10c0/ea9d5e634622cd91393b4f7176bd44a0ca35f58686e3a29b164157a770e4cfb2bf14b5b9dfd339f04f33db96ba0c0a29461a12f8afc68047d3d0c4753042a620
   languageName: node
   linkType: hard
 
@@ -2039,8 +2039,8 @@ __metadata:
     "@midnightntwrk/wallet-sdk-shielded": "npm:4.0.0-beta.2"
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "npm:4.0.0-beta.2"
     "@scure/bip39": "npm:^2.2.0"
-    "@sig-net/midnight": "npm:^0.10.0"
-    "@sig-net/midnight-contract": "npm:^0.10.0"
+    "@sig-net/midnight": "npm:^0.11.0"
+    "@sig-net/midnight-contract": "npm:^0.11.0"
     "@types/node": "npm:^26.1.0"
     effect: "npm:^3.21.4"
     tsx: "npm:^4.23.0"
@@ -2049,13 +2049,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight-contract@npm:^0.10.0, @sig-net/midnight-contract@workspace:packages/signet-contract":
+"@sig-net/midnight-contract@npm:^0.11.0, @sig-net/midnight-contract@workspace:packages/signet-contract":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight-contract@workspace:packages/signet-contract"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.4"
-    "@sig-net/midnight": "npm:^0.10.0"
+    "@sig-net/midnight": "npm:^0.11.0"
     "@types/node": "npm:^26.1.0"
     typescript: "npm:^6.0.3"
     vitest: "npm:^4.1.9"
@@ -2073,7 +2073,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight@npm:*, @sig-net/midnight@npm:^0.10.0, @sig-net/midnight@workspace:packages/signet-midnight":
+"@sig-net/midnight@npm:*, @sig-net/midnight@npm:^0.11.0, @sig-net/midnight@workspace:packages/signet-midnight":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight@workspace:packages/signet-midnight"
   dependencies:
@@ -2876,12 +2876,12 @@ __metadata:
   linkType: hard
 
 "hardhat@npm:^3.9.1":
-  version: 3.11.0
-  resolution: "hardhat@npm:3.11.0"
+  version: 3.11.1
+  resolution: "hardhat@npm:3.11.1"
   dependencies:
     "@nomicfoundation/edr": "npm:0.14.2"
     "@nomicfoundation/hardhat-errors": "npm:^3.0.17"
-    "@nomicfoundation/hardhat-utils": "npm:^4.1.5"
+    "@nomicfoundation/hardhat-utils": "npm:^4.1.6"
     "@nomicfoundation/hardhat-vendored": "npm:^3.0.4"
     "@nomicfoundation/hardhat-zod-utils": "npm:^3.0.5"
     "@nomicfoundation/solidity-analyzer": "npm:^0.1.1"
@@ -2899,7 +2899,7 @@ __metadata:
     zod: "npm:^3.23.8"
   bin:
     hardhat: dist/src/cli.js
-  checksum: 10c0/5d972b8cd633a6607452b4a81ed931c98e0efe2a6f6243728a0b1d668d92b5988b4ca09743527a27faef306240b0cfa6fb42b26cf97a38293aaa787b62d9ccbd
+  checksum: 10c0/ad263c29482efc9e4cdd75feadfebbc63b59916442fd4cc56857ada3d4603c9513c879060164f15390975e67473b325bf5ba07f8976517f0eae3ea43f639cf06
   languageName: node
   linkType: hard
 
@@ -3852,9 +3852,9 @@ __metadata:
   linkType: hard
 
 "undici@npm:^6.16.1":
-  version: 6.27.0
-  resolution: "undici@npm:6.27.0"
-  checksum: 10c0/f88c3dae3957dbf9d93cb481440aced317bd3c4941b5914fea5efba516d51138988cdb5c76006f0bb1337e41d56c3443351055d492e73af2428521c37ba2a76f
+  version: 6.28.0
+  resolution: "undici@npm:6.28.0"
+  checksum: 10c0/3029a70df06b38b5b2f30732932a1e92544c753cd82c8abdf0d35afad48e0ba91612e79fe3a442dbbb9434d6a9eba2b714d5ea28984c903dda2b5d5444f38354
   languageName: node
   linkType: hard
 

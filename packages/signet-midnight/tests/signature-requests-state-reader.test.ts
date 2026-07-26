@@ -1,7 +1,7 @@
 // Round-trip test for the MPC-style raw state reader: encode a request with
 // the canonical descriptors into a synthetic StateValue tree (the shape the
 // indexer returns for a contract address), then decode it back by field
-// position alone — no compiled contract involved. The reader recovers each
+// position alone, with no compiled contract involved. The reader recovers each
 // record's capacity instantiation (calldata words, access-list entries,
 // storage keys per entry) from the atom count by candidate enumeration, so
 // records with and without access lists are both exercised.
@@ -14,6 +14,7 @@ import {
   MPCDestination,
   MPCSignatureAlgorithm,
   TxParamType,
+  calculateRequestId,
   evmAddressAbiWord,
   lookupSignetRequestAt,
   numericAbiWord,
@@ -24,14 +25,14 @@ import {
   type SignBidirectionalEvent,
 } from "../src/index.ts";
 
-// The ERC20 transfer(address,uint256) selector — a realistic calldata fixture
-// (the app-level constant lives in the cli, not the SDK).
+// The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
+// (the app-level constant lives in the cli).
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
 const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
-// Shared across tests: NEVER mutate; build a variation as an explicit spread.
+// Shared across tests: NEVER mutate. Build a variation as an explicit spread.
 // The vault's shape: <2 calldata words, 0 access-list entries, 0 keys> with
 // 34-byte schemas. Schema fixtures deliberately end in a non-zero byte (the
 // exact-length protocol convention the raw reader relies on).
@@ -69,7 +70,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
 };
 
 // A wider instantiation: <2 words, 1 access-list entry, 2 storage keys> with
-// only one key in use — the reader must recover these capacities too.
+// only one key in use: the reader must recover these capacities too.
 const ACCESS_LIST_REQUEST: SignBidirectionalEvent = {
   ...SAMPLE_REQUEST,
   txParams: {
@@ -91,8 +92,11 @@ const CAPACITIES = {
   accessList: [2, 1, 2],
 } as const;
 
-const SAMPLE_REQUEST_ID = bytes(32, 0x2f);
-const ACCESS_LIST_REQUEST_ID = bytes(32, 0x31);
+// Real ids: an access-list record's atom count is also a valid
+// calldata-only split, so the reader can only tell them apart by the id the
+// record is filed under.
+const SAMPLE_REQUEST_ID = calculateRequestId(SAMPLE_REQUEST);
+const ACCESS_LIST_REQUEST_ID = calculateRequestId(ACCESS_LIST_REQUEST);
 const NONCE = 8n;
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
@@ -131,7 +135,7 @@ const sampleIndexMap = () =>
 
 // Contract root state: an array of ledger fields with the request index map
 // at field 0 and the request counter at field 1 (this synthetic contract's
-// own layout — the reader takes the positions as arguments).
+// own layout: the reader takes the positions as arguments).
 const syntheticContractState = () => {
   const map = new StateMap()
     .insert(
@@ -239,9 +243,9 @@ describe("state-reader (MPC-style raw decode)", () => {
   });
 });
 
-// A second request index living at a NON-ZERO ledger field — so the field
-// argument of lookupSignetRequestAt is genuinely exercised, not incidentally
-// always 0. Its member is SAMPLE_REQUEST under a distinct id.
+// A second request index living at a NON-ZERO ledger field, so the field
+// argument of lookupSignetRequestAt is genuinely exercised. Its member is
+// SAMPLE_REQUEST under a distinct id.
 const FIELD2_REQUEST_ID = bytes(32, 0x5a);
 
 /** Contract state: index (field 0), nonce (field 1), a SECOND index (field 2). */

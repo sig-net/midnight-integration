@@ -1,8 +1,8 @@
 // secp256k1 ECDSA helpers: the TS side of the respond-bidirectional
 // attestation flow in Signet.compact: SIGNING (which needs the secret
 // scalar, so it cannot be a circuit), key parsing/formatting, the
-// byte-order conversions between noble's bigints and the ledger-stored
-// little-endian scalar bytes, and the attestation digest's TS twin.
+// byte-order conversions between noble's bigints and the little-endian
+// scalar bytes Compact's casts read, and the attestation digest's TS twin.
 // Everything provable stays in Compact where possible: in-circuit
 // verification is `verifyRespondBidirectionalEvent`, the deploy-time key pin
 // is `pureCircuits.signetKeyHash`. The digest circuit is size-generic and the
@@ -19,7 +19,9 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
 import type { RequestId } from "./signet-requests.ts";
 
-// Re-exported because it appears throughout this module's public signatures —
+import type { MpcSignature } from "./signet-contract-state-reader.ts";
+
+// Re-exported because it appears throughout this module's public signatures:
 // SDK consumers shouldn't have to depend on compact-runtime just for the type.
 export type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
 
@@ -40,7 +42,7 @@ export const BLS_ORDER = 5243587517512619047944774050818596583769055250052763782
 export function bytesToBigint(bytes: Uint8Array): bigint {
   let result = 0n;
   for (let i = bytes.length - 1; i >= 0; i--) {
-    // The index is in range by construction; the assertion satisfies
+    // The index is in range by construction: the assertion satisfies
     // consumers compiling with noUncheckedIndexedAccess.
     result = (result << 8n) | BigInt(bytes[i]!);
   }
@@ -50,7 +52,7 @@ export function bytesToBigint(bytes: Uint8Array): bigint {
 /**
  * Convert a bigint to exactly 32 little-endian bytes. Matches Compact's
  * `Field as Bytes<32>` / `Secp256k1Scalar as Bytes<32>` encoding (the inverse
- * of {@link bytesToBigint}); negative inputs are interpreted in the BLS
+ * of {@link bytesToBigint}). Negative inputs are interpreted in the BLS
  * scalar field.
  *
  * @param n - The integer to encode.
@@ -66,8 +68,14 @@ export function bigintToBytes32(n: bigint): Uint8Array {
   return buf;
 }
 
-/** Convert big-endian bytes to a bigint (SEC1 coordinate order). */
-function bytesToBigintBE(bytes: Uint8Array): bigint {
+/**
+ * Convert big-endian bytes to a bigint (SEC1 coordinate order, the byte
+ * order the respond events' stored signature uses).
+ *
+ * @param bytes - Big-endian byte array.
+ * @returns The decoded non-negative integer.
+ */
+export function bytesToBigintBE(bytes: Uint8Array): bigint {
   let value = 0n;
   for (const byte of bytes) {
     value = (value << 8n) | BigInt(byte);
@@ -76,10 +84,33 @@ function bytesToBigintBE(bytes: Uint8Array): bigint {
 }
 
 /**
+ * Convert a bigint to exactly 32 BIG-endian bytes (SEC1 scalar/coordinate
+ * order, also the ABI word encoding): the big-endian counterpart of
+ * {@link bigintToBytes32} and the inverse of {@link bytesToBigintBE}.
+ *
+ * @param value - The non-negative integer to encode.
+ * @returns The 32-byte big-endian encoding.
+ * @throws Error if the value is negative or does not fit 32 bytes.
+ */
+export function bigintToBytes32BE(value: bigint): Uint8Array {
+  if (value < 0n || value >= 1n << 256n) {
+    throw new Error(`value does not fit 32 big-endian bytes: ${value}`);
+  }
+  const out = new Uint8Array(32);
+  let v = value;
+  for (let i = 31; i >= 0; i--) {
+    out[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return out;
+}
+
+/**
  * An ECDSA signature over the attestation digest, in the MPC's canonical
  * `Signature { big_r, s, recovery_id }` spirit with `r` already reduced to
- * the scalar `big_r.x mod n` — the form Compact's `Secp256k1EcdsaSignature`
- * takes.
+ * the scalar `big_r.x mod n`, the form Compact's `Secp256k1EcdsaSignature`
+ * takes. Build the stored form for posting in a respond event with
+ * {@link ecdsaSignatureToMpcSignature}.
  */
 export interface EcdsaSignature {
   /** Signature scalar r (= R.x mod n). */
@@ -93,7 +124,7 @@ export interface EcdsaSignature {
 /**
  * ECDSA-sign a 32-byte digest with a secp256k1 secret key, exactly as the
  * MPC signs the attestation digest: RFC 6979 deterministic, low-s, the digest
- * interpreted big-endian with NO extra hashing (`prehash: false`) — the same
+ * interpreted big-endian with NO extra hashing (`prehash: false`), the same
  * convention `secp256k1EcdsaVerify` checks in-circuit.
  *
  * @param digest - The 32-byte digest to sign (e.g. the
@@ -124,8 +155,72 @@ export function signAttestationDigest(
 }
 
 /**
+ * Build the stored-form signature both respond events carry from a
+ * scalar-form one: R is reconstructed by decompressing the curve point with
+ * x = `r` and the parity `recoveryId` names, undoing the compression an
+ * `r || s || v` signature performs. For MPC-side posters (the fakenet
+ * signer, tests). The negligible caveat: an R.x that overflowed the curve
+ * order cannot be told apart from its reduced twin, so reconstruction picks
+ * the x equal to `r` itself.
+ *
+ * @param signature - The scalar-form signature (the signer's output shape).
+ * @returns The stored-form signature: R as a full point, big-endian bytes.
+ * @throws Error if the recovery id is not 0 or 1, or `r` is not the x
+ *   coordinate of a secp256k1 point.
+ */
+export function ecdsaSignatureToMpcSignature(signature: EcdsaSignature): MpcSignature {
+  if (signature.recoveryId !== 0 && signature.recoveryId !== 1) {
+    throw new Error(`expected a recovery id of 0 or 1, got ${signature.recoveryId}`);
+  }
+  // SEC1 compressed form: parity prefix (02 even, 03 odd) || x big-endian.
+  const parityPrefix = signature.recoveryId === 0 ? "02" : "03";
+  const xHex = signature.r.toString(16).padStart(64, "0");
+  let point;
+  try {
+    point = secp256k1.Point.fromHex(`${parityPrefix}${xHex}`);
+  } catch (error) {
+    throw new Error(`signature r is not the x coordinate of a secp256k1 point (${String(error)})`);
+  }
+  const uncompressed = point.toBytes(false); // 0x04 || x || y
+  return {
+    bigR: { x: uncompressed.slice(1, 33), y: uncompressed.slice(33, 65) },
+    s: bigintToBytes32BE(signature.s),
+    recoveryId: BigInt(signature.recoveryId),
+  };
+}
+
+/**
+ * Read a stored-form signature back into scalar form: the inverse of
+ * {@link ecdsaSignatureToMpcSignature}, for off-chain consumers building a
+ * transaction from the response. `r` comes out as `bigR.x` reduced mod the
+ * curve order. Rejects records that do not even hold the shape, since posts
+ * are unauthenticated and a malformed record is garbage. `bigR.y` is NOT
+ * checked against the curve or the recovery id: signature verification is
+ * the authority, not this decoder.
+ *
+ * @param signature - The stored-form signature as posted.
+ * @returns The scalar-form signature.
+ * @throws Error if a component has the wrong byte length or the recovery id
+ *   is not 0 or 1.
+ */
+export function mpcSignatureToEcdsaSignature(signature: MpcSignature): EcdsaSignature {
+  const { bigR, s, recoveryId } = signature;
+  if (bigR.x.length !== 32 || bigR.y.length !== 32 || s.length !== 32) {
+    throw new Error("expected 32-byte bigR.x/bigR.y/s in a stored signature");
+  }
+  if (recoveryId !== 0n && recoveryId !== 1n) {
+    throw new Error(`expected a recovery id of 0 or 1, got ${recoveryId}`);
+  }
+  return {
+    r: bytesToBigintBE(bigR.x) % SECP256K1_ORDER,
+    s: bytesToBigintBE(s),
+    recoveryId: Number(recoveryId),
+  };
+}
+
+/**
  * Parse a secp256k1 public key from SEC1 hex (compressed or uncompressed,
- * optional `0x` prefix) into the Compact runtime's `Secp256k1Point` shape —
+ * optional `0x` prefix) into the Compact runtime's `Secp256k1Point` shape:
  * how deploys receive the MPC response key to pin.
  *
  * @param value - The SEC1 hex public key.
@@ -150,7 +245,7 @@ export function parseSecp256k1PublicKey(value: string): Secp256k1Point {
 
 /**
  * Format a secp256k1 public key point as uncompressed SEC1 hex (with `0x`
- * prefix) — the round-trip inverse of {@link parseSecp256k1PublicKey}, for
+ * prefix): the round-trip inverse of {@link parseSecp256k1PublicKey}, for
  * handing a response key to deploys via env/config.
  *
  * @param point - The point to format.
@@ -162,7 +257,7 @@ export function formatSecp256k1PublicKey(point: Secp256k1Point): string {
 }
 
 /**
- * Derive the `Secp256k1Point` of a secret key — convenience for tests and
+ * Derive the `Secp256k1Point` of a secret key: a convenience for tests and
  * signers that hold key material as raw bytes.
  *
  * @param secretKey - The 32-byte secp256k1 secret key.
