@@ -1,13 +1,15 @@
 // The REAL-EVM signet e2e flow: the caller contract requests calls against
 // the SignetEvmTarget Solidity contract on the local anvil, the MPC signs,
 // THIS SUITE broadcasts (the MPC only signs: broadcasting is a client
-// responsibility), the fakenet observes the mined execution and posts a
-// respond-bidirectional attestation, and the suite independently recomputes
-// the respond bytes (eth_call mirroring the fakenet, deserializeEvmOutput,
+// responsibility), the fakenet observes the mined execution (via
+// debug_traceTransaction, the same RPC method the real MPC uses) and posts
+// a respond-bidirectional attestation. The suite then fetches the raw
+// execution output from the fakenet's public /responses/{requestId} helper
+// API (so clients need no debug_traceTransaction access of their own),
+// recomputes the respond bytes (deserializeEvmOutput,
 // serializeRespondOutput, calculateSignetAttestationDigest) and matches the
-// attested digest before in-circuit verification. Both abi-serde functions
-// therefore run twice per method (producer side in the fakenet, verifier
-// side here) with byte-equality pinned by the keccak digest.
+// attested digest before in-circuit verification. The fetched output is
+// UNTRUSTED until that digest+signature verification passes.
 //
 // One ordered pipeline per target method, driven by the METHODS config
 // below: adding a Solidity method later means one Solidity function, one
@@ -42,10 +44,11 @@ import {
   type RespondBidirectionalEvent,
 } from "@sig-net/midnight";
 import { ledger as callerContractLedger } from "@midnight-protocol/test-caller-contract";
-import { JsonRpcProvider, getAddress, getBytes, id as keccakId, toBeHex, type Transaction, type TransactionReceipt } from "ethers";
+import { getAddress, getBytes, id as keccakId, toBeHex, type Transaction, type TransactionReceipt } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
 import { createCallerE2eSession, type CallerContext } from "../src/caller-session.ts";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
+import { fetchFakenetResponse } from "../src/fakenet-responses.ts";
 import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
 import { broadcastSignedTx, evmRpcUrl, getEvmNonce } from "../src/local-evm.ts";
 import { banner, logSkip } from "../src/output.ts";
@@ -371,20 +374,16 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
       async () => {
         expect(receipt).toBeDefined();
 
-        // Mirror the fakenet's extraction EXACTLY: re-simulate the mined
-        // call against the previous block's state from the derived sender.
-        const provider = new JsonRpcProvider(evmRpcUrl(env));
-        let callResult: string;
-        try {
-          callResult = await provider.call({
-            to: signedTx.to,
-            data: signedTx.data,
-            from: signedTx.from,
-            blockTag: receipt.blockNumber - 1,
-          });
-        } finally {
-          provider.destroy();
-        }
+        // Fetch the raw execution output from the fakenet's public
+        // /responses/{requestId} helper API: the mined call's actual return
+        // data as the fakenet traced it (debug_traceTransaction, the same
+        // method the real MPC uses), served so clients need no trace RPC
+        // access of their own. UNTRUSTED until the recomputed digest below
+        // matches the attested one.
+        const cached = await fetchFakenetResponse(requestId);
+        expect(cached.success, "the fakenet must report a succeeded execution").toBe(true);
+        expect(cached.output, "a succeeded execution must carry its raw output").toBeTruthy();
+        const callResult = cached.output!;
 
         // The two abi-serde conversions under test, on live protocol data.
         const decoded = deserializeEvmOutput(method.schema, callResult);
@@ -404,11 +403,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         attestedEvent = matching!;
 
         banner([
-          `${method.name} attestation matches the independent recomputation:`,
+          `${method.name} attestation matches the recomputed respond bytes:`,
           "",
-          `  decoded:   ${JSON.stringify(decoded, (_, v: unknown) => (typeof v === "bigint" ? v.toString() : v))}`,
-          `  payload:   0x${Buffer.from(respondBytes).toString("hex")} (${respondBytes.length} bytes)`,
-          `  digest:    0x${Buffer.from(digest).toString("hex")}`,
+          `  raw output: ${callResult} (from the fakenet /responses API)`,
+          `  decoded:    ${JSON.stringify(decoded, (_, v: unknown) => (typeof v === "bigint" ? v.toString() : v))}`,
+          `  payload:    0x${Buffer.from(respondBytes).toString("hex")} (${respondBytes.length} bytes)`,
+          `  digest:     0x${Buffer.from(digest).toString("hex")}`,
           "",
           "deserializeEvmOutput and serializeRespondOutput ran on BOTH sides",
           "(fakenet and this suite) and agreed byte for byte.",
@@ -430,8 +430,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           return;
         }
 
-        // The RECOMPUTED bytes go into the circuit: nothing output-shaped
-        // is taken from the fakenet, only the attestation being verified.
+        // The respond bytes recomputed from the API-fetched output go into
+        // the circuit. The in-circuit digest recompute + signature check is
+        // what authenticates them: a tampered output cannot match the
+        // attested digest.
         await method.verify(context, requestIdBytes(requestId), attestedEvent, respondBytes);
 
         const deadline = Date.now() + MINUTE;
