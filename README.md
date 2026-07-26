@@ -286,7 +286,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
 | `@sig-net/*` npm packages | 0.12.0 | [`packages/*/package.json`](packages) |
-| fakenet MPC responder | `ghcr.io/sig-net/fakenet:latest` | [`docker-compose.yaml`](docker-compose.yaml) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.7.0` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml) |
 | Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight indexer | 4.4.0-pre-alpha.16 (`l91r3-n2r3` build) | [`docker-compose.yaml`](docker-compose.yaml) |
