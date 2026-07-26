@@ -313,7 +313,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.12.0 | [`packages/*/package.json`](packages) |
+| `@sig-net/*` npm packages | 0.13.0 | [`packages/*/package.json`](packages) |
 | fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.7.0` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml) |
 | Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
@@ -321,7 +321,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
 | `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
 
-**NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). `fakenet:0.7.0` is built against 0.12.0 and serves the public `/responses/{requestId}` helper API on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), from which the integration tests fetch each request's raw traced EVM output.
+**NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). `fakenet:0.7.0` is built against 0.12.0 and remains wire-compatible with 0.13.0 (the 0.13.0 changes are TypeScript API surface and validation only, the on-chain protocol is unchanged). It serves the public `/responses/{requestId}` helper API on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), from which the integration tests fetch each request's raw traced EVM output.
 
 # Packages
 
