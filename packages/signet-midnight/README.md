@@ -34,7 +34,9 @@ The flow comprises 5 steps:
 2. The Sig Network MPC honours the request, generating the transaction signature and posting it back to Midnight.
 3. Client extracts the signature, using it to submit the signed transaction to the foreign chain.
 4. The Sig Network MPC observes the foreign transaction and posts an attestation of the execution back to Midnight: the attestation digest `keccak256(requestId || serializedOutput)` plus its ECDSA signature over that digest. The output itself travels off chain.
-5. Client obtains the execution output off chain (it broadcast the transaction in step 3, so it can read the result), extracts the posted attestation and submits both back to the Midnight contract, which recomputes the digest from the output bytes and verifies the MPC's signature in-circuit against the contract's own response key (see [Derived keys](#derived-keys)), completing the foreign transaction execution.
+5. Client obtains the execution output off chain (see the output recovery note below: it broadcast the transaction in step 3, so it can read the result), extracts the posted attestation and submits both back to the Midnight contract, which recomputes the digest from the output bytes and verifies the MPC's signature in-circuit against the contract's own response key (see [Derived keys](#derived-keys)), completing the foreign transaction execution.
+
+> **Output recovery:** how the client reads the execution output is chain-specific. For EVM chains it is the mined call's return data, extracted with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. Clients without trace access can fetch the raw output from the fakenet responder's helper API at `GET /responses/{requestId}` (served by [`ResponsesApi.ts`](https://github.com/sig-net/solana-signet-program/blob/fakenet-v0.8.0/fakenet-signer/src/server/ResponsesApi.ts), port 3040 in the local stack). The fetched bytes are untrusted until step 5's digest match and in-circuit signature verification.
 
 ## Derived keys
 

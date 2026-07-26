@@ -50,6 +50,10 @@
 //    verifies the posted SignatureRespondedEvent and broadcasts txn to destination chain.
 // 4. MPC observes txn execution on destination chain, posts a RespondBidirectionalEvent
 //    attestation to the central Signet contract, and the client polls it by RequestId.
+//    The client recovers the execution output itself off chain (for EVM: the mined
+//    call's return data via debug_traceTransaction, also served by the fakenet
+//    responder's /responses/{requestId} helper API) and hands output plus attestation
+//    to its verify circuit. See "Output recovery" in this package's README.
 //
 // Read more:
 //   - For full integration examples (such as an ERC20 cross chain vault example) see
