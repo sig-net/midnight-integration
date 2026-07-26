@@ -12,7 +12,7 @@ import { requireEnv } from "../e2e-env.ts";
 import { logSkip } from "../output.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../preflight.ts";
 import { runRootScript } from "../subprocess.ts";
-import { retryDeployWhileDustGenerates, trustsPrebuiltZkKeys } from "./steps.ts";
+import { retryWhileDustGenerates, trustsPrebuiltZkKeys } from "./steps.ts";
 
 const MINUTE = 60_000;
 
@@ -85,7 +85,7 @@ export async function deployCallerContractStep(env: NodeJS.ProcessEnv): Promise<
     logSkip("deploy:test-caller-contract", `MIDNIGHT_CALLER_CONTRACT_ADDRESS is set (${env.MIDNIGHT_CALLER_CONTRACT_ADDRESS})`);
     return;
   }
-  const { contractAddress } = await retryDeployWhileDustGenerates("deploy:test-caller-contract", () => deployCaller(env));
+  const { contractAddress } = await retryWhileDustGenerates("deploy:test-caller-contract", () => deployCaller(env));
   env.MIDNIGHT_CALLER_CONTRACT_ADDRESS = contractAddress;
   console.log(`deployed a fresh MIDNIGHT_CALLER_CONTRACT_ADDRESS=${contractAddress}`);
   console.log(` ➜ the minimal signet caller on Midnight — records signature requests and verifies the MPC's ECDSA responses`);
