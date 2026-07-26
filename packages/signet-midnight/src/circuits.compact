@@ -12,8 +12,6 @@ import CompactStandardLibrary;
 import "./Signet";
 
 export {
-  signetAttestationDigest,
-  verifyRespondBidirectionalEvent,
   signetKeyHash,
   constructSignBidirectionalEventNotificationV1,
   evmAddressAbiWord,
@@ -22,3 +20,48 @@ export {
   abiWordToUint128,
   abiWordToBool
 };
+
+// ---- Fixed-width attestation oracles (tests only) --------------------------
+// calculateSignetAttestationDigest and verifyRespondBidirectionalEvent are
+// size-generic, so they cannot appear in the export list above. These
+// fixed-width instantiations exist SOLELY to pin the off-chain TS twin
+// (calculateSignetAttestationDigest in ecdsa-attestation.ts) byte-for-byte
+// against the compiled circuits: 1 is the smallest packed output (a lone
+// bool), 32 one ABI word, 100 a deliberately non-word-aligned width.
+// Off-chain code must use the TS twin; client contracts instantiate the
+// generic circuits at the width their own respond schema implies.
+
+export pure circuit calculateSignetAttestationDigest1(
+  requestId: RequestId,
+  serializedOutput: Bytes<1>
+): Bytes<32> {
+  return calculateSignetAttestationDigest<1>(requestId, serializedOutput);
+}
+
+export pure circuit calculateSignetAttestationDigest32(
+  requestId: RequestId,
+  serializedOutput: Bytes<32>
+): Bytes<32> {
+  return calculateSignetAttestationDigest<32>(requestId, serializedOutput);
+}
+
+export pure circuit calculateSignetAttestationDigest100(
+  requestId: RequestId,
+  serializedOutput: Bytes<100>
+): Bytes<32> {
+  return calculateSignetAttestationDigest<100>(requestId, serializedOutput);
+}
+
+export pure circuit verifyRespondBidirectionalEvent32(
+  requestId: RequestId,
+  serializedOutput: Bytes<32>,
+  respondBidirectionalEvent: RespondBidirectionalEvent,
+  mpcResponseKey: Secp256k1Point
+): Boolean {
+  return verifyRespondBidirectionalEvent<32>(
+    requestId,
+    serializedOutput,
+    respondBidirectionalEvent,
+    mpcResponseKey
+  );
+}

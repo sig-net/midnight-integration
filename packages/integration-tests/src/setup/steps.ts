@@ -96,34 +96,51 @@ export async function compileSignetContract(env: NodeJS.ProcessEnv): Promise<voi
 }
 
 /**
- * Run a deploy, retrying while the deployer wallet cannot yet pay the fee.
- * On a freshly started dev chain DUST generates block by block from the
- * genesis NIGHT, so the first deploy can race the chain's first minutes —
+ * Run a fee-paying call (a deploy, a root-to-child funding transfer),
+ * retrying while the paying wallet cannot yet cover the fee. On a freshly
+ * started dev chain DUST generates block by block from the genesis NIGHT,
+ * so the first fee-paying transactions can race the chain's first minutes:
  * `Wallet.InsufficientFunds` ("could not balance dust") is transient there.
  * A genuinely unfunded wallet fails fast in {@link ensureDeployerDust}
  * instead, so the bounded retry here cannot mask real underfunding.
  *
  * @param what - Step label for the retry log lines.
- * @param deploy - The deploy call to (re)attempt.
- * @returns Whatever `deploy` resolves to.
+ * @param action - The fee-paying call to (re)attempt.
+ * @returns Whatever `action` resolves to.
  * @throws The last error when attempts are exhausted, or immediately for
  *   any error that is not the transient insufficient-dust failure.
  */
-export async function retryDeployWhileDustGenerates<T>(what: string, deploy: () => Promise<T>): Promise<T> {
+export async function retryWhileDustGenerates<T>(what: string, action: () => Promise<T>): Promise<T> {
   const RETRY_DELAY_MS = 15_000;
-  const MAX_ATTEMPTS = 24; // ~6 minutes — a young dev chain generates plenty by then
+  const MAX_ATTEMPTS = 24; // ~6 minutes: a young dev chain generates plenty by then
   for (let attempt = 1; ; attempt++) {
     try {
-      return await deploy();
+      return await action();
     } catch (error) {
       const message = String(error);
       const transient = message.includes("InsufficientFunds") || message.includes("could not balance dust");
       if (!transient || attempt >= MAX_ATTEMPTS) {
+        // Node error 1010 / "Custom error: 170" is InvalidDustSpendProof:
+        // the local chain has diverged from the wallet's view. Wrap it with
+        // the recovery hint, as the raw node message is opaque.
+        if (
+          message.includes("Custom error: 170") ||
+          message.includes("InvalidDustSpendProof") ||
+          /\b1010\b/.test(message)
+        ) {
+          throw new Error(
+            `${what}: node rejected the dust spend (error 170 = InvalidDustSpendProof). ` +
+              "The local chain has diverged from the wallet's dust state: reset the stack " +
+              "(docker compose down and up, then redeploy) before rerunning. " +
+              `Original error: ${message}`,
+            { cause: error },
+          );
+        }
         throw error;
       }
       console.log(
-        `${what}: deployer cannot pay the fee yet (dust still generating on a young chain?)` +
-          ` — retrying in ${RETRY_DELAY_MS / 1000}s (attempt ${attempt}/${MAX_ATTEMPTS})`,
+        `${what}: the paying wallet cannot cover the fee yet (dust still generating on a young chain?),` +
+          ` retrying in ${RETRY_DELAY_MS / 1000}s (attempt ${attempt}/${MAX_ATTEMPTS})`,
       );
       await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
     }
@@ -135,7 +152,7 @@ export async function deploySignetContractStep(env: NodeJS.ProcessEnv): Promise<
     logSkip("deploy:signet-contract", `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is set (${env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS})`);
     return;
   }
-  const { contractAddress } = await retryDeployWhileDustGenerates("deploy:signet-contract", () =>
+  const { contractAddress } = await retryWhileDustGenerates("deploy:signet-contract", () =>
     deploySignetContract(env),
   );
   env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS = contractAddress;

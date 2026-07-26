@@ -11,7 +11,7 @@
 //   field 4: respondBidirectionalCounterMap (Map<RequestId, Counter>)
 //   field 5: respondBidirectionalMap (Map<SignetMapKey, RespondBidirectionalEvent>)
 // Every store is an unauthenticated append-only log keyed by
-// (requestId, count); verification is the reader's job. The generic
+// (requestId, count): verification is the reader's job. The generic
 // state-tree walk (RawContractState, signetFieldNode) and the shared base
 // descriptors live in signature-state-reading.ts.
 
@@ -56,12 +56,9 @@ export const RESPOND_BIDIRECTIONAL_MAP_FIELD = 5;
 // ---- Type descriptors (must mirror Signet.compact field-for-field) ----
 // As in the requests reader, fromValue consumes the aligned value
 // sequentially, so field order and width here must match the Compact structs
-// exactly — a mismatch is silent data corruption, not an error.
+// exactly: a mismatch is silent data corruption, not an error.
 
-/** Descriptor for the response's serialized output (`Bytes<128>`). */
-const bytes128 = new CompactTypeBytes(128);
-
-/** Descriptor for a 32-byte scalar / coordinate (`Bytes<32>`). */
+/** Descriptor for a 32-byte scalar / coordinate / hash (`Bytes<32>`). */
 const bytes32 = new CompactTypeBytes(32);
 
 /** Descriptor for a Compact `Uint<8>` (1-byte unsigned integer). */
@@ -69,7 +66,7 @@ const u8 = new CompactTypeUnsignedInteger(255n, 1);
 
 /**
  * A curve point in affine coordinates (Compact `AffinePoint`), SEC1
- * big-endian — the same shape the sig-net EVM and Solana signer contracts
+ * big-endian, the same shape the sig-net EVM and Solana signer contracts
  * expose.
  */
 export interface AffinePoint {
@@ -85,7 +82,7 @@ export interface AffinePoint {
  * `Signature { big_r, s, recovery_id }` and the EVM/Solana signer
  * contracts): `bigR` the full nonce point so consumers never decompress,
  * `s` big-endian, `recoveryId` the parity of R.y. Stored UNVERIFIED like
- * everything else on the singleton; convert with
+ * everything else on the singleton. Convert with
  * `ecdsaSignatureToMpcSignature` / `mpcSignatureToEcdsaSignature`.
  */
 export interface MpcSignature {
@@ -113,7 +110,7 @@ const mpcSignatureType: CompactType<MpcSignature> = {
   /**
    * Decode one signature from an aligned value, consuming it leaf by leaf.
    *
-   * @param value - Mutable aligned value cursor; pass a copy.
+   * @param value - Mutable aligned value cursor: pass a copy.
    * @returns The decoded signature.
    */
   fromValue(value) {
@@ -140,9 +137,9 @@ const mpcSignatureType: CompactType<MpcSignature> = {
 
 /**
  * The MPC's signature over the requested EVM transaction (Compact
- * `SignatureRespondedEvent`) — decode to an ethers signature with
+ * `SignatureRespondedEvent`): decode to an ethers signature with
  * `signatureRespondedEventToSignature`. The request id it answers lives in
- * the map key, not here.
+ * the map key.
  */
 export interface SignatureRespondedEvent {
   /** The requested signature over the transaction the request describes. */
@@ -161,7 +158,7 @@ export const signatureRespondedEventType: CompactType<SignatureRespondedEvent> =
   /**
    * Decode one signature response from an aligned value.
    *
-   * @param value - Mutable aligned value cursor; pass a copy.
+   * @param value - Mutable aligned value cursor: pass a copy.
    * @returns The decoded record.
    */
   fromValue(value) {
@@ -179,20 +176,18 @@ export const signatureRespondedEventType: CompactType<SignatureRespondedEvent> =
 };
 
 /**
- * The MPC's respond-bidirectional response for a request's remote EVM
- * execution (Compact `RespondBidirectionalEvent`): the serialized execution
- * output plus the ECDSA signature over the attestation digest of
- * `(requestId, serializedOutput)`. `outputLen` is carried but NOT signed over, so
- * anything relying on it must pin it separately. Stored UNVERIFIED by the signet
- * contract — clients verify it themselves (in-circuit via
- * `verifyRespondBidirectionalEvent`, or off-chain via the compiled
- * `pureCircuits.verifyRespondBidirectionalEvent`).
+ * The MPC's respond-bidirectional attestation of a request's remote EVM
+ * execution (Compact `RespondBidirectionalEvent`): the attestation digest
+ * `keccak256(requestId || serializedOutput)` plus the ECDSA signature over
+ * it. The output itself travels off chain: readers fetch it, recompute the
+ * digest (`calculateSignetAttestationDigest`) and match it against
+ * {@link attestationDigest}. Stored UNVERIFIED by the signet contract:
+ * clients verify the signature themselves against their MPC response key
+ * (in-circuit via `verifyRespondBidirectionalEvent`).
  */
 export interface RespondBidirectionalEvent {
-  /** ABI-encoded return data (canonical serialized_output), zero-padded to 128 bytes. */
-  serializedOutput: Uint8Array;
-  /** Meaningful byte count of {@link serializedOutput}. */
-  outputLen: bigint;
+  /** The signed attestation digest: `keccak256(requestId || serializedOutput)`. */
+  attestationDigest: Uint8Array;
   /** ECDSA signature over the attestation digest. */
   signature: MpcSignature;
 }
@@ -200,7 +195,7 @@ export interface RespondBidirectionalEvent {
 /**
  * Composite key of one posted entry in the signet contract's maps (Compact
  * `SignetMapKey`): the request id it belongs to plus the post's 0-based
- * count. Field order — count first, then request id — mirrors the Compact
+ * count. Field order (count first, then request id) mirrors the Compact
  * struct.
  */
 export interface SignetMapKey {
@@ -211,7 +206,7 @@ export interface SignetMapKey {
 }
 
 /**
- * Hand-composed descriptor for {@link SignetMapKey} — the map key of every
+ * Hand-composed descriptor for {@link SignetMapKey}, the map key of every
  * posted-entry map in the signet contract. Field order (count, then
  * requestId) must match the Compact struct.
  */
@@ -223,7 +218,7 @@ export const signetMapKeyType: CompactType<SignetMapKey> = {
   /**
    * Decode one key from an aligned value, consuming it field by field.
    *
-   * @param value - Mutable aligned value cursor; pass a copy.
+   * @param value - Mutable aligned value cursor: pass a copy.
    * @returns The decoded composite key.
    */
   fromValue(value) {
@@ -245,28 +240,25 @@ export const signetMapKeyType: CompactType<SignetMapKey> = {
 
 /**
  * Hand-composed descriptor for {@link RespondBidirectionalEvent}. Field
- * order (serializedOutput, outputLen, signature) must match the Compact
- * struct.
+ * order (attestationDigest, signature) must match the Compact struct.
  */
 export const respondBidirectionalEventType: CompactType<RespondBidirectionalEvent> = {
   /** @returns Compound alignment of the struct's fields in declaration order. */
   alignment() {
-    return bytes128
+    return bytes32
       .alignment()
-      .concat(u8.alignment())
       .concat(mpcSignatureType.alignment());
   },
   /**
    * Decode one response record from an aligned value, consuming it field
    * by field.
    *
-   * @param value - Mutable aligned value cursor; pass a copy.
+   * @param value - Mutable aligned value cursor: pass a copy.
    * @returns The decoded record.
    */
   fromValue(value) {
     return {
-      serializedOutput: bytes128.fromValue(value),
-      outputLen: u8.fromValue(value),
+      attestationDigest: bytes32.fromValue(value),
       signature: mpcSignatureType.fromValue(value),
     };
   },
@@ -277,9 +269,8 @@ export const respondBidirectionalEventType: CompactType<RespondBidirectionalEven
    * @returns The aligned value, fields concatenated in declaration order.
    */
   toValue(record) {
-    return bytes128
-      .toValue(record.serializedOutput)
-      .concat(u8.toValue(record.outputLen))
+    return bytes32
+      .toValue(record.attestationDigest)
       .concat(mpcSignatureType.toValue(record.signature));
   },
 };
@@ -293,7 +284,7 @@ const bytes128Payload = new CompactTypeBytes(128);
  * Decode the payload with {@link decodeSignBidirectionalNotification}.
  */
 export interface SignBidirectionalNotificationRecord {
-  /** Payload layout tag (Compact `Uint<8>`); 1 = the V1 layout. */
+  /** Payload layout tag (Compact `Uint<8>`): 1 = the V1 layout. */
   version: bigint;
   /** The packed payload bytes, exactly as the registering circuit built them. */
   payload: Uint8Array;
@@ -313,7 +304,7 @@ export const signBidirectionalNotificationType: CompactType<SignBidirectionalNot
      * Decode one notification record from an aligned value, consuming it
      * field by field.
      *
-     * @param value - Mutable aligned value cursor; pass a copy.
+     * @param value - Mutable aligned value cursor: pass a copy.
      * @returns The decoded record.
      */
     fromValue(value) {
@@ -346,20 +337,20 @@ const SUPPORTED_NOTIFICATION_VERSION = 1n;
 
 /**
  * A decoded V1 notification from the signet contract's registry: the flat
- * pointer a client registered to tell the MPC a request was stored — and
+ * pointer a client registered to tell the MPC a request was stored, and
  * WHERE to read the authenticated copy. The request id is NOT in the payload:
  * it lives in the registry map key the record was stored under. Never trusted
  * on its own: the resolver authenticates by reading the request back from
  * {@link callerAddress}'s own ledger (see signet-request-resolver.ts).
  */
 export interface SignBidirectionalNotification {
-  /** Payload layout tag; this decoder only produces version 1. */
+  /** Payload layout tag: this decoder only produces version 1. */
   version: number;
   /**
    * Address of the contract whose request map holds the request, rendered
-   * as lowercase hex, no `0x` prefix — directly usable as a
+   * as lowercase hex, no `0x` prefix: directly usable as a
    * `queryContractState` argument. The MPC reads the request from THIS
-   * contract's authenticated state; the field itself confers no authority.
+   * contract's authenticated state. The field itself confers no authority.
    */
   callerAddress: string;
   /**
@@ -372,9 +363,9 @@ export interface SignBidirectionalNotification {
 
 /**
  * Unpack a stored {@link SignBidirectionalNotificationRecord}'s payload by
- * the fixed V1 offsets — the decode twin of the compiled
+ * the fixed V1 offsets: the decode twin of the compiled
  * `constructSignBidirectionalEventNotificationV1` circuit (byte plumbing
- * only; the pack↔decode lockstep is pinned by the state-reader unit test that
+ * only: the pack↔decode lockstep is pinned by the state-reader unit test that
  * round-trips through the real circuit). V1 layout:
  * callerAddress (32) ++ requestsIndexField (1) ++ zero padding (95).
  *
@@ -402,6 +393,12 @@ export function decodeSignBidirectionalNotification(
   );
   const requestsIndexField =
     record.payload[NOTIFICATION_REQUESTS_INDEX_FIELD_OFFSET];
+  if (requestsIndexField === undefined) {
+    throw new Error(
+      `SignBidirectionalEventNotification payload is ${record.payload.length} bytes: ` +
+        `too short for the V1 requestsIndexField at offset ${NOTIFICATION_REQUESTS_INDEX_FIELD_OFFSET}`,
+    );
+  }
   return {
     version: Number(record.version),
     callerAddress,
@@ -412,8 +409,8 @@ export function decodeSignBidirectionalNotification(
 /**
  * Plain-JS notification registry parsed out of the ledger: hex request id
  * (from the `SignetMapKey` the notification was stored under) to the raw
- * stored record. Re-notifies append under higher counts; this index keeps
- * the FIRST post (count 0) per request id — the record the original submit
+ * stored record. Re-notifies append under higher counts. This index keeps
+ * the FIRST post (count 0) per request id, the record the original submit
  * registered. Decode each record with
  * {@link decodeSignBidirectionalNotification}.
  */
@@ -443,7 +440,7 @@ export type SignatureResponseIndex = Map<string, SignatureRespondedEvent>;
 export type RespondBidirectionalIndex = Map<string, RespondBidirectionalEvent>;
 
 /**
- * Build the flattened JS map key for a `(requestId, count)` pair — the
+ * Build the flattened JS map key for a `(requestId, count)` pair: the
  * composite Compact {@link SignetMapKey} as a string so it works as a JS
  * `Map` key.
  *
@@ -499,9 +496,9 @@ function readSignetKeyedMap<T>(
 /**
  * Read ONLY the notification registry (ledger field
  * {@link SIGN_BIDIRECTIONAL_EVENT_NOTIFICATION_MAP_FIELD}) out of raw signet
- * contract state — the poll-loop primitive of {@link SignetRequestFeed},
+ * contract state: the poll-loop primitive of {@link SignetRequestFeed},
  * which cycles frequently and has no use for the response fields. One record
- * per request id (the count-0 post; see
+ * per request id (the count-0 post, see
  * {@link SignBidirectionalNotificationIndex}).
  *
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`
@@ -540,7 +537,7 @@ export function readSignBidirectionalNotificationIndexFromState(
 
 /**
  * The decoded ledger fields of the signet contract: the three
- * (counter map, entry map) pairs — notifications (fields 0/1), signature
+ * (counter map, entry map) pairs, namely notifications (fields 0/1), signature
  * responses (fields 2/3), respond-bidirectional responses (fields 4/5).
  * Together they give a poller everything the contract ever records about a
  * request. All entries are UNAUTHENTICATED: verify before trusting.
@@ -565,9 +562,9 @@ export interface SignetContractLedger {
 
 /**
  * MPC-/client-style read: parse the signet contract's ledger fields out of
- * raw contract state by field position alone — no compiled contract, no
- * generated `ledger()`, only the declaration-order layout and the canonical
- * descriptors above.
+ * raw contract state by field position alone, with no compiled contract and
+ * no generated `ledger()`, only the declaration-order layout and the
+ * canonical descriptors above.
  *
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`
  *   from the indexer or `ctx.currentQueryContext.state` from the simulator.

@@ -12,23 +12,23 @@ description: >
   stack to /e2e and the non-negotiable rules to AGENTS.md.
 ---
 
-# contract-change — change a contract and retest it end to end
+# contract-change: change a contract and retest it end to end
 
 Plain markdown on purpose: any agent or human can follow it. This is the
-*connective* knowledge — how a single change threads through the layers and
+*connective* knowledge: how a single change threads through the layers and
 how to prove it. It does not restate what already has a home:
 
 - **Non-negotiable rules** (seed lives once, never a TS twin of a pure circuit,
   simulator-only unit tests, the deploy split, no emitted JS, always
   `build && test`) → root [`AGENTS.md`](../../../AGENTS.md) and each package's own
-  `AGENTS.md`. Read them; this skill assumes them.
+  `AGENTS.md`. Read them: this skill assumes them.
 - **Running / redeploying the stack** (fakenet responder hand-off, pacing,
   failure playbooks) → the [`/e2e`](../e2e/SKILL.md) skill.
 - **Invariants worth remembering** (enum ≥2 variants, compact-js symbol
   identity, response-server dependency boundary, cross-contract calls) →
   the project memory index.
 
-## The four layers — and the one question that places any change
+## The four layers, and the one question that places any change
 
 Every change belongs to exactly one layer. Ask: *is this protocol machinery,
 the central notifier, a client contract, or the driver?*
@@ -36,8 +36,8 @@ the central notifier, a client contract, or the driver?*
 | Layer | Package | Owns | NEVER holds |
 |---|---|---|---|
 | **Seed SDK** | `packages/signet-midnight` | Client-agnostic protocol: request/response structs, request-id hashing, secp256k1 ECDSA attestations, the `CompactType` descriptors and readers, `pureCircuits` (compiled `circuits.compact`) | Anything specific to one client contract |
-| **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to register a `SignBidirectionalNotification` in its registry. The MPC discovers requesters by polling ITS state | Application logic; per-client state |
-| **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit a request with contract-fixed calldata, verify the ECDSA response in-circuit. Seals the signet contract address and the MPC key at deploy | Reusable protocol code — that belongs in the seed. Business logic beyond what exercising the singleton needs |
+| **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to register a `SignBidirectionalNotification` in its registry. The MPC discovers requesters by polling ITS state | Application logic, per-client state |
+| **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit a request with contract-fixed calldata, verify the ECDSA response in-circuit. Seals the signet contract address and the MPC key at deploy | Reusable protocol code (that belongs in the seed). Business logic beyond what exercising the singleton needs |
 | **Driver** | `packages/integration-tests` | Orchestration a downstream app would do: build circuit args, submit calls via midnight-js, poll the signet contract, verify responses. The e2e drives the caller THROUGH these sequences | Rules a contract should enforce |
 
 Placement rule of thumb: **if a second contract would ever want it, it goes in
@@ -51,32 +51,32 @@ per-package `AGENTS.md`.
 
 A request is a round trip across all four layers. Each stage maps to a
 concrete circuit or e2e leg (see
-`packages/integration-tests/tests/signet-caller-e2e.test.ts`) — know this map
+`packages/integration-tests/tests/signet-caller-e2e.test.ts`). Know this map
 before touching any stage:
 
-1. **Request** — the client circuit (`submitSignatureRequest`) builds the
+1. **Request**: the client circuit (`submitSignatureRequest`) builds the
    contract-enforced calldata, inserts the request into its request index,
    and cross-contract-calls the signet contract to register a
    `SignBidirectionalNotification` in its registry. The e2e recomputes the
    request id off-chain (`calculateRequestId`) and asserts it landed on the
    ledger.
-2. **Discover + sign** — the MPC responder (external, `/e2e` starts it) polls
+2. **Discover + sign**: the MPC responder (external, `/e2e` starts it) polls
    the **signet contract's** notification registry, resolves the request from
    the requester's RAW ledger, signs the EVM tx, and posts a signature
    response to the signet contract.
-3. **Poll signed tx** — the e2e reconstructs a typed ethers `Transaction`
+3. **Poll signed tx**: the e2e reconstructs a typed ethers `Transaction`
    from the request + response and verifies it recovers to the caller's
    epsilon-derived account.
-4. **Settle** — the client circuit (`verifyResponse`) verifies a secp256k1
+4. **Settle**: the client circuit (`verifyResponse`) verifies a secp256k1
    ECDSA attestation IN-CIRCUIT against the response key pinned at initialise,
    over the request id and the attested output, and
    **removes the request** (double-settle protection). The fakenet only
    attests after observing a broadcast, so the generic e2e signs the
-   attestation in-test from the suite's `MPC_ROOT_KEY` — the same key
-   material the fakenet holds.
+   attestation in-test from the suite's `MPC_ROOT_KEY` (the same key
+   material the fakenet holds).
 
 The reader that stages 2–4 lean on (`SignetRequestResponseReader`) reads RAW
-ledger/state exactly as the MPC does — the same view on both sides is the point.
+ledger/state exactly as the MPC does: the same view on both sides is the point.
 
 ## The change → retest decision tree
 
@@ -87,26 +87,26 @@ ledger/state exactly as the MPC does — the same view on both sides is the poin
   `src/managed/` is absent.
 - **`.compact` edit that does NOT alter a circuit's proof** (comment, a
   non-hashed rename): `yarn compile` (default `--skip-zk`) regenerates
-  `src/managed/`; simulator tests and typecheck are enough.
+  `src/managed/`. Simulator tests and typecheck are enough.
 - **`.compact` edit that alters a circuit, a struct layout, or the request-id
   hash domain**: the proving keys change. This forces a **redeploy**.
 
 **2. Verify in-process first (fast, no stack).**
 
 - `yarn build && yarn test` in the member you touched (AGENTS.md: `tsx`
-  and vitest do NOT typecheck — "it runs" is not verification). Root
+  and vitest do NOT typecheck, so "it runs" is not verification). Root
   `yarn compile` (skip-zk) wipes prover keys, and signet-contract's `build`
-  gates on its keys — restore with `yarn compile:signet-contract:zk` before
+  gates on its keys: restore with `yarn compile:signet-contract:zk` before
   a root build, and never build while a zk compile is still running.
 - Contract packages carry simulator unit tests (`tests/contract.test.ts`)
   that exercise circuits in-process via `compact-runtime`. Add the happy
-  path AND the reject cases there — it is the cheapest place to prove a
+  path AND the reject cases there: it is the cheapest place to prove a
   circuit change.
 
 **3. Retest end to end.** Hand off to [`/e2e`](../e2e/SKILL.md):
 
 - **TS-only or skip-zk change** → `/e2e` (rerun): setup steps skip against
-  the kept addresses; only the flow re-runs. ~2 min.
+  the kept addresses, and only the flow re-runs. ~2 min.
 - **Circuit/struct/hash change** → `/e2e redeploy`: zk keygen (~10+ min) +
   the responder hand-off, all in one run. Background it.
 
@@ -121,32 +121,37 @@ reaches your stage on real state (the run prints the id as it goes).
   `.compact` structs.** The seed's readers decode ledger bytes with hand-written
   `CompactType` descriptors (field order + alignment) and reconstruct request
   ids with `calculateRequestId`. These are the *sanctioned* exception to
-  AGENTS.md's "never a TS twin of a pure circuit" rule — they exist only because
+  AGENTS.md's "never a TS twin of a pure circuit" rule: they exist only because
   the generic request circuits are type-parameterized and cannot be compiled.
   Change a struct's fields or order in Compact and you MUST change its descriptor
-  to match byte-for-byte; a mismatch does not throw at the boundary — it decodes
+  to match byte-for-byte. A mismatch does not throw at the boundary: it decodes
   garbage or breaks proof agreement downstream. Everything that CAN be compiled
-  must instead be called as `pureCircuits.<name>` — never re-port it in TS.
-- **Ledger field ordering is load-bearing.** In a client contract the request
-  index is ledger field 0 and the nonce counter field 1; the MPC locates them by
-  position knowing only the contract address. Do not declare ledger state above
-  them.
-- **Keep enums in hashed structs ≥ 2 variants** — a 1-variant enum hashes as a
+  must instead be called as `pureCircuits.<name>`, never re-ported in TS.
+- **Ledger field ordering is load-bearing.** A client contract's request maps
+  can sit at ANY ledger field: each notification the contract registers names
+  the field position holding the map (`requestsIndexField`), and the MPC reads
+  the authenticated request from that position knowing only the contract
+  address. The test caller keeps its two per-schema-width maps at fields 4 and
+  7 (its `requestLog` List deliberately occupies field 0), so the positions its
+  submit circuits pass in the notification are 4 and 7. Reordering ledger
+  declarations changes those positions: the notification literals (and any
+  reader configured with a `requestsIndexField`) must move with them.
+- **Keep enums in hashed structs ≥ 2 variants**: a 1-variant enum hashes as a
   zero-width atom and desynchronizes the compiler from the ledger (see the
   memory on this and AGENTS `TxParamType`'s padding variant).
 - **A client seals the signet contract address and the MPC key at deploy.**
   Its EVM accounts are epsilon-derived from its contract address, so a
-  redeploy moves them; on the local loop nothing is funded, so this costs
+  redeploy moves them. On the local loop nothing is funded, so this costs
   nothing (the parked Sepolia sweep lives in `docs/e2e-sepolia-runbook.md`).
 
 ## Infra failures that surface during retest (not your change)
 
-- **Proof server OOM — container `Exited (137)`.** Heavy circuits can exhaust
+- **Proof server OOM: container `Exited (137)`.** Heavy circuits can exhaust
   its memory. Symptom: `ECONNREFUSED 127.0.0.1:6300` mid-proving. Fix:
   `docker restart midnight-proof-server`, re-run the stage (reuse the request
   id per step 4).
-- **`DustDoubleSpend` — node `Custom error: 196`** on a contract call. A stale
-  local wallet dust view spent an already-consumed dust nullifier. Transient;
+- **`DustDoubleSpend` (node `Custom error: 196`)** on a contract call. A stale
+  local wallet dust view spent an already-consumed dust nullifier. Transient:
   a fresh wallet session (rerun) resyncs and picks unspent dust. Confirm in
   `docker logs midnight-node`.
 - **Stages 2–4 hang** if the MPC responder is down or watching a stale signet
@@ -156,11 +161,11 @@ reaches your stage on real state (the run prints the id as it goes).
 
 1. Decide the layer (usually: circuit in a client contract, any reusable
    struct/helper in the seed).
-2. Write the circuit in the `.compact`; if it consumes/produces a signet struct,
-   confirm the seed already models it — add/extend the struct AND its descriptor
-   together if not.
-3. `yarn compile` in the contract package; add simulator tests for the happy
-   path and every reject.
+2. Write the circuit in the `.compact`. If it consumes/produces a signet struct,
+   confirm the seed already models it, and add/extend the struct AND its
+   descriptor together if not.
+3. `yarn compile` in the contract package, then add simulator tests for the
+   happy path and every reject.
 4. `yarn build && yarn test` in each touched member.
 5. Extend `packages/integration-tests/tests/signet-caller-e2e.test.ts` with a
    leg that drives the new circuit and asserts a publicly-observable effect (a

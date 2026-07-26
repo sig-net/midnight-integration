@@ -1,5 +1,5 @@
 // Simulator-level unit tests: the contract runs entirely in-process via
-// @midnight-ntwrk/compact-runtime — no ledger, no network, no proving.
+// @midnight-ntwrk/compact-runtime (no ledger, no network, no proving).
 
 import { describe, expect, it } from "vitest";
 
@@ -16,7 +16,6 @@ import {
   asciiPadded,
   calculateRequestId,
   ecdsaSignatureToMpcSignature,
-  pureCircuits as signetCircuits,
   readSignetRequestsLedgerFromState,
   requestIdBytes,
   requestIdHex,
@@ -26,11 +25,12 @@ import {
   toSignBidirectionalEventIndex,
   type RespondBidirectionalEvent,
   type SignBidirectionalEventLedgerMap,
+  calculateSignetAttestationDigest,
 } from "@sig-net/midnight";
 
 import { Contract, ledger, pureCircuits as callerCircuits, witnesses, type CallerPrivateState } from "../src/index.ts";
 import { createCallerPrivateState } from "../src/witnesses.ts";
-// The signet contract (callee) module — the same one the caller's generated
+// The signet contract (callee) module: the same one the caller's generated
 // code cross-contract-calls. submitSignatureRequest ends in a call to its
 // signBidirectional, so the simulator needs its state (see
 // signetStateProvider) to execute that path.
@@ -75,7 +75,7 @@ const BLOCK_HASH = "0".repeat(64);
 
 /**
  * A ContractStateProvider serving the signet contract's initial state to the
- * simulator's cross-contract call — how submitSignatureRequest reaches
+ * simulator's cross-contract call: how submitSignatureRequest reaches
  * signBidirectional in-process (no node/indexer). Returns the state for
  * any address: the caller only calls the single sealed signet contract.
  */
@@ -87,29 +87,51 @@ const signetStateProvider = async () => {
   return { getContractState: async () => currentContractState };
 };
 
-// The simulated caller's own contract address; kernel.self() inside the
-// circuits — and therefore the request's sender field.
+// The simulated caller's own contract address: kernel.self() inside the
+// circuits, and therefore the request's sender field.
 const CALLER_ADDRESS = sampleContractAddress();
 const CALLER_ADDRESS_BYTES = Uint8Array.from(Buffer.from(CALLER_ADDRESS, "hex"));
 
 // The contract-fixed request constants (mirrors of the in-circuit literals in
-// test-caller-contract.compact; the round-trip test below is the lockstep check).
+// test-caller-contract.compact: the round-trip test below is the lockstep check).
 const EXPECTED_TO = asciiPadded("signet-caller-e2e-to", 20);
 const EXPECTED_SELECTOR = new Uint8Array([0xca, 0x11, 0xab, 0x1e]);
 const EXPECTED_WORD = asciiPadded("signet-caller:fixed-word", 32);
 const EXPECTED_CAIP2 = asciiPadded("eip155:31337", 32);
 const EXPECTED_PATH = asciiPadded("caller-path", 32);
+// Schemas are EXACT-width by protocol convention (never NUL-padded: the
+// MPC's raw reader recovers the width from the stored bytes). One request
+// map per schema width: field 4 carries the 34-byte bool schema, field 7
+// the 69-byte bool+uint256 schema.
 const EXPECTED_SCHEMA = asciiPadded('[{"name":"success","type":"bool"}]', 34);
+const EXPECTED_SCHEMA_BOOL_UINT = asciiPadded(
+  '[{"name":"success","type":"bool"},{"name":"amount","type":"uint256"}]',
+  69,
+);
 
 // The caller-supplied circuit args of a valid submit.
 const EVM_NONCE = 7n;
 const KEY_VERSION = 1n;
 
+// Real-EVM submit fixtures: a target contract address (any 20 bytes at the
+// simulator level) and one big-endian ABI word argument (uint256 6).
+const EVM_TARGET_TO = bytes(20, 0x77);
+const ARG_WORD = (() => {
+  const word = new Uint8Array(32);
+  word[31] = 6;
+  return word;
+})();
+
+// The in-circuit selector literals: first 4 bytes of keccak256 of the
+// Solidity signatures, pinned here and re-derived from ethers in the e2e.
+const SELECTOR_IS_EVEN = new Uint8Array([0x2a, 0x2e, 0x13, 0x20]); // isEven(uint256)
+const SELECTOR_CHECK_AND_DOUBLE = new Uint8Array([0xe6, 0xcf, 0x21, 0x87]); // checkAndDouble(uint256)
+
 // ---- Harness ----
 
 /**
- * Deploy WITHOUT pinning the response key — the pre-initialise state. The
- * constructor seals the DEPLOYER_SECRET's commitment; `witnessSecret` is
+ * Deploy WITHOUT pinning the response key: the pre-initialise state. The
+ * constructor seals the DEPLOYER_SECRET's commitment. `witnessSecret` is
  * what the private state answers the deployerSecretKey witness with (pass an
  * imposter's secret to exercise the initialise gate).
  */
@@ -204,8 +226,8 @@ describe("test-caller-contract ledger shape", () => {
     const { ctx } = await deployContract();
 
     const rawState = ctx.callContext.currentQueryContext.state;
-    // The List at field 0 is array-typed exactly like a chunked field root;
-    // resolving the map behind it is the point of this layout.
+    // The List at field 0 is array-typed exactly like a chunked field root,
+    // and resolving the map behind it is the point of this layout.
     expect(signetFieldNode(rawState, REQUEST_LOG_FIELD).type()).toBe("array");
     const node = signetFieldNode(rawState, REQUESTS_INDEX_FIELD);
     expect(node.type()).toBe("map");
@@ -239,7 +261,7 @@ describe("submitSignatureRequest round-trip", () => {
     const typedIndex = toSignBidirectionalEventIndex(
       ledger(state).signBidirectionalEventMap,
     );
-    // Read 2: MPC-style raw read — no compiled contract involved.
+    // Read 2: MPC-style raw read (no compiled contract involved).
     const rawLedger = readSignetRequestsLedgerFromState(
       state,
       REQUESTS_INDEX_FIELD,
@@ -273,7 +295,7 @@ describe("submitSignatureRequest round-trip", () => {
     });
 
     // The contract-fixed request fields come back exactly as the TS mirrors
-    // expect — the LOCKSTEP CHECK for the in-circuit literals (including the
+    // expect: the LOCKSTEP CHECK for the in-circuit literals (including the
     // escaped JSON schema and the sender = kernel.self()).
     expect(record.sender).toEqual({ bytes: CALLER_ADDRESS_BYTES });
     expect(record.requestNonce).toBe(0n);
@@ -294,7 +316,7 @@ describe("submitSignatureRequest round-trip", () => {
     expect(calldata.value.words).toHaveLength(1);
     expect(calldata.value.words[0]).toEqual(EXPECTED_WORD);
 
-    // The map key IS the persistent hash of the record — recomputed
+    // The map key IS the persistent hash of the record, recomputed
     // off-chain with the library's TS twin of the request-id circuit.
     expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
 
@@ -304,7 +326,7 @@ describe("submitSignatureRequest round-trip", () => {
 
   it("two identical submits mint DISTINCT request ids (nonce-keyed)", async () => {
     // Everything but the request nonce is a contract constant, so uniqueness
-    // of the id rests entirely on signetRequestNonce — pin that here.
+    // of the id rests entirely on signetRequestNonce: pin that here.
     const { contract, ctx } = await deployContract();
     const afterFirst = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION)).context;
     const afterSecond = (
@@ -325,22 +347,102 @@ describe("submitSignatureRequest round-trip", () => {
   });
 });
 
+describe("EVM target submit circuits round-trip", () => {
+  // Per-circuit lockstep expectations: the selector and schema literals the
+  // contract fixes for each SignetEvmTarget method, plus which per-width
+  // request map the request lands in.
+  const CASES = [
+    {
+      name: "submitIsEvenRequest",
+      submit: "submitIsEvenRequest" as const,
+      selector: SELECTOR_IS_EVEN,
+      schema: EXPECTED_SCHEMA,
+      map: "signBidirectionalEventMap" as const,
+    },
+    {
+      name: "submitCheckAndDoubleRequest",
+      submit: "submitCheckAndDoubleRequest" as const,
+      selector: SELECTOR_CHECK_AND_DOUBLE,
+      schema: EXPECTED_SCHEMA_BOOL_UINT,
+      map: "signBidirectionalEventMap69" as const,
+    },
+  ];
+
+  it.each(CASES)("$name stores the caller-supplied target and word inside the fixed envelope", async ({ submit, selector, schema, map }) => {
+    const { contract, ctx } = await deployContract();
+
+    const next = (
+      await contract.circuits[submit](ctx, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, ARG_WORD)
+    ).context;
+    const state = next.callContext.currentQueryContext.state;
+
+    const typedIndex = toSignBidirectionalEventIndex(ledger(state)[map]);
+    expect(typedIndex.size).toBe(1);
+    const [idHex, record] = [...typedIndex.entries()][0];
+
+    // Caller-supplied fields land verbatim, and the rest is the same fixed
+    // envelope as submitSignatureRequest.
+    const { calldata, ...envelope } = record.txParams;
+    expect(envelope).toEqual({
+      to: EVM_TARGET_TO,
+      chainId: 31337n,
+      nonce: EVM_NONCE,
+      gasLimit: 100000n,
+      maxFeePerGas: 30000000000n,
+      maxPriorityFeePerGas: 1000000000n,
+      value: 0n,
+      accessListEntryCount: 0n,
+      accessList: [],
+    });
+    expect(record.path).toEqual(EXPECTED_PATH);
+    expect(record.caip2Id).toEqual(EXPECTED_CAIP2);
+    expect(record.outputDeserializationSchema).toEqual(schema);
+    expect(record.respondSerializationSchema).toEqual(schema);
+
+    expect(calldata.is_some).toBe(true);
+    expect(calldata.value.selector).toEqual(selector);
+    expect(calldata.value.noWords).toBe(1n);
+    expect(calldata.value.words[0]).toEqual(ARG_WORD);
+
+    // Map key = the request-id TS twin, same as the base circuit.
+    expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
+  });
+
+  it("all three submit circuits share the nonce counter and mint distinct ids", async () => {
+    const { contract, ctx } = await deployContract();
+    const afterFirst = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION)).context;
+    const afterSecond = (
+      await contract.circuits.submitIsEvenRequest(afterFirst, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, ARG_WORD)
+    ).context;
+    const afterThird = (
+      await contract.circuits.submitCheckAndDoubleRequest(afterSecond, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, ARG_WORD)
+    ).context;
+
+    const state = afterThird.callContext.currentQueryContext.state;
+    // Bool-schema requests share field 4, the 69-byte schema lives at field 7.
+    expect(toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap).size).toBe(2);
+    expect(toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap69).size).toBe(1);
+    expect(ledger(state).signetRequestNonce).toBe(3n);
+  });
+});
+
 // ---- Response fixtures ----
 
 // An MPC key OTHER than the one the constructor pinned.
 const IMPOSTER_SECRET = bytes(32, 0x43);
 const IMPOSTER_PUBLIC = secp256k1PublicKeyOf(IMPOSTER_SECRET);
 
-// A successful remote execution: first byte 1, rest zero; 32 meaningful
-// bytes (one ABI word). The circuit never inspects the output's content —
-// only the signature over it — but this matches what the MPC posts.
-const OUTPUT_SUCCESS = new Uint8Array(128);
-OUTPUT_SUCCESS[0] = 1;
+// A successful remote execution's serialised output: this contract's respond
+// schema is a single bool, whose exact unpadded packed payload is ONE byte
+// (0x01 = true). The circuit never inspects the output's content (only the
+// digest and signature over it), but this matches what the MPC posts.
+const OUTPUT_SUCCESS = Uint8Array.from([1]);
 
 /**
  * Sign a REAL respond-bidirectional response for (requestId, output) with
- * `secretKey`. The digest comes from the compiled circuit, exactly like the
- * MPC, and the result is the event as the singleton stores it, which is
+ * `secretKey`: the digest comes from the TS twin (pinned against the
+ * compiled oracle circuits), exactly like the MPC. The result is the event
+ * as the singleton stores it (full R point, big-endian bytes), which is
  * what a client reads and hands to verifyResponse.
  */
 const respond = (
@@ -348,11 +450,15 @@ const respond = (
   requestId: Uint8Array,
   serializedOutput: Uint8Array,
 ): RespondBidirectionalEvent => {
-  const digest = signetCircuits.signetAttestationDigest(requestId, serializedOutput);
-  return {
+  const attestationDigest = calculateSignetAttestationDigest(
+    requestId,
     serializedOutput,
-    outputLen: 32n,
-    signature: ecdsaSignatureToMpcSignature(signAttestationDigest(digest, secretKey)),
+  );
+  return {
+    attestationDigest,
+    signature: ecdsaSignatureToMpcSignature(
+      signAttestationDigest(attestationDigest, secretKey),
+    ),
   };
 };
 
@@ -369,7 +475,7 @@ describe("verifyResponse", () => {
     const requestId = requestIdBytes(idHex);
     const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(next, requestId, event),
+      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Not initialised/);
   });
 
@@ -377,7 +483,9 @@ describe("verifyResponse", () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
 
-    const next = (await contract.circuits.verifyResponse(ctx, requestId, event)).context;
+    const next = (
+      await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS)
+    ).context;
 
     const state = ledger(next.callContext.currentQueryContext.state);
     expect(state.signBidirectionalEventMap.isEmpty()).toBe(true);
@@ -387,20 +495,34 @@ describe("verifyResponse", () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(IMPOSTER_SECRET, requestId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event),
+      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
   it("rejects a tampered response (output differs from what was signed)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
-    const tamperedOutput = new Uint8Array(128);
-    tamperedOutput[0] = 2;
+    const response = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
+    const tamperedOutput = Uint8Array.from([0]);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, {
-        ...event,
-        serializedOutput: tamperedOutput,
-      }),
+      contract.circuits.verifyResponse(
+        ctx,
+        requestId,
+        response,
+        tamperedOutput,
+      ),
+    ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects a tampered digest checkpoint (signature untouched)", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    const response = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
+    await expect(
+      contract.circuits.verifyResponse(
+        ctx,
+        requestId,
+        { ...response, attestationDigest: bytes(32, 0x99) },
+        OUTPUT_SUCCESS,
+      ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -411,7 +533,7 @@ describe("verifyResponse", () => {
     const otherId = bytes(32, 0xab);
     const event = respond(MPC_RESPONSE_SECRET, otherId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event),
+      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -420,17 +542,93 @@ describe("verifyResponse", () => {
     const unknownId = bytes(32, 0xab);
     const event = respond(MPC_RESPONSE_SECRET, unknownId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(ctx, unknownId, event),
+      contract.circuits.verifyResponse(ctx, unknownId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Request not found/);
   });
 
   it("a second verify of the SAME request rejects (the first consumed it)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
-    const next = (await contract.circuits.verifyResponse(ctx, requestId, event)).context;
+    const next = (
+      await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS)
+    ).context;
 
     await expect(
-      contract.circuits.verifyResponse(next, requestId, event),
+      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Request not found/);
+  });
+});
+
+describe("verifyCheckAndDoubleResponse", () => {
+  // A successful checkAndDouble execution's packed respond payload: bool
+  // true (1 byte) followed by uint256 12 as a 32-byte little-endian Field.
+  const OUTPUT_BOOL_UINT = (() => {
+    const out = new Uint8Array(33);
+    out[0] = 1;
+    out[1] = 12;
+    return out;
+  })();
+
+  /** Deploy + submitCheckAndDoubleRequest: the arrange step. */
+  const checkAndDoubleSubmitted = async () => {
+    const { contract, ctx } = await deployContract();
+    const next = (
+      await contract.circuits.submitCheckAndDoubleRequest(ctx, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, ARG_WORD)
+    ).context;
+    const index = toSignBidirectionalEventIndex(
+      ledger(next.callContext.currentQueryContext.state).signBidirectionalEventMap69,
+    );
+    const [idHex] = [...index.keys()];
+    return { contract, ctx: next, requestId: requestIdBytes(idHex) };
+  };
+
+  it("a genuine 33-byte response verifies and consumes the request", async () => {
+    const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
+    const next = (
+      await contract.circuits.verifyCheckAndDoubleResponse(
+        ctx,
+        requestId,
+        respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_BOOL_UINT),
+        OUTPUT_BOOL_UINT,
+      )
+    ).context;
+    expect(
+      ledger(next.callContext.currentQueryContext.state).signBidirectionalEventMap69.isEmpty(),
+    ).toBe(true);
+  });
+
+  it("rejects when the presented output differs from what was signed", async () => {
+    const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
+    const response = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_BOOL_UINT);
+    const tampered = Uint8Array.from(OUTPUT_BOOL_UINT);
+    tampered[1] = 13;
+    await expect(
+      contract.circuits.verifyCheckAndDoubleResponse(ctx, requestId, response, tampered),
+    ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects a cross-width replay: a 1-byte-output attestation cannot verify at width 33", async () => {
+    // The digest hashes the output at its exact length, so an attestation
+    // over the 1-byte bool payload can never match a 33-byte presentation,
+    // even with the honest first byte and zero padding.
+    const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
+    const boolOnlyResponse = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
+    const paddedOutput = new Uint8Array(33);
+    paddedOutput[0] = OUTPUT_SUCCESS[0]!;
+    await expect(
+      contract.circuits.verifyCheckAndDoubleResponse(ctx, requestId, boolOnlyResponse, paddedOutput),
+    ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects an imposter's signature", async () => {
+    const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
+    await expect(
+      contract.circuits.verifyCheckAndDoubleResponse(
+        ctx,
+        requestId,
+        respond(IMPOSTER_SECRET, requestId, OUTPUT_BOOL_UINT),
+        OUTPUT_BOOL_UINT,
+      ),
+    ).rejects.toThrow(/Invalid attestation signature/);
   });
 });

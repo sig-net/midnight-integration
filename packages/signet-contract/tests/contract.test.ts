@@ -1,5 +1,5 @@
 // Simulator-level unit tests: the contract runs entirely in-process via
-// @midnight-ntwrk/compact-runtime — no ledger, no network, no proving. Every
+// @midnight-ntwrk/compact-runtime (no ledger, no network, no proving). Every
 // store on this contract is an UNAUTHENTICATED append-only log: nothing is
 // verified in circuit, each post lands under the next (requestId, count) key,
 // and verification is deliberately the reader's job. The tests pin exactly
@@ -41,8 +41,8 @@ const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);
 
 // Request ids the posts below answer, and signature response records.
-// SYNTHETIC signatures, deliberately not verifiable — the contract must
-// store them anyway (verification is the reader's job, not this contract's).
+// SYNTHETIC signatures, deliberately not verifiable: the contract must
+// store them anyway (verification is the reader's job).
 const REQUEST_A = bytes(32, 0xaa);
 const REQUEST_B = bytes(32, 0xbb);
 const SIG_1: SignatureRespondedEvent = {
@@ -52,25 +52,20 @@ const SIG_2: SignatureRespondedEvent = {
   signature: { bigR: { x: bytes(32, 0x04), y: bytes(32, 0x05) }, s: bytes(32, 0x06), recoveryId: 1n },
 };
 
-// Respond-bidirectional records, signatures equally synthetic.
-const OUTPUT_SUCCESS = (() => {
-  const out = new Uint8Array(128);
-  out[0] = 1;
-  return out;
-})();
+// Respond-bidirectional records: SYNTHETIC digests and signatures,
+// deliberately not verifiable. The contract must store them anyway
+// (verification is the reader's job).
 const RESPOND_1: RespondBidirectionalEvent = {
-  serializedOutput: OUTPUT_SUCCESS,
-  outputLen: 32n,
+  attestationDigest: bytes(32, 0xd1),
   signature: { bigR: { x: bytes(32, 0x07), y: bytes(32, 0x08) }, s: bytes(32, 0x09), recoveryId: 0n },
 };
 const RESPOND_2: RespondBidirectionalEvent = {
-  serializedOutput: bytes(128, 0x5a),
-  outputLen: 64n,
+  attestationDigest: bytes(32, 0xd2),
   signature: { bigR: { x: bytes(32, 0x0a), y: bytes(32, 0x0b) }, s: bytes(32, 0x0c), recoveryId: 1n },
 };
 
-// A caller contract address as the packer consumes it (raw 32 bytes) — the
-// registering client passes kernel.self(); here a fixed fixture suffices.
+// A caller contract address as the packer consumes it (raw 32 bytes). The
+// registering client passes kernel.self(), but here a fixed fixture suffices.
 const NOTIFYING_CALLER = { bytes: bytes(32, 0xc1) };
 
 // ---- Harness ----
@@ -136,7 +131,7 @@ describe("signBidirectional", () => {
     ).toEqual(notification(4n));
   });
 
-  it("appends a repeat notify under the next count — nothing overwritten", async () => {
+  it("appends a repeat notify under the next count, nothing overwritten", async () => {
     const { contract, ctx } = await deployContract("signBidirectional");
 
     const first = await contract.circuits.signBidirectional(
@@ -147,7 +142,7 @@ describe("signBidirectional", () => {
     const second = await contract.circuits.signBidirectional(
       first.context,
       REQUEST_A,
-      notification(7n), // different index field — both posts must survive
+      notification(7n), // different index field: both posts must survive
     );
 
     expect(second.result).toEqual({ count: 1n, requestId: REQUEST_A });
@@ -323,7 +318,7 @@ describe("respond", () => {
   it("MPC-style raw read agrees with the generated ledger()", async () => {
     // Pins signatureRespondedEventType against REAL contract state. The
     // nested Signature descriptor is shared with the respond-bidirectional
-    // record, but this event wraps it as a struct's only field — a different
+    // record, but this event wraps it as a struct's only field: a different
     // alignment path, so it needs its own lockstep check. Both posts are
     // read back because SIG_1 and SIG_2 differ in recoveryId: a decoder that
     // dropped that field would still match a single 0-valued fixture.
@@ -346,7 +341,7 @@ describe("respond", () => {
 });
 
 describe("respondBidirectional", () => {
-  it("stores a post under (requestId, 0) — UNVERIFIED by design", async () => {
+  it("stores a post under (requestId, 0), UNVERIFIED by design", async () => {
     const { contract, ctx } = await deployContract("respondBidirectional");
 
     const { context } = await contract.circuits.respondBidirectional(
@@ -365,7 +360,7 @@ describe("respondBidirectional", () => {
     ).toEqual(RESPOND_1);
   });
 
-  it("appends a second post for the same request — nothing overwritten", async () => {
+  it("appends a second post for the same request, nothing overwritten", async () => {
     const { contract, ctx } = await deployContract("respondBidirectional");
 
     const first = await contract.circuits.respondBidirectional(
@@ -417,8 +412,8 @@ describe("respondBidirectional", () => {
 
   it("MPC-style raw read agrees with the generated ledger()", async () => {
     // Both posts are read back because RESPOND_1 and RESPOND_2 differ in
-    // outputLen and recoveryId: a decoder that dropped either field would
-    // still match a single fixture whose values happen to be its default.
+    // attestationDigest and recoveryId: a decoder that dropped either field
+    // would still match a single fixture whose values happen to be its default.
     const { contract, ctx } = await deployContract("respondBidirectional");
     const first = await contract.circuits.respondBidirectional(ctx, REQUEST_A, RESPOND_1);
     const { context } = await contract.circuits.respondBidirectional(

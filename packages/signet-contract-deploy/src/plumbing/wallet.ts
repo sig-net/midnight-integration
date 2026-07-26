@@ -56,14 +56,38 @@ export interface WalletAddresses {
 }
 
 /**
- * The fee settings the facade balances transactions with: it burns
- * `feesWithMargin(params, feeBlocksMargin) + additionalFeeOverhead` per
+ * Default `additionalFeeOverhead` the facade balances transactions with: it
+ * burns `feesWithMargin(params, feeBlocksMargin) + additionalFeeOverhead`
+ * per transaction, so the overhead is burned as dust on EVERY submitted
  * transaction.
+ *
+ * The overhead compensates for the wallet sdk pricing a PROOF-ERASED
+ * transaction while the node prices the real proof bytes. Keccak-based
+ * verification proofs (~9.2 KB, vs ~6.4 KB for persistentHash-era ones)
+ * left the node's fee ~2.2e13 above the wallet's estimate, so the node
+ * rejected the spend with Malformed(BalanceCheckOverspend). 5e13 covers
+ * that with headroom, and the excess is simply burned dust. The default is
+ * tuned for local fakenet chains where dust is free: real-network deploys
+ * may want a lower value (see {@link WalletFacadeOptions}).
  */
-export const COST_PARAMETERS: { readonly additionalFeeOverhead: bigint; readonly feeBlocksMargin: number } = {
-  additionalFeeOverhead: 300_000_000_000n,
-  feeBlocksMargin: 5,
-};
+export const DEFAULT_ADDITIONAL_FEE_OVERHEAD = 50_000_000_000_000n;
+
+// Fee margin in blocks the facade balances with, alongside the overhead.
+const FEE_BLOCKS_MARGIN = 5;
+
+/**
+ * Optional tuning knobs for {@link initialiseWalletFacade} (and
+ * {@link withSyncedWalletFacade}, which passes them through).
+ */
+export interface WalletFacadeOptions {
+  /**
+   * Flat fee overhead added on top of the estimated fee of every submitted
+   * transaction, burned as dust each time. Defaults to
+   * {@link DEFAULT_ADDITIONAL_FEE_OVERHEAD} (5e13), which is tuned for local
+   * fakenet chains: real-network deploys may want it lower.
+   */
+  additionalFeeOverhead?: bigint;
+}
 
 /**
  * Parse a seed and derive the three role keys (Zswap / NightExternal / Dust).
@@ -109,7 +133,11 @@ export function deriveAddresses(keys: AccountKeys, networkId: NetworkId): Wallet
  * Wire up the WalletFacade for the given keys + connection config. This only
  * constructs the three sub-wallets — it does NOT start syncing.
  */
-export function initialiseWalletFacade(keys: AccountKeys, config: MidnightNodeConfig): Promise<WalletFacade> {
+export function initialiseWalletFacade(
+  keys: AccountKeys,
+  config: MidnightNodeConfig,
+  options: WalletFacadeOptions = {},
+): Promise<WalletFacade> {
   return WalletFacade.init({
     configuration: {
       networkId: config.networkId,
@@ -120,7 +148,10 @@ export function initialiseWalletFacade(keys: AccountKeys, config: MidnightNodeCo
       provingServerUrl: new URL(config.proofServerUrl),
       // The facade talks to the node over WebSocket, so flip http(s) -> ws(s).
       relayURL: new URL(config.nodeUrl.replace(/^http/, "ws")),
-      costParameters: COST_PARAMETERS,
+      costParameters: {
+        additionalFeeOverhead: options.additionalFeeOverhead ?? DEFAULT_ADDITIONAL_FEE_OVERHEAD,
+        feeBlocksMargin: FEE_BLOCKS_MARGIN,
+      },
       txHistoryStorage: new InMemoryTransactionHistoryStorage(WalletEntrySchema, mergeWalletEntries),
     },
     shielded: (cfg) => ShieldedWallet(cfg).startWithSecretKeys(keys.shieldedSecretKeys),
@@ -282,6 +313,7 @@ export async function waitForSpendableDust(facade: WalletFacade, timeoutMs: numb
  * @param keys - The account to open the facade for (see {@link deriveAccountKeys}).
  * @param config - The stack the facade connects to.
  * @param fn - Work to run with the live facade; receives the synced state for balance checks.
+ * @param options - Optional facade tuning knobs (see {@link WalletFacadeOptions}).
  * @returns Whatever `fn` returns.
  * @throws Whatever {@link initialiseWalletFacade}, the facade start/sync, or `fn` throws.
  */
@@ -289,8 +321,9 @@ export async function withSyncedWalletFacade<T>(
   keys: AccountKeys,
   config: MidnightNodeConfig,
   fn: (facade: WalletFacade, state: FacadeState) => Promise<T>,
+  options: WalletFacadeOptions = {},
 ): Promise<T> {
-  const facade = await initialiseWalletFacade(keys, config);
+  const facade = await initialiseWalletFacade(keys, config, options);
   await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
   try {
     const state = await facade.waitForSyncedState();

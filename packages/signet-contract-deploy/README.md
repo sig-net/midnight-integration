@@ -37,4 +37,4 @@ The generic plumbing (network config, wallets, funding, transaction submission) 
 - [`@sig-net/midnight-contract`](https://www.npmjs.com/package/@sig-net/midnight-contract): the contract this package deploys.
 - [`@sig-net/midnight`](https://www.npmjs.com/package/@sig-net/midnight): the client-agnostic protocol library.
 
-Developed in [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration); example applications live in [sig-net/midnight-examples](https://github.com/sig-net/midnight-examples).
+Developed in [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration). Example applications live in [sig-net/midnight-examples](https://github.com/sig-net/midnight-examples).

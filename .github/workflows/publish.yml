@@ -1,6 +1,7 @@
-# Publishes the three npm packages, in dependency order:
+# Publishes the four npm packages, in dependency order:
 #
-#   @sig-net/midnight                  (packages/signet-midnight)
+#   @sig-net/midnight-serde           (packages/midnight-serde)
+#   @sig-net/midnight                 (packages/signet-midnight)
 #   @sig-net/midnight-contract        (packages/signet-contract)
 #   @sig-net/midnight-contract-deploy (packages/signet-contract-deploy)
 
@@ -86,13 +87,14 @@ jobs:
           echo "version=$(printf '%s' "$version" | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
       - name: Install dependencies (frozen, from the committed yarn.lock)
         run: yarn install --immutable
-      - name: Verify the three package versions move in lockstep (and match the tag)
+      - name: Verify the four package versions move in lockstep (and match the tag)
         run: |
+          V_SERDE=$(node -p "require('./packages/midnight-serde/package.json').version")
           V_MIDNIGHT=$(node -p "require('./packages/signet-midnight/package.json').version")
           V_CONTRACT=$(node -p "require('./packages/signet-contract/package.json').version")
           V_DEPLOY=$(node -p "require('./packages/signet-contract-deploy/package.json').version")
-          if [ "$V_MIDNIGHT" != "$V_CONTRACT" ] || [ "$V_MIDNIGHT" != "$V_DEPLOY" ]; then
-            echo "::error::package versions diverge: @sig-net/midnight=$V_MIDNIGHT @sig-net/midnight-contract=$V_CONTRACT @sig-net/midnight-contract-deploy=$V_DEPLOY"
+          if [ "$V_MIDNIGHT" != "$V_SERDE" ] || [ "$V_MIDNIGHT" != "$V_CONTRACT" ] || [ "$V_MIDNIGHT" != "$V_DEPLOY" ]; then
+            echo "::error::package versions diverge: @sig-net/midnight-serde=$V_SERDE @sig-net/midnight=$V_MIDNIGHT @sig-net/midnight-contract=$V_CONTRACT @sig-net/midnight-contract-deploy=$V_DEPLOY"
             exit 1
           fi
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
@@ -129,6 +131,7 @@ jobs:
         run: |
           set -euo pipefail
           for entry in \
+            "midnight-serde:@sig-net/midnight-serde" \
             "signet-midnight:@sig-net/midnight" \
             "signet-contract:@sig-net/midnight-contract" \
             "signet-contract-deploy:@sig-net/midnight-contract-deploy"; do

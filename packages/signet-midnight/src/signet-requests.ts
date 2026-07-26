@@ -12,7 +12,7 @@
 // The lockstep is enforced by each consuming contract's simulator tests: the
 // "test-caller-contract ledger shape" test in packages/test-caller-contract/tests/
 // contract.test.ts assigns the generated `ledger().signBidirectionalEventMap`
-// to the named SignBidirectionalEventLedgerMap type — the assignment itself is
+// to the named SignBidirectionalEventLedgerMap type: the assignment itself is
 // the assertion, so any structural drift between the generated managed types
 // and these twins fails that package's `yarn build` / `yarn test`.
 //
@@ -32,7 +32,7 @@ import type { EvmType2TxParams } from "./signet-evtype2tx-requests.ts";
 /**
  * 32-byte signet request id (Compact: `new type RequestId = Bytes<32>`).
  * Chain-agnostic: downstream consumers treat it as an opaque key. Ids are
- * minted by `calculateRequestId` in Signet.compact — the persistent hash of
+ * minted by `calculateRequestId` in Signet.compact: the persistent hash of
  * the full {@link SignBidirectionalEvent} record (which includes the sender
  * contract address, scoping ids per contract).
  */
@@ -50,14 +50,14 @@ export interface ContractAddress {
 /**
  * Which transaction-param decomposition a request carries (Compact:
  * `enum TxParamType`), as the generated code represents enums: a `number`
- * holding the 0-based variant index. Exported as a `const` object (not a TS
- * `enum`) so the values stay structurally `number`.
+ * holding the 0-based variant index. Exported as a `const` object so the
+ * values stay structurally `number`.
  */
 export const TxParamType = {
   /** `EvmType2TxParams` (signet-evtype2tx-requests.ts): an EIP-1559 EVM transaction. */
   evmType2: 0,
   /**
-   * Never emitted — mirrors the Compact-side padding variant that keeps the
+   * Never emitted: mirrors the Compact-side padding variant that keeps the
    * enum at >= 2 variants (a 1-variant enum is a zero-byte value the proof
    * server cannot parse inside persistentHash preimages).
    */
@@ -71,7 +71,7 @@ export const TxParamType = {
 export const MPCSignatureAlgorithm = {
   /** ECDSA over secp256k1. */
   ecdsa: 0,
-  /** Never emitted — the >= 2 variants padding (see {@link TxParamType}). */
+  /** Never emitted: the >= 2 variants padding (see {@link TxParamType}). */
   reserved: 1,
 } as const;
 
@@ -82,7 +82,7 @@ export const MPCSignatureAlgorithm = {
 export const MPCDestination = {
   /** The only currently-valid value. */
   unused: 0,
-  /** Never emitted — the >= 2 variants padding (see {@link TxParamType}). */
+  /** Never emitted: the >= 2 variants padding (see {@link TxParamType}). */
   reserved: 1,
 } as const;
 
@@ -101,9 +101,9 @@ export interface Maybe<T> {
  * `SignBidirectionalEvent<TxParams, #LenOutputDeserialization,
  * #LenRespondSerialization>`), stored per {@link RequestId} in a requesting
  * contract's `SignBidirectionalEventMap` (at whichever ledger field the
- * contract declares it — its notifications name the position). Generic over
- * the tx-params decomposition, exactly like the Compact struct; the default
- * instantiation is {@link EvmType2TxParams} — the only decomposition so far;
+ * contract declares it: its notifications name the position). Generic over
+ * the tx-params decomposition, exactly like the Compact struct. The default
+ * instantiation is {@link EvmType2TxParams}, the only decomposition so far:
  * new tx kinds supply their own type argument alongside their Compact struct.
  * The schema fields carry their contract-declared byte widths in their array
  * lengths.
@@ -121,17 +121,17 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
   algo: number;
   /** An {@link MPCDestination} value. */
   dest: number;
-  /** Extra MPC parameters, reserved; 64 bytes. */
+  /** Extra MPC parameters, reserved, 64 bytes. */
   params: Uint8Array;
   /** A {@link TxParamType} value tagging the txParams decomposition. */
   txParamType: number;
   /** The transaction decomposition. */
   txParams: TxParams;
-  /** Target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded; 32 bytes. */
+  /** Target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 32 bytes. */
   caip2Id: Uint8Array;
-  /** MPC output_deserialization_schema (destination chain -> MPC); contract-declared width. */
+  /** MPC output_deserialization_schema (destination chain -> MPC), contract-declared width. */
   outputDeserializationSchema: Uint8Array;
-  /** MPC respond_serialization_schema (MPC -> Midnight); contract-declared width. */
+  /** MPC respond_serialization_schema (MPC -> Midnight), contract-declared width. */
   respondSerializationSchema: Uint8Array;
 }
 
@@ -140,27 +140,26 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
 // DEVIATION from the "pure circuits are compiled, never re-written in TS"
 // rule (see circuits.compact): the request-id circuit is generic over the
 // tx-params type and schema lengths, the Compact compiler cannot export
-// type-parameterized circuits from the top level, and a compiled copy would
-// have to be monomorphized at ONE capacity instantiation — a client
+// type-parameterised circuits from the top level, and a compiled copy would
+// have to be monomorphised at ONE capacity instantiation: a client
 // contract's choice that never belongs in this client-agnostic package. So
 // the record descriptor (and the per-decomposition `calculateRequestId`
 // built on it, see signet-evtype2tx-requests.ts) alone gets a TS twin here.
 //
-// It is NOT a hand-port of the hash algorithm: ids come from the very
-// `persistentHash` runtime builtin that compiled circuits call, over runtime
-// type descriptors mirroring the ones the compiler generates (compare
-// `_calculateRequestId_0` in any consuming contract's
-// managed/contract/index.js). What must stay in lockstep with Signet.compact
-// is exactly what this file already keeps in lockstep — the struct shapes,
-// field by field, in declaration order. Enforced by test-caller-contract's
+// Ids still come from the very `persistentHash` runtime builtin that
+// compiled circuits call, over runtime type descriptors mirroring the ones
+// the compiler generates (compare `_calculateRequestId_0` in any consuming
+// contract's managed/contract/index.js). What must stay in lockstep with
+// Signet.compact is exactly what this file already keeps in lockstep: the
+// struct shapes, field by field, in declaration order. Enforced by test-caller-contract's
 // "submitSignatureRequest round-trip" test, which asserts the id computed
 // here equals the ledger map key minted by the REAL compiled contract.
 
 // Runtime descriptors of the Compact base types the generic record fields
-// use. CompactTypeUnsignedInteger takes (maxValue, byte length) — same
+// use. CompactTypeUnsignedInteger takes (maxValue, byte length), the same
 // literals the compiler emits for Uint<8/64>. CompactTypeEnum takes
-// (variantCount - 1, byte length); NOTE a 1-variant enum would compile to
-// `CompactTypeEnum(0, 0)` — zero bytes, which the proof server cannot parse
+// (variantCount - 1, byte length). NOTE: a 1-variant enum would compile to
+// `CompactTypeEnum(0, 0)`, zero bytes, which the proof server cannot parse
 // inside persistentHash preimages. Every enum therefore carries a padding
 // `reserved` variant so it stays at (1, 1).
 const BYTES_32 = new CompactTypeBytes(32);
@@ -183,10 +182,10 @@ const CONTRACT_ADDRESS: CompactType<ContractAddress> = {
 
 /**
  * Build the runtime descriptor of a Compact struct from its per-field
- * descriptors — the generic form of the struct descriptor classes the
+ * descriptors: the generic form of the struct descriptor classes the
  * compiler generates (field-by-field concatenation of alignments and values).
  *
- * Field ORDER must match the Compact struct declaration order; object
+ * Field ORDER must match the Compact struct declaration order. Object
  * literals preserve insertion order for string keys, so pass fields in
  * declaration order.
  *
@@ -215,7 +214,7 @@ export function compactStructDescriptor<T extends object>(fields: {
 }
 
 /**
- * Descriptor of Compact's standard-library `Maybe<T>` — the compiler
+ * Descriptor of Compact's standard-library `Maybe<T>`: the compiler
  * generates it as the struct `{ is_some: Boolean, value: T }`.
  *
  * @param inner - Descriptor of the wrapped type.
@@ -230,10 +229,10 @@ export function compactMaybeDescriptor<T>(inner: CompactType<T>): CompactType<Ma
 
 /**
  * Descriptor of {@link SignBidirectionalEvent} over ANY tx-params
- * decomposition — the TS analogue of Compact's generic
+ * decomposition: the TS analogue of Compact's generic
  * `SignBidirectionalEvent<TxParams, #LenOutputDeserialization,
  * #LenRespondSerialization>`. Each decomposition wraps this with its own
- * capacity-parameterized convenience (see `signBidirectionalEventDescriptor`
+ * capacity-parameterised convenience (see `signBidirectionalEventDescriptor`
  * in signet-evtype2tx-requests.ts for the EVM Type-2 one).
  *
  * @param txParams - Descriptor of the tx-params decomposition, already at
@@ -283,7 +282,7 @@ export interface SignBidirectionalEventLedgerMap
   member(requestId: RequestId): boolean;
   /**
    * @param requestId - 32-byte request id to fetch.
-   * @returns The stored request record; throws when absent — guard with
+   * @returns The stored request record. Throws when absent: guard with
    *   {@link member} first.
    */
   lookup(requestId: RequestId): SignBidirectionalEvent;
@@ -292,10 +291,10 @@ export interface SignBidirectionalEventLedgerMap
 declare const requestIdHexBrand: unique symbol;
 
 /**
- * 64-char lowercase hex rendering of a {@link RequestId} — THE
+ * 64-char lowercase hex rendering of a {@link RequestId}: THE
  * representation of a request id everywhere in TypeScript. Raw
  * {@link RequestId} bytes appear only at the Compact boundary (state
- * readers, compiled-circuit calls); the moment an id crosses that boundary it
+ * readers, compiled-circuit calls). The moment an id crosses that boundary it
  * becomes this type. Branded (the TS analogue of Compact's `new type`) so an
  * arbitrary string cannot pose as a request id: mint one with
  * {@link requestIdHex} (from ledger bytes) or {@link parseRequestIdHex}
@@ -332,7 +331,7 @@ export function stripHexPrefix(hex: string): string {
 }
 
 /**
- * Decode a hex string into bytes — the inverse of {@link bytesToHex}.
+ * Decode a hex string into bytes: the inverse of {@link bytesToHex}.
  *
  * @param hex - Hex digits, with or without a `0x` prefix.
  * @returns The decoded bytes.
@@ -348,7 +347,7 @@ export function hexToBytes(hex: string): Uint8Array {
 
 /**
  * Render a request id in its canonical TS form (see
- * {@link RequestIdHex}) — also usable as a JS `Map` key, which raw
+ * {@link RequestIdHex}), also usable as a JS `Map` key, which raw
  * `Uint8Array` ids are not (they compare by reference).
  *
  * @param requestId - 32-byte request id.
@@ -359,13 +358,13 @@ export function requestIdHex(requestId: RequestId): RequestIdHex {
 }
 
 /**
- * Validate and normalize an untrusted string (CLI argument, config value)
+ * Validate and normalise an untrusted string (CLI argument, config value)
  * into a {@link RequestIdHex}: an optional `0x` prefix is stripped and
  * the digits lowercased before validation.
  *
  * @param value - The candidate request id string.
- * @returns The branded, normalized request id hex.
- * @throws Error if the value is not 64 hex chars after normalization.
+ * @returns The branded, normalised request id hex.
+ * @throws Error if the value is not 64 hex chars after normalisation.
  */
 export function parseRequestIdHex(value: string): RequestIdHex {
   const hex = value.replace(/^0x/i, "").toLowerCase();
@@ -402,7 +401,7 @@ export const PATH_BYTES = 32;
  * Parse the on-ledger request map into a plain-JS index keyed by hex
  * request id.
  *
- * @param ledgerIndex - Iterable of `[requestId, request]` entries — e.g. a
+ * @param ledgerIndex - Iterable of `[requestId, request]` entries, e.g. a
  *   contract's `ledger(state).signBidirectionalEventMap` (any
  *   {@link SignBidirectionalEventLedgerMap}).
  * @returns A new `Map` from {@link requestIdHex} key to request record.

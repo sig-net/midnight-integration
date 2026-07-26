@@ -1,9 +1,9 @@
 // Setup steps specific to the generic signet-caller e2e pipeline (see
-// caller-global-setup.ts). Deliberately EVM-free: the caller's request is
-// composed entirely from contract constants and exists to be SIGNED, never
-// broadcast, so this pipeline needs no EVM chain, token, or funded derived
-// accounts. The generic steps (MPC keys, dust preflight, signet
-// compile/deploy, fakenet hand-off) live in steps.ts.
+// caller-global-setup.ts). The steps HERE are EVM-free (Midnight stack
+// checks, caller compile/deploy); the real-EVM flow's steps (target deploy,
+// derived-sender funding) live in evm-steps.ts, and the generic steps (MPC
+// keys, dust preflight, signet compile/deploy, fakenet hand-off) in
+// steps.ts.
 
 import { deployCaller } from "@midnight-protocol/test-caller-contract";
 import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
@@ -12,7 +12,7 @@ import { requireEnv } from "../e2e-env.ts";
 import { logSkip } from "../output.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../preflight.ts";
 import { runRootScript } from "../subprocess.ts";
-import { retryDeployWhileDustGenerates, trustsPrebuiltZkKeys } from "./steps.ts";
+import { retryWhileDustGenerates, trustsPrebuiltZkKeys } from "./steps.ts";
 
 const MINUTE = 60_000;
 
@@ -85,7 +85,7 @@ export async function deployCallerContractStep(env: NodeJS.ProcessEnv): Promise<
     logSkip("deploy:test-caller-contract", `MIDNIGHT_CALLER_CONTRACT_ADDRESS is set (${env.MIDNIGHT_CALLER_CONTRACT_ADDRESS})`);
     return;
   }
-  const { contractAddress } = await retryDeployWhileDustGenerates("deploy:test-caller-contract", () => deployCaller(env));
+  const { contractAddress } = await retryWhileDustGenerates("deploy:test-caller-contract", () => deployCaller(env));
   env.MIDNIGHT_CALLER_CONTRACT_ADDRESS = contractAddress;
   console.log(`deployed a fresh MIDNIGHT_CALLER_CONTRACT_ADDRESS=${contractAddress}`);
   console.log(` ➜ the minimal signet caller on Midnight — records signature requests and verifies the MPC's ECDSA responses`);

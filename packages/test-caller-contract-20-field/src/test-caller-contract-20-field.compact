@@ -8,7 +8,7 @@
 // - past 15 fields compactc stores ledger fields in a chunk tree (20 fields chunk to [5, 15])
 // - the raw readers in @sig-net/midnight must resolve flat field numbers through that tree
 // - signBidirectionalEventMap sits at field 19 (chunk 1 slot 14), a List sits at field 0
-//   (an array-typed node chunk detection must NOT confuse with a chunk)
+//   (an array-typed node that chunk detection must tell apart from a chunk)
 // Simulator tests only: no deploy flow, no notifier cross-call.
 // ========================================================================================================
 pragma language_version >= 0.25;

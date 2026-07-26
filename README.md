@@ -7,17 +7,7 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 > This Sig Network Midnight Integration is still Under Construction.
 > Use at your own risk and expect rapid iteration.
 
-> ## Version notice
->
-> This branch documents **0.11.0**, published on npm under the `next` tag. The current `latest` is **0.10.0**, which is what a plain `npm install @sig-net/midnight` installs.
->
-> 0.11.0 is a breaking protocol release and is not servable yet: it needs a fakenet MPC responder image built against it, and that image has not shipped. Install 0.11.0 only if you are tracking the migration.
->
-> For the 0.10.0 documentation, read this file at the [`v0.10.0` tag](https://github.com/sig-net/midnight-integration/tree/v0.10.0), with one correction: that revision describes remote execution responses as Schnorr attestations by the MPC's Jubjub key, verified in-circuit by the singleton. That was never the case. Nothing in the protocol uses Schnorr or Jubjub, the singleton stores responses unverified, and the client contract must verify them in its own circuit. This applies to 0.10.0 as well as to 0.11.0.
->
-> Migrating from 0.10.0 to 0.11.0 requires recompiling and redeploying your contracts: every request id and every derived address changes. The protocol surface was also renamed. `EVMType2TxParams`, `EVMCalldata` and `EVMAccessListEntry` became `EvmType2TxParams`, `EvmCalldata` and `EvmAccessListEntry`; the signer circuit `signBidirectionalEvent` became `signBidirectional`; and `getSignedEVMTransaction` became `getSignedEvmTransaction`.
-
-This integration achieves this this by exposing the MPC's [sign bidirectional flow](https://docs.sig.network/architecture/sign-bidirectional) to contracts on Midnight.
+This integration achieves this by exposing the MPC's [sign bidirectional flow](https://docs.sig.network/architecture/sign-bidirectional) to contracts on Midnight.
 
 This repository contains the pieces that make that flow available on Midnight: the Sig Network protocol singleton contract, the client-agnostic SDK that contract builders integrate against, and two test caller contracts that exercise the protocol end to end. Example applications built on this integration (such as an ERC20 cross chain vault demo) live in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples).
 
@@ -29,8 +19,10 @@ The flow comprises 5 steps:
 1. Client calls a contract on Midnight which requests a signature for a transaction destined for a foreign chain. The signature is made with a key derived for the requesting contract (see [Derived keys](#derived-keys)).
 2. Sig Network MPC honours the request, generating the transaction signature and posting it back to Midnight
 3. Client extracts the signature, using it to submit the signed transaction to the foreign chain
-4. Sig Network MPC observes the foreign transaction and posts the output of the execution (signed) back to Midnight
-5. Client extracts the signed foreign execution output and submits it back to the Midnight contract, which verifies the MPC's signature over it in-circuit against the contract's own response key (see [Derived keys](#derived-keys)), completing the foreign transaction execution.
+4. Sig Network MPC observes the foreign transaction and posts an attestation of the execution back to Midnight: the attestation digest `keccak256(requestId || serializedOutput)` plus its ECDSA signature over that digest. The output itself travels off chain.
+5. Client obtains the execution output off chain (see the output recovery note below: it broadcast the transaction in step 3, so it can read the result), extracts the posted attestation and submits both back to the Midnight contract, which recomputes the digest from the output bytes and verifies the MPC's signature in-circuit against the contract's own response key (see [Derived keys](#derived-keys)), completing the foreign transaction execution.
+
+> **Output recovery:** how the client reads the execution output is chain-specific. For EVM chains it is the mined call's return data, extracted with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. Clients without trace access can fetch the raw output from the fakenet responder's helper API at `GET /responses/{requestId}` (served by [`ResponsesApi.ts`](https://github.com/sig-net/solana-signet-program/blob/fakenet-v0.8.0/fakenet-signer/src/server/ResponsesApi.ts), port 3040 in the local stack, consumed here by [`packages/integration-tests/src/fakenet-responses.ts`](packages/integration-tests/src/fakenet-responses.ts)). The fetched bytes are untrusted until step 5's digest match and in-circuit signature verification.
 
 ## Derived keys
 
@@ -46,7 +38,7 @@ The path is 32 opaque bytes of the contract's choosing (e.g. a fixed literal for
 
 ### Response key
 
-The key the MPC signs foreign execution outputs with when posting them back to Midnight:
+The key the MPC signs remote execution attestations with when posting them back to Midnight:
 
 `responseKey = f(mpcRootKey[keyVersion], contractAddress, "midnight response key")`
 
@@ -94,8 +86,12 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    sealed ledger signetSigner: SignetSigner;
 
    // Required: This contract's MPC response key, set in step 4.
-   // Used to verify RespondBidirectionalEvents containing the serialised output of foreign chain execution.
+   // Used to verify RespondBidirectionalEvents attesting the serialised output of foreign chain execution.
    export ledger mpcResponseKey: Secp256k1Point;
+
+   // Recommended: contract-local source of request nonces, so identical
+   // requests hash to distinct request ids. Nothing off-chain reads it.
+   export ledger signetRequestNonce: Counter;
 
    // Recommended: used in step 4 to ensure initialisation runs only once.
    export ledger initialised: Counter;
@@ -104,7 +100,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    sealed ledger deployer: Bytes<32>;
 
    // Recommended: supplies the deployer's identity secret from private state
-   // off-chain; only its commitment (below) ever reaches the ledger.
+   // off-chain. Only its commitment (below) ever reaches the ledger.
    witness witnessDeployerSecretKey(): Bytes<32>;
 
    // Recommended: the deployer identity commitment scheme. Exported so deploy
@@ -175,6 +171,7 @@ const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 3
 const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
 // Store the signature request in your signBidirectionalEventMap for MPC to discover
+signetRequestNonce.increment(1);
 signBidirectionalEventMap.insert(requestId, disclose(request));
 
 // Notify the MPC of the SignBidirectionalEvent and the location of your signBidirectionalEventMap.
@@ -203,18 +200,18 @@ signetSigner.signBidirectional(
    await new JsonRpcProvider(foreignChainRpcUrl).broadcastTransaction(signedTx.serialized);
    ```
 
-4. Poll the Signet singleton for the MPC's signed remote execution output (posted once the MPC observes the transaction execute on the foreign chain). Posts are stored unverified, so treat them as candidates: the authoritative check is your contract's verify circuit in step 5:
+4. Poll the Signet singleton for the MPC's attestation of the remote execution output (posted once the MPC observes the transaction execute on the foreign chain). The event carries only the attestation digest and the signature over it: the serialised output itself travels off chain (you broadcast the transaction in step 3, so you can read its result). Posts are stored unverified, so treat them as candidates: the authoritative check is your contract's verify circuit in step 5:
 
    ```ts
    const [respondBidirectionalEvent] = await reader.getRespondBidirectionalEvents(requestId);
    // Empty array: not posted yet, poll again.
    ```
 
-5. Deliver the response to your contract, which verifies it in-circuit against the response key pinned in Setup step 4 and consumes the request:
+5. Deliver the response and the serialised output to your contract, which recomputes the attestation digest, verifies the event in-circuit against the response key pinned in Setup step 4, and consumes the request. The width argument is the exact packed size of your respond serialisation schema (a single bool packs to 1 byte):
 
    ```compact
    assert(
-      verifyRespondBidirectionalEvent(requestId, respondBidirectionalEvent, mpcResponseKey),
+      verifyRespondBidirectionalEvent<1>(requestId, serializedOutput, respondBidirectionalEvent, mpcResponseKey),
       "Invalid attestation signature"
    );
    signBidirectionalEventMap.remove(requestId);
@@ -226,54 +223,87 @@ For full integration examples (such as an ERC20 cross chain vault) see the [`sig
 
 # Contributor Guide
 
-Get set up for contributing by getting both test suites green: the offline unit tests, then the generic end to end integration suite.
+Get set up for contributing by getting both test layers green: the offline unit tests, then the end to end integration suites.
 
-## Unit Tests
+## Compiling, Building and Running Unit Tests
 
-The contract packages carry simulator-level unit tests that need no docker stack at all:
+Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime, so zk keys are not needed before running them. From the root of the repository:
 
 ```sh
-yarn compile                      # generates each contract package's src/managed/ (skip-zk)
-yarn compile:signet-contract:zk   # signet-contract's build gates on its prover keys
-yarn build && yarn test           # typecheck + unit tests (simulator-only, offline)
+## --- All packages ---
+
+# Quick compile: all packages (checks syntax and generates circuits)
+# Runs the compact compiler for each package without generating zk keys (compiler output in the package's src/managed/)
+yarn compile
+
+# Longer compile: all packages that require zk keys (checks syntax, generates circuits and zk keys)
+# Runs the compact compiler with zk keys for each package that has a :zk option (compiler output in the package's src/managed/)
+yarn compile:zk
+
+# Test: all packages (typecheck + unit tests: offline simulator-only)
+# Requires 'yarn compile' to have been run (zk keys not required for unit testing).
+yarn test
+
+# Build: all packages
+# Requires both 'yarn compile' and 'yarn compile:zk': packages that ship
+# zk keys refuse to build without them.
+yarn build
+
+## --- Independently (for example) ---
+
+# The signet-contract package:
+yarn compile:signet-contract
+yarn compile:signet-contract:zk  # generates signet-contract zk keys
+yarn test:signet-contract        # requires at least 'yarn compile:signet-contract'
+yarn build:signet-contract       # requires 'yarn compile:signet-contract:zk'
+
+# The signet-midnight package:
+yarn compile:signet-midnight  # NOTE: no :zk option
+yarn test:signet-midnight     # requires 'yarn compile:signet-midnight'
+yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
 ```
+
+> **NOTE:** A build error about missing prover keys (for example "no prover keys in src/managed/keys") means the package's zk compile has not been run yet: run the associated `compile:...:zk` script to generate them.
 
 ## Integration Tests
 
-The generic end to end integration suite drives the smallest possible client (the test caller [contract](./packages/test-caller-contract/src/test-caller-contract.compact)) through the protocol: submit a signature request, get discovered via the notification registry, receive the MPC signature, and verify it in-circuit. Get it running locally:
+Two end to end suites run against the local docker stack. The generic suite drives the smallest possible client (the test caller [contract](./packages/test-caller-contract/src/test-caller-contract.compact)) through the protocol: submit a signature request, get discovered via the notification registry, receive the MPC signature, and verify it in-circuit. The real-EVM suite carries on past signing: it broadcasts the signed call to the local anvil chain, lets the fakenet observe the mined execution and post its attestation, fetches the raw output from the fakenet's `/responses` helper API, and digest-matches and verifies it in-circuit. Get them running locally:
 
 1. Ensure you have all of the [prerequisites](#prerequisites) installed.
-2. From the repository root, install workspace dependencies and select the required Compact toolchain explicitly:
+2. From the repository root, install workspace dependencies, select the required Compact toolchain explicitly, and compile:
    ```sh
    corepack enable
    yarn install
    compact update 0.33.0-rc.2   # Exact version required.
                                 # `compact update` installs/downgrades
                                 # to stable.
+   yarn compile
    ```
 3. Start the local stack (Midnight node, indexer, proof server, anvil EVM) with `docker compose up -d`. The fakenet MPC responder is started automatically by the test setup once the signet contract is deployed.
-4. Run the suite and watch it go. The first run can take **~10–25 minutes** (it generates zk proving keys for both contracts, deploys them and hands off to the fakenet responder, all automatically, no `.env` inserts needed):
+4. Run the suites and watch them go. The first run can take **~10–25 minutes** (it generates zk proving keys for both contracts, deploys them and hands off to the fakenet responder, all automatically, no `.env` inserts needed):
    ```sh
-   yarn test:integration-tests
+   yarn test:integration-tests                          # both suites, requires 'yarn compile'
+   yarn test:integration-tests:signet-caller-e2e        # generic caller flow only, requires 'yarn compile'
+   yarn test:integration-tests:signet-caller-evm-e2e    # real-EVM flow only, requires 'yarn compile'
    ```
-   Green looks like `Tests  4 passed (4)`. Afterwards, save the printed `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips compile and deploy (~2 minutes; the signet contract address is appended to `.env` automatically).
+   Whichever selection you run, the setup pipeline runs first (narrowing the selection never skips setup). Green looks like every test in the selected flow files passing. Afterwards, save the printed `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips compile and deploy (~2 minutes). The signet contract address is appended to `.env` automatically.
 
 **TIP:** If you are using Claude Code you can ask it to do all of this for you using this [skill](.claude/skills/e2e/SKILL.md), for example:
 ```
 Use your /e2e skill to get the integration suite running for me, from fresh clone to green. Recover the run yourself if anything fails along the way.
 ```
 
-**NOTE:** The most common reason that a run fails is the proof server hanging or crashing when it exhausts memory on a proving leg. This most often presents as the test failing with `connect ECONNREFUSED 127.0.0.1:6300`, with `docker ps -a` showing the proof server container as `Exited (137)`, i.e. OOM-killed. If this happens, restart the proof server and rerun; with the contract addresses kept in `.env` the rerun skips straight to the flow.
+**NOTE:** The most common reason that a run fails is the proof server hanging or crashing when it exhausts memory on a proving leg. This most often presents as the test failing with `connect ECONNREFUSED 127.0.0.1:6300`, with `docker ps -a` showing the proof server container as `Exited (137)`, i.e. OOM-killed. If this happens, restart the proof server and rerun. With the contract addresses kept in `.env` the rerun skips straight to the flow.
 
 # Prerequisites
 
 | Prerequisite | Version | Check With | Where to Get It |
 | ------- | ------| ------  |----------- |
 | Node | ≥ 20 (22+ recommended) | `node --version` | [nodejs.org](https://nodejs.org) or your version manager (nvm, fnm, …) |
-| Yarn 4 (via Corepack) | 4.x | `corepack enable && yarn --version` | Corepack ships with Node; the repo's `packageManager` field pins the Yarn version |
+| Yarn 4 (via Corepack) | 4.x | `corepack enable && yarn --version` | Corepack ships with Node, and the repo's `packageManager` field pins the Yarn version |
 | Compact toolchain | compiler 0.33.0-rc.2, invoked with `--feature-zkir-v3` (see note) | `compact compile --version` → `0.33.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.33.0-rc.2` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)). If the launcher refuses the rc version, use the direct-download recipe in [.github/workflows/ci.yml](.github/workflows/ci.yml) |
 | A docker environment | any recent engine | `docker --version` | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS/Windows) or your distro's engine, with **≥ 16 GB RAM allocated** (see note) |
-| Docker Compose v2 | ≥ 2.x | `docker compose version` | Included with Docker Desktop; plugin package on Linux |
+| Docker Compose v2 | ≥ 2.x | `docker compose version` | Included with Docker Desktop (plugin package on Linux) |
 
 **NOTE:** every `compact compile` against this stack must pass the `--feature-zkir-v3` flag: it is part of the pinned ledger-9 matched set (compiler, node, indexer, proof server), and output compiled without it is not compatible with that stack. This repository's compile scripts already pass it. Integrators compiling their own contracts must pass it themselves (as shown in the [Integrator Guide](#integrator-guide)).
 
@@ -281,19 +311,19 @@ Use your /e2e skill to get the integration suite running for me, from fresh clon
 
 ## Matched set
 
-These versions move together. Bumping one alone produces a stack that compiles but does not interoperate, and the failure is usually silent rather than loud: a responder that does not recognise a request simply never answers it.
+These versions move together. Bumping one alone produces a stack that compiles but does not interoperate, and the failure is usually silent: a responder that does not recognise a request simply never answers it.
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.11.0 | [`packages/*/package.json`](packages) |
-| fakenet MPC responder | `ghcr.io/sig-net/fakenet:latest` | [`docker-compose.yaml`](docker-compose.yaml) |
+| `@sig-net/*` npm packages | 0.13.0 | [`packages/*/package.json`](packages) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.8.0` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml) |
 | Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight indexer | 4.4.0-pre-alpha.16 (`l91r3-n2r3` build) | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
 | `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
 
-**NOTE:** the fakenet responder is the one member of this set that is not pinned to an exact version. It tracks `:latest`, so the responder you get depends on when you pulled rather than on what this repository records. Each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/signet-solana-program/tags)); `fakenet-v0.6.0` is built against 0.10.0.
+**NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). `fakenet:0.8.0` is built against 0.13.0 and serves the public `/responses/{requestId}` helper API on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), from which the integration tests fetch each request's raw traced EVM output.
 
 # Packages
 
@@ -302,6 +332,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | [`packages/signet-midnight`](packages/signet-midnight) | `@sig-net/midnight` | Client-agnostic signet protocol library: shared Compact modules, TS twins of the wire structs, state readers, request feed/resolver, crypto (epsilon derivation, secp256k1 ECDSA attestations) |
 | [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: unverified counted response logs + request-notification registry |
 | [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the singleton + the generic deploy/wallet plumbing |
+| [`packages/midnight-serde`](packages/midnight-serde) | `@sig-net/midnight-serde` | TypeScript twin of Compact's builtin `serialize<T,N>`/`deserialize<T,N>` byte layout, pinned byte-for-byte against compiled fixture circuits. Zero runtime dependencies |
 | [`packages/test-caller-contract`](packages/test-caller-contract) | repo-private | Integration-testing caller contract: submit a signature request, verify the response, the smallest thing that drives the protocol. Testing only, not an integration example |
 | [`packages/test-caller-contract-20-field`](packages/test-caller-contract-20-field) | repo-private | Integration-testing caller contract: the 20-field lockstep fixture proving the raw ledger readers resolve field numbers through the compiler's chunked (>15-field) state layout. Testing only |
 | [`packages/integration-tests`](packages/integration-tests) | repo-private | The generic e2e suite: submit → notification → MPC signature → in-circuit verify, against the local docker stack (`docker-compose.yaml`: midnight node/indexer/proof server + anvil EVM + fakenet MPC responder) |

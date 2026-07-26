@@ -2,7 +2,7 @@
 // MPC answers. Golden vectors were generated from an independent construction of
 // `caip2_derivation_path` (MPC crypto/src/kdf.rs): the colon-separated string
 // built by hand, keccak'd, then root + epsilon*G with noble. Sharing no code with
-// the implementation is the point — these must not be regenerated from it.
+// the implementation is the point: these must not be regenerated from it.
 
 import { describe, expect, it } from "vitest";
 
@@ -13,8 +13,8 @@ import {
   secp256k1PublicKeyOf,
 } from "../src/index.ts";
 
-// Fixed MPC root key 9e3b…9e0f from the golden-vector run; its compressed
-// secp256k1 public key (also asserted in mpc-keys.test.ts).
+// The compressed secp256k1 public key of the fixed MPC root key 9e3b…9e0f
+// from the golden-vector run (also asserted in mpc-keys.test.ts).
 const MPC_PUBKEY = "0x0281e037488c6e708c5a28c8bc2e43b7a704f3a869bd129fb6511bcc58e98db243";
 const CONTRACT_ADDRESS = "0200e5e9a4f3d1b2c6a7889900aabbccddeeff00112233445566778899aabbccdd";
 const COMMITMENT_HEX = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -56,7 +56,7 @@ describe("deriveEvmAddress", () => {
   });
 
   it("accepts the uncompressed form of the same root public key", () => {
-    // 04 || x || y expansion of MPC_PUBKEY — same key, same derived address.
+    // 04 || x || y expansion of MPC_PUBKEY: same key, same derived address.
     const uncompressed =
       "0x0481e037488c6e708c5a28c8bc2e43b7a704f3a869bd129fb6511bcc58e98db243" +
       "4fd9fffb61ad2ff6c6423cbd51e2d8d9535fef116d48dfeedce3276db6a53446";

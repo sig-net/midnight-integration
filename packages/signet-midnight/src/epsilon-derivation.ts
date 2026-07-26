@@ -1,6 +1,6 @@
 // Epsilon key derivation: contract address + path -> derived EVM account.
 //
-// This belongs in github.com/sig-net/signet.js — kept here until upstreamed.
+// This belongs in github.com/sig-net/signet.js, kept here until upstreamed.
 //
 // v2.0.0 (COLON-separated) is the only scheme the MPC answers. The v1.0.0
 // COMMA-separated form is `key_version 0` in the MPC's KDF and is not served;

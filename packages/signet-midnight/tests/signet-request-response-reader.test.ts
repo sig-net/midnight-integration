@@ -1,7 +1,7 @@
 // SignetRequestResponseReader over synthetic contract states: the requester
 // and responses ledgers are encoded with the canonical descriptors into
 // StateValue trees (the shape the indexer returns), served through a stub
-// state source — no network, no compiled contract.
+// state source: no network, no compiled contract.
 
 import { describe, expect, it } from "vitest";
 
@@ -36,8 +36,8 @@ import {
   type RespondBidirectionalEvent,
 } from "../src/index.ts";
 
-// The ERC20 transfer(address,uint256) selector — a realistic calldata fixture
-// (the app-level constant lives in the cli, not the SDK).
+// The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
+// (the app-level constant lives in the cli).
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
 // ---- Fixtures ----
@@ -58,7 +58,7 @@ const REQUESTER_ADDRESS = "requester-contract-address";
 const SIGNET_CONTRACT_ADDRESS = "signet-contract-address";
 
 /**
- * Known-good request record for a `transfer(vault, amount)` deposit — the
+ * Known-good request record for a `transfer(vault, amount)` deposit: the
  * base every test uses. Shared across tests: NEVER mutate.
  */
 const REQUEST: SignBidirectionalEvent = {
@@ -138,11 +138,11 @@ const requesterState = (): StateValue => {
     );
 };
 
-// A respond-bidirectional record for the response tests: a synthetic
-// signature — the reader decodes, verification is the CLIENT's job.
+// A respond-bidirectional record for the response tests: a synthetic digest
+// and an equally synthetic signature (the reader decodes, verification is
+// the CLIENT's job).
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
-  serializedOutput: (() => { const out = new Uint8Array(128); out[0] = 1; return out; })(),
-  outputLen: 32n,
+  attestationDigest: new Uint8Array(32).fill(0xd1),
   signature: { bigR: { x: bytes(32, 0x5c), y: bytes(32, 0x5d) }, s: bytes(32, 0x5e), recoveryId: 1n },
 };
 
@@ -331,7 +331,7 @@ const VERDICT_CASES: VerdictCase[] = [
     rejectedReasons: [undefined],
   },
   {
-    name: "a genuine post behind noise — first VALID wins, noise gets reasons",
+    name: "a genuine post behind noise: first VALID wins, noise gets reasons",
     posts: [UNDECODABLE_RESPONSE, IMPOSTER_RESPONSE, GENUINE_RESPONSE],
     expectedSigner: MPC_ADDRESS,
     verifiedPost: 2,
@@ -349,7 +349,7 @@ const VERDICT_CASES: VerdictCase[] = [
     rejectedReasons: [undefined],
   },
   {
-    name: "only an imposter post — nothing verifies",
+    name: "only an imposter post: nothing verifies",
     posts: [IMPOSTER_RESPONSE],
     expectedSigner: MPC_ADDRESS,
     rejectedReasons: [/signed by 0x.*expected 0x/],
@@ -401,7 +401,7 @@ describe("getUnsignedEvmTransaction", () => {
     expect(tx.unsignedHash).toBe(
       signBidirectionalEventToUnsignedEvmTransaction(REQUEST).unsignedHash,
     );
-    // Unsigned needs only the request record — never touches the signet contract.
+    // Unsigned needs only the request record: it never touches the signet contract.
     expect(queries.responses).toBe(0);
   });
 

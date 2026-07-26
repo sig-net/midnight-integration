@@ -1,22 +1,27 @@
 // secp256k1 ECDSA helpers: the TS side of the respond-bidirectional
-// attestation flow in Signet.compact — SIGNING (which needs the secret
-// scalar, so it cannot be a circuit), key parsing/formatting, and the
+// attestation flow in Signet.compact: SIGNING (which needs the secret
+// scalar, so it cannot be a circuit), key parsing/formatting, the
 // byte-order conversions between noble's bigints and the little-endian
-// scalar bytes Compact's casts read. Everything provable stays in Compact: the
-// attestation digest is the COMPILED `pureCircuits.signetAttestationDigest`,
-// verification is `pureCircuits.verifyRespondBidirectionalEvent` (the same
-// check client contracts run in-circuit), and the deploy-time key pin is
-// `pureCircuits.signetKeyHash` — this file never re-implements any of them.
+// scalar bytes Compact's casts read, and the attestation digest's TS twin.
+// Everything provable stays in Compact where possible: in-circuit
+// verification is `verifyRespondBidirectionalEvent`, the deploy-time key pin
+// is `pureCircuits.signetKeyHash`. The digest circuit is size-generic and the
+// compiler cannot export size-generic circuits top-level, so the digest is
+// the ONE sanctioned TS twin here, pinned byte-for-byte against the
+// fixed-width oracle circuits circuits.compact exports (see
+// tests/ecdsa-attestation.test.ts).
 //
-// This belongs in github.com/sig-net/signet.js as its Midnight adapter —
+// This belongs in github.com/sig-net/signet.js as its Midnight adapter,
 // kept here until upstreamed.
 
+import { ethers } from "ethers";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
+import type { RequestId } from "./signet-requests.ts";
 
 import type { MpcSignature } from "./signet-contract-state-reader.ts";
 
-// Re-exported because it appears throughout this module's public signatures —
+// Re-exported because it appears throughout this module's public signatures:
 // SDK consumers shouldn't have to depend on compact-runtime just for the type.
 export type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
 
@@ -37,7 +42,9 @@ export const BLS_ORDER = 5243587517512619047944774050818596583769055250052763782
 export function bytesToBigint(bytes: Uint8Array): bigint {
   let result = 0n;
   for (let i = bytes.length - 1; i >= 0; i--) {
-    result = (result << 8n) | BigInt(bytes[i]);
+    // The index is in range by construction: the assertion satisfies
+    // consumers compiling with noUncheckedIndexedAccess.
+    result = (result << 8n) | BigInt(bytes[i]!);
   }
   return result;
 }
@@ -45,7 +52,7 @@ export function bytesToBigint(bytes: Uint8Array): bigint {
 /**
  * Convert a bigint to exactly 32 little-endian bytes. Matches Compact's
  * `Field as Bytes<32>` / `Secp256k1Scalar as Bytes<32>` encoding (the inverse
- * of {@link bytesToBigint}); negative inputs are interpreted in the BLS
+ * of {@link bytesToBigint}). Negative inputs are interpreted in the BLS
  * scalar field.
  *
  * @param n - The integer to encode.
@@ -78,7 +85,7 @@ export function bytesToBigintBE(bytes: Uint8Array): bigint {
 
 /**
  * Convert a bigint to exactly 32 BIG-endian bytes (SEC1 scalar/coordinate
- * order, also the ABI word encoding) — the big-endian counterpart of
+ * order, also the ABI word encoding): the big-endian counterpart of
  * {@link bigintToBytes32} and the inverse of {@link bytesToBigintBE}.
  *
  * @param value - The non-negative integer to encode.
@@ -101,7 +108,7 @@ export function bigintToBytes32BE(value: bigint): Uint8Array {
 /**
  * An ECDSA signature over the attestation digest, in the MPC's canonical
  * `Signature { big_r, s, recovery_id }` spirit with `r` already reduced to
- * the scalar `big_r.x mod n` — the form Compact's `Secp256k1EcdsaSignature`
+ * the scalar `big_r.x mod n`, the form Compact's `Secp256k1EcdsaSignature`
  * takes. Build the stored form for posting in a respond event with
  * {@link ecdsaSignatureToMpcSignature}.
  */
@@ -117,11 +124,11 @@ export interface EcdsaSignature {
 /**
  * ECDSA-sign a 32-byte digest with a secp256k1 secret key, exactly as the
  * MPC signs the attestation digest: RFC 6979 deterministic, low-s, the digest
- * interpreted big-endian with NO extra hashing (`prehash: false`) — the same
+ * interpreted big-endian with NO extra hashing (`prehash: false`), the same
  * convention `secp256k1EcdsaVerify` checks in-circuit.
  *
- * @param digest - The 32-byte digest to sign (e.g. the compiled
- *   `pureCircuits.signetAttestationDigest` output).
+ * @param digest - The 32-byte digest to sign (e.g. the
+ *   {@link calculateSignetAttestationDigest} output).
  * @param secretKey - The 32-byte secp256k1 secret key.
  * @returns The signature with its recovery id.
  */
@@ -150,7 +157,7 @@ export function signAttestationDigest(
 /**
  * Build the stored-form signature both respond events carry from a
  * scalar-form one: R is reconstructed by decompressing the curve point with
- * x = `r` and the parity `recoveryId` names — undoing the compression an
+ * x = `r` and the parity `recoveryId` names, undoing the compression an
  * `r || s || v` signature performs. For MPC-side posters (the fakenet
  * signer, tests). The negligible caveat: an R.x that overflowed the curve
  * order cannot be told apart from its reduced twin, so reconstruction picks
@@ -183,15 +190,13 @@ export function ecdsaSignatureToMpcSignature(signature: EcdsaSignature): MpcSign
 }
 
 /**
- * Read a stored-form signature back into scalar form — the inverse of
+ * Read a stored-form signature back into scalar form: the inverse of
  * {@link ecdsaSignatureToMpcSignature}, for off-chain consumers building a
- * transaction from the response. In-circuit verification does not need this:
- * `verifyRespondBidirectionalEvent` takes the stored record as-is. `r` comes
- * out as `bigR.x` reduced mod the curve order. Rejects records that do not
- * even hold the shape, since posts are unauthenticated and a malformed
- * record is garbage, not a signature. `bigR.y` is NOT checked against the
- * curve or the recovery id: signature verification is the authority, not
- * this decoder.
+ * transaction from the response. `r` comes out as `bigR.x` reduced mod the
+ * curve order. Rejects records that do not even hold the shape, since posts
+ * are unauthenticated and a malformed record is garbage. `bigR.y` is NOT
+ * checked against the curve or the recovery id: signature verification is
+ * the authority, not this decoder.
  *
  * @param signature - The stored-form signature as posted.
  * @returns The scalar-form signature.
@@ -215,7 +220,7 @@ export function mpcSignatureToEcdsaSignature(signature: MpcSignature): EcdsaSign
 
 /**
  * Parse a secp256k1 public key from SEC1 hex (compressed or uncompressed,
- * optional `0x` prefix) into the Compact runtime's `Secp256k1Point` shape —
+ * optional `0x` prefix) into the Compact runtime's `Secp256k1Point` shape:
  * how deploys receive the MPC response key to pin.
  *
  * @param value - The SEC1 hex public key.
@@ -240,7 +245,7 @@ export function parseSecp256k1PublicKey(value: string): Secp256k1Point {
 
 /**
  * Format a secp256k1 public key point as uncompressed SEC1 hex (with `0x`
- * prefix) — the round-trip inverse of {@link parseSecp256k1PublicKey}, for
+ * prefix): the round-trip inverse of {@link parseSecp256k1PublicKey}, for
  * handing a response key to deploys via env/config.
  *
  * @param point - The point to format.
@@ -252,7 +257,7 @@ export function formatSecp256k1PublicKey(point: Secp256k1Point): string {
 }
 
 /**
- * Derive the `Secp256k1Point` of a secret key — convenience for tests and
+ * Derive the `Secp256k1Point` of a secret key: a convenience for tests and
  * signers that hold key material as raw bytes.
  *
  * @param secretKey - The 32-byte secp256k1 secret key.
@@ -265,4 +270,33 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
     y: bytesToBigintBE(uncompressed.slice(33, 65)),
     identity: false,
   };
+}
+
+/**
+ * The attestation digest of a respond-bidirectional response:
+ * `keccak256(requestId || serializedOutput)`, the 32-byte digest the MPC
+ * ECDSA-signs to attest a remote execution.
+ *
+ * TS twin of the size-generic Compact circuit
+ * `calculateSignetAttestationDigest` (which the compiler cannot export
+ * compiled, so this is the one sanctioned re-implementation, pinned
+ * byte-for-byte against the fixed-width oracle circuits in
+ * circuits.compact). The constructions agree because the circuit's keccak
+ * preimage of the `[RequestId, Bytes<N>]` pair is the raw concatenated
+ * bytes, and it matches the MPC's respond-bidirectional hash
+ * (`hash(request_id || serialized_output)`: one flat concatenation, one
+ * hash). The output is hashed AS GIVEN, at its exact length: no padding and
+ * no length binding.
+ *
+ * @param requestId - The 32-byte request id the response answers.
+ * @param serializedOutput - The serialised execution output, exact unpadded bytes.
+ * @returns The 32-byte attestation digest.
+ */
+export function calculateSignetAttestationDigest(
+  requestId: RequestId,
+  serializedOutput: Uint8Array,
+): Uint8Array {
+  return ethers.getBytes(
+    ethers.keccak256(ethers.concat([requestId, serializedOutput])),
+  );
 }

@@ -28,8 +28,8 @@ import {
   type SignatureRespondedEvent,
 } from "../src/index.ts";
 
-// The ERC20 transfer(address,uint256) selector — a realistic calldata fixture
-// (the app-level constant lives in the cli, not the SDK).
+// The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
+// (the app-level constant lives in the cli).
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
 // ---- Fixtures ----
@@ -42,8 +42,8 @@ const VAULT_EVM = bytes(20, 0xee);
 const AMOUNT = 1_000_000n;
 
 /**
- * Known-good request record for a `transfer(vault, amount)` deposit — the
- * base every test varies from. Shared across tests: NEVER mutate; build a
+ * Known-good request record for a `transfer(vault, amount)` deposit: the
+ * base every test varies from. Shared across tests: NEVER mutate. Build a
  * variation as an explicit spread with the delta inline.
  */
 const REQUEST: SignBidirectionalEvent = {
@@ -139,7 +139,7 @@ describe("signBidirectionalEventToUnsignedEvmTransaction", () => {
     expect(tx.to?.toLowerCase()).toBe(`0x${"aa".repeat(20)}`);
     expect(tx.accessList).toEqual([]);
 
-    // The calldata decodes back to the transfer args — the address in
+    // The calldata decodes back to the transfer args: the address in
     // display order (proving the BE address embed) and the amount.
     const iface = new Interface(["function transfer(address,uint256)"]);
     const [to, amount] = iface.decodeFunctionData("transfer", tx.data);

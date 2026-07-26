@@ -1,0 +1,3 @@
+# hardhat compiler output (yarn compile:evm)
+artifacts/
+cache/

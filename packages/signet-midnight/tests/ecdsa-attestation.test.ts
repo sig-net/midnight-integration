@@ -1,20 +1,21 @@
-// ECDSA attestation helpers + the compiled digest/verify circuits. The
-// signing helper is checked against the COMPILED verification circuit
-// (`pureCircuits.verifyRespondBidirectionalEvent`) — the same check client
-// contracts run in-circuit at claim time — so the off-chain signer and the
-// on-chain verifier are pinned against each other in-process.
+// ECDSA attestation helpers, the digest's TS twin, and the compiled verify
+// circuit. The digest TS twin (`calculateSignetAttestationDigest`) is pinned
+// byte-for-byte against the fixed-width oracle circuits circuits.compact
+// exports, and the signing helper is checked against the COMPILED
+// verification circuit (`pureCircuits.verifyRespondBidirectionalEvent32`),
+// the same check client contracts run in-circuit at claim time, so the
+// off-chain signer and the on-chain verifier are pinned against each other
+// in-process.
 
 import { describe, expect, it } from "vitest";
 
-import { hexlify, keccak256 } from "ethers";
-
 import {
   bigintToBytes32BE,
+  calculateSignetAttestationDigest,
   ecdsaSignatureToMpcSignature,
-  executionSucceeded,
   formatSecp256k1PublicKey,
-  isExecutionError,
-  MPC_ERROR_SENTINEL,
+  isMpcFailureOutput,
+  MPC_FAILURE_OUTPUT,
   mpcSignatureToEcdsaSignature,
   parseSecp256k1PublicKey,
   SECP256K1_ORDER,
@@ -32,7 +33,7 @@ const bytes = (length: number, fill: number) =>
 // Fixed keypairs so every run (and the RFC 6979 deterministic signature) is
 // byte-for-byte reproducible. MPC_SECRET plays the MPC's response key (the
 // per-client-contract key derived from the contract address + the fixed
-// "midnight response key" path); the other is an imposter.
+// "midnight response key" path). The other is an imposter.
 const MPC_SECRET = Uint8Array.from(
   Buffer.from("a3b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1", "hex"),
 );
@@ -43,96 +44,89 @@ const IMPOSTER_SECRET = Uint8Array.from(
 const IMPOSTER_PUBLIC = secp256k1PublicKeyOf(IMPOSTER_SECRET);
 
 const REQUEST_ID = bytes(32, 0x2f);
-const OUTPUT_SUCCESS = (() => {
-  const out = new Uint8Array(128);
-  out[0] = 1;
-  return out;
-})();
-const OUTPUT_LEN = 32n;
+
+// A 32-byte serialised output (one ABI word's worth) for the verify tests.
+// The exact unpadded respond payload of a real request follows from its
+// respond schema. The verify circuit never inspects the content.
+const OUTPUT_32 = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
 
 /**
  * Sign a REAL respond-bidirectional response for (requestId, output) with
- * `secretKey` — the digest comes from the compiled circuit, exactly like the
- * MPC. The signature lands in stored form (full R point), the ledger shape.
+ * `secretKey`: the digest comes from the TS twin, exactly like the MPC.
+ * The signature lands in stored form (full R point), the ledger shape.
  */
 const respond = (
   secretKey: Uint8Array,
   requestId: Uint8Array,
-  serializedOutput: Uint8Array = OUTPUT_SUCCESS,
-  outputLen: bigint = OUTPUT_LEN,
+  serializedOutput: Uint8Array = OUTPUT_32,
 ): RespondBidirectionalEvent => {
-  const digest = signetCircuits.signetAttestationDigest(requestId, serializedOutput);
-  return {
+  const attestationDigest = calculateSignetAttestationDigest(
+    requestId,
     serializedOutput,
-    outputLen,
-    signature: ecdsaSignatureToMpcSignature(signAttestationDigest(digest, secretKey)),
+  );
+  return {
+    attestationDigest,
+    signature: ecdsaSignatureToMpcSignature(
+      signAttestationDigest(attestationDigest, secretKey),
+    ),
   };
 };
 
-/**
- * keccak256 of the 160-byte attestation preimage requestId ++ serializedOutput, hex.
- * Built on ethers rather than the compact runtime's hashing, so the oracle shares no
- * code with what it checks.
- *
- * @param requestId - The 32-byte request id the attestation is bound to.
- * @param serializedOutput - The zero-padded 128-byte execution output.
- * @returns The expected digest, `0x`-prefixed.
- */
-const attestationOracle = (requestId: Uint8Array, serializedOutput: Uint8Array): string => {
-  const preimage = new Uint8Array(160);
-  preimage.set(requestId, 0);
-  preimage.set(serializedOutput, 32);
-  return keccak256(preimage);
-};
+describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circuits", () => {
+  // The BINDING tests: the TS twin must agree byte-for-byte with the
+  // compiled generic circuit at every width. Per width: a patterned output,
+  // an all-zero output, and a trailing-zero output (pinning that neither
+  // side trims or pads the keccak preimage).
+  const oracles = [
+    { width: 1, oracle: signetCircuits.calculateSignetAttestationDigest1 },
+    { width: 32, oracle: signetCircuits.calculateSignetAttestationDigest32 },
+    { width: 100, oracle: signetCircuits.calculateSignetAttestationDigest100 },
+  ] as const;
 
-describe("signetAttestationDigest (compiled circuit)", () => {
-  it("is a standard keccak256 over requestId ++ serializedOutput", () => {
-    // Load-bearing: any standard keccak reproduces this off-chain, so the MPC's
-    // chain-agnostic respond-bidirectional digest needs no Midnight branch.
-    expect(hexlify(signetCircuits.signetAttestationDigest(REQUEST_ID, OUTPUT_SUCCESS))).toEqual(
-      attestationOracle(REQUEST_ID, OUTPUT_SUCCESS),
-    );
+  const outputsOf = (width: number): Uint8Array[] => [
+    Uint8Array.from({ length: width }, (_, i) => (i * 37 + 5) % 256),
+    new Uint8Array(width),
+    (() => {
+      const out = new Uint8Array(width);
+      out[0] = 1;
+      return out;
+    })(),
+  ];
+
+  it.each(oracles)("matches the compiled Bytes<$width> oracle", ({ width, oracle }) => {
+    for (const output of outputsOf(width)) {
+      expect(calculateSignetAttestationDigest(REQUEST_ID, output)).toEqual(
+        oracle(REQUEST_ID, output),
+      );
+    }
   });
 
-  it("hashes the full declared 128-byte width, trailing zeros included", () => {
-    // Bytes<N> atoms are stored trailing-zero-trimmed, but the digest must cover the
-    // padded width or it stops matching a raw keccak over 160 bytes.
-    const trailingZeroOutput = new Uint8Array(128);
-    trailingZeroOutput.set([0xde, 0xad, 0xbe, 0xef], 0);
-    expect(hexlify(signetCircuits.signetAttestationDigest(REQUEST_ID, trailingZeroOutput))).toEqual(
-      attestationOracle(REQUEST_ID, trailingZeroOutput),
-    );
+  it("commits to both the request id and the output", () => {
+    const digest = calculateSignetAttestationDigest(REQUEST_ID, OUTPUT_32);
+    expect(digest).toHaveLength(32);
+    expect(calculateSignetAttestationDigest(bytes(32, 0xab), OUTPUT_32)).not.toEqual(digest);
+    expect(
+      calculateSignetAttestationDigest(REQUEST_ID, bytes(32, 0x77)),
+    ).not.toEqual(digest);
   });
 
-  it("never receives outputLen, so a stored outputLen is unauthenticated", () => {
-    // Arity is the proof: the digest cannot depend on a value it never receives, so a
-    // stored event may carry any outputLen under a valid signature. Asserted against the
-    // runtime's arity guard rather than a tampered event, because no verification path
-    // takes outputLen at all, so a tampering case would pass whatever the circuit did.
-    // The cast forces the invalid third argument. If this stops throwing, outputLen is
-    // back in the digest and the malleability note needs revisiting.
-    const overArity = signetCircuits.signetAttestationDigest as unknown as (
-      ...args: readonly unknown[]
-    ) => Uint8Array;
-    expect(() => overArity(REQUEST_ID, OUTPUT_SUCCESS, OUTPUT_LEN)).toThrow(/expected 2 arguments/);
-  });
-
-  it("binds the request id, so the same output under another id is a different digest", () => {
-    const otherId = new Uint8Array(REQUEST_ID);
-    otherId[0] ^= 0xff;
-    expect(signetCircuits.signetAttestationDigest(REQUEST_ID, OUTPUT_SUCCESS)).not.toEqual(
-      signetCircuits.signetAttestationDigest(otherId, OUTPUT_SUCCESS),
+  it("the exact width is part of the preimage: appending a zero byte changes the digest", () => {
+    // There is no separate length binding: distinctness across widths comes
+    // from the preimage bytes themselves (keccak's padding is length-aware).
+    expect(calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1]))).not.toEqual(
+      calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1, 0])),
     );
   });
 });
 
-describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDigest", () => {
+describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestationDigest", () => {
   const valid = respond(MPC_SECRET, REQUEST_ID);
   const validSig = mpcSignatureToEcdsaSignature(valid.signature);
 
   interface VerifyCase {
     name: string;
     event: RespondBidirectionalEvent;
+    serializedOutput: Uint8Array;
     requestId: Uint8Array;
     pk: typeof MPC_PUBLIC;
     expected: boolean;
@@ -142,6 +136,7 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
     {
       name: "a genuine response verifies against the signing key",
       event: valid,
+      serializedOutput: OUTPUT_32,
       requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: true,
@@ -155,6 +150,7 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
           s: SECP256K1_ORDER - validSig.s,
         }),
       },
+      serializedOutput: OUTPUT_32,
       requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: true,
@@ -162,6 +158,7 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
     {
       name: "fails against a different public key",
       event: valid,
+      serializedOutput: OUTPUT_32,
       requestId: REQUEST_ID,
       pk: IMPOSTER_PUBLIC,
       expected: false,
@@ -169,20 +166,27 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
     {
       name: "fails under a different request id",
       event: valid,
+      serializedOutput: OUTPUT_32,
       requestId: bytes(32, 0xab),
       pk: MPC_PUBLIC,
       expected: false,
     },
     {
-      name: "fails when the output was tampered with",
-      event: {
-        ...valid,
-        serializedOutput: (() => {
-          const out = new Uint8Array(OUTPUT_SUCCESS);
-          out[100] = 0xff;
-          return out;
-        })(),
-      },
+      name: "fails when the presented output differs from what was signed",
+      event: valid,
+      serializedOutput: (() => {
+        const out = new Uint8Array(OUTPUT_32);
+        out[7] = 0xff;
+        return out;
+      })(),
+      requestId: REQUEST_ID,
+      pk: MPC_PUBLIC,
+      expected: false,
+    },
+    {
+      name: "fails when the digest checkpoint was tampered with (signature untouched)",
+      event: { ...valid, attestationDigest: bytes(32, 0x99) },
+      serializedOutput: OUTPUT_32,
       requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: false,
@@ -190,19 +194,22 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
     {
       name: "fails for an imposter's signature over the same content",
       event: respond(IMPOSTER_SECRET, REQUEST_ID),
+      serializedOutput: OUTPUT_32,
       requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: false,
     },
   ];
 
-  it.each(CASES)("$name", ({ event, requestId, pk, expected }) => {
+  it.each(CASES)("$name", ({ event, serializedOutput, requestId, pk, expected }) => {
     // The client's exact claim path: hand over the stored record as read.
-    expect(signetCircuits.verifyRespondBidirectionalEvent(requestId, event, pk)).toBe(expected);
+    expect(
+      signetCircuits.verifyRespondBidirectionalEvent32(requestId, serializedOutput, event, pk),
+    ).toBe(expected);
   });
 
   it("the recovery id recovers the signing key from the digest", () => {
-    const digest = signetCircuits.signetAttestationDigest(REQUEST_ID, OUTPUT_SUCCESS);
+    const digest = calculateSignetAttestationDigest(REQUEST_ID, OUTPUT_32);
     const sig = signAttestationDigest(digest, MPC_SECRET);
     expect([0, 1]).toContain(sig.recoveryId);
   });
@@ -210,7 +217,7 @@ describe("verifyRespondBidirectionalEvent (compiled circuit) x signAttestationDi
 
 describe("ecdsaSignatureToMpcSignature x mpcSignatureToEcdsaSignature", () => {
   const SCALAR_SIG = signAttestationDigest(
-    signetCircuits.signetAttestationDigest(REQUEST_ID, OUTPUT_SUCCESS),
+    calculateSignetAttestationDigest(REQUEST_ID, OUTPUT_32),
     MPC_SECRET,
   );
   const STORED = ecdsaSignatureToMpcSignature(SCALAR_SIG);
@@ -343,46 +350,64 @@ describe("parseSecp256k1PublicKey", () => {
   });
 });
 
-/** One row of the serializedOutput decode table: bytes → expected verdicts. */
+/** One row of the serializedOutput decode table: bytes → expected verdict. */
 interface DecodeCase {
   /** Test name, completing the sentence "decodes <name>". */
   name: string;
   /** The response's serialized output. */
   serializedOutput: Uint8Array;
-  /** Expected {@link executionSucceeded} verdict. */
-  succeeded: boolean;
-  /** Expected {@link isExecutionError} verdict. */
-  error: boolean;
+  /** Expected {@link isMpcFailureOutput} verdict. */
+  failure: boolean;
 }
 
+// Outputs are the exact unpadded respond payloads (a packed bool is one
+// byte). Only exact byte equality with the 5-byte failure payload counts as
+// the MPC failure: prefixes and extensions are legitimate packed outputs.
 const DECODE_CASES: DecodeCase[] = [
   {
-    name: "a success flag (first byte 1)",
-    serializedOutput: OUTPUT_SUCCESS,
-    succeeded: true,
-    error: false,
+    name: "a one-byte packed bool (0x01)",
+    serializedOutput: Uint8Array.from([1]),
+    failure: false,
   },
   {
-    name: "a false return (all zero)",
-    serializedOutput: new Uint8Array(128),
-    succeeded: false,
-    error: false,
+    name: "a one-byte packed bool (0x00)",
+    serializedOutput: Uint8Array.from([0]),
+    failure: false,
   },
   {
-    name: "the MPC error sentinel (0xdeadbeef prefix)",
-    serializedOutput: (() => {
-      const out = new Uint8Array(128);
-      out.set(MPC_ERROR_SENTINEL);
-      return out;
-    })(),
-    succeeded: false,
-    error: true,
+    name: "the exact 5-byte failure payload",
+    serializedOutput: MPC_FAILURE_OUTPUT,
+    failure: true,
+  },
+  {
+    name: "a 4-byte deadbeef prefix with a different fifth byte",
+    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x02]),
+    failure: false,
+  },
+  {
+    name: "the bare 4-byte deadbeef marker without the 0x01 byte",
+    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef]),
+    failure: false,
+  },
+  {
+    name: "a 6-byte output that merely starts with the failure payload",
+    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01, 0x02]),
+    failure: false,
   },
 ];
 
+// The failure output is a wire constant shared by the responder and every
+// client's refund circuit: pin its exact bytes.
+describe("MPC_FAILURE_OUTPUT", () => {
+  it("is the 4-byte error marker followed by a single 0x01 byte", () => {
+    expect(MPC_FAILURE_OUTPUT).toEqual(
+      Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01]),
+    );
+  });
+});
+
 describe("serializedOutput decoding", () => {
-  it.each(DECODE_CASES)("decodes $name", ({ serializedOutput, succeeded, error }) => {
-    expect(executionSucceeded(serializedOutput)).toBe(succeeded);
-    expect(isExecutionError(serializedOutput)).toBe(error);
+  it.each(DECODE_CASES)("decodes $name", ({ serializedOutput, failure }) => {
+    expect(isMpcFailureOutput(serializedOutput)).toBe(failure);
   });
 });

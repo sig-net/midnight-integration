@@ -13,7 +13,7 @@ The client-agnostic [Sig Network](https://sig.network) protocol library for the 
   ```compact
   import "@sig-net/midnight/src/Signet";
   ```
-- **Compiled pure circuits** (`pureCircuits`): the executable reference implementation of the client-agnostic circuits (the attestation digest, response verification, the deploy-time key pin, the notification packer, the ABI word builders and readers). Off-chain code calls these compiled artefacts instead of re-porting the algorithms, so it always agrees with what the contracts prove.
+- **Compiled pure circuits** (`pureCircuits`): the executable reference implementation of the client-agnostic circuits (the deploy-time key pin, the notification packer, the ABI word builders and readers). Off-chain code calls these compiled artefacts, so it always agrees with what the contracts prove. The attestation digest and response verification are not among them: their compiled circuits are fixed-width oracles used only by this package's tests, and the sanctioned off-chain path is the TypeScript twin (`calculateSignetAttestationDigest` plus ordinary ECDSA verification against the expected MPC response key), which those tests pin byte-for-byte against the oracles.
 - **TypeScript twins of the wire structs** and signet request-id computation.
 - **State readers, request feed and resolver**: poll the signet contract for pending requests and their signature / remote-execution responses.
 - **Crypto helpers**: epsilon derivation and ECDSA attestation verification.
@@ -33,8 +33,10 @@ The flow comprises 5 steps:
 1. Client calls a contract on Midnight which requests a signature for a transaction destined for a foreign chain. The signature is made with a key derived for the requesting contract (see [Derived keys](#derived-keys)).
 2. The Sig Network MPC honours the request, generating the transaction signature and posting it back to Midnight.
 3. Client extracts the signature, using it to submit the signed transaction to the foreign chain.
-4. The Sig Network MPC observes the foreign transaction and posts the output of the execution (signed) back to Midnight.
-5. Client extracts the signed foreign execution output and submits it back to the Midnight contract, which verifies the MPC's signature over it in-circuit against the contract's own response key (see [Derived keys](#derived-keys)), completing the foreign transaction execution.
+4. The Sig Network MPC observes the foreign transaction and posts an attestation of the execution back to Midnight: the attestation digest `keccak256(requestId || serializedOutput)` plus its ECDSA signature over that digest. The output itself travels off chain.
+5. Client obtains the execution output off chain (see the output recovery note below: it broadcast the transaction in step 3, so it can read the result), extracts the posted attestation and submits both back to the Midnight contract, which recomputes the digest from the output bytes and verifies the MPC's signature in-circuit against the contract's own response key (see [Derived keys](#derived-keys)), completing the foreign transaction execution.
+
+> **Output recovery:** how the client reads the execution output is chain-specific. For EVM chains it is the mined call's return data, extracted with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. Clients without trace access can fetch the raw output from the fakenet responder's helper API at `GET /responses/{requestId}` (served by [`ResponsesApi.ts`](https://github.com/sig-net/solana-signet-program/blob/fakenet-v0.8.0/fakenet-signer/src/server/ResponsesApi.ts), port 3040 in the local stack). The fetched bytes are untrusted until step 5's digest match and in-circuit signature verification.
 
 ## Derived keys
 
@@ -50,7 +52,7 @@ The path is 32 opaque bytes of the contract's choosing (e.g. a fixed literal for
 
 ### Response key
 
-The key the MPC signs foreign execution outputs with when posting them back to Midnight:
+The key the MPC signs remote execution attestations with when posting them back to Midnight:
 
 `responseKey = f(mpcRootKey[keyVersion], contractAddress, "midnight response key")`
 
@@ -95,7 +97,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    sealed ledger signetSigner: SignetSigner;
 
    // Required: This contract's MPC response key, set in step 3.
-   // Used to verify RespondBidirectionalEvents containing the serialised output of foreign chain execution.
+   // Used to verify RespondBidirectionalEvents attesting the serialised output of foreign chain execution.
    export ledger mpcResponseKey: Secp256k1Point;
 
    // Recommended: contract-local source of request nonces, so identical
@@ -109,7 +111,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    sealed ledger deployer: Bytes<32>;
 
    // Recommended: supplies the deployer's identity secret from private state
-   // off-chain; only its commitment (below) ever reaches the ledger.
+   // off-chain. Only its commitment (below) ever reaches the ledger.
    witness witnessDeployerSecretKey(): Bytes<32>;
 
    // Recommended: the deployer identity commitment scheme. Exported so deploy
@@ -172,7 +174,7 @@ const reader = new SignetRequestResponseReader({
 const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my-path");
 ```
 
-1. Store a signature request and notify the MPC via cross contract call. Build (or overwrite) every part of the transaction your contract enforces in-circuit, calldata above all (see [EVM Type 2 transactions and ABI calldata words](#evm-type-2-transactions-and-abi-calldata-words)); never pass caller input through unchecked:
+1. Store a signature request and notify the MPC via cross contract call. Build (or overwrite) every part of the transaction your contract enforces in-circuit, calldata above all (see [EVM Type 2 transactions and ABI calldata words](#evm-type-2-transactions-and-abi-calldata-words)), and never pass caller input through unchecked:
 
    ```compact
    // Construct SignBidirectionalEvent signature request and calculate its RequestId
@@ -209,18 +211,18 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
    await new JsonRpcProvider(foreignChainRpcUrl).broadcastTransaction(signedTx.serialized);
    ```
 
-4. Poll the Signet singleton for the MPC's signed remote execution output (posted once the MPC observes the transaction execute on the foreign chain). Posts are stored unverified, so treat them as candidates: the authoritative check is your contract's verify circuit in step 5:
+4. Poll the Signet singleton for the MPC's attestation of the remote execution output (posted once the MPC observes the transaction execute on the foreign chain). The event carries only the attestation digest and the signature over it: the serialised output itself travels off chain (you broadcast the transaction in step 3, so you can read its result). Posts are stored unverified, so treat them as candidates: the authoritative check is your contract's verify circuit in step 5:
 
    ```ts
    const [respondBidirectionalEvent] = await reader.getRespondBidirectionalEvents(requestId);
    // Empty array: not posted yet, poll again.
    ```
 
-5. Deliver the response to your contract, which verifies it in-circuit against the response key pinned in Setup step 3 and consumes the request:
+5. Deliver the response and the serialised output to your contract, which recomputes the attestation digest, verifies the event in-circuit against the response key pinned in Setup step 3, and consumes the request. The width argument is the exact packed size of your respond serialisation schema (a single bool packs to 1 byte):
 
    ```compact
    assert(
-      verifyRespondBidirectionalEvent(requestId, respondBidirectionalEvent, mpcResponseKey),
+      verifyRespondBidirectionalEvent<1>(requestId, serializedOutput, respondBidirectionalEvent, mpcResponseKey),
       "Invalid attestation signature"
    );
    signBidirectionalEventMap.remove(requestId);
@@ -268,12 +270,18 @@ const calldata = EvmCalldata<2> {
 };
 ```
 
-The readers run the same rules in the other direction, rejecting any non-canonical word instead of silently truncating or coercing it. A `RespondBidirectionalEvent`'s `serializedOutput` is the ABI-encoded return data of the remote call, so a settle circuit can decode an ERC20 `transfer`'s `bool` return from the first output word:
+The readers run the same rules in the other direction, rejecting any non-canonical word outright (no silent truncation or coercion). Note that the builders and readers apply to CALLDATA words only. The serialised output a settle circuit verifies (the explicit `serializedOutput` argument `verifyRespondBidirectionalEvent` binds to the event's attestation digest) is NOT ABI words: it is the packed respond payload produced from the request's respond serialisation schema (a bool packs to 1 byte). The circuit reads it with a single stdlib `deserialize<T, N>` call, where `T` is a struct mirroring the schema and `N` is the schema's packed size. For an ERC20 `transfer`'s `bool` return under a one-field bool schema:
 
 ```compact
-const success = abiWordToBool(slice<32>(respondBidirectionalEvent.serializedOutput, 0));
-assert(success, "Remote transfer failed");
+struct TransferResult {
+  success: Boolean;
+}
+
+const result = deserialize<TransferResult, 1>(serializedOutput);
+assert(result.success, "Remote transfer failed");
 ```
+
+**Respond schema range trap:** the respond serialisation maps `uint256`, `address` and `field` to Compact `Field`, whose values must lie strictly below the BLS12-381 Fr modulus (just under 2^255). An EVM `uint256` at or above Fr (a max-uint256 allowance readback is the everyday case) cannot be respond-serialised, and `serializeRespondOutput` throws at respond time. When the full 256-bit range matters, declare the field as `bytes32` in the respond schema instead.
 
 The same builders and readers exist as TypeScript twins under identical names, for composing expected words off-chain (UIs, expected-record builders, tests). They are kept in lockstep with the compiled circuits by this package's test suite.
 

@@ -3,7 +3,7 @@
 // `Signet.compact`, their runtime descriptors, the ABI-word helpers, and the
 // request -> transaction assembly the signer runs. Everything chain-agnostic
 // (the request record itself, ids, the descriptor toolkit) lives in
-// `signet-requests.ts`; a future non-EVM decomposition gets a sibling of THIS
+// `signet-requests.ts`. A future non-EVM decomposition gets a sibling of THIS
 // file.
 //
 // The no-translation invariant lives here: words are stored ABI-ready and
@@ -48,8 +48,8 @@ export interface EvmCalldata {
   /** How many leading {@link words} are real (Compact `noWords: Uint<16>`). */
   noWords: bigint;
   /**
-   * ABI-ready big-endian 32-byte word slots, stored exactly as broadcast;
-   * capacity is the contract's `#maxWords` (vault: 2).
+   * ABI-ready big-endian 32-byte word slots, stored exactly as broadcast.
+   * Capacity is the contract's `#maxWords` (vault: 2).
    */
   words: Uint8Array[];
 }
@@ -70,10 +70,10 @@ export interface EvmAccessListEntry {
 /**
  * The EVM transaction to be signed, decomposed into typed fields (Compact:
  * `EvmType2TxParams<#maxCalldataWords, #maxAccessListEntries,
- * #maxStorageKeysPerEntry>`; EIP-1559 — https://eips.ethereum.org/EIPS/eip-1559).
+ * #maxStorageKeysPerEntry>`, EIP-1559: https://eips.ethereum.org/EIPS/eip-1559).
  * Compact `Bytes<N>` fields arrive as N-byte `Uint8Array`s, `Uint<N>` as
- * `bigint`. Vector capacities are each contract's compile-time throttle;
- * the runtime counts say how many leading slots are real.
+ * `bigint`. Vector capacities are each contract's compile-time throttle,
+ * and the runtime counts say how many leading slots are real.
  */
 export interface EvmType2TxParams {
   /** EVM chain id (also expressed in the record's `caip2Id`). */
@@ -90,7 +90,7 @@ export interface EvmType2TxParams {
   to: Uint8Array;
   /** ETH sent with the call, wei. */
   value: bigint;
-  /** Call data; `is_some: false` means a plain ETH transfer (`0x` data). */
+  /** Call data: `is_some: false` means a plain ETH transfer (`0x` data). */
   calldata: Maybe<EvmCalldata>;
   /** How many leading {@link accessList} entries are real. */
   accessListEntryCount: bigint;
@@ -110,7 +110,7 @@ const UINT_64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
 const UINT_128 = new CompactTypeUnsignedInteger(2n ** 128n - 1n, 16);
 
 /**
- * Descriptor of {@link EvmCalldata} at one word capacity — the TS analogue
+ * Descriptor of {@link EvmCalldata} at one word capacity: the TS analogue
  * of instantiating Compact's `EvmCalldata<#maxWords>`.
  *
  * @param maxWords - The contract's calldata word capacity (the vault uses 2).
@@ -142,7 +142,7 @@ export function evmAccessListEntryDescriptor(
 }
 
 /**
- * Descriptor of {@link EvmType2TxParams} at one capacity instantiation —
+ * Descriptor of {@link EvmType2TxParams} at one capacity instantiation:
  * the TS analogue of Compact's `EvmType2TxParams<#maxCalldataWords,
  * #maxAccessListEntries, #maxStorageKeysPerEntry>`.
  *
@@ -176,7 +176,7 @@ export function evmType2TxParamsDescriptor(
 
 /**
  * Descriptor of {@link SignBidirectionalEvent} at one EVM Type-2 capacity
- * instantiation — the generic record descriptor
+ * instantiation: the generic record descriptor
  * (`signBidirectionalEventDescriptorWith`) over
  * {@link evmType2TxParamsDescriptor}.
  *
@@ -209,22 +209,22 @@ export function signBidirectionalEventDescriptor(
 
 /**
  * Canonical id of a signet request: the persistent hash of the entire event
- * record (which commits to every field, the sender address included — there
- * is deliberately no extra domain tag). TS twin of Signet.compact's
+ * record (which commits to every field, the sender address included, and
+ * deliberately carries no extra domain tag). TS twin of Signet.compact's
  * `calculateRequestId` circuit (see the deviation note in
  * signet-requests.ts), generic over the capacity instantiation via the
- * record's own array lengths — pass the record exactly as the ledger stores
+ * record's own array lengths: pass the record exactly as the ledger stores
  * it, unused slots included and schemas at their declared widths.
  *
  * @param request - The full event record (contract-shaped, all slots).
- * @returns The 32-byte request id — the record's ledger map key.
+ * @returns The 32-byte request id, the record's ledger map key.
  */
 export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
   const { txParams } = request;
   const maxCalldataWords = txParams.calldata.value.words.length;
   const maxAccessListEntries = txParams.accessList.length;
   const maxStorageKeysPerEntry =
-    maxAccessListEntries === 0 ? 0 : txParams.accessList[0].storageKeys.length;
+    maxAccessListEntries === 0 ? 0 : txParams.accessList[0]!.storageKeys.length;
   return keccak256(
     signBidirectionalEventDescriptor(
       maxCalldataWords,
@@ -305,7 +305,7 @@ export function abiWordToUint128(word: Uint8Array): bigint {
   }
   let value = 0n;
   for (let i = 16; i < 32; i++) {
-    value = value * 256n + BigInt(word[i]);
+    value = value * 256n + BigInt(word[i]!);
   }
   return value;
 }
@@ -323,7 +323,7 @@ export function abiWordToBool(word: Uint8Array): boolean {
   if (word.length !== 32) {
     throw new Error(`ABI word must be 32 bytes, got ${word.length}`);
   }
-  if (word.slice(0, 31).some((byte) => byte !== 0) || word[31] > 1) {
+  if (word.slice(0, 31).some((byte) => byte !== 0) || word[31]! > 1) {
     throw new Error("ABI word is not a canonical Boolean");
   }
   return word[31] === 1;
@@ -333,7 +333,7 @@ export function abiWordToBool(word: Uint8Array): boolean {
  * Assemble the raw calldata a request's words describe:
  * `data = selector || words[0..noWords]`, VERBATIM. Words are stored
  * ABI-ready (see {@link EvmCalldata}), so no byte of the stored record is
- * reordered or reinterpreted on the way into the transaction; slots past
+ * reordered or reinterpreted on the way into the transaction. Slots past
  * `noWords` are unused capacity and are dropped. This is THE implementation
  * of the signer-side assembly documented on `EvmCalldata` in Signet.compact.
  *
@@ -347,7 +347,7 @@ export function assembleCalldata(calldata: Maybe<EvmCalldata>): string {
   const { selector, noWords, words } = calldata.value;
   let data = `0x${bytesToHex(selector)}`;
   for (let i = 0; i < Number(noWords); i++) {
-    data += bytesToHex(words[i]);
+    data += bytesToHex(words[i]!);
   }
   return data;
 }
@@ -377,7 +377,7 @@ function decodeAccessList(
  * byte-identical to the one the MPC assembles and signs: calldata from the
  * tagged words (see {@link assembleCalldata}), the count-trimmed access
  * list, and the stored envelope fields. This is the canonical
- * request→transaction transform; response-side verification
+ * request→transaction transform. Response-side verification
  * (`signature-response-verification.ts`) and the signed-transaction builder
  * below both go through it, so the transaction a client broadcasts is
  * provably the one the MPC put its signature over.
@@ -408,8 +408,8 @@ export function signBidirectionalEventToUnsignedEvmTransaction(
 /**
  * Decode a response signature record (as posted to the signet contract's
  * signature response log) into an ethers {@link Signature}. Goes through
- * {@link mpcSignatureToEcdsaSignature} rather than reading the record's
- * fields directly, so this and in-circuit claims decode a post identically:
+ * {@link mpcSignatureToEcdsaSignature}, so this and in-circuit claims decode
+ * a post identically:
  * ethers' `r` is the ECDSA scalar (`bigR.x` reduced mod the curve order),
  * not the raw coordinate, and a malformed record is rejected the same way
  * in both paths.
@@ -431,13 +431,13 @@ export function signatureRespondedEventToSignature(
 
 /**
  * Encode an ECDSA signature as the response record posted to the signet
- * contract — the inverse of {@link signatureRespondedEventToSignature}, for
+ * contract: the inverse of {@link signatureRespondedEventToSignature}, for
  * MPC-side posters (the fakenet signer, tests). An `r || s || v` signature
  * carries only R.x and the parity of R.y, so the full R point the record
  * stores is recovered on-curve (see {@link ecdsaSignatureToMpcSignature}).
  *
  * The parameter is structural (the r/s/yParity subset of an ethers
- * {@link Signature}) so signatures from ANY ethers instance qualify — posters
+ * {@link Signature}) so signatures from ANY ethers instance qualify: posters
  * living in other repos resolve their own ethers install, and nominal class
  * typing would reject it.
  *
@@ -462,12 +462,12 @@ export function signatureToSignatureRespondedEvent(
  * its MPC signature response: rebuild the exact unsigned transaction the MPC
  * signed (see {@link signBidirectionalEventToUnsignedEvmTransaction}) and
  * attach the signature. Does NOT check that the signature recovers to the
- * requester's derived address — the response log is unauthenticated, so
+ * requester's derived address: the response log is unauthenticated, so
  * verify first with `verifySignatureRespondedEvent`.
  *
  * @param request - The on-ledger request record.
  * @param response - The posted signature record answering it.
- * @returns The signed ethers transaction; `serialized` is the raw payload for
+ * @returns The signed ethers transaction: `serialized` is the raw payload for
  *   `eth_sendRawTransaction`, `hash` its on-chain hash, `from` the recovered
  *   sender.
  * @throws Error if the request record is malformed (see
