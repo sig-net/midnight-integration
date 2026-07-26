@@ -17,46 +17,44 @@ export const MPC_PARAMS_BYTES = 64;
 export const SELECTOR_BYTES = 4;
 
 /**
- * The MPC's error sentinel: a serialised output beginning with these four
- * bytes marks a failed/absent remote execution (mirrors the sig-net MPC's
- * MAGIC_ERROR_PREFIX).
- */
-export const MPC_ERROR_SENTINEL = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-
-/**
  * The complete serialised output the MPC attests for a FAILED remote
- * execution (reverted or replaced transaction): the error sentinel followed
- * by one `0x01` byte. Schema-independent by design, mirroring the canonical
- * MPC's Borsh-format failure payload (sig-net/mpc,
+ * execution (reverted or replaced transaction): the 4-byte error marker
+ * `0xdeadbeef` followed by one `0x01` byte. Schema-independent by design,
+ * mirroring the canonical MPC's Borsh-format failure payload (sig-net/mpc,
  * node/src/respond_bidirectional.rs), so every respond schema shares one
  * fixed 5-byte failure width. Clients recompute their failure candidate from
  * this constant alone: no receipt or schema needed.
+ *
+ * The exact-equality check ({@link isMpcFailureOutput}) is unambiguous for
+ * every respond schema whose packed width differs from 5 bytes. A schema
+ * whose packed width is exactly 5 could in principle produce a legitimate
+ * output equal to this sentinel, and such clients must route settlement by
+ * digest-candidate matching (recompute both the real-output candidate and
+ * the failure candidate, and see which digest the MPC attested), never by
+ * inspecting output bytes.
  */
 export const MPC_FAILURE_OUTPUT = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01]);
 
 /**
- * Whether an attested serialised output reports a successful remote
- * execution: the first byte is 1, the packed little-endian encoding of a
- * leading boolean success flag. The output is the exact unpadded respond
- * payload (see `serializeRespondOutput`), so its length follows from the
- * request's respond schema.
+ * Whether an attested serialised output IS the MPC's fixed failure payload:
+ * exact byte equality with the 5-byte {@link MPC_FAILURE_OUTPUT} (the length
+ * must be exactly 5 and every byte must match). A prefix check would be
+ * unsafe, as a legitimate packed output can begin with the same bytes.
+ *
+ * Unambiguous for every respond schema whose packed width differs from 5
+ * bytes. A schema whose packed width is exactly 5 could in principle produce
+ * a legitimate output equal to the sentinel: such clients must route
+ * settlement by digest-candidate matching instead of inspecting output
+ * bytes (see {@link MPC_FAILURE_OUTPUT}).
  *
  * @param serializedOutput - The attested serialised output.
- * @returns `true` when the remote call succeeded.
+ * @returns `true` when the output equals the MPC failure payload exactly.
  */
-export function executionSucceeded(serializedOutput: Uint8Array): boolean {
-  return serializedOutput[0] === 1;
-}
-
-/**
- * Whether an attested serialised output is the MPC's error sentinel
- * (see {@link MPC_ERROR_SENTINEL}).
- *
- * @param serializedOutput - The attested serialised output.
- * @returns `true` when the MPC reported an execution error.
- */
-export function isExecutionError(serializedOutput: Uint8Array): boolean {
-  return MPC_ERROR_SENTINEL.every((byte, index) => serializedOutput[index] === byte);
+export function isMpcFailureOutput(serializedOutput: Uint8Array): boolean {
+  return (
+    serializedOutput.length === MPC_FAILURE_OUTPUT.length &&
+    MPC_FAILURE_OUTPUT.every((byte, index) => serializedOutput[index] === byte)
+  );
 }
 
 /**

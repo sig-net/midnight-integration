@@ -13,10 +13,8 @@ import {
   bigintToBytes32BE,
   calculateSignetAttestationDigest,
   ecdsaSignatureToMpcSignature,
-  executionSucceeded,
   formatSecp256k1PublicKey,
-  isExecutionError,
-  MPC_ERROR_SENTINEL,
+  isMpcFailureOutput,
   MPC_FAILURE_OUTPUT,
   mpcSignatureToEcdsaSignature,
   parseSecp256k1PublicKey,
@@ -352,51 +350,56 @@ describe("parseSecp256k1PublicKey", () => {
   });
 });
 
-/** One row of the serializedOutput decode table: bytes → expected verdicts. */
+/** One row of the serializedOutput decode table: bytes → expected verdict. */
 interface DecodeCase {
   /** Test name, completing the sentence "decodes <name>". */
   name: string;
   /** The response's serialized output. */
   serializedOutput: Uint8Array;
-  /** Expected {@link executionSucceeded} verdict. */
-  succeeded: boolean;
-  /** Expected {@link isExecutionError} verdict. */
-  error: boolean;
+  /** Expected {@link isMpcFailureOutput} verdict. */
+  failure: boolean;
 }
 
-// Outputs are the exact unpadded respond payloads: a packed bool is one
-// byte, the error sentinel is its four bytes plus whatever the MPC appends.
+// Outputs are the exact unpadded respond payloads (a packed bool is one
+// byte). Only exact byte equality with the 5-byte failure payload counts as
+// the MPC failure: prefixes and extensions are legitimate packed outputs.
 const DECODE_CASES: DecodeCase[] = [
   {
-    name: "a success flag (first byte 1)",
+    name: "a one-byte packed bool (0x01)",
     serializedOutput: Uint8Array.from([1]),
-    succeeded: true,
-    error: false,
+    failure: false,
   },
   {
-    name: "a false return (a zero byte)",
+    name: "a one-byte packed bool (0x00)",
     serializedOutput: Uint8Array.from([0]),
-    succeeded: false,
-    error: false,
+    failure: false,
   },
   {
-    name: "the MPC error sentinel (0xdeadbeef prefix)",
-    serializedOutput: Uint8Array.from([...MPC_ERROR_SENTINEL, 0x01, 0x02]),
-    succeeded: false,
-    error: true,
-  },
-  {
-    name: "the canonical failure output (sentinel plus 0x01)",
+    name: "the exact 5-byte failure payload",
     serializedOutput: MPC_FAILURE_OUTPUT,
-    succeeded: false,
-    error: true,
+    failure: true,
+  },
+  {
+    name: "a 4-byte deadbeef prefix with a different fifth byte",
+    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x02]),
+    failure: false,
+  },
+  {
+    name: "the bare 4-byte deadbeef marker without the 0x01 byte",
+    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef]),
+    failure: false,
+  },
+  {
+    name: "a 6-byte output that merely starts with the failure payload",
+    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01, 0x02]),
+    failure: false,
   },
 ];
 
 // The failure output is a wire constant shared by the responder and every
 // client's refund circuit: pin its exact bytes.
 describe("MPC_FAILURE_OUTPUT", () => {
-  it("is the error sentinel followed by a single 0x01 byte", () => {
+  it("is the 4-byte error marker followed by a single 0x01 byte", () => {
     expect(MPC_FAILURE_OUTPUT).toEqual(
       Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01]),
     );
@@ -404,8 +407,7 @@ describe("MPC_FAILURE_OUTPUT", () => {
 });
 
 describe("serializedOutput decoding", () => {
-  it.each(DECODE_CASES)("decodes $name", ({ serializedOutput, succeeded, error }) => {
-    expect(executionSucceeded(serializedOutput)).toBe(succeeded);
-    expect(isExecutionError(serializedOutput)).toBe(error);
+  it.each(DECODE_CASES)("decodes $name", ({ serializedOutput, failure }) => {
+    expect(isMpcFailureOutput(serializedOutput)).toBe(failure);
   });
 });

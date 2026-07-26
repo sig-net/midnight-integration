@@ -13,6 +13,6 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  // src only — tests are typechecked by the plain `tsc -p tsconfig.json` pass.
+  // src only: tests are typechecked by the plain `tsc -p tsconfig.json` pass.
   "include": ["src"]
 }

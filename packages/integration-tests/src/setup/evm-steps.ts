@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 
 import { deriveEvmAddress } from "@sig-net/midnight";
 
+import { CALLER_PATH } from "../constants.ts";
 import { requireEnv } from "../e2e-env.ts";
 import {
   assertLocalDevChain,
@@ -29,16 +30,9 @@ const TARGET_ARTIFACT_URL = new URL(
 );
 
 /**
- * The caller contract's fixed derivation path — every submit circuit uses
- * `pad(32, "caller-path")`, so ONE derived EVM sender serves all requests.
- * TS twin of the in-circuit literal (also mirrored by the flow files).
- */
-export const CALLER_PATH = "caller-path";
-
-/**
  * Compile (hardhat) and deploy the SignetEvmTarget contract to the local
  * anvil, recording the address as `EVM_TARGET_CONTRACT_ADDRESS`. Skips when
- * the env var is set AND the address still holds code — a set-but-codeless
+ * the env var is set AND the address still holds code: a set-but-codeless
  * address (anvil restarted, in-memory state wiped) falls through to a
  * redeploy. Nothing is appended to `.env`: the fakenet does not need this
  * value, it reaches the test workers via the setup env accumulator.
@@ -54,18 +48,20 @@ export async function deployEvmTargetStep(env: NodeJS.ProcessEnv): Promise<void>
     return;
   }
   if (kept) {
-    console.log(`EVM_TARGET_CONTRACT_ADDRESS=${kept} holds no code (anvil wiped?) — redeploying`);
+    console.log(`EVM_TARGET_CONTRACT_ADDRESS=${kept} holds no code (anvil wiped?): redeploying`);
   }
+  // Generous timeout: the first run also downloads the solc compiler binary
+  // before hardhat can compile anything.
   await runCommand(
     "yarn",
     ["workspace", "@midnight-protocol/integration-tests", "compile:evm"],
     env,
-    2 * MINUTE,
+    5 * MINUTE,
   );
   const artifact = JSON.parse(readFileSync(TARGET_ARTIFACT_URL, "utf8")) as EvmContractArtifact;
   env.EVM_TARGET_CONTRACT_ADDRESS = await deployEvmContract(rpc, artifact);
   console.log(`deployed a fresh EVM_TARGET_CONTRACT_ADDRESS=${env.EVM_TARGET_CONTRACT_ADDRESS}`);
-  console.log(` ➜ the SignetEvmTarget Solidity contract on the local anvil — the real-EVM e2e's call target`);
+  console.log(` ➜ the SignetEvmTarget Solidity contract on the local anvil: the real-EVM e2e's call target`);
   console.log(` ➜ 💡 Set as EVM_TARGET_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
 }
 
@@ -74,7 +70,7 @@ export async function deployEvmTargetStep(env: NodeJS.ProcessEnv): Promise<void>
  * `deriveEvmAddress(MPC_SECP256K1_PUBKEY, callerAddress, "caller-path")`,
  * topped up to 10 ETH (the contract-fixed worst case per request is
  * gasLimit x maxFeePerGas = 100000 x 30 gwei = 0.003 ETH). Shortfall-only,
- * so naturally idempotent — no skip env var. Runs AFTER the caller deploy:
+ * so naturally idempotent (no skip env var). Runs AFTER the caller deploy:
  * the derivation needs the caller's address.
  *
  * @param env - The suite's env accumulator.

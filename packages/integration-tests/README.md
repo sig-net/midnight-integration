@@ -12,10 +12,11 @@ and two flow files:
   in vitest's main process before ANY test file, including single-file runs.
   Every step skips itself when its env var is already set (the hand-off
   steps: when the values are already in `.env` / the responder already runs
-  with them). The setup pipeline is deliberately **EVM-free**: the generic
-  flow's request exists to be SIGNED, never broadcast, and the real-EVM
-  flow does its own EVM-side setup in-file (target contract deploy and
-  derived-sender funding from the anvil dev funder account).
+  with them). The setup pipeline also prepares the EVM side for the
+  real-EVM flow: it deploys the `SignetEvmTarget` contract (hardhat compile
+  + anvil deploy) and funds the caller's derived EVM sender from the anvil
+  dev funder account. The generic flow itself stays EVM-free: its request
+  exists to be SIGNED, never broadcast.
 - **The generic flow file** (`tests/signet-caller-e2e.test.ts`, `--bail 1`): one
   ordered pipeline whose tests run in source order and feed each other
   through module-scoped state —
@@ -35,7 +36,7 @@ and two flow files:
   4. `pollSignatureResponse` — the fakenet's ECDSA response arrives on the
      signet contract and verifies against the caller's epsilon-derived
      account.
-  5. `verifyResponse` — verify an ECDSA respond-bidirectional attestation
+  5. `verifyResponse`: verify an ECDSA respond-bidirectional attestation
      (the digest of the request id and serialised output, plus the MPC's
      signature over it) in-circuit and consume the request. The event never
      carries the output itself, so the circuit takes the output bytes as an
@@ -62,9 +63,10 @@ run offline under plain `yarn test`; the flow file gates itself with
 
 - **Local dev stack**: `docker compose up -d` at the repo root — Midnight
   (node :9944, indexer :8088, proof server :6300) plus the `evm` service
-  (anvil, :8545). The tests never touch the EVM chain; the service exists
-  because the fakenet responder's config requires a reachable EVM endpoint
-  to boot (`FAKENET_EVM_RPC_URL`, defaulting to the in-network
+  (anvil, :8545). The real-EVM flow broadcasts on this chain (target
+  contract deploy, signed-transaction broadcast, output tracing by the
+  responder), and the fakenet responder's config also needs it reachable to
+  boot (`FAKENET_EVM_RPC_URL`, defaulting to the in-network
   `http://evm:8545`).
 - **compact compiler** on PATH, then `yarn install` + `yarn compile` from
   the root.
@@ -145,13 +147,27 @@ the value to save — and for the fakenet hand-off pair
 `.env` itself and starts the responder container**, so nothing blocks on a
 human between deploy and the flow. A fresh deployment is ONE run:
 globalSetup zk-compiles both contracts (~10+ min: background it), deploys
-them, hands off to the responder mid-setup, and the flow file runs to the
-end (4/4).
+them, hands off to the responder mid-setup, and the flow files run to the
+end (5 tests in the generic flow, 15 in the real-EVM flow).
 
-**Redeploying after a circuit change?** Comment out the contract-address
-vars in `.env` (`MIDNIGHT_SIGNET_CONTRACT_ADDRESS`,
-`MIDNIGHT_CALLER_CONTRACT_ADDRESS`) and rerun — see the runbook in
-[`../../.claude/skills/e2e/SKILL.md`](../../.claude/skills/e2e/SKILL.md).
+**Redeploying after a circuit change?** Any `.compact` edit that alters a
+circuit, struct layout, or the request-id hash domain needs fresh deploys:
+
+1. Comment out `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and
+   `MIDNIGHT_CALLER_CONTRACT_ADDRESS` in `.env` (delete the appended signet
+   line or comment it).
+2. Rerun the suite from the repo root:
+   ```sh
+   yarn test:integration-tests
+   ```
+3. The setup re-keygens, redeploys, and recreates the responder container
+   itself (`--force-recreate` exactly when the hand-off values newly land in
+   `.env`, which re-reads `.env` and resets the responder's LevelDB private
+   state). One run, no manual hand-off.
+
+**TIP:** If you are using Claude Code you can ask it to run this for you
+using this [skill](../../.claude/skills/e2e/SKILL.md): it will comment out
+the address vars, rerun the suite and watch the run for you.
 
 ## Environment variables
 
@@ -168,6 +184,11 @@ vars in `.env` (`MIDNIGHT_SIGNET_CONTRACT_ADDRESS`,
 | `MPC_RESPONSE_KEY` | The MPC respond-bidirectional key for the caller contract (pinned on-chain by the flow's initialise leg) | derived from root key + caller contract address |
 | `FAKENET_MANAGED` | `0` = setup neither writes the hand-off values to `.env` nor touches the responder container — you run the responder yourself (responder development) | unset (setup manages the responder) |
 | `FAKENET_EVM_RPC_URL` | EVM endpoint as reachable from the fakenet CONTAINER (compose-only; not read by the tests) | `http://evm:8545` |
+| `EVM_RPC_URL` | The host-side EVM JSON-RPC endpoint the tests and EVM setup steps use (anvil) | `http://127.0.0.1:8545` |
+| `EVM_TARGET_CONTRACT_ADDRESS` | The deployed `SignetEvmTarget` Solidity contract: set with code at the address to skip hardhat compile + deploy (a codeless address redeploys) | deployed by setup |
+| `FAKENET_RESPONSES_URL` | Base URL of the fakenet's public `/responses/{requestId}` helper API the real-EVM flow fetches raw execution outputs from | `http://localhost:3040` |
+| `CALLER_EVM_REQUEST_ID_ISEVEN` | Resume the real-EVM `isEven` pipeline with an existing request id, skipping its submit prove | unset |
+| `CALLER_EVM_REQUEST_ID_CHECKANDDOUBLE` | Resume the real-EVM `checkAndDouble` pipeline with an existing request id, skipping its submit prove | unset |
 | `TRUST_PREBUILT_ZK_KEYS` | `1` = setup skips `compile:*:zk` when prover keys are already present. CI-only: the CI cache is keyed on the contract sources, so present ⇒ fresh; locally stale keys would poison deploys — never set it by hand | unset |
 | `CALLER_REQUEST_ID` | Resume an in-flight request, skipping the (heavy) submit prove | unset |
 | `STEP_THROUGH` | `1` pauses before each setup step and each test (hit enter) — interactive debugging only, never unattended | unset |

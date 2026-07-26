@@ -393,7 +393,19 @@ describe("serializeRespondOutput: rejections", () => {
       name: "uint widths between 249 and 255 have no carrier",
       schema: [{ name: "v", type: "uint250" }],
       output: { v: 1n },
-      error: /no Compact carrier/,
+      error: /'v' \(uint250\) has no respond carrier/,
+    },
+    {
+      name: "non-whole-byte uint widths are rejected (uint7)",
+      schema: [{ name: "v", type: "uint7" }],
+      output: { v: 1n },
+      error: /'v' \(uint7\) has no respond carrier.*multiples of 8/,
+    },
+    {
+      name: "non-whole-byte uint widths are rejected inside arrays (uint12[])",
+      schema: [{ name: "xs", type: "uint12[]", maxItems: 2 }],
+      output: { xs: [1n] },
+      error: /'xs' \(uint12\) has no respond carrier.*multiples of 8/,
     },
     {
       name: "bytes33 is not a valid bytesN",

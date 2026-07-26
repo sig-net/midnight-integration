@@ -36,23 +36,27 @@ import {
   serializeRespondOutput,
   signBidirectionalEventToSignedEvmTransaction,
   stripHexPrefix,
-  toSignBidirectionalEventIndex,
   SIGNET_DEFAULT_KEY_VERSION,
   type AbiDecodedOutput,
   type AbiSchema,
   type RequestIdHex,
   type RespondBidirectionalEvent,
 } from "@sig-net/midnight";
-import { ledger as callerContractLedger } from "@midnight-protocol/test-caller-contract";
 import { getAddress, getBytes, id as keccakId, toBeHex, type Transaction, type TransactionReceipt } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
-import { createCallerE2eSession, type CallerContext } from "../src/caller-session.ts";
+import {
+  createCallerE2eSession,
+  ensureMpcResponseKeyStored,
+  readCallerRequestIds as readRequestIds,
+  type CallerContext,
+  type CallerRequestMap,
+} from "../src/caller-session.ts";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
 import { fetchFakenetResponse } from "../src/fakenet-responses.ts";
 import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
 import { broadcastSignedTx, evmRpcUrl, getEvmNonce } from "../src/local-evm.ts";
 import { banner, logSkip } from "../src/output.ts";
-import { CALLER_PATH } from "../src/setup/evm-steps.ts";
+import { CALLER_PATH } from "../src/constants.ts";
 import { pollSignetNotification } from "../src/signet-notifications.ts";
 
 const MINUTE = 60_000;
@@ -67,28 +71,6 @@ const requireEnv = (name: string): string => requireEnvOf(env, name);
 // this file (lazily built, so the offline path never touches the network).
 // Stopped once in afterAll.
 const session = createCallerE2eSession(env);
-
-/** The two per-schema-width request maps the caller contract keeps. */
-type CallerRequestMap = "signBidirectionalEventMap" | "signBidirectionalEventMap69";
-
-/**
- * Read one caller request map's keys, presented as hex request ids.
- *
- * @param context - The session's caller context.
- * @param map - Which per-width map to read.
- * @returns The set of request ids currently in that map.
- * @throws Error when the contract has no state on-chain.
- */
-const readRequestIds = async (
-  context: CallerContext,
-  map: CallerRequestMap,
-): Promise<Set<RequestIdHex>> => {
-  const contractState = await context.providers.publicDataProvider.queryContractState(context.contractAddress);
-  if (!contractState) {
-    throw new Error(`no contract state found at ${context.contractAddress}`);
-  }
-  return new Set(toSignBidirectionalEventIndex(callerContractLedger(contractState.data)[map]).keys());
-};
 
 // TS mirrors of the contract-fixed schema literals (the submit stage pins
 // them against the LIVE ledger record). The same JSON drives both
@@ -182,38 +164,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
   it(
     "initialise [signet-caller contract method call]: the MPC response key is stored (idempotent)",
     async () => {
-      // Same idempotent logic as the base flow file's initialise stage. This
-      // file must be self-sufficient, as vitest's sequencer does not
-      // guarantee the base file ran first.
+      // The shared idempotent initialise stage (also run by the base flow
+      // file). This file must be self-sufficient, as vitest's sequencer does
+      // not guarantee the base file ran first.
       const context = await session.callerContext();
       const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
-
-      const readKeyState = async () => {
-        const state = await context.providers.publicDataProvider.queryContractState(context.contractAddress);
-        if (!state) {
-          throw new Error(`no contract state found at ${context.contractAddress}`);
-        }
-        const decoded = callerContractLedger(state.data);
-        return { initialised: decoded.initialised, storedKey: decoded.mpcResponseKey };
-      };
-
-      const before = await readKeyState();
-      if (before.initialised !== 0n) {
-        expect(before.storedKey, "the stored key must match the derived MPC_RESPONSE_KEY").toEqual(mpcResponseKey);
-        logSkip("initialise", "the MPC response key is already stored");
-        return;
-      }
-
-      await context.caller.callTx.initialise(mpcResponseKey);
-
-      const deadline = Date.now() + MINUTE;
-      let current = await readKeyState();
-      while (current.initialised === 0n && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        current = await readKeyState();
-      }
-      expect(current.initialised, "initialise must flip the sentinel").toBe(1n);
-      expect(current.storedKey, "initialise must store MPC_RESPONSE_KEY verbatim").toEqual(mpcResponseKey);
+      await ensureMpcResponseKeyStored(context, mpcResponseKey);
     },
     15 * MINUTE,
   );
@@ -225,6 +181,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
     let receipt: TransactionReceipt;
     let respondBytes: Uint8Array;
     let attestedEvent: RespondBidirectionalEvent;
+    // A resumed request may already have been consumed by a prior run's
+    // verify. Checked once at resume time so the signature-poll, broadcast
+    // and recompute stages skip and the flow routes to the verify stage's
+    // already-consumed skip instead of failing in getSignatureRequest.
+    let alreadyConsumed = false;
 
     it(
       `${method.name} submit [signet-caller contract method call]: record the request and pin it MPC-style`,
@@ -232,7 +193,13 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         const resume = env[method.resumeEnvVar];
         if (resume) {
           requestId = resume as RequestIdHex;
-          logSkip(`${method.name} submit`, `${method.resumeEnvVar} present, reusing request '${requestId}'`);
+          const context = await session.callerContext();
+          alreadyConsumed = !(await readRequestIds(context, method.map)).has(requestId);
+          logSkip(
+            `${method.name} submit`,
+            `${method.resumeEnvVar} present, reusing request '${requestId}'` +
+              (alreadyConsumed ? " (already consumed: later stages route to the verify skip)" : ""),
+          );
           return;
         }
 
@@ -309,6 +276,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
       `${method.name} pollSignatureResponse: the MPC's signature recovers to the derived sender`,
       async () => {
         expect(requestId).toBeDefined();
+        if (alreadyConsumed) {
+          logSkip(`${method.name} pollSignatureResponse`, `request ${requestId} already consumed`);
+          return;
+        }
         const expectedSigner = derivedSender();
         const reader = session.responseReader(method.requestsIndexField);
 
@@ -335,9 +306,18 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
       5 * MINUTE,
     );
 
+    // Cross-flow interaction note: the generic flow's never-broadcast
+    // request shares the derived sender and nonce 0 with this flow's first
+    // broadcast. Once that transaction mines, the responder posts a benign
+    // failure attestation for the (already consumed) generic request, which
+    // is expected log noise.
     it(
       `${method.name} broadcast: the signed transaction mines on the local anvil`,
       async () => {
+        if (alreadyConsumed) {
+          logSkip(`${method.name} broadcast`, `request ${requestId} already consumed`);
+          return;
+        }
         expect(signedTx).toBeDefined();
         receipt = await broadcastSignedTx(evmRpcUrl(env), signedTx);
         expect(receipt.status).toBe(1);
@@ -372,6 +352,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
     it(
       `${method.name} recompute: deserializeEvmOutput + serializeRespondOutput reproduce the attested digest`,
       async () => {
+        if (alreadyConsumed) {
+          logSkip(`${method.name} recompute`, `request ${requestId} already consumed`);
+          return;
+        }
         expect(receipt).toBeDefined();
 
         // Fetch the raw execution output from the fakenet's public
@@ -420,15 +404,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
     it(
       `${method.name} verify [signet-caller contract method call]: the attestation verifies in-circuit and consumes the request`,
       async () => {
-        expect(attestedEvent).toBeDefined();
+        expect(requestId).toBeDefined();
         const context = await session.callerContext();
 
         // Rerun against a kept caller: a prior run may already have consumed
-        // the request.
+        // the request (checked before the attestedEvent assertion, so a
+        // resumed-and-consumed request lands here instead of failing).
         if (!(await readRequestIds(context, method.map)).has(requestId)) {
           logSkip(`${method.name} verify`, `request ${requestId} already verified (not on the ledger)`);
           return;
         }
+        expect(attestedEvent).toBeDefined();
 
         // The respond bytes recomputed from the API-fetched output go into
         // the circuit. The in-circuit digest recompute + signature check is

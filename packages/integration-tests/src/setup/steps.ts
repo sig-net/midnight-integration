@@ -120,6 +120,22 @@ export async function retryWhileDustGenerates<T>(what: string, action: () => Pro
       const message = String(error);
       const transient = message.includes("InsufficientFunds") || message.includes("could not balance dust");
       if (!transient || attempt >= MAX_ATTEMPTS) {
+        // Node error 1010 / "Custom error: 170" is InvalidDustSpendProof:
+        // the local chain has diverged from the wallet's view. Wrap it with
+        // the recovery hint, as the raw node message is opaque.
+        if (
+          message.includes("Custom error: 170") ||
+          message.includes("InvalidDustSpendProof") ||
+          /\b1010\b/.test(message)
+        ) {
+          throw new Error(
+            `${what}: node rejected the dust spend (error 170 = InvalidDustSpendProof). ` +
+              "The local chain has diverged from the wallet's dust state: reset the stack " +
+              "(docker compose down and up, then redeploy) before rerunning. " +
+              `Original error: ${message}`,
+            { cause: error },
+          );
+        }
         throw error;
       }
       console.log(

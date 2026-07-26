@@ -14,20 +14,30 @@ import {
   buildCallerProviders,
   callerCompiledContract,
   createCallerPrivateState,
+  ledger as callerContractLedger,
   CALLER_PRIVATE_STATE_ID,
   type CallerPrivateState,
   type CallerProviders,
   type Contract as CallerContract,
 } from "@midnight-protocol/test-caller-contract";
-import { hexToBytes, stripHexPrefix, SignetRequestResponseReader } from "@sig-net/midnight";
+import {
+  hexToBytes,
+  stripHexPrefix,
+  toSignBidirectionalEventIndex,
+  SignetRequestResponseReader,
+  type RequestIdHex,
+  type Secp256k1Point,
+} from "@sig-net/midnight";
 import {
   deriveAccountKeys,
   getMidnightNodeConfig,
   initialiseWalletFacade,
   type WalletFacade,
 } from "@sig-net/midnight-contract-deploy";
+import { expect } from "vitest";
 
 import { requireEnv } from "./e2e-env.ts";
+import { logSkip } from "./output.ts";
 
 /**
  * The joined caller contract handle — midnight-js's found-contract shape
@@ -143,4 +153,79 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
       await sharedWallet?.facade.stop().catch(() => { });
     },
   };
+}
+
+// Both flow files share the polling cadence below.
+const MINUTE = 60_000;
+
+/**
+ * The per-schema-width request maps the caller contract keeps: the generic
+ * flow only touches the default `signBidirectionalEventMap`, the EVM flow
+ * also drives the 69-byte-schema map.
+ */
+export type CallerRequestMap = "signBidirectionalEventMap" | "signBidirectionalEventMap69";
+
+/**
+ * Read one caller request map's keys, presented as hex request ids.
+ *
+ * @param context - The session's caller context.
+ * @param map - Which per-width map to read (default: the bool-schema map).
+ * @returns The set of request ids currently in that map.
+ * @throws Error when the contract has no state on-chain.
+ */
+export async function readCallerRequestIds(
+  context: CallerContext,
+  map: CallerRequestMap = "signBidirectionalEventMap",
+): Promise<Set<RequestIdHex>> {
+  const contractState = await context.providers.publicDataProvider.queryContractState(context.contractAddress);
+  if (!contractState) {
+    throw new Error(`no contract state found at ${context.contractAddress}`);
+  }
+  return new Set(toSignBidirectionalEventIndex(callerContractLedger(contractState.data)[map]).keys());
+}
+
+/**
+ * The idempotent initialise stage both flow files run: store the caller
+ * contract's MPC response key via the one-shot initialise circuit, or (on a
+ * rerun against a kept caller) check the already-stored key against the
+ * expected one and skip the call. The response key is derived from the
+ * CALLER's own address after deploy, so it cannot be a constructor argument.
+ *
+ * @param context - The session's caller context.
+ * @param mpcResponseKey - The expected MPC response key (parsed point).
+ * @returns "stored" when this call ran initialise, "already-stored" on the
+ *   idempotent skip path.
+ */
+export async function ensureMpcResponseKeyStored(
+  context: CallerContext,
+  mpcResponseKey: Secp256k1Point,
+): Promise<"stored" | "already-stored"> {
+  const readKeyState = async () => {
+    const state = await context.providers.publicDataProvider.queryContractState(context.contractAddress);
+    if (!state) {
+      throw new Error(`no contract state found at ${context.contractAddress}`);
+    }
+    const decoded = callerContractLedger(state.data);
+    return { initialised: decoded.initialised, storedKey: decoded.mpcResponseKey };
+  };
+
+  const before = await readKeyState();
+  if (before.initialised !== 0n) {
+    expect(before.storedKey, "the stored key must match the derived MPC_RESPONSE_KEY").toEqual(mpcResponseKey);
+    logSkip("initialise", "the MPC response key is already stored (rerun against a kept caller)");
+    return "already-stored";
+  }
+
+  await context.caller.callTx.initialise(mpcResponseKey);
+
+  // State indexing lags finalization: poll briefly for the store.
+  const deadline = Date.now() + MINUTE;
+  let current = await readKeyState();
+  while (current.initialised === 0n && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    current = await readKeyState();
+  }
+  expect(current.initialised, "initialise must flip the sentinel").toBe(1n);
+  expect(current.storedKey, "initialise must store MPC_RESPONSE_KEY verbatim").toEqual(mpcResponseKey);
+  return "stored";
 }

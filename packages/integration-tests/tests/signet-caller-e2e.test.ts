@@ -33,16 +33,20 @@ import {
   signAttestationDigest,
   sleepUnlessAborted,
   stripHexPrefix,
-  toSignBidirectionalEventIndex,
   SIGNET_DEFAULT_KEY_VERSION,
   type RequestIdHex,
   calculateSignetAttestationDigest,
 } from "@sig-net/midnight";
 import { signBidirectionalEventToSignedEvmTransaction } from "@sig-net/midnight";
-import { ledger as callerContractLedger } from "@midnight-protocol/test-caller-contract";
 import { getAddress } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
-import { createCallerE2eSession, type CallerContext } from "../src/caller-session.ts";
+import {
+  createCallerE2eSession,
+  ensureMpcResponseKeyStored,
+  readCallerRequestIds,
+  type CallerContext,
+} from "../src/caller-session.ts";
+import { CALLER_PATH } from "../src/constants.ts";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
 import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
 import { banner, logSkip } from "../src/output.ts";
@@ -76,23 +80,10 @@ const EVM_NONCE = 0n;
 // re-checks the calldata + path against the LIVE ledger record).
 const EXPECTED_SELECTOR = new Uint8Array([0xca, 0x11, 0xab, 0x1e]);
 const EXPECTED_WORD = asciiPadded("signet-caller:fixed-word", 32);
-const CALLER_PATH = "caller-path";
 
-/**
- * Read the caller ledger's event-map keys, presented as hex request ids.
- *
- * @param context - The session's caller context.
- * @returns The set of request ids currently on the caller's ledger.
- * @throws Error when the contract has no state on-chain.
- */
-const readRequestIds = async (context: CallerContext): Promise<Set<RequestIdHex>> => {
-  const contractState = await context.providers.publicDataProvider.queryContractState(context.contractAddress);
-  if (!contractState) {
-    throw new Error(`no contract state found at ${context.contractAddress}`);
-  }
-  const index = toSignBidirectionalEventIndex(callerContractLedger(contractState.data).signBidirectionalEventMap);
-  return new Set(index.keys());
-};
+/** Read the caller's default event-map keys (shared helper, default map). */
+const readRequestIds = (context: CallerContext): Promise<Set<RequestIdHex>> =>
+  readCallerRequestIds(context);
 
 describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e", () => {
   installFlowHooks();
@@ -113,37 +104,14 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // constructor argument: the contract stores it verbatim via the
       // one-shot initialise circuit, and verifyResponse reads it
       // straight from the ledger. Idempotent across reruns: an existing
-      // stored key is checked against MPC_RESPONSE_KEY and the call skipped.
+      // stored key is checked against MPC_RESPONSE_KEY and the call skipped
+      // (the shared ensureMpcResponseKeyStored helper does all of this).
       const context = await session.callerContext();
       const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
 
-      const readKeyState = async () => {
-        const state = await context.providers.publicDataProvider.queryContractState(context.contractAddress);
-        if (!state) {
-          throw new Error(`no contract state found at ${context.contractAddress}`);
-        }
-        const decoded = callerContractLedger(state.data);
-        return { initialised: decoded.initialised, storedKey: decoded.mpcResponseKey };
-      };
-
-      const before = await readKeyState();
-      if (before.initialised !== 0n) {
-        expect(before.storedKey, "the stored key must match the derived MPC_RESPONSE_KEY").toEqual(mpcResponseKey);
-        logSkip("initialise", "the MPC response key is already stored (rerun against a kept caller)");
+      if ((await ensureMpcResponseKeyStored(context, mpcResponseKey)) === "already-stored") {
         return;
       }
-
-      await context.caller.callTx.initialise(mpcResponseKey);
-
-      // State indexing lags finalization: poll briefly for the store.
-      const deadline = Date.now() + MINUTE;
-      let current = await readKeyState();
-      while (current.initialised === 0n && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        current = await readKeyState();
-      }
-      expect(current.initialised, "initialise must flip the sentinel").toBe(1n);
-      expect(current.storedKey, "initialise must store MPC_RESPONSE_KEY verbatim").toEqual(mpcResponseKey);
 
       banner([
         "MPC response key stored on the caller contract (read back from the ledger):",

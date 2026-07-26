@@ -13,7 +13,7 @@ The client-agnostic [Sig Network](https://sig.network) protocol library for the 
   ```compact
   import "@sig-net/midnight/src/Signet";
   ```
-- **Compiled pure circuits** (`pureCircuits`): the executable reference implementation of the client-agnostic circuits (the attestation digest, response verification, the deploy-time key pin, the notification packer, the ABI word builders and readers). Off-chain code calls these compiled artefacts, so it always agrees with what the contracts prove.
+- **Compiled pure circuits** (`pureCircuits`): the executable reference implementation of the client-agnostic circuits (the deploy-time key pin, the notification packer, the ABI word builders and readers). Off-chain code calls these compiled artefacts, so it always agrees with what the contracts prove. The attestation digest and response verification are not among them: their compiled circuits are fixed-width oracles used only by this package's tests, and the sanctioned off-chain path is the TypeScript twin (`calculateSignetAttestationDigest` plus ordinary ECDSA verification against the expected MPC response key), which those tests pin byte-for-byte against the oracles.
 - **TypeScript twins of the wire structs** and signet request-id computation.
 - **State readers, request feed and resolver**: poll the signet contract for pending requests and their signature / remote-execution responses.
 - **Crypto helpers**: epsilon derivation and ECDSA attestation verification.
@@ -268,12 +268,18 @@ const calldata = EvmCalldata<2> {
 };
 ```
 
-The readers run the same rules in the other direction, rejecting any non-canonical word outright (no silent truncation or coercion). The serialised output a settle circuit verifies (the explicit `serializedOutput` argument `verifyRespondBidirectionalEvent` binds to the event's attestation digest) is the remote call's serialised return data, so the circuit can decode an ERC20 `transfer`'s `bool` return from the first output word:
+The readers run the same rules in the other direction, rejecting any non-canonical word outright (no silent truncation or coercion). Note that the builders and readers apply to CALLDATA words only. The serialised output a settle circuit verifies (the explicit `serializedOutput` argument `verifyRespondBidirectionalEvent` binds to the event's attestation digest) is NOT ABI words: it is the packed respond payload produced from the request's respond serialisation schema (a bool packs to 1 byte). The circuit reads it with a single stdlib `deserialize<T, N>` call, where `T` is a struct mirroring the schema and `N` is the schema's packed size. For an ERC20 `transfer`'s `bool` return under a one-field bool schema:
 
 ```compact
-const success = abiWordToBool(slice<32>(serializedOutput, 0));
-assert(success, "Remote transfer failed");
+struct TransferResult {
+  success: Boolean;
+}
+
+const result = deserialize<TransferResult, 1>(serializedOutput);
+assert(result.success, "Remote transfer failed");
 ```
+
+**Respond schema range trap:** the respond serialisation maps `uint256`, `address` and `field` to Compact `Field`, whose values must lie strictly below the BLS12-381 Fr modulus (just under 2^255). An EVM `uint256` at or above Fr (a max-uint256 allowance readback is the everyday case) cannot be respond-serialised, and `serializeRespondOutput` throws at respond time. When the full 256-bit range matters, declare the field as `bytes32` in the respond schema instead.
 
 The same builders and readers exist as TypeScript twins under identical names, for composing expected words off-chain (UIs, expected-record builders, tests). They are kept in lockstep with the compiled circuits by this package's test suite.
 

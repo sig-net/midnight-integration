@@ -2039,7 +2039,6 @@ __metadata:
     "@midnightntwrk/wallet-sdk-shielded": "npm:4.0.0-beta.2"
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "npm:4.0.0-beta.2"
     "@scure/bip39": "npm:^2.2.0"
-    "@sig-net/midnight": "npm:^0.12.0"
     "@sig-net/midnight-contract": "npm:^0.12.0"
     "@types/node": "npm:^26.1.0"
     effect: "npm:^3.21.4"

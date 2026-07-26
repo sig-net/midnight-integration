@@ -31,15 +31,18 @@ export const fakenetResponsesUrl = (): string =>
   process.env.FAKENET_RESPONSES_URL ?? "http://localhost:3040";
 
 /**
- * Fetch the observed execution result for one request id, retrying while the
- * fakenet has not cached it yet (404). The fakenet caches the output before
- * it posts the attestation on-chain, so once the attestation is visible the
- * entry exists and retries only cover scheduling slack.
+ * Fetch the observed execution result for one request id, retrying ONLY
+ * while the fakenet has not cached it yet (404) or the API is unreachable
+ * (network error). The fakenet caches the output before it posts the
+ * attestation on-chain, so once the attestation is visible the entry exists
+ * and retries only cover scheduling slack. Any other HTTP status is a real
+ * fault and fails fast with the status and body in the error.
  *
  * @param requestId - The request id, hex with or without 0x prefix.
- * @param timeoutMs - How long to keep retrying 404s before failing.
+ * @param timeoutMs - How long to keep retrying 404s / network errors before failing.
  * @returns The cached response.
- * @throws Error when the API stays unreachable or 404s past the deadline.
+ * @throws Error when the API stays unreachable or 404s past the deadline, or
+ *   immediately on any non-404 error status.
  */
 export async function fetchFakenetResponse(
   requestId: string,
@@ -59,7 +62,13 @@ export async function fetchFakenetResponse(
       if (response.ok) {
         return (await response.json()) as FakenetResponse;
       }
-      lastFailure = `HTTP ${response.status}: ${await response.text()}`;
+      if (response.status !== 404) {
+        throw new Error(
+          `fakenet response for ${requestId} failed with HTTP ${response.status}: ` +
+            `${await response.text()} at ${url}`,
+        );
+      }
+      lastFailure = `HTTP 404: ${await response.text()}`;
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   } while (Date.now() < deadline);

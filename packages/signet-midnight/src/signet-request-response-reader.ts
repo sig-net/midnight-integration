@@ -315,9 +315,11 @@ export class SignetRequestResponseReader {
    * Fetch every respond-bidirectional response posted for `requestId`, in
    * post (count) order. UNVERIFIED: the signet contract stores posts without
    * checking them, so any entry may be garbage. Verify each candidate before
-   * trusting it (in-circuit at claim time, or off-chain via the compiled
-   * `pureCircuits.verifyRespondBidirectionalEvent` against the MPC derived
-   * key you expect). An empty array simply means none posted yet: poll again.
+   * trusting it (in-circuit at claim time, or off-chain: recompute the digest
+   * with the TS twin `calculateSignetAttestationDigest`, match it against the
+   * event's `attestationDigest`, and verify the ECDSA signature against the
+   * MPC response key you expect). An empty array simply means none posted
+   * yet: poll again.
    *
    * @param requestId - The request id whose responses to enumerate.
    * @returns The posted records, index = count, empty when none yet.

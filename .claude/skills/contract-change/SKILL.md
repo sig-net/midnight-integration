@@ -127,10 +127,15 @@ reaches your stage on real state (the run prints the id as it goes).
   to match byte-for-byte. A mismatch does not throw at the boundary: it decodes
   garbage or breaks proof agreement downstream. Everything that CAN be compiled
   must instead be called as `pureCircuits.<name>`, never re-ported in TS.
-- **Ledger field ordering is load-bearing.** In a client contract the request
-  index is ledger field 0 and the nonce counter field 1: the MPC locates them by
-  position knowing only the contract address. Do not declare ledger state above
-  them.
+- **Ledger field ordering is load-bearing.** A client contract's request maps
+  can sit at ANY ledger field: each notification the contract registers names
+  the field position holding the map (`requestsIndexField`), and the MPC reads
+  the authenticated request from that position knowing only the contract
+  address. The test caller keeps its two per-schema-width maps at fields 4 and
+  7 (its `requestLog` List deliberately occupies field 0), so the positions its
+  submit circuits pass in the notification are 4 and 7. Reordering ledger
+  declarations changes those positions: the notification literals (and any
+  reader configured with a `requestsIndexField`) must move with them.
 - **Keep enums in hashed structs ≥ 2 variants**: a 1-variant enum hashes as a
   zero-width atom and desynchronizes the compiler from the ledger (see the
   memory on this and AGENTS `TxParamType`'s padding variant).

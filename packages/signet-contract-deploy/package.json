@@ -47,7 +47,6 @@
     "@midnightntwrk/wallet-sdk-shielded": "4.0.0-beta.2",
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "4.0.0-beta.2",
     "@scure/bip39": "^2.2.0",
-    "@sig-net/midnight": "^0.12.0",
     "@sig-net/midnight-contract": "^0.12.0",
     "effect": "^3.21.4"
   },

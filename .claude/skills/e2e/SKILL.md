@@ -1,10 +1,11 @@
 ---
 name: e2e
 description: Run the integration e2e suite (packages/integration-tests), the
-  generic signet-caller flow against the local docker stack. From a fresh
-  clone to a green suite, reruns against kept contract addresses, or clean
-  redeploys after a circuit change, including the fakenet MPC responder
-  hand-off. Use whenever running, re-running, or re-deploying the e2e stack.
+  signet-caller flows (generic and real-EVM) against the local docker stack.
+  From a fresh clone to a green suite, reruns against kept contract
+  addresses, or clean redeploys after a circuit change, including the
+  fakenet MPC responder hand-off. Use whenever running, re-running, or
+  re-deploying the e2e stack.
 ---
 
 # e2e: run the integration suite
@@ -16,9 +17,12 @@ the *operational* knowledge around it. Setup (MPC keys, dust preflight,
 compile, deploy, fakenet hand-off) runs in vitest globalSetup before ANY
 test, including single-file runs.
 
-The suite is **EVM-free**: the caller's signature request exists to be
-SIGNED, never broadcast. The compose `evm` service (anvil) still runs:
-the fakenet responder's config needs a reachable EVM endpoint to boot.
+The default run covers TWO flow files: the generic flow (EVM-free: its
+request exists to be SIGNED, never broadcast, 5 online tests) and the
+real-EVM flow (15 online tests), which broadcasts the MPC-signed
+transactions on the compose `evm` service (anvil, :8545) and fetches raw
+execution outputs from the fakenet's public `/responses/{requestId}` helper
+API on :3040.
 
 ## Fresh-clone quickstart (zero to green)
 
@@ -39,7 +43,8 @@ and a value that conflicts with the shell environment is a hard error, never
 an overwrite. The first run zk-compiles BOTH contracts (~10–25 min of
 keygen, machine-dependent: background the run and never diagnose a hang
 from duration alone), deploys them, starts the responder mid-setup, and the
-flow file runs to the end (signet-caller: 5/5). Save the printed
+flow files run to the end (generic flow 5/5, real-EVM flow 15/15). Save the
+printed
 `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips
 compile + deploy (the signet address is appended automatically).
 

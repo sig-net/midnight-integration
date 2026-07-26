@@ -147,7 +147,7 @@ export pure circuit deInner(data: Bytes<25>): Inner {
   return deserialize<Inner, 25>(data);
 }
 
-// Padded (50 packed, 128 total — the signet serializedOutput width). No ser
+// Padded (50 packed, 128 total: the signet serializedOutput width). No ser
 // twin: see the Nested comment.
 export pure circuit deNested(data: Bytes<128>): Nested {
   return deserialize<Nested, 128>(data);

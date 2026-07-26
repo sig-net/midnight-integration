@@ -1,7 +1,7 @@
 // The package's reason to exist: every claim the TypeScript twin makes is
 // pinned here against the COMPILED fixture circuits (tests/fixtures/), which
 // wrap the builtin serialize<T, N> / deserialize<T, N> pair. Run
-// `yarn compile` in this package first — the tests import the generated
+// `yarn compile` in this package first: the tests import the generated
 // bindings.
 //
 // Coverage per fixture struct:
@@ -381,7 +381,7 @@ describe('circuit deserialize accepts compactSerialize output', () => {
     ).toEqual(vectorsPlainValue);
   });
 
-  it('VectorsDeep — circuits can READ shapes compactc cannot re-serialize', () => {
+  it('VectorsDeep: circuits can READ shapes compactc cannot re-serialize', () => {
     expect(
       pureCircuits.deVectorsDeep(compactSerialize(VECTORS_DEEP, vectorsDeepValue, 52))
     ).toEqual(vectorsDeepValue);
@@ -391,7 +391,7 @@ describe('circuit deserialize accepts compactSerialize output', () => {
     expect(pureCircuits.deInner(compactSerialize(INNER, innerValue, 25))).toEqual(innerValue);
   });
 
-  it('Nested (two nesting levels) — deserialize-only shape, padded to 128', () => {
+  it('Nested (two nesting levels): deserialize-only shape, padded to 128', () => {
     expect(pureCircuits.deNested(compactSerialize(NESTED, nestedValue, 128))).toEqual(nestedValue);
   });
 

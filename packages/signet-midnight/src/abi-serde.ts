@@ -37,7 +37,8 @@
 // deserialize<T, N> call. Per-type mapping (Compact struct field on the
 // right):
 //   bool            1 byte                    Boolean
-//   uint8..uint248  ceil(bits / 8) bytes LE   Uint<bits>
+//   uint8..uint248  bits / 8 bytes LE         Uint<bits>
+//     (whole-byte widths only: multiples of 8, others are rejected)
 //   uint256, field  32 bytes LE, below Fr     Field
 //   address         32 bytes LE (numeric)     Field
 //   bytes1..bytes32 N raw bytes               Bytes<N>
@@ -46,6 +47,14 @@
 //   T[]             8-byte LE count + maxItems elements at T's width
 //                                             struct { len: Uint<64>; items: Vector<maxItems, T>; }
 //   intN            rejected: Compact has no signed integers
+//
+// RANGE TRAP: uint256, address and field all map to Compact `Field`, whose
+// values must lie strictly below the BLS12-381 Fr modulus (just under
+// 2^255). An EVM uint256 at or above Fr therefore cannot be
+// respond-serialised, and `serializeRespondOutput` throws at respond time.
+// The max-uint256 allowance readback is the everyday case that hits this.
+// Schema authors who need the full 256-bit range should carry the value as
+// bytes32 instead.
 
 import { ethers } from "ethers";
 
@@ -313,11 +322,11 @@ function normalizeRespondSchema(schema: AbiSchemaInput): AbiSchema {
       return { name, type, maxBytes };
     }
     if (type.endsWith("[]")) {
-      assertFixedType(type.slice(0, -2), name);
+      classifyFixedType(type.slice(0, -2), name);
       assertCapacity(maxItems, `'${name}' (${type}) maxItems`);
       return { name, type: type as AbiArrayField["type"], maxItems };
     }
-    assertFixedType(type, name);
+    classifyFixedType(type, name);
     return { name, type: type as AbiFixedType };
   });
 }
@@ -339,8 +348,20 @@ function assertCapacity(value: unknown, label: string): asserts value is number 
   }
 }
 
-function assertFixedType(type: string, fieldName: string): void {
-  if (type === "bool" || type === "address" || type === "field") return;
+/**
+ * Classify a fixed-width respond type into its Compact carrier, validating
+ * the respond-side vocabulary in one place: both the schema check
+ * ({@link normalizeRespondSchema}) and the descriptor build
+ * ({@link respondSchemaToCompactType}) call this, so the grammar cannot
+ * drift between them. Respond-side uint widths are restricted to whole-byte
+ * widths (multiples of 8 from 8 to 248, packing to bits / 8 bytes), plus
+ * uint256 which maps to Field. Throws with the offending field named.
+ */
+function classifyFixedType(type: string, fieldName: string): CompactType {
+  if (type === "bool") return { kind: "boolean" };
+  if (type === "field" || type === "uint256" || type === "address") {
+    return { kind: "field" };
+  }
   if (/^int\d+$/.test(type)) {
     throw new Error(
       `schema: '${fieldName}' (${type}) is unsupported: Compact has no signed integers`
@@ -349,14 +370,14 @@ function assertFixedType(type: string, fieldName: string): void {
   const uintMatch = type.match(/^uint(\d+)$/);
   if (uintMatch) {
     const bits = Number(uintMatch[1]);
-    const compactOk = (bits >= 1 && bits <= MAX_UINT_BITS) || bits === 256;
-    if (!compactOk) {
+    const wholeByteWidth = bits >= 8 && bits <= MAX_UINT_BITS && bits % 8 === 0;
+    if (!wholeByteWidth) {
       throw new Error(
-        `schema: '${fieldName}' (${type}) has no Compact carrier: ` +
-          `Uint widths stop at ${MAX_UINT_BITS} bits (uint256 maps to Field)`
+        `schema: '${fieldName}' (${type}) has no respond carrier: uint widths ` +
+          `must be multiples of 8 from 8 to ${MAX_UINT_BITS}, or uint256 (maps to Field)`
       );
     }
-    return;
+    return { kind: "uint", bits };
   }
   const bytesMatch = type.match(/^bytes(\d+)$/);
   if (bytesMatch) {
@@ -364,7 +385,7 @@ function assertFixedType(type: string, fieldName: string): void {
     if (n < 1 || n > 32) {
       throw new Error(`schema: '${fieldName}' (${type}) is not a valid bytesN type`);
     }
-    return;
+    return { kind: "bytes", length: n };
   }
   throw new Error(`schema: '${fieldName}' has unsupported type '${type}'`);
 }
@@ -372,18 +393,6 @@ function assertFixedType(type: string, fieldName: string): void {
 // ---------------------------------------------------------------------------
 // Schema -> CompactType descriptor + value coercion
 // ---------------------------------------------------------------------------
-
-function fixedCompactType(type: AbiFixedType): CompactType {
-  if (type === "bool") return { kind: "boolean" };
-  if (type === "field" || type === "uint256" || type === "address") {
-    return { kind: "field" };
-  }
-  const uintMatch = type.match(/^uint(\d+)$/);
-  if (uintMatch) return { kind: "uint", bits: Number(uintMatch[1]) };
-  const bytesMatch = type.match(/^bytes(\d+)$/);
-  if (bytesMatch) return { kind: "bytes", length: Number(bytesMatch[1]) };
-  throw new Error(`unsupported fixed type '${type}'`);
-}
 
 function respondSchemaToCompactType(fields: AbiSchema): CompactType {
   return {
@@ -413,14 +422,14 @@ function respondSchemaToCompactType(fields: AbiSchema): CompactType {
                 type: {
                   kind: "vector",
                   length: field.maxItems,
-                  element: fixedCompactType(field.type.slice(0, -2) as AbiFixedType),
+                  element: classifyFixedType(field.type.slice(0, -2), field.name),
                 },
               },
             ],
           } satisfies CompactType,
         };
       }
-      return { name: field.name, type: fixedCompactType(field.type) };
+      return { name: field.name, type: classifyFixedType(field.type, field.name) };
     }),
   };
 }
