@@ -104,3 +104,48 @@ yarn compile   # compile the fixture contract (needed before test/build)
 yarn test      # pin the twin against the compiled circuits + toBinaryRepr
 yarn build     # typecheck + emit ./dist for publishing
 ```
+
+## Sources
+
+Compact's `serialize<T, N>` is a compile-time expansion, not a library call:
+the compiler monomorphises every call site into circuit code that walks the
+type in declaration order and packs each atom at its natural width,
+little-endian, with no tags, prefixes or gaps, then zero-pads the result on
+the right to `Bytes<N>`. The layout it emits is the binary form of Midnight's
+field-aligned binary (FAB) representation, the same bytes the ledger writes as
+`persistentHash` preimages and that `toBinaryRepr` reproduces in the TS
+runtime. This library is an independent TypeScript implementation of that
+layout, pinned byte-for-byte against compiled circuits and against
+`toBinaryRepr`.
+
+There is consequently NO reusable serializer for this layout anywhere in
+Midnight's own code: no function producing `Bytes<N>` from a value, no
+`Serialize` opcode in the Impact VM, no ZKIR instruction, nothing in
+`onchain-runtime`. What exists instead is one generator (the compiler pass),
+one Rust preimage writer over the same atoms (`transient-crypto/src/fab.rs`
+plus its in-circuit mirror in `zkir*/src/ir_vm.rs`), one TS flattener
+(`toBinaryRepr`), and hand-rolled decoders in the SDK and the indexer. Beware
+the name collision: the ledger's top-level `serialize/` crate is a different,
+tagged transport format (streams begin with the ASCII string
+`midnight:<tag>:`), not this layout.
+
+Repositories are pinned at `LFDT-Minokawa/compact @ 5d8c66c`,
+`midnightntwrk/midnight-ledger @ e1edad2` (branch `ledger-8`),
+`midnightntwrk/midnight-sdk @ 80e6707`, `midnightntwrk/midnight-indexer @
+345fcc2`.
+
+| Source | What is here that is relevant |
+| --- | --- |
+| [compact: `compiler/analysis-passes/expand-serialize.ss`](https://github.com/LFDT-Minokawa/compact/blob/5d8c66c/compiler/analysis-passes/expand-serialize.ss) | The generator, and the closest thing to ground truth for the serialize direction. A nanopass that expands every `serialize`/`deserialize` call site into circuit expressions: declaration-order field walk, `field->bytes` at natural widths, booleans as literal `0x00`/`0x01`, enums cast to bounded Uint, right zero-padding, and the "serialized size exceeds specified length" compile error. |
+| [compact: PR #470](https://github.com/LFDT-Minokawa/compact/pull/470) | The origin. Commit `0b3be94` ("[Issue 377] Events, phase 1", merged 2026-06-26) introduced the expand-serialize pass inside `analysis-passes.ss` as the canonical event encoding (the standalone file split out later in #632). |
+| [compact: `doc/release-notes/toolchain-0.33.0.md`](https://github.com/LFDT-Minokawa/compact/blob/5d8c66c/doc/release-notes/toolchain-0.33.0.md) | Prose semantics of the user-facing builtins (lines 119-127): works for all Compact types except `Opaque` and contract types, too-small `N` is a compile error, zero padding on serialize, extra trailing bytes ignored on deserialize, events use "the equivalent of `serialize<T, #n>`". |
+| [compact: `compiler/midnight-inlines.ss#L16-L24`](https://github.com/LFDT-Minokawa/compact/blob/5d8c66c/compiler/midnight-inlines.ss#L16-L24) | Where the standard library actually declares the builtins: `serialize` and `deserialize` are registered as inline entries (`[T (nat n)] ([value T]) (Bytes n)`) that expand into the IR forms the expand-serialize pass consumes. No event-type restriction exists in code. |
+| [compact: `doc/api/CompactStandardLibrary/exports.md#L981`](https://github.com/LFDT-Minokawa/compact/blob/5d8c66c/doc/api/CompactStandardLibrary/exports.md#L981) | The documented `circuit serialize<T, #n>` / `deserialize<T, #n>` signatures. Beware: the doc says "`serialize` can only be instantiated for an event type and its canonical serialized size" (L983-985), left over from PR #470 where serialisation existed only for events. The 0.33 compiler accepts any serializable type. |
+| [compact: `runtime/src/compact-types.ts#L651`](https://github.com/LFDT-Minokawa/compact/blob/5d8c66c/runtime/src/compact-types.ts#L651) | `toBinaryRepr`, the undocumented TS runtime re-implementation and our second test oracle. Flattens a descriptor's `ocrt.Value` along its `Alignment` (bytes atoms zero-filled to declared width, field atoms to 32 bytes, compress atoms rejected). |
+| [Compact language reference](https://docs.midnight.network/compact/reference/compact-reference) | The type system: exclusive `Uint<0..n>` bounds, TS representations of each type, implementation limits. |
+| [midnight-ledger: `spec/field-aligned-binary.md`](https://github.com/midnightntwrk/midnight-ledger/blob/e1edad2/spec/field-aligned-binary.md) | The normative FAB spec. It covers two encodings, and only one is ours: the self-describing flagged-int wire format is NOT the `serialize<T, N>` layout, the binary representation of atoms is. The high-level mapping section (lines 186-218) pins declaration-order struct encoding and explicitly assigns the Compact-type-to-FAB mapping to the compiler. |
+| [midnight-ledger: `base-crypto/src/fab/`](https://github.com/midnightntwrk/midnight-ledger/tree/e1edad2/base-crypto/src/fab) | The core FAB data model (`transient-crypto/src/fab.rs` only extends it): `Value`, `ValueAtom`, `Alignment`, `AlignmentAtom`, `AlignedValue` in `encoding.rs`, normal form via trailing-zero strip, declaration-order tuple concat in `alignments.rs`, little-endian integer conversions in `conversions.rs`. |
+| [midnight-ledger: `transient-crypto/src/fab.rs`](https://github.com/midnightntwrk/midnight-ledger/blob/e1edad2/transient-crypto/src/fab.rs) | The byte layout as Rust: the `ValueExt` trait (L35), the `Value::binary_repr_unchecked` traversal with zero-fill padding (L273), and the per-atom byte rules in `ValueAtomExt::binary_repr_unchecked` (L513): `Bytes{n}` as raw LE bytes zero-filled to `n`, `Field` as 32 bytes, `Compress` as a 32-byte Poseidon commitment. |
+| [midnight-ledger: `base-crypto/src/hash.rs`](https://github.com/midnightntwrk/midnight-ledger/blob/e1edad2/base-crypto/src/hash.rs) and [`zkir-v3/src/ir_vm.rs`](https://github.com/midnightntwrk/midnight-ledger/blob/e1edad2/zkir-v3/src/ir_vm.rs) | Proof the layout is load-bearing: `persistent_hash` is SHA-256 over exactly these bytes (`ValueReprAlignedValue(value).binary_repr` at `ir_vm.rs` L524), and `fab_decode_to_bytes` (L80-181) is the in-circuit mirror of the same atom rules. |
+| [midnight-sdk: `compact-js/compact-js/src/effect/ContractLog.ts`](https://github.com/midnightntwrk/midnight-sdk/blob/80e6707/compact-js/compact-js/src/effect/ContractLog.ts) | Hand-rolled decode of the eleven built-in ledger events from this same layout, decode only: 65-byte `Either` as `[is_left:1][left:32][right:32]`, little-endian `Uint<128>`. |
+| [midnight-indexer: `indexer-common/src/domain/ledger/ledger_state.rs`](https://github.com/midnightntwrk/midnight-indexer/blob/345fcc2/indexer-common/src/domain/ledger/ledger_state.rs) | Midnight's production Rust decoder of the same event payload bytes, the reference `ContractLog.ts` itself calls authoritative (`EITHER_SIZE = 1 + 2 * 32`, `make_contract_event_attributes`). |
