@@ -651,6 +651,7 @@ __metadata:
     "@midnight-protocol/lib": "npm:*"
     "@sig-net/midnight": "npm:*"
     "@sig-net/midnight-contract-deploy": "npm:*"
+    "@sig-net/midnight-serde": "npm:*"
     "@types/node": "npm:^26.1.0"
     tsx: "npm:^4.23.0"
     typescript: "npm:^6.0.3"
@@ -2061,7 +2062,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight-serde@npm:^0.14.0, @sig-net/midnight-serde@workspace:packages/midnight-serde":
+"@sig-net/midnight-serde@npm:*, @sig-net/midnight-serde@npm:^0.14.0, @sig-net/midnight-serde@workspace:packages/midnight-serde":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight-serde@workspace:packages/midnight-serde"
   dependencies:
