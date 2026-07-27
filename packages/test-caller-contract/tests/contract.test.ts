@@ -434,8 +434,8 @@ const IMPOSTER_PUBLIC = secp256k1PublicKeyOf(IMPOSTER_SECRET);
 
 // A successful remote execution's serialised output: this contract's respond
 // schema is a single bool, whose exact unpadded packed payload is ONE byte
-// (0x01 = true). The circuit never inspects the output's content (only the
-// digest and signature over it), but this matches what the MPC posts.
+// (0x01 = true). verifyResponse deserializes this into BoolResponse
+// in-circuit and asserts success, so only this value settles.
 const OUTPUT_SUCCESS = Uint8Array.from([1]);
 
 /**
@@ -520,6 +520,29 @@ describe("verifyResponse", () => {
         OUTPUT_SUCCESS,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects a genuinely attested FAILURE output (deserialized success is false)", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    // The MPC honestly attests a failed foreign call (packed bool 0x00).
+    // The signature verifies, then the in-circuit deserialize decodes
+    // success=false and settlement is refused.
+    const failureOutput = Uint8Array.from([0]);
+    const event = respond(MPC_RESPONSE_SECRET, requestId, failureOutput);
+    await expect(
+      contract.circuits.verifyResponse(ctx, requestId, event, failureOutput),
+    ).rejects.toThrow(/Foreign call reported failure/);
+  });
+
+  it("decodes any non-0x01 byte as false, per the circuit's Boolean rule", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    // Pins the compiled deserialize divergence: bytes 0x02..0xff are not
+    // rejected, they decode to false and hit the same failure assert.
+    const nonCanonical = Uint8Array.from([2]);
+    const event = respond(MPC_RESPONSE_SECRET, requestId, nonCanonical);
+    await expect(
+      contract.circuits.verifyResponse(ctx, requestId, event, nonCanonical),
+    ).rejects.toThrow(/Foreign call reported failure/);
   });
 
   it("rejects a genuine response presented under a different request id", async () => {
