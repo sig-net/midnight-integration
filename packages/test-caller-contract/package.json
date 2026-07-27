@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
+    "@sig-net/midnight-serde": "*",
     "@types/node": "^26.1.0",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3",

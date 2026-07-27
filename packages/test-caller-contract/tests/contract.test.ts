@@ -28,6 +28,8 @@ import {
   calculateSignetAttestationDigest,
 } from "@sig-net/midnight";
 
+import { compactSerialize, type CompactType } from "@sig-net/midnight-serde";
+
 import { Contract, ledger, pureCircuits as callerCircuits, witnesses, type CallerPrivateState } from "../src/index.ts";
 import { createCallerPrivateState } from "../src/witnesses.ts";
 // The signet contract (callee) module: the same one the caller's generated
@@ -432,11 +434,21 @@ describe("EVM target submit circuits round-trip", () => {
 const IMPOSTER_SECRET = bytes(32, 0x43);
 const IMPOSTER_PUBLIC = secp256k1PublicKeyOf(IMPOSTER_SECRET);
 
-// A successful remote execution's serialised output: this contract's respond
-// schema is a single bool, whose exact unpadded packed payload is ONE byte
-// (0x01 = true). verifyResponse deserializes this into BoolResponse
-// in-circuit and asserts success, so only this value settles.
-const OUTPUT_SUCCESS = Uint8Array.from([1]);
+// TS twin of the contract's BoolResponse struct (the single-bool respond
+// schema). Kept in lockstep with test-caller-contract.compact: the encoder
+// below produces exactly the bytes deserialize<BoolResponse, 1> unpacks
+// in-circuit.
+const BOOL_RESPONSE = {
+  kind: "struct",
+  fields: [{ name: "success", type: { kind: "boolean" } }],
+} as const satisfies CompactType;
+
+// A successful remote execution's serialised output, encoded with the
+// serialize twin exactly as the MPC packs it (one byte, 0x01 = true).
+// verifyResponse deserializes this into BoolResponse in-circuit and asserts
+// success, so only this value settles.
+const OUTPUT_SUCCESS = compactSerialize(BOOL_RESPONSE, { success: true }, 1);
+const OUTPUT_FAILURE = compactSerialize(BOOL_RESPONSE, { success: false }, 1);
 
 /**
  * Sign a REAL respond-bidirectional response for (requestId, output) with
@@ -498,7 +510,7 @@ describe("verifyResponse", () => {
   it("rejects a tampered response (output differs from what was signed)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const response = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
-    const tamperedOutput = Uint8Array.from([0]);
+    const tamperedOutput = OUTPUT_FAILURE;
     await expect(
       contract.circuits.verifyResponse(
         ctx,
@@ -524,20 +536,20 @@ describe("verifyResponse", () => {
 
   it("rejects a genuinely attested FAILURE output (deserialized success is false)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    // The MPC honestly attests a failed foreign call (packed bool 0x00).
-    // The signature verifies, then the in-circuit deserialize decodes
-    // success=false and settlement is refused.
-    const failureOutput = Uint8Array.from([0]);
-    const event = respond(MPC_RESPONSE_SECRET, requestId, failureOutput);
+    // The MPC honestly attests a failed foreign call. The signature
+    // verifies, then the in-circuit deserialize decodes success=false and
+    // settlement is refused.
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_FAILURE);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, failureOutput),
+      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_FAILURE),
     ).rejects.toThrow(/Foreign call reported failure/);
   });
 
   it("decodes any non-0x01 byte as false, per the circuit's Boolean rule", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     // Pins the compiled deserialize divergence: bytes 0x02..0xff are not
-    // rejected, they decode to false and hit the same failure assert.
+    // rejected, they decode to false and hit the same failure assert. Raw
+    // on purpose: the serialize twin can never produce this byte.
     const nonCanonical = Uint8Array.from([2]);
     const event = respond(MPC_RESPONSE_SECRET, requestId, nonCanonical);
     await expect(
@@ -579,14 +591,20 @@ describe("verifyResponse", () => {
 });
 
 describe("verifyCheckAndDoubleResponse", () => {
-  // A successful checkAndDouble execution's packed respond payload: bool
-  // true (1 byte) followed by uint256 12 as a 32-byte little-endian Field.
-  const OUTPUT_BOOL_UINT = (() => {
-    const out = new Uint8Array(33);
-    out[0] = 1;
-    out[1] = 12;
-    return out;
-  })();
+  // TS twin of the checkAndDouble respond schema (bool + uint256): the
+  // uint256 packs as a 32-byte little-endian Field, so the struct packs to
+  // exactly 33 bytes.
+  const BOOL_UINT_RESPONSE = {
+    kind: "struct",
+    fields: [
+      { name: "success", type: { kind: "boolean" } },
+      { name: "amount", type: { kind: "field" } },
+    ],
+  } as const satisfies CompactType;
+
+  // A successful checkAndDouble execution's packed respond payload, encoded
+  // with the serialize twin: bool true followed by uint256 12.
+  const OUTPUT_BOOL_UINT = compactSerialize(BOOL_UINT_RESPONSE, { success: true, amount: 12n }, 33);
 
   /** Deploy + submitCheckAndDoubleRequest: the arrange step. */
   const checkAndDoubleSubmitted = async () => {
