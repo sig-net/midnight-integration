@@ -29,12 +29,12 @@
 //                                        (via SignetSigner interface) to notify the MPC of a SignBidirectionalEvent.
 //  - SignatureRespondedEvent: Counterpart to SignBidirectionalEvent containing MPC generated signature requested by a SignBidirectionalEvent.
 //                             Posted by MPC back to Signet singleton for clients to extract to build a signed transaction.
-//  - RespondBidirectionalEvent: Attestation of a transaction executed on a foreign blockchain: the attestation
-//                               digest of the request id and serialised output (see calculateSignetAttestationDigest)
-//                               plus the MPC's ECDSA signature over that digest, signed with the MPC's RESPONSE
-//                               key for the requesting contract: the key derived from the client contract's
-//                               address + the fixed path "midnight response key". The output itself travels
-//                               off chain. Posted by MPC back to Signet singleton for clients to extract,
+//  - RespondBidirectionalEvent: Attestation of a transaction executed on a foreign blockchain: the MPC's ECDSA
+//                               signature over the attestation digest of the request id and serialised output
+//                               (see calculateSignetAttestationDigest), signed with the MPC's RESPONSE key for
+//                               the requesting contract: the key derived from the client contract's address +
+//                               the fixed path "midnight response key". Both the digest and the output itself
+//                               travel off chain. Posted by MPC back to Signet singleton for clients to extract,
 //                               verify (see verifyRespondBidirectionalEvent) and deliver back to the client
 //                               contract.
 //
@@ -274,9 +274,12 @@ module Signet {
   //  mpcResponseKey = f(mpcRootKey[keyVersion], sender, "midnight response key")
   //
   // Storage & Verification:
-  // The execution output travels off-chain due to variable size. The client fetches 
-  // the output, recomputes the attestation digest, and verifies the signature on-chain 
-  // via `verifyRespondBidirectionalEvent` against their derived MPC response key.
+  // The execution output is of variable size, so it travels off chain, and the digest
+  // over it is recomputed rather than stored. The client fetches the output, recomputes
+  // the attestation digest and verifies the signature in-circuit via
+  // verifyRespondBidirectionalEvent against its derived MPC response key. The signature
+  // is the ONLY thing that distinguishes a genuine post from garbage: the Signet
+  // singleton is an unauthenticated log and stores every post unverified.
   export struct RespondBidirectionalEvent {
     // The MPC's ECDSA signature over the attestation digest.
     signature: Signature;
@@ -303,15 +306,32 @@ module Signet {
     return keccak256<[RequestId, Bytes<serializedOutputLength>]>([requestId, serializedOutput]);
   }
 
-// Verifies a RespondBidirectionalEvent against its execution output and MPC response key.
+  // Same Bytes -> Vector<Uint<8>> idiom numericAbiWord uses. Pulls in a byte-decomposition
+  // lookup table, a fixed cost the calling circuit pays once and shares with any other
+  // byte-level work it does, so reverse at the boundary and never per element.
+  pure circuit reverseBytes32(b: Bytes<32>): Bytes<32> {
+    const v = b as Vector<32, Uint<8>>;
+    return Bytes[v[31], v[30], v[29], v[28], v[27], v[26], v[25], v[24],
+                 v[23], v[22], v[21], v[20], v[19], v[18], v[17], v[16],
+                 v[15], v[14], v[13], v[12], v[11], v[10], v[9],  v[8],
+                 v[7],  v[6],  v[5],  v[4],  v[3],  v[2],  v[1],  v[0]];
+  }
+
+  // Verifies a RespondBidirectionalEvent against its execution output and MPC response key.
   //
   // Verification steps:
   //  1. Recompute digest: digest = keccak256(requestId + serializedOutput)
-  //  2. Verify signature: verifySECP256k1(mpcResponseKey, digest, signature) == true
+  //  2. Verify signature: secp256k1EcdsaVerify(digest, signature, mpcResponseKey) == true
   //
-  // Note: Client contracts must run this check before consuming outputs, as the Signet 
-  // singleton stores responses unverified. Internal byte-reversal for signature scalars 
-  // is handled automatically.
+  // The caller supplies serializedOutput at its exact unpadded width, per
+  // calculateSignetAttestationDigest, and hands over the event record as stored: the
+  // big-endian-to-little-endian re-encoding of the signature scalars happens here, in one
+  // place for every integrator. ECDSA's r is bigR.x reduced mod the curve order; bigR.x is
+  // taken as-is, as it is already below the order for all but a ~2^-128 fraction of
+  // signatures, and one that is not simply fails to verify.
+  //
+  // Note: Client contracts must run this check before consuming outputs, as the Signet
+  // singleton stores responses unverified.
   export pure circuit verifyRespondBidirectionalEvent<#serializedOutputLength>(
     requestId: RequestId,
     serializedOutput: Bytes<serializedOutputLength>,
@@ -332,17 +352,6 @@ module Signet {
       mpcResponseKey
     );
   }
-
-  // Same Bytes -> Vector<Uint<8>> idiom numericAbiWord uses. Pulls in a byte-decomposition
-  // lookup table, a fixed cost the calling circuit pays once and shares with any other
-  // byte-level work it does, so reverse at the boundary and never per element.
-  pure circuit reverseBytes32(b: Bytes<32>): Bytes<32> {
-    const v = b as Vector<32, Uint<8>>;
-    return Bytes[v[31], v[30], v[29], v[28], v[27], v[26], v[25], v[24],
-                 v[23], v[22], v[21], v[20], v[19], v[18], v[17], v[16],
-                 v[15], v[14], v[13], v[12], v[11], v[10], v[9],  v[8],
-                 v[7],  v[6],  v[5],  v[4],  v[3],  v[2],  v[1],  v[0]];
-  }  
 
   // Hash a secp256k1 public key exactly as client contracts pin it at deploy time
   // (sealed `persistentHash<Secp256k1Point>`), so off-chain code can recompute the

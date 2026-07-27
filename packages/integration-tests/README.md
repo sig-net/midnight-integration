@@ -37,23 +37,24 @@ and two flow files:
      signet contract and verifies against the caller's epsilon-derived
      account.
   5. `verifyResponse`: verify an ECDSA respond-bidirectional attestation
-     (the digest of the request id and serialised output, plus the MPC's
-     signature over it) in-circuit and consume the request. The event never
-     carries the output itself, so the circuit takes the output bytes as an
-     argument and re-hashes them. The fakenet only attests after observing
-     a broadcast on the destination chain (a leg this generic exercise
-     deliberately omits), so the attestation is signed in-test with the MPC
-     response key derived from the suite's shared `MPC_ROOT_KEY` and the
-     caller contract address (the same derivation the fakenet uses).
+     (the MPC's signature over the digest of the request id and serialised
+     output) in-circuit and consume the request. The event carries the
+     signature alone, so the circuit takes the output bytes as an argument
+     and re-hashes them into the digest the signature must cover. The
+     fakenet only attests after observing a broadcast on the destination
+     chain (a leg this generic exercise deliberately omits), so the
+     attestation is signed in-test with the MPC response key derived from
+     the suite's shared `MPC_ROOT_KEY` and the caller contract address (the
+     same derivation the fakenet uses).
 - **The real-EVM flow file** (`tests/signet-caller-evm-e2e.test.ts`): the
   continuation past signing. The caller contract requests calls against the
   `SignetEvmTarget` Solidity contract, the suite broadcasts the MPC-signed
   transaction on the local anvil chain, the fakenet observes the mined
   execution and posts its attestation, and the suite fetches the raw output
-  from the fakenet's public `/responses/{requestId}` helper API,
-  digest-matches it and verifies it in-circuit. Self-sufficient (its own
-  idempotent initialise stage), so it never depends on the generic flow
-  file having run first.
+  from the fakenet's public `/responses/{requestId}` helper API, picks the
+  attestation that verifies over the bytes it recomputed, and verifies it
+  in-circuit. Self-sufficient (its own idempotent initialise stage), so it
+  never depends on the generic flow file having run first.
 
 The unit tests beside it (`tests/env-file.test.ts`, `tests/mpc-keys.test.ts`)
 run offline under plain `yarn test`; the flow file gates itself with

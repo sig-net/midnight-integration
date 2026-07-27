@@ -48,10 +48,9 @@ const RESPONSE_1: SignatureRespondedEvent = {
   signature: { bigR: { x: bytes(32, 0xb0), y: bytes(32, 0xb1) }, s: bytes(32, 0xb2), recoveryId: 1n },
 };
 
-// One respond-bidirectional response for REQUEST_ID: a synthetic digest and
-// an equally synthetic signature (the reader decodes, it does not verify).
+// One respond-bidirectional response for REQUEST_ID: a synthetic signature
+// (the reader decodes, it does not verify).
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
-  attestationDigest: bytes(32, 0xd1),
   signature: { bigR: { x: bytes(32, 0x5c), y: bytes(32, 0x5d) }, s: bytes(32, 0x5e), recoveryId: 1n },
 };
 

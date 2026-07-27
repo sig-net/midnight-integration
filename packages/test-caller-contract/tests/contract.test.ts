@@ -449,18 +449,14 @@ const respond = (
   secretKey: Uint8Array,
   requestId: Uint8Array,
   serializedOutput: Uint8Array,
-): RespondBidirectionalEvent => {
-  const attestationDigest = calculateSignetAttestationDigest(
-    requestId,
-    serializedOutput,
-  );
-  return {
-    attestationDigest,
-    signature: ecdsaSignatureToMpcSignature(
-      signAttestationDigest(attestationDigest, secretKey),
+): RespondBidirectionalEvent => ({
+  signature: ecdsaSignatureToMpcSignature(
+    signAttestationDigest(
+      calculateSignetAttestationDigest(requestId, serializedOutput),
+      secretKey,
     ),
-  };
-};
+  ),
+});
 
 // ---- Verify-response tests ----
 
@@ -513,14 +509,14 @@ describe("verifyResponse", () => {
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
-  it("rejects a tampered digest checkpoint (signature untouched)", async () => {
+  it("rejects a tampered signature scalar", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const response = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     await expect(
       contract.circuits.verifyResponse(
         ctx,
         requestId,
-        { ...response, attestationDigest: bytes(32, 0x99) },
+        { signature: { ...response.signature, s: bytes(32, 0x99) } },
         OUTPUT_SUCCESS,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);

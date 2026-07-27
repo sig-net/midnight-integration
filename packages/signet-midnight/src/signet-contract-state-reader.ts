@@ -177,17 +177,17 @@ export const signatureRespondedEventType: CompactType<SignatureRespondedEvent> =
 
 /**
  * The MPC's respond-bidirectional attestation of a request's remote EVM
- * execution (Compact `RespondBidirectionalEvent`): the attestation digest
- * `keccak256(requestId || serializedOutput)` plus the ECDSA signature over
- * it. The output itself travels off chain: readers fetch it, recompute the
- * digest (`calculateSignetAttestationDigest`) and match it against
- * {@link attestationDigest}. Stored UNVERIFIED by the signet contract:
- * clients verify the signature themselves against their MPC response key
- * (in-circuit via `verifyRespondBidirectionalEvent`).
+ * execution (Compact `RespondBidirectionalEvent`): the ECDSA signature over
+ * the attestation digest `keccak256(requestId || serializedOutput)`. Both the
+ * digest and the output travel off chain: readers fetch the output, recompute
+ * the digest (`calculateSignetAttestationDigest`) and verify the signature
+ * over it. Stored UNVERIFIED by the signet contract, so that signature check
+ * against the expected MPC response key is the only thing separating a
+ * genuine post from garbage (in-circuit via
+ * `verifyRespondBidirectionalEvent`, off chain via
+ * {@link verifyRespondBidirectionalSignature}).
  */
 export interface RespondBidirectionalEvent {
-  /** The signed attestation digest: `keccak256(requestId || serializedOutput)`. */
-  attestationDigest: Uint8Array;
   /** ECDSA signature over the attestation digest. */
   signature: MpcSignature;
 }
@@ -239,39 +239,31 @@ export const signetMapKeyType: CompactType<SignetMapKey> = {
 };
 
 /**
- * Hand-composed descriptor for {@link RespondBidirectionalEvent}. Field
- * order (attestationDigest, signature) must match the Compact struct.
+ * Hand-composed descriptor for {@link RespondBidirectionalEvent}: the single
+ * {@link MpcSignature} field, matching the Compact struct.
  */
 export const respondBidirectionalEventType: CompactType<RespondBidirectionalEvent> = {
-  /** @returns Compound alignment of the struct's fields in declaration order. */
+  /** @returns Alignment of the struct's single signature field. */
   alignment() {
-    return bytes32
-      .alignment()
-      .concat(mpcSignatureType.alignment());
+    return mpcSignatureType.alignment();
   },
   /**
-   * Decode one response record from an aligned value, consuming it field
-   * by field.
+   * Decode one response record from an aligned value.
    *
    * @param value - Mutable aligned value cursor: pass a copy.
    * @returns The decoded record.
    */
   fromValue(value) {
-    return {
-      attestationDigest: bytes32.fromValue(value),
-      signature: mpcSignatureType.fromValue(value),
-    };
+    return { signature: mpcSignatureType.fromValue(value) };
   },
   /**
    * Encode a response record into its aligned on-ledger representation.
    *
    * @param record - The record to encode.
-   * @returns The aligned value, fields concatenated in declaration order.
+   * @returns The aligned value.
    */
   toValue(record) {
-    return bytes32
-      .toValue(record.attestationDigest)
-      .concat(mpcSignatureType.toValue(record.signature));
+    return mpcSignatureType.toValue(record.signature);
   },
 };
 

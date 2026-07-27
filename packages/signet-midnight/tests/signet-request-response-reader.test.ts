@@ -18,8 +18,12 @@ import {
   MPCSignatureAlgorithm,
   TxParamType,
   asciiPadded,
+  calculateSignetAttestationDigest,
+  ecdsaSignatureToMpcSignature,
   evmAddressAbiWord,
   numericAbiWord,
+  secp256k1PublicKeyOf,
+  signAttestationDigest,
   signatureToSignatureRespondedEvent,
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
@@ -138,12 +142,26 @@ const requesterState = (): StateValue => {
     );
 };
 
-// A respond-bidirectional record for the response tests: a synthetic digest
-// and an equally synthetic signature (the reader decodes, verification is
-// the CLIENT's job).
+// A respond-bidirectional record for the response tests: a synthetic
+// signature (the reader decodes, verification is the CLIENT's job).
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
-  attestationDigest: new Uint8Array(32).fill(0xd1),
   signature: { bigR: { x: bytes(32, 0x5c), y: bytes(32, 0x5d) }, s: bytes(32, 0x5e), recoveryId: 1n },
+};
+
+// The MPC response key of the requesting contract, and a genuinely signed
+// attestation of ATTESTED_OUTPUT under it: what the verified getter must
+// pick out of the log (RESPOND_BIDIRECTIONAL above is the garbage post it
+// must reject).
+const MPC_RESPONSE_SECRET = bytes(32, 0x11);
+const MPC_RESPONSE_KEY = secp256k1PublicKeyOf(MPC_RESPONSE_SECRET);
+const ATTESTED_OUTPUT = Uint8Array.from([1]);
+const ATTESTED_RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
+  signature: ecdsaSignatureToMpcSignature(
+    signAttestationDigest(
+      calculateSignetAttestationDigest(REQUEST_ID, ATTESTED_OUTPUT),
+      MPC_RESPONSE_SECRET,
+    ),
+  ),
 };
 
 /** A one-entry `Map<RequestId, Counter>` for REQUEST_ID, empty at 0. */
@@ -173,7 +191,7 @@ const counterMapOf = (total: bigint): StateMap => {
 const signetContractState = (
   posts: SignatureRespondedEvent[],
   counterOverride?: bigint,
-  respondBidirectional?: RespondBidirectionalEvent,
+  respondBidirectionalPosts: RespondBidirectionalEvent[] = [],
 ): StateValue => {
   const total = counterOverride ?? BigInt(posts.length);
   let responseMap = new StateMap();
@@ -193,25 +211,28 @@ const signetContractState = (
     );
   });
   let respondBidirectionalMap = new StateMap();
-  if (respondBidirectional !== undefined) {
+  respondBidirectionalPosts.forEach((post, index) => {
     respondBidirectionalMap = respondBidirectionalMap.insert(
       {
-        value: signetMapKeyType.toValue({ count: 0n, requestId: REQUEST_ID }),
+        value: signetMapKeyType.toValue({
+          count: BigInt(index),
+          requestId: REQUEST_ID,
+        }),
         alignment: signetMapKeyType.alignment(),
       },
       StateValue.newCell({
-        value: respondBidirectionalEventType.toValue(respondBidirectional),
+        value: respondBidirectionalEventType.toValue(post),
         alignment: respondBidirectionalEventType.alignment(),
       }),
     );
-  }
+  });
   return StateValue.newArray()
     .arrayPush(StateValue.newMap(new StateMap())) // field 0: notification counter map
     .arrayPush(StateValue.newMap(new StateMap())) // field 1: notification map
     .arrayPush(StateValue.newMap(counterMapOf(total))) // field 2: signature counter map
     .arrayPush(StateValue.newMap(responseMap)) // field 3: signature map
     .arrayPush(
-      StateValue.newMap(counterMapOf(respondBidirectional === undefined ? 0n : 1n)),
+      StateValue.newMap(counterMapOf(BigInt(respondBidirectionalPosts.length))),
     ) // field 4: respond-bidirectional counter map
     .arrayPush(StateValue.newMap(respondBidirectionalMap)); // field 5: respond-bidirectional map
 };
@@ -225,7 +246,7 @@ const signetContractState = (
 const makeReader = (
   posts: SignatureRespondedEvent[],
   counterOverride?: bigint,
-  respondBidirectional?: RespondBidirectionalEvent,
+  respondBidirectionalPosts: RespondBidirectionalEvent[] = [],
 ) => {
   const queries = { requester: 0, responses: 0 };
   const publicDataProvider: SignetPublicStateSource = {
@@ -235,7 +256,13 @@ const makeReader = (
         return { data: requesterState() };
       }
       queries.responses += 1;
-      return { data: signetContractState(posts, counterOverride, respondBidirectional) };
+      return {
+        data: signetContractState(
+          posts,
+          counterOverride,
+          respondBidirectionalPosts,
+        ),
+      };
     },
   };
   const reader = new SignetRequestResponseReader({
@@ -444,9 +471,13 @@ describe("getSignedEvmTransaction", () => {
 
 describe("getRespondBidirectionalEvents", () => {
   it("returns the posted responses in count order", async () => {
-    const { reader } = makeReader([], undefined, RESPOND_BIDIRECTIONAL);
+    const { reader } = makeReader([], undefined, [
+      RESPOND_BIDIRECTIONAL,
+      ATTESTED_RESPOND_BIDIRECTIONAL,
+    ]);
     expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([
       RESPOND_BIDIRECTIONAL,
+      ATTESTED_RESPOND_BIDIRECTIONAL,
     ]);
   });
 
@@ -455,5 +486,45 @@ describe("getRespondBidirectionalEvents", () => {
     expect(
       await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX),
     ).toEqual([]);
+  });
+});
+
+describe("getVerifiedRespondBidirectionalEvent", () => {
+  it("picks the post that attests the output, past the garbage in front of it", async () => {
+    const { reader } = makeReader([], undefined, [
+      RESPOND_BIDIRECTIONAL,
+      ATTESTED_RESPOND_BIDIRECTIONAL,
+    ]);
+    expect(
+      await reader.getVerifiedRespondBidirectionalEvent(
+        REQUEST_ID_HEX,
+        ATTESTED_OUTPUT,
+        MPC_RESPONSE_KEY,
+      ),
+    ).toEqual(ATTESTED_RESPOND_BIDIRECTIONAL);
+  });
+
+  it("returns undefined when the attested output is not the one presented", async () => {
+    const { reader } = makeReader([], undefined, [
+      ATTESTED_RESPOND_BIDIRECTIONAL,
+    ]);
+    expect(
+      await reader.getVerifiedRespondBidirectionalEvent(
+        REQUEST_ID_HEX,
+        Uint8Array.from([0]),
+        MPC_RESPONSE_KEY,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when nothing is posted yet", async () => {
+    const { reader } = makeReader([]);
+    expect(
+      await reader.getVerifiedRespondBidirectionalEvent(
+        REQUEST_ID_HEX,
+        ATTESTED_OUTPUT,
+        MPC_RESPONSE_KEY,
+      ),
+    ).toBeUndefined();
   });
 });
