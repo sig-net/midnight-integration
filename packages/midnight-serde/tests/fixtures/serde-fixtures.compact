@@ -20,6 +20,17 @@ pragma language_version >= 0.25;
 //   serTuple/deTuple            heterogeneous tuple [Boolean, Uint<16>, Bytes<4>]
 //   serTuplePair/deTuplePair    tuple CONTAINING a struct: unlike Vector,
 //                               serialize<[Pair, Boolean], N> compiles fine
+//   serU12/deU12                NON-BYTE-ALIGNED sized uint: ceil(12/8) = 2
+//                               bytes, decode range-checked at 4096
+//   serWide/deWide              3-byte bounded uint (byteLength(69999) = 3)
+//   serSolo/deSolo              single-variant enum: ZERO bytes wide
+//   serEmptyTuple/deEmptyTuple  the empty tuple []: ZERO bytes wide
+//   serBig/deBig                300-variant enum: TWO bytes wide, decode
+//                               range-checked at index 300
+//   serEither/deEither          stdlib Either<A, B>: both arms always packed
+//   serLeft/serRight/serSomeU64/serNoneU64
+//                               the stdlib constructors zero-fill the unused
+//                               arm, serialized straight from the constructor
 //
 // Ser circuits use the EXACT packed size where instructive and a padded size
 // elsewhere, so both "N == packed size" and "N > packed size (right
@@ -193,4 +204,107 @@ export pure circuit serTuplePair(v: [Pair, Boolean]): Bytes<25> {
 }
 export pure circuit deTuplePair(data: Bytes<25>): [Pair, Boolean] {
   return deserialize<[Pair, Boolean], 25>(data);
+}
+
+// ---- width edge cases the structs above cannot pin -------------------------
+
+// Non-byte-aligned sized uint: Uint<12> packs to ceil(12/8) = 2 bytes, and
+// the circuit range-checks decoded encodings at 4096 (0x1000). Every sized
+// uint in the structs above is byte-aligned, so this is the only circuit pin
+// of the ceil rule and of the sized-uint decode rejection.
+export pure circuit serU12(v: Uint<12>): Bytes<2> {
+  return serialize<Uint<12>, 2>(v);
+}
+export pure circuit deU12(data: Bytes<2>): Uint<12> {
+  return deserialize<Uint<12>, 2>(data);
+}
+
+// Bounded uint wider than the 2-byte Uint<0..1000> in Bounded:
+// byteLength(69999) = 3 bytes, decode range-checked at 70000.
+export pure circuit serWide(v: Uint<0..70000>): Bytes<3> {
+  return serialize<Uint<0..70000>, 3>(v);
+}
+export pure circuit deWide(data: Bytes<3>): Uint<0..70000> {
+  return deserialize<Uint<0..70000>, 3>(data);
+}
+
+enum Solo { only }
+
+// Single-variant enum: ZERO bytes wide, so Bytes<1> here is all padding and
+// the circuit ignores whatever it holds on decode.
+export pure circuit serSolo(v: Solo): Bytes<1> {
+  return serialize<Solo, 1>(v);
+}
+export pure circuit deSolo(data: Bytes<1>): Solo {
+  return deserialize<Solo, 1>(data);
+}
+
+// The empty tuple []: ZERO bytes wide, same padding-only Bytes<1>.
+export pure circuit serEmptyTuple(v: []): Bytes<1> {
+  return serialize<[], 1>(v);
+}
+export pure circuit deEmptyTuple(data: Bytes<1>): [] {
+  return deserialize<[], 1>(data);
+}
+
+// A 300-variant enum: the variant index packs like Uint<0..300>, i.e. TWO
+// bytes little-endian, decode range-checked at index 300. The only circuit
+// pin of a multi-byte enum (Status in Bounded is 1 byte).
+enum Big {
+  v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14,
+  v15, v16, v17, v18, v19, v20, v21, v22, v23, v24, v25, v26, v27, v28, v29,
+  v30, v31, v32, v33, v34, v35, v36, v37, v38, v39, v40, v41, v42, v43, v44,
+  v45, v46, v47, v48, v49, v50, v51, v52, v53, v54, v55, v56, v57, v58, v59,
+  v60, v61, v62, v63, v64, v65, v66, v67, v68, v69, v70, v71, v72, v73, v74,
+  v75, v76, v77, v78, v79, v80, v81, v82, v83, v84, v85, v86, v87, v88, v89,
+  v90, v91, v92, v93, v94, v95, v96, v97, v98, v99, v100, v101, v102, v103, v104,
+  v105, v106, v107, v108, v109, v110, v111, v112, v113, v114, v115, v116, v117, v118, v119,
+  v120, v121, v122, v123, v124, v125, v126, v127, v128, v129, v130, v131, v132, v133, v134,
+  v135, v136, v137, v138, v139, v140, v141, v142, v143, v144, v145, v146, v147, v148, v149,
+  v150, v151, v152, v153, v154, v155, v156, v157, v158, v159, v160, v161, v162, v163, v164,
+  v165, v166, v167, v168, v169, v170, v171, v172, v173, v174, v175, v176, v177, v178, v179,
+  v180, v181, v182, v183, v184, v185, v186, v187, v188, v189, v190, v191, v192, v193, v194,
+  v195, v196, v197, v198, v199, v200, v201, v202, v203, v204, v205, v206, v207, v208, v209,
+  v210, v211, v212, v213, v214, v215, v216, v217, v218, v219, v220, v221, v222, v223, v224,
+  v225, v226, v227, v228, v229, v230, v231, v232, v233, v234, v235, v236, v237, v238, v239,
+  v240, v241, v242, v243, v244, v245, v246, v247, v248, v249, v250, v251, v252, v253, v254,
+  v255, v256, v257, v258, v259, v260, v261, v262, v263, v264, v265, v266, v267, v268, v269,
+  v270, v271, v272, v273, v274, v275, v276, v277, v278, v279, v280, v281, v282, v283, v284,
+  v285, v286, v287, v288, v289, v290, v291, v292, v293, v294, v295, v296, v297, v298, v299
+}
+
+export pure circuit serBig(v: Big): Bytes<2> {
+  return serialize<Big, 2>(v);
+}
+export pure circuit deBig(data: Bytes<2>): Big {
+  return deserialize<Big, 2>(data);
+}
+
+// ---- stdlib Maybe/Either and their constructors ----------------------------
+
+// 1 + 8 + 32 = 41 bytes packed. Either<A, B> is stdlib
+// struct { is_left: Boolean; left: A; right: B }: BOTH arms always occupy
+// their full width regardless of the tag.
+export pure circuit serEither(v: Either<Uint<64>, Bytes<32>>): Bytes<41> {
+  return serialize<Either<Uint<64>, Bytes<32>>, 41>(v);
+}
+export pure circuit deEither(data: Bytes<41>): Either<Uint<64>, Bytes<32>> {
+  return deserialize<Either<Uint<64>, Bytes<32>>, 41>(data);
+}
+
+// The stdlib constructors zero-fill the unused arm (and zero is a legal
+// encoding for every Compact type), so constructor output always decodes,
+// strict mode included. Serializing straight from the constructors pins that
+// whole contract in-circuit.
+export pure circuit serLeft(x: Uint<64>): Bytes<41> {
+  return serialize<Either<Uint<64>, Bytes<32>>, 41>(left<Uint<64>, Bytes<32>>(x));
+}
+export pure circuit serRight(x: Bytes<32>): Bytes<41> {
+  return serialize<Either<Uint<64>, Bytes<32>>, 41>(right<Uint<64>, Bytes<32>>(x));
+}
+export pure circuit serSomeU64(x: Uint<64>): Bytes<9> {
+  return serialize<Maybe<Uint<64>>, 9>(some<Uint<64>>(x));
+}
+export pure circuit serNoneU64(): Bytes<9> {
+  return serialize<Maybe<Uint<64>>, 9>(none<Uint<64>>());
 }

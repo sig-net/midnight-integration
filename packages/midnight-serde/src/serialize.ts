@@ -19,7 +19,7 @@
 
 import { FIELD_MODULUS } from './types.ts';
 import type { CompactType, CompactUintType, CompactValue, CompactValueOf } from './types.ts';
-import { assertCompactType, assertUnreachable } from './validate.ts';
+import { assertCompactType, assertUnreachable, isUint8Array } from './validate.ts';
 
 /** Byte length of the largest legal value, given the EXCLUSIVE bound. 0 for a bound of 1. */
 function widthOfBound(bound: bigint): number {
@@ -32,11 +32,34 @@ function widthOfBound(bound: bigint): number {
   return width;
 }
 
+/**
+ * The sized-form bit width of a uint descriptor, or undefined for the bounded
+ * form. Own-property read: `'bits' in type` would walk the prototype chain.
+ */
+function sizedBits(type: CompactUintType): number | undefined {
+  return Object.hasOwn(type, 'bits')
+    ? (type as { bits?: number }).bits
+    : undefined;
+}
+
 /** The EXCLUSIVE upper bound of a uint descriptor, whichever form it uses. */
 export function uintBound(type: CompactUintType): bigint {
-  return 'bits' in type && type.bits !== undefined
-    ? 1n << BigInt(type.bits)
+  const bits = sizedBits(type);
+  return bits !== undefined
+    ? 1n << BigInt(bits)
     : BigInt((type as { bound: number | bigint }).bound);
+}
+
+/**
+ * Guard for the Number arithmetic below: element counts and widths are
+ * individually safe integers (validated), but their products and sums can
+ * still leave the safe range and silently round. Never produce a wrong size.
+ */
+function assertSafeSize(size: number, label: string): number {
+  if (!Number.isSafeInteger(size)) {
+    throw new Error(`${label}: packed size exceeds Number.MAX_SAFE_INTEGER`);
+  }
+  return size;
 }
 
 /**
@@ -56,11 +79,17 @@ export function packedSize(type: CompactType): number {
     case 'enum':
       return widthOfBound(BigInt(type.variants));
     case 'vector':
-      return type.length * packedSize(type.element);
+      return assertSafeSize(type.length * packedSize(type.element), 'vector');
     case 'tuple':
-      return type.elements.reduce((sum, e) => sum + packedSize(e), 0);
+      return assertSafeSize(
+        type.elements.reduce((sum, e) => sum + packedSize(e), 0),
+        'tuple'
+      );
     case 'struct':
-      return type.fields.reduce((sum, f) => sum + packedSize(f.type), 0);
+      return assertSafeSize(
+        type.fields.reduce((sum, f) => sum + packedSize(f.type), 0),
+        'struct'
+      );
     default:
       return assertUnreachable(type, 'packedSize');
   }
@@ -133,7 +162,7 @@ function encodeInto(
       return offset + 32;
     }
     case 'bytes': {
-      if (!(value instanceof Uint8Array)) throw new Error(`${label}: expected Uint8Array`);
+      if (!isUint8Array(value)) throw new Error(`${label}: expected Uint8Array`);
       if (value.length !== type.length) {
         throw new Error(
           `${label}: expected exactly ${type.length} bytes, got ${value.length}`
@@ -187,9 +216,18 @@ function encodeInto(
         typeof value !== 'object' ||
         value === null ||
         Array.isArray(value) ||
-        value instanceof Uint8Array
+        isUint8Array(value)
       ) {
         throw new Error(`${label}: expected an object`);
+      }
+      // Reject unknown keys, mirroring the strictness on descriptors: a
+      // typo'd extra property alongside the correctly-named ones would
+      // otherwise vanish silently.
+      const declared = new Set(type.fields.map((f) => f.name));
+      for (const key of Object.keys(value)) {
+        if (!declared.has(key)) {
+          throw new Error(`${label}: unknown field '${key}' (not in the descriptor)`);
+        }
       }
       let cursor = offset;
       for (const field of type.fields) {
@@ -211,8 +249,9 @@ function encodeInto(
 
 /** Display name of a uint descriptor in its own declaration form. */
 export function uintName(type: CompactUintType): string {
-  return 'bits' in type && type.bits !== undefined
-    ? `Uint<${type.bits}>`
+  const bits = sizedBits(type);
+  return bits !== undefined
+    ? `Uint<${bits}>`
     : `Uint<0..${(type as { bound: number | bigint }).bound}>`;
 }
 
