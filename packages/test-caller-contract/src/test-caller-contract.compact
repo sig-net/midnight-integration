@@ -281,6 +281,14 @@ export circuit submitCheckAndDoubleRequest(
   );
 }
 
+// The contract's own declaration of its single-bool respond schema
+// ("[{\"name\":\"success\",\"type\":\"bool\"}]"): the MPC packs the decoded
+// EVM output to this struct's exact serialized width (1 byte), and
+// verifyResponse unpacks it back with the stdlib deserialize.
+struct BoolResponse {
+  success: Boolean;
+}
+
 // Tests in-circuit verification of the MPC's ECDSA-signed
 // respond-bidirectional response: the attestation over (requestId, output)
 // must verify against the pinned response key, and the request is consumed
@@ -289,7 +297,9 @@ export circuit submitCheckAndDoubleRequest(
 // and submitIsEvenRequest) packs to exactly 1 byte (no padding: the digest
 // hashes the output at its exact length). The event is taken exactly as the
 // singleton stores it, with no off-chain unpacking or byte-order handling
-// by the caller.
+// by the caller: the attested bytes deserialize into BoolResponse in-circuit
+// and the decoded value gates settlement, the way a real client would react
+// to a foreign call's return value.
 export circuit verifyResponse(
   requestId: RequestId,
   respondBidirectionalEvent: RespondBidirectionalEvent,
@@ -311,6 +321,12 @@ export circuit verifyResponse(
     ),
     "Invalid attestation signature"
   );
+
+  // The signature covered the output byte-for-byte, so the attested bytes
+  // can now be unpacked and acted on: deserialize is the compiled builtin,
+  // the true inverse of the MPC's off-chain packing.
+  const response = deserialize<BoolResponse, 1>(serializedOutput);
+  assert(response.success, "Foreign call reported failure");
 
   assert(signBidirectionalEventMap.member(disclosedRequestId), "Request not found");
   signBidirectionalEventMap.remove(disclosedRequestId);

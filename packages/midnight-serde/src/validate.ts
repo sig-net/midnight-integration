@@ -21,9 +21,23 @@ const KIND_KEYS: Record<string, readonly string[]> = {
 };
 
 function assertNonNegativeInteger(value: unknown, label: string): asserts value is number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    throw new Error(`${label} must be a non-negative integer, got ${String(value)}`);
+  // isSafeInteger, not isInteger: a length like 2^60 passes isInteger but
+  // breaks the Number arithmetic packed sizes are computed with.
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative safe integer, got ${String(value)}`);
   }
+}
+
+/**
+ * Cross-realm-safe Uint8Array check. `instanceof` fails for buffers created
+ * in another realm (node:vm context, iframe), which are otherwise perfectly
+ * valid inputs, so fall back to the brand check.
+ */
+export function isUint8Array(value: unknown): value is Uint8Array {
+  return (
+    value instanceof Uint8Array ||
+    Object.prototype.toString.call(value) === '[object Uint8Array]'
+  );
 }
 
 /**
@@ -61,8 +75,13 @@ export function assertCompactType(
       return;
 
     case 'uint': {
-      const hasBits = record.bits !== undefined;
-      const hasBound = record.bound !== undefined;
+      // Own-property reads: a plain `record.bits` would resolve through the
+      // prototype chain, letting `{ __proto__: { bits: 8 }, kind: 'uint' }`
+      // slip past even though Object.keys sees no such key.
+      const bits = Object.hasOwn(record, 'bits') ? record.bits : undefined;
+      const bound = Object.hasOwn(record, 'bound') ? record.bound : undefined;
+      const hasBits = bits !== undefined;
+      const hasBound = bound !== undefined;
       if (hasBits === hasBound) {
         throw new Error(
           `${label}: a uint descriptor needs exactly one of 'bits' (sized Uint<w>) ` +
@@ -70,7 +89,6 @@ export function assertCompactType(
         );
       }
       if (hasBits) {
-        const bits = record.bits;
         if (
           typeof bits !== 'number' ||
           !Number.isInteger(bits) ||
@@ -83,7 +101,6 @@ export function assertCompactType(
         }
         return;
       }
-      const bound = record.bound;
       if (typeof bound === 'number' && !Number.isSafeInteger(bound)) {
         throw new Error(
           `${label}: a number uint bound must be a safe integer (use a bigint ` +

@@ -5,7 +5,9 @@
 // verification circuit (`pureCircuits.verifyRespondBidirectionalEvent32`),
 // the same check client contracts run in-circuit at claim time, so the
 // off-chain signer and the on-chain verifier are pinned against each other
-// in-process.
+// in-process. The off-chain sifting check
+// (`verifyRespondBidirectionalSignature`) runs the same table and must agree
+// with the circuit on every row: a post it accepts is a post that proves.
 
 import { describe, expect, it } from "vitest";
 
@@ -21,6 +23,7 @@ import {
   SECP256K1_ORDER,
   secp256k1PublicKeyOf,
   signAttestationDigest,
+  verifyRespondBidirectionalSignature,
   pureCircuits as signetCircuits,
   type EcdsaSignature,
   type MpcSignature,
@@ -59,18 +62,14 @@ const respond = (
   secretKey: Uint8Array,
   requestId: Uint8Array,
   serializedOutput: Uint8Array = OUTPUT_32,
-): RespondBidirectionalEvent => {
-  const attestationDigest = calculateSignetAttestationDigest(
-    requestId,
-    serializedOutput,
-  );
-  return {
-    attestationDigest,
-    signature: ecdsaSignatureToMpcSignature(
-      signAttestationDigest(attestationDigest, secretKey),
+): RespondBidirectionalEvent => ({
+  signature: ecdsaSignatureToMpcSignature(
+    signAttestationDigest(
+      calculateSignetAttestationDigest(requestId, serializedOutput),
+      secretKey,
     ),
-  };
-};
+  ),
+});
 
 describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circuits", () => {
   // The BINDING tests: the TS twin must agree byte-for-byte with the
@@ -184,8 +183,13 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
       expected: false,
     },
     {
-      name: "fails when the digest checkpoint was tampered with (signature untouched)",
-      event: { ...valid, attestationDigest: bytes(32, 0x99) },
+      name: "fails when the stored signature scalar s was tampered with",
+      event: {
+        signature: ecdsaSignatureToMpcSignature({
+          ...validSig,
+          s: validSig.s + 1n,
+        }),
+      },
       serializedOutput: OUTPUT_32,
       requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
@@ -206,6 +210,29 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
     expect(
       signetCircuits.verifyRespondBidirectionalEvent32(requestId, serializedOutput, event, pk),
     ).toBe(expected);
+  });
+
+  // The off-chain sifting check must answer exactly what the circuit answers:
+  // it is what picks one post out of the unauthenticated log, and a
+  // disagreement either drops a provable post or forwards an unprovable one.
+  it.each(CASES)(
+    "$name (off chain, verifyRespondBidirectionalSignature)",
+    ({ event, serializedOutput, requestId, pk, expected }) => {
+      expect(
+        verifyRespondBidirectionalSignature(requestId, serializedOutput, event, pk),
+      ).toBe(expected);
+    },
+  );
+
+  it("returns false for a malformed stored signature rather than throwing", () => {
+    expect(
+      verifyRespondBidirectionalSignature(
+        REQUEST_ID,
+        OUTPUT_32,
+        { signature: { ...valid.signature, recoveryId: 2n } },
+        MPC_PUBLIC,
+      ),
+    ).toBe(false);
   });
 
   it("the recovery id recovers the signing key from the digest", () => {

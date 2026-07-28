@@ -19,7 +19,10 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
 import type { RequestId } from "./signet-requests.ts";
 
-import type { MpcSignature } from "./signet-contract-state-reader.ts";
+import type {
+  MpcSignature,
+  RespondBidirectionalEvent,
+} from "./signet-contract-state-reader.ts";
 
 // Re-exported because it appears throughout this module's public signatures:
 // SDK consumers shouldn't have to depend on compact-runtime just for the type.
@@ -299,4 +302,63 @@ export function calculateSignetAttestationDigest(
   return ethers.getBytes(
     ethers.keccak256(ethers.concat([requestId, serializedOutput])),
   );
+}
+
+/**
+ * Off-chain check of a posted respond-bidirectional attestation: recompute
+ * the attestation digest of `(requestId, serializedOutput)` and verify the
+ * event's ECDSA signature over it against `mpcResponseKey`.
+ *
+ * The event carries the signature alone, so this check is the ONLY way to
+ * tell a genuine post from garbage: the signet contract's log is
+ * unauthenticated and every post is stored unverified. Use it to sift the
+ * candidates {@link SignetRequestResponseReader.getRespondBidirectionalEvents}
+ * returns before handing one to a contract. It is the off-chain counterpart
+ * of the in-circuit `verifyRespondBidirectionalEvent` and answers the same
+ * question, so a post this accepts is the post that proves at claim time.
+ *
+ * Malformed records are garbage, not faults: a signature whose components
+ * have the wrong width, whose `r` is off-curve, or which simply does not
+ * verify all return `false` rather than throwing. High-`s` signatures are
+ * accepted, matching the in-circuit verification (which enforces no low-`s`
+ * policy) rather than the signer's own normalisation.
+ *
+ * @param requestId - The 32-byte request id the response answers.
+ * @param serializedOutput - The serialised execution output, exact unpadded bytes.
+ * @param event - The posted record to check, as read off the ledger.
+ * @param mpcResponseKey - The response key the requesting contract pinned:
+ *   the MPC key derived for its address and the fixed "midnight response key"
+ *   path (see {@link deriveMidnightResponseKey}).
+ * @returns Whether the post is a genuine attestation of that output.
+ */
+export function verifyRespondBidirectionalSignature(
+  requestId: RequestId,
+  serializedOutput: Uint8Array,
+  event: RespondBidirectionalEvent,
+  mpcResponseKey: Secp256k1Point,
+): boolean {
+  let signature: EcdsaSignature;
+  try {
+    signature = mpcSignatureToEcdsaSignature(event.signature);
+  } catch {
+    return false;
+  }
+  const digest = calculateSignetAttestationDigest(requestId, serializedOutput);
+  // Compact form the verifier takes: r || s big-endian, and the key as
+  // uncompressed SEC1 (0x04 || x || y).
+  const compactSignature = new Uint8Array(64);
+  compactSignature.set(bigintToBytes32BE(signature.r), 0);
+  compactSignature.set(bigintToBytes32BE(signature.s), 32);
+  const publicKey = new Uint8Array(65);
+  publicKey[0] = 0x04;
+  publicKey.set(bigintToBytes32BE(mpcResponseKey.x), 1);
+  publicKey.set(bigintToBytes32BE(mpcResponseKey.y), 33);
+  try {
+    return secp256k1.verify(compactSignature, digest, publicKey, {
+      prehash: false,
+      lowS: false,
+    });
+  } catch {
+    return false;
+  }
 }

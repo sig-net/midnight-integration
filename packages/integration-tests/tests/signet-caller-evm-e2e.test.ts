@@ -7,9 +7,9 @@
 // execution output from the fakenet's public /responses/{requestId} helper
 // API (so clients need no debug_traceTransaction access of their own),
 // recomputes the respond bytes (deserializeEvmOutput,
-// serializeRespondOutput, calculateSignetAttestationDigest) and matches the
-// attested digest before in-circuit verification. The fetched output is
-// UNTRUSTED until that digest+signature verification passes.
+// serializeRespondOutput) and picks the attestation that VERIFIES over them
+// against the pinned MPC response key before in-circuit verification. The
+// fetched output is UNTRUSTED until that signature verification passes.
 //
 // One ordered pipeline per target method, driven by the METHODS config
 // below: adding a Solidity method later means one Solidity function, one
@@ -350,7 +350,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
     );
 
     it(
-      `${method.name} recompute: deserializeEvmOutput + serializeRespondOutput reproduce the attested digest`,
+      `${method.name} recompute: deserializeEvmOutput + serializeRespondOutput reproduce the attested output`,
       async () => {
         if (alreadyConsumed) {
           logSkip(`${method.name} recompute`, `request ${requestId} already consumed`);
@@ -362,8 +362,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         // /responses/{requestId} helper API: the mined call's actual return
         // data as the fakenet traced it (debug_traceTransaction, the same
         // method the real MPC uses), served so clients need no trace RPC
-        // access of their own. UNTRUSTED until the recomputed digest below
-        // matches the attested one.
+        // access of their own. UNTRUSTED until an attestation below verifies
+        // over the bytes recomputed from it.
         const cached = await fetchFakenetResponse(requestId);
         expect(cached.success, "the fakenet must report a succeeded execution").toBe(true);
         expect(cached.output, "a succeeded execution must carry its raw output").toBeTruthy();
@@ -375,24 +375,28 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         respondBytes = serializeRespondOutput(method.schema, decoded);
         expect(respondBytes, "the packed respond payload must have the schema's exact width").toHaveLength(method.packedWidth);
 
-        // The digest seals the round trip: the fakenet ran the SAME two
-        // conversions on its side, so its attested digest must equal the
-        // digest of our independent recomputation, byte for byte.
-        const digest = calculateSignetAttestationDigest(requestIdBytes(requestId), respondBytes);
-        const events = await session.responseReader(method.requestsIndexField).getRespondBidirectionalEvents(requestId);
-        const matching = events.find(
-          (event) => Buffer.from(event.attestationDigest).equals(Buffer.from(digest)),
-        );
-        expect(matching, "an attested digest must match the recomputed respond bytes").toBeDefined();
-        attestedEvent = matching!;
+        // The signature seals the round trip: the post attests a digest over
+        // respond bytes only the fakenet's side produced, so it verifies
+        // against the pinned response key ONLY if the fakenet ran the SAME
+        // two conversions and got the same bytes we did. The event carries
+        // no digest of its own, so this signature check is the whole match.
+        const attested = await session
+          .responseReader(method.requestsIndexField)
+          .getVerifiedRespondBidirectionalEvent(
+            requestId,
+            respondBytes,
+            parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY")),
+          );
+        expect(attested, "a posted attestation must verify over the recomputed respond bytes").toBeDefined();
+        attestedEvent = attested!;
 
         banner([
-          `${method.name} attestation matches the recomputed respond bytes:`,
+          `${method.name} attestation verifies over the recomputed respond bytes:`,
           "",
           `  raw output: ${callResult} (from the fakenet /responses API)`,
           `  decoded:    ${JSON.stringify(decoded, (_, v: unknown) => (typeof v === "bigint" ? v.toString() : v))}`,
           `  payload:    0x${Buffer.from(respondBytes).toString("hex")} (${respondBytes.length} bytes)`,
-          `  digest:     0x${Buffer.from(digest).toString("hex")}`,
+          `  digest:     0x${Buffer.from(calculateSignetAttestationDigest(requestIdBytes(requestId), respondBytes)).toString("hex")}`,
           "",
           "deserializeEvmOutput and serializeRespondOutput ran on BOTH sides",
           "(fakenet and this suite) and agreed byte for byte.",
@@ -418,8 +422,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
 
         // The respond bytes recomputed from the API-fetched output go into
         // the circuit. The in-circuit digest recompute + signature check is
-        // what authenticates them: a tampered output cannot match the
-        // attested digest.
+        // what authenticates them: a tampered output yields a digest the
+        // MPC never signed.
         await method.verify(context, requestIdBytes(requestId), attestedEvent, respondBytes);
 
         const deadline = Date.now() + MINUTE;

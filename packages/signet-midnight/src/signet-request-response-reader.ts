@@ -20,14 +20,19 @@ import {
   type RespondBidirectionalEvent,
 } from "./signet-contract-state-reader.ts";
 import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
+import {
+  verifyRespondBidirectionalSignature,
+  type Secp256k1Point,
+} from "./ecdsa-attestation.ts";
 import type { RawContractState } from "./signature-state-reading.ts";
 import {
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
 } from "./signet-evtype2tx-requests.ts";
-import type {
-  SignBidirectionalEvent,
-  RequestIdHex,
+import {
+  requestIdBytes,
+  type SignBidirectionalEvent,
+  type RequestIdHex,
 } from "./signet-requests.ts";
 
 /**
@@ -314,12 +319,11 @@ export class SignetRequestResponseReader {
   /**
    * Fetch every respond-bidirectional response posted for `requestId`, in
    * post (count) order. UNVERIFIED: the signet contract stores posts without
-   * checking them, so any entry may be garbage. Verify each candidate before
-   * trusting it (in-circuit at claim time, or off-chain: recompute the digest
-   * with the TS twin `calculateSignetAttestationDigest`, match it against the
-   * event's `attestationDigest`, and verify the ECDSA signature against the
-   * MPC response key you expect). An empty array simply means none posted
-   * yet: poll again.
+   * checking them, so any entry may be garbage. Each post carries a signature
+   * and nothing else, so verifying it against the MPC response key you expect
+   * is the only way to pick the genuine one: in-circuit at claim time, or off
+   * chain with {@link verifyRespondBidirectionalSignature} over the output you
+   * fetched. An empty array simply means none posted yet: poll again.
    *
    * @param requestId - The request id whose responses to enumerate.
    * @returns The posted records, index = count, empty when none yet.
@@ -350,5 +354,44 @@ export class SignetRequestResponseReader {
       responses.push(response);
     }
     return responses;
+  }
+
+  /**
+   * Fetch the respond-bidirectional posts for `requestId` and return the
+   * first (lowest count) one whose signature verifies over
+   * `serializedOutput` against `mpcResponseKey`: the off-chain twin of the
+   * check the client contract runs in-circuit, and the only way to pick a
+   * genuine post out of an unauthenticated log now that posts carry nothing
+   * but a signature.
+   *
+   * The output must be the exact unpadded bytes the attestation commits to
+   * (the packed respond payload, recomputed from the execution output the
+   * client fetched), so a post that verifies here is the post that proves at
+   * claim time.
+   *
+   * @param requestId - The request id to fetch a verified attestation for.
+   * @param serializedOutput - The serialised execution output the attestation
+   *   must commit to, exact unpadded bytes.
+   * @param mpcResponseKey - The MPC response key the requesting contract
+   *   pinned at deploy (see `deriveMidnightResponseKey`).
+   * @returns The first verifying post, or `undefined` when none has been
+   *   posted yet (poll again) or none attests this output.
+   * @throws Error when the signet contract has no state, or its counter
+   *   disagrees with the log (inconsistent ledger).
+   */
+  async getVerifiedRespondBidirectionalEvent(
+    requestId: RequestIdHex,
+    serializedOutput: Uint8Array,
+    mpcResponseKey: Secp256k1Point,
+  ): Promise<RespondBidirectionalEvent | undefined> {
+    const events = await this.getRespondBidirectionalEvents(requestId);
+    return events.find((event) =>
+      verifyRespondBidirectionalSignature(
+        requestIdBytes(requestId),
+        serializedOutput,
+        event,
+        mpcResponseKey,
+      ),
+    );
   }
 }

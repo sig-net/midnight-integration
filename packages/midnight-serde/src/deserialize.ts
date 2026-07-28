@@ -3,15 +3,17 @@
 //
 // Two deliberate divergences from the circuit, both strict-by-default
 // (garbage in a buffer means corruption or mis-framing, and failing loudly
-// off-chain is the safer default):
+// off-chain is the safer default), and both with an opt-out:
 //   - PADDING: the circuit IGNORES bytes in the padding region entirely
 //     (pinned by tests), while this decoder rejects non-zero padding. Pass
 //     `{ ignorePadding: true }` to mirror the circuit.
 //   - BOOLEANS: the circuit decodes ANY byte other than 0x01 as false, so
 //     0x02..0xff all quietly become false (pinned by tests), while this
-//     decoder rejects bytes above 1.
-// Circuit-produced bytes never trigger either divergence: `serialize<T, N>`
-// only writes zero padding and 0x00/0x01 booleans.
+//     decoder rejects bytes above 1. Pass `{ lenientBooleans: true }` to
+//     mirror the circuit.
+// With both options set the decode is circuit-exact. Circuit-produced bytes
+// never trigger either divergence: `serialize<T, N>` only writes zero padding
+// and 0x00/0x01 booleans.
 //
 // Everything else mirrors the circuit exactly, including its rejections: the
 // descriptor is fully validated (src/validate.ts) and the input buffer
@@ -21,11 +23,28 @@
 import { FIELD_MODULUS } from './types.ts';
 import type { CompactType, CompactValue, CompactValueOf } from './types.ts';
 import { packedSize, uintBound, uintName } from './serialize.ts';
-import { assertCompactType, assertUnreachable } from './validate.ts';
+import { assertCompactType, assertUnreachable, isUint8Array } from './validate.ts';
 
 export interface CompactDeserializeOptions {
   /** Skip the all-zero check on bytes after the packed value (circuit behaviour). */
   ignorePadding?: boolean;
+  /**
+   * Decode boolean bytes above 0x01 as false instead of throwing (circuit
+   * behaviour: only 0x01 is true, anything else is false).
+   */
+  lenientBooleans?: boolean;
+}
+
+// Zero-width elements (empty structs/tuples, `Uint<0..1>`, single-variant
+// enums, `Bytes<0>`) consume no input, so a vector of them decodes purely
+// from the descriptor: a validated-but-hostile `Vector<10^15, Nothing>`
+// would loop forever on an EMPTY buffer. No real circuit is anywhere near
+// this many zero-width elements, so cap them rather than hang.
+const MAX_ZERO_WIDTH_ELEMENTS = 65536;
+
+interface DecodeContext {
+  readonly lenientBooleans: boolean;
+  zeroWidthElements: number;
 }
 
 /**
@@ -40,10 +59,20 @@ export function compactDeserialize<const T extends CompactType>(
   options: CompactDeserializeOptions = {}
 ): CompactValueOf<T> {
   assertCompactType(type);
-  if (!(bytes instanceof Uint8Array)) {
+  if (!isUint8Array(bytes)) {
     throw new Error('bytes must be a Uint8Array');
   }
-  const [value, consumed] = decodeFrom(bytes, 0, type, 'value');
+  // One size check up front covers every read below: fields and elements
+  // tile the packed prefix exactly, so no per-node re-check is needed.
+  const need = packedSize(type);
+  if (need > bytes.length) {
+    throw new Error(`value: needs ${need} bytes, buffer has ${bytes.length}`);
+  }
+  const context: DecodeContext = {
+    lenientBooleans: options.lenientBooleans === true,
+    zeroWidthElements: 0,
+  };
+  const [value, consumed] = decodeFrom(bytes, 0, type, 'value', context);
   if (!options.ignorePadding) {
     for (let i = consumed; i < bytes.length; i++) {
       if (bytes[i] !== 0) {
@@ -61,20 +90,17 @@ function decodeFrom(
   bytes: Uint8Array,
   offset: number,
   type: CompactType,
-  label: string
+  label: string,
+  context: DecodeContext
 ): [CompactValue, number] {
-  const need = packedSize(type);
-  if (offset + need > bytes.length) {
-    throw new Error(
-      `${label}: needs ${need} bytes at offset ${offset}, buffer has ${bytes.length}`
-    );
-  }
   switch (type.kind) {
     case 'boolean': {
       const b = bytes[offset]!;
-      // Stricter than the circuit, which decodes any byte != 0x01 as false
+      // Strict by default; the circuit decodes any byte != 0x01 as false
       // (see the header comment).
-      if (b > 1) throw new Error(`${label}: invalid boolean byte 0x${b.toString(16)}`);
+      if (b > 1 && !context.lenientBooleans) {
+        throw new Error(`${label}: invalid boolean byte 0x${b.toString(16)}`);
+      }
       return [b === 1, offset + 1];
     }
     case 'uint': {
@@ -82,8 +108,8 @@ function decodeFrom(
       const size = packedSize(type);
       const value = readUintLE(bytes, offset, size);
       // Mirrors the circuit, which rejects encodings at or above the bound
-      // (pinned by tests via the bounded fixture; only reachable for sized
-      // uints when the width is not byte-aligned).
+      // (pinned by tests via the Bounded, Wide and U12 fixtures; only
+      // reachable for sized uints when the width is not byte-aligned).
       if (value >= bound) {
         throw new Error(`${label}: encoding ${value} exceeds ${uintName(type)}`);
       }
@@ -112,10 +138,19 @@ function decodeFrom(
       return [Number(value), offset + size];
     }
     case 'vector': {
+      if (packedSize(type.element) === 0) {
+        context.zeroWidthElements += type.length;
+        if (context.zeroWidthElements > MAX_ZERO_WIDTH_ELEMENTS) {
+          throw new Error(
+            `${label}: refusing to materialise over ${MAX_ZERO_WIDTH_ELEMENTS} ` +
+              `zero-width vector elements (the descriptor decodes them from no input at all)`
+          );
+        }
+      }
       const elements: CompactValue[] = [];
       let cursor = offset;
       for (let i = 0; i < type.length; i++) {
-        const [element, next] = decodeFrom(bytes, cursor, type.element, `${label}[${i}]`);
+        const [element, next] = decodeFrom(bytes, cursor, type.element, `${label}[${i}]`, context);
         elements.push(element);
         cursor = next;
       }
@@ -125,7 +160,7 @@ function decodeFrom(
       const elements: CompactValue[] = [];
       let cursor = offset;
       type.elements.forEach((element, i) => {
-        const [decoded, next] = decodeFrom(bytes, cursor, element, `${label}[${i}]`);
+        const [decoded, next] = decodeFrom(bytes, cursor, element, `${label}[${i}]`, context);
         elements.push(decoded);
         cursor = next;
       });
@@ -135,7 +170,13 @@ function decodeFrom(
       const value: { [field: string]: CompactValue } = {};
       let cursor = offset;
       for (const field of type.fields) {
-        const [fieldValue, next] = decodeFrom(bytes, cursor, field.type, `${label}.${field.name}`);
+        const [fieldValue, next] = decodeFrom(
+          bytes,
+          cursor,
+          field.type,
+          `${label}.${field.name}`,
+          context
+        );
         // defineProperty, not assignment: a field named '__proto__' is a
         // legal Compact identifier, and plain assignment would hit the
         // prototype setter and silently drop it.

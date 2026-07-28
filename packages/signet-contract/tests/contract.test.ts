@@ -52,15 +52,13 @@ const SIG_2: SignatureRespondedEvent = {
   signature: { bigR: { x: bytes(32, 0x04), y: bytes(32, 0x05) }, s: bytes(32, 0x06), recoveryId: 1n },
 };
 
-// Respond-bidirectional records: SYNTHETIC digests and signatures,
-// deliberately not verifiable. The contract must store them anyway
-// (verification is the reader's job).
+// Respond-bidirectional records: SYNTHETIC signatures, deliberately not
+// verifiable. The contract must store them anyway (verification is the
+// reader's job).
 const RESPOND_1: RespondBidirectionalEvent = {
-  attestationDigest: bytes(32, 0xd1),
   signature: { bigR: { x: bytes(32, 0x07), y: bytes(32, 0x08) }, s: bytes(32, 0x09), recoveryId: 0n },
 };
 const RESPOND_2: RespondBidirectionalEvent = {
-  attestationDigest: bytes(32, 0xd2),
   signature: { bigR: { x: bytes(32, 0x0a), y: bytes(32, 0x0b) }, s: bytes(32, 0x0c), recoveryId: 1n },
 };
 
@@ -411,9 +409,9 @@ describe("respondBidirectional", () => {
   });
 
   it("MPC-style raw read agrees with the generated ledger()", async () => {
-    // Both posts are read back because RESPOND_1 and RESPOND_2 differ in
-    // attestationDigest and recoveryId: a decoder that dropped either field
-    // would still match a single fixture whose values happen to be its default.
+    // Both posts are read back because RESPOND_1 and RESPOND_2 differ in every
+    // signature leaf, recoveryId included: a decoder that dropped one would
+    // still match a single fixture whose values happen to be its default.
     const { contract, ctx } = await deployContract("respondBidirectional");
     const first = await contract.circuits.respondBidirectional(ctx, REQUEST_A, RESPOND_1);
     const { context } = await contract.circuits.respondBidirectional(

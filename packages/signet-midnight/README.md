@@ -13,7 +13,7 @@ The client-agnostic [Sig Network](https://sig.network) protocol library for the 
   ```compact
   import "@sig-net/midnight/src/Signet";
   ```
-- **Compiled pure circuits** (`pureCircuits`): the executable reference implementation of the client-agnostic circuits (the deploy-time key pin, the notification packer, the ABI word builders and readers). Off-chain code calls these compiled artefacts, so it always agrees with what the contracts prove. The attestation digest and response verification are not among them: their compiled circuits are fixed-width oracles used only by this package's tests, and the sanctioned off-chain path is the TypeScript twin (`calculateSignetAttestationDigest` plus ordinary ECDSA verification against the expected MPC response key), which those tests pin byte-for-byte against the oracles.
+- **Compiled pure circuits** (`pureCircuits`): the executable reference implementation of the client-agnostic circuits (the deploy-time key pin, the notification packer, the ABI word builders and readers). Off-chain code calls these compiled artefacts, so it always agrees with what the contracts prove. The attestation digest and response verification are not among them: their compiled circuits are fixed-width oracles used only by this package's tests, and the sanctioned off-chain path is the TypeScript twin (`calculateSignetAttestationDigest`, and `verifyRespondBidirectionalSignature` for ordinary ECDSA verification against the expected MPC response key), which those tests pin against the oracles: byte-for-byte for the digest, verdict-for-verdict for the verification.
 - **TypeScript twins of the wire structs** and signet request-id computation.
 - **State readers, request feed and resolver**: poll the signet contract for pending requests and their signature / remote-execution responses.
 - **Crypto helpers**: epsilon derivation and ECDSA attestation verification.
@@ -33,10 +33,10 @@ The flow comprises 5 steps:
 1. Client calls a contract on Midnight which requests a signature for a transaction destined for a foreign chain. The signature is made with a key derived for the requesting contract (see [Derived keys](#derived-keys)).
 2. The Sig Network MPC honours the request, generating the transaction signature and posting it back to Midnight.
 3. Client extracts the signature, using it to submit the signed transaction to the foreign chain.
-4. The Sig Network MPC observes the foreign transaction and posts an attestation of the execution back to Midnight: the attestation digest `keccak256(requestId || serializedOutput)` plus its ECDSA signature over that digest. The output itself travels off chain.
+4. The Sig Network MPC observes the foreign transaction and posts an attestation of the execution back to Midnight: its ECDSA signature over the attestation digest `keccak256(requestId || serializedOutput)`. Both the digest and the output itself travel off chain.
 5. Client obtains the execution output off chain (see the output recovery note below: it broadcast the transaction in step 3, so it can read the result), extracts the posted attestation and submits both back to the Midnight contract, which recomputes the digest from the output bytes and verifies the MPC's signature in-circuit against the contract's own response key (see [Derived keys](#derived-keys)), completing the foreign transaction execution.
 
-> **Output recovery:** how the client reads the execution output is chain-specific. For EVM chains it is the mined call's return data, extracted with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. Clients without trace access can fetch the raw output from the fakenet responder's helper API at `GET /responses/{requestId}` (served by [`ResponsesApi.ts`](https://github.com/sig-net/solana-signet-program/blob/fakenet-v0.8.0/fakenet-signer/src/server/ResponsesApi.ts), port 3040 in the local stack). The fetched bytes are untrusted until step 5's digest match and in-circuit signature verification.
+> **Output recovery:** how the client reads the execution output is chain-specific. For EVM chains it is the mined call's return data, extracted with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. Clients without trace access can fetch the raw output from the fakenet responder's helper API at `GET /responses/{requestId}` (served by [`ResponsesApi.ts`](https://github.com/sig-net/solana-signet-program/blob/fakenet-v0.8.0/fakenet-signer/src/server/ResponsesApi.ts), port 3040 in the local stack). The fetched bytes are untrusted until step 5's in-circuit signature verification.
 
 ## Derived keys
 
@@ -211,11 +211,15 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
    await new JsonRpcProvider(foreignChainRpcUrl).broadcastTransaction(signedTx.serialized);
    ```
 
-4. Poll the Signet singleton for the MPC's attestation of the remote execution output (posted once the MPC observes the transaction execute on the foreign chain). The event carries only the attestation digest and the signature over it: the serialised output itself travels off chain (you broadcast the transaction in step 3, so you can read its result). Posts are stored unverified, so treat them as candidates: the authoritative check is your contract's verify circuit in step 5:
+4. Poll the Signet singleton for the MPC's attestation of the remote execution output (posted once the MPC observes the transaction execute on the foreign chain). The event carries the MPC's signature alone: both the attestation digest and the serialised output itself travel off chain (you broadcast the transaction in step 3, so you can read its result). The log is unauthenticated, so use the verifying getter, as in step 2: it recomputes the digest over the output you present and returns only a post whose signature verifies against your contract's response key.
 
    ```ts
-   const [respondBidirectionalEvent] = await reader.getRespondBidirectionalEvents(requestId);
-   // Empty array: not posted yet, poll again.
+   const respondBidirectionalEvent = await reader.getVerifiedRespondBidirectionalEvent(
+      requestId,
+      serializedOutput,
+      mpcResponseKey,
+   );
+   // undefined: no attestation of that output posted yet, poll again.
    ```
 
 5. Deliver the response and the serialised output to your contract, which recomputes the attestation digest, verifies the event in-circuit against the response key pinned in Setup step 3, and consumes the request. The width argument is the exact packed size of your respond serialisation schema (a single bool packs to 1 byte):
@@ -270,7 +274,7 @@ const calldata = EvmCalldata<2> {
 };
 ```
 
-The readers run the same rules in the other direction, rejecting any non-canonical word outright (no silent truncation or coercion). Note that the builders and readers apply to CALLDATA words only. The serialised output a settle circuit verifies (the explicit `serializedOutput` argument `verifyRespondBidirectionalEvent` binds to the event's attestation digest) is NOT ABI words: it is the packed respond payload produced from the request's respond serialisation schema (a bool packs to 1 byte). The circuit reads it with a single stdlib `deserialize<T, N>` call, where `T` is a struct mirroring the schema and `N` is the schema's packed size. For an ERC20 `transfer`'s `bool` return under a one-field bool schema:
+The readers run the same rules in the other direction, rejecting any non-canonical word outright (no silent truncation or coercion). Note that the builders and readers apply to CALLDATA words only. The serialised output a settle circuit verifies (the explicit `serializedOutput` argument `verifyRespondBidirectionalEvent` recomputes the attestation digest from) is NOT ABI words: it is the packed respond payload produced from the request's respond serialisation schema (a bool packs to 1 byte). The circuit reads it with a single stdlib `deserialize<T, N>` call, where `T` is a struct mirroring the schema and `N` is the schema's packed size. For an ERC20 `transfer`'s `bool` return under a one-field bool schema:
 
 ```compact
 struct TransferResult {

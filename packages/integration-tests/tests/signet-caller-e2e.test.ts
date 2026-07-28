@@ -318,18 +318,19 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
         hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
       );
-      const attestationDigest = calculateSignetAttestationDigest(requestKey, serializedOutput);
-      const signature = signAttestationDigest(attestationDigest, responseSecretKey);
+      const signature = signAttestationDigest(
+        calculateSignetAttestationDigest(requestKey, serializedOutput),
+        responseSecretKey,
+      );
 
       // No key argument: verifyResponse reads the stored MPC response key
       // straight from the ledger (the initialise leg put it there), and takes
-      // the response in the shape the singleton stores it.
+      // the response in the shape the singleton stores it. The event carries
+      // the signature alone: the circuit recomputes the digest from the
+      // output handed in beside it.
       await context.caller.callTx.verifyResponse(
         requestKey,
-        {
-          attestationDigest,
-          signature: ecdsaSignatureToMpcSignature(signature),
-        },
+        { signature: ecdsaSignatureToMpcSignature(signature) },
         serializedOutput,
       );
 
