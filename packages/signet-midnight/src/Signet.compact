@@ -32,8 +32,8 @@
 //  - RespondBidirectionalEvent: Attestation of a transaction executed on a foreign blockchain: the MPC's ECDSA
 //                               signature over the attestation digest of the request id and serialised output
 //                               (see calculateSignetAttestationDigest), signed with the MPC's RESPONSE key for
-//                               the requesting contract: the key derived from the client contract's address +
-//                               the fixed path "midnight response key". Both the digest and the output itself
+//                               the requesting contract (a key derived from the client contract's address +
+//                               the fixed path "midnight response key"). Both the digest and the output itself
 //                               travel off chain. Posted by MPC back to Signet singleton for clients to extract,
 //                               verify (see verifyRespondBidirectionalEvent) and deliver back to the client
 //                               contract.
@@ -69,21 +69,25 @@ module Signet {
 
   // Structured request for a signature on a transaction. Generically configured by client contracts
   // based on the type of transaction for which a signature is requested (EVM Type 2, Solana etc.).
+  // CRITICAL: The Textual ordering of fields in this structure is MAY NOT CHANGED. It must stay fixed as off
+  //           chain observers rely on the field ordering for decoding ledger data into this structure.
   export struct SignBidirectionalEvent<TxParams, #LenOutputDeserialization, #LenRespondSerialization> {
     // Address of the client contract that stores and notifies of this SignBidirectionalEvent.
     // Set with kernel.self().
+    // Verified by the MPC to be the same as the caller that calls SignetSigner.signBidirectional to post
+    // the SignBidirectionalEventNotification triggering the MPC to discover this SignBidirectionalEvent.
     sender: ContractAddress;
 
     // Optional nonce field settable by client contracts to ensure SignBidirectionalEvent uniqueness if desired.
     requestNonce: Uint<64>;
 
     // MPC Key Derivation Parameters.
-    // Every key the MPC signs with is scoped by the requesting contract:
-    //   derivedSigningKey = f(mpcRootKey[keyVersion], sender, path)
+    // Every key the MPC signs with is scoped by the requesting contract (sender) and a 32 byte path hex encoded:
+    //   derivedSigningKey = f(mpcRootKey[keyVersion], sender, hex::encode(path))
+    //
     // The path is 32 opaque bytes of the client contract's choosing (e.g a fixed literal
     // for a contract-owned account or a hash of a caller's secret for per-user
-    // accounts): no format is enforced. The sender is always part of the
-    // derivation, so no contract can reach another contract's derived keys.
+    // accounts).
     keyVersion: Uint<8>;      // MPC root-key version to derive from. Set to 1.
     path: Bytes<32>;          // Key derivation path: 32 opaque bytes, client contract's choice.
 
