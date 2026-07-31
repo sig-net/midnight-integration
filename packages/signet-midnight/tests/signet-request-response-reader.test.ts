@@ -267,7 +267,7 @@ const makeReader = (
   };
   const reader = new SignetRequestResponseReader({
     requesterContractAddress: REQUESTER_ADDRESS,
-    requesterRequestsIndexField: 0,
+    requesterRequestsPath: [0],
     signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     publicDataProvider,
   });
@@ -303,7 +303,7 @@ describe("getSignatureRequest", () => {
     };
     const reader = new SignetRequestResponseReader({
       requesterContractAddress: REQUESTER_ADDRESS,
-      requesterRequestsIndexField: 0,
+      requesterRequestsPath: [0],
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
       publicDataProvider,
     });

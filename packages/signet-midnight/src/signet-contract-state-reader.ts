@@ -12,7 +12,7 @@
 //   field 5: respondBidirectionalMap (Map<SignetMapKey, RespondBidirectionalEvent>)
 // Every store is an unauthenticated append-only log keyed by
 // (requestId, count): verification is the reader's job. The generic
-// state-tree walk (RawContractState, signetFieldNode) and the shared base
+// state-tree walk (RawContractState, signetFieldNodeByPath) and the shared base
 // descriptors live in signature-state-reading.ts.
 
 import {
@@ -30,7 +30,7 @@ import {
 
 import {
   requestIdType,
-  signetFieldNode,
+  signetFieldNodeByPath,
   u64,
   type RawContractState,
 } from "./signature-state-reading.ts";
@@ -321,8 +321,18 @@ export const signBidirectionalNotificationType: CompactType<SignBidirectionalNot
 /** Offset of the V1 `callerAddress` in the packed payload (`Bytes<32>` at the front). */
 const NOTIFICATION_CALLER_ADDRESS_OFFSET = 0;
 
-/** Offset of the V1 `requestsIndexField` (after the 32 callerAddress bytes). */
-const NOTIFICATION_REQUESTS_INDEX_FIELD_OFFSET = 32;
+/** Offset of the V1 `requestsPathDepth` (after the 32 callerAddress bytes). */
+const NOTIFICATION_PATH_DEPTH_OFFSET = 32;
+
+/** Offset of the V1 `requestsPath` bytes (after the 1-byte depth). */
+const NOTIFICATION_PATH_OFFSET = 33;
+
+/**
+ * Maximum ledger-tree path depth the V1 payload carries, matching the
+ * `Vector<4, Uint<8>>` the `constructSignBidirectionalEventNotificationV1`
+ * circuit packs. Depth 1 addresses up to 15 fields, depth 4 up to 15^4.
+ */
+const MAX_LEDGER_PATH_DEPTH = 4;
 
 /** The only payload interpretation {@link decodeSignBidirectionalNotification} understands today. */
 const SUPPORTED_NOTIFICATION_VERSION = 1n;
@@ -346,11 +356,13 @@ export interface SignBidirectionalNotification {
    */
   callerAddress: string;
   /**
-   * Ledger field position of the `SignBidirectionalEventMap` in
-   * {@link callerAddress} (the caller contract in this repo declares it at
-   * field 4, but the notification carries it so the reader never assumes).
+   * Resolved ledger-tree path of the `SignBidirectionalEventMap` in
+   * {@link callerAddress}, as compactc records it in that contract's
+   * `contract-info.json` (`"index"`): `[4]` for a flat contract's field 4,
+   * `[1, 14]` once chunking applies. The reader follows it node for node
+   * (see {@link signetFieldNodeByPath}) and never assumes a layout.
    */
-  requestsIndexField: number;
+  requestsPath: number[];
 }
 
 /**
@@ -359,14 +371,18 @@ export interface SignBidirectionalNotification {
  * `constructSignBidirectionalEventNotificationV1` circuit (byte plumbing
  * only: the pack↔decode lockstep is pinned by the state-reader unit test that
  * round-trips through the real circuit). V1 layout:
- * callerAddress (32) ++ requestsIndexField (1) ++ zero padding (95).
+ * callerAddress (32) ++ requestsPathDepth (1) ++ requestsPath (4) ++ zero
+ * padding (91), where only the first `requestsPathDepth` path bytes are
+ * meaningful.
  *
  * Fails closed on an unrecognised `version`: a future payload layout adds a
  * branch here rather than silently misinterpreting bytes under the V1 offsets.
  *
  * @param record - The raw on-ledger record.
- * @returns The decoded flat notification.
- * @throws Error if the record's `version` is not one this decoder understands.
+ * @returns The decoded notification, its `requestsPath` trimmed to the
+ *   declared depth.
+ * @throws Error if the record's `version` is not one this decoder understands,
+ *   or its `requestsPathDepth` is zero or exceeds {@link MAX_LEDGER_PATH_DEPTH}.
  */
 export function decodeSignBidirectionalNotification(
   record: SignBidirectionalNotificationRecord,
@@ -380,21 +396,25 @@ export function decodeSignBidirectionalNotification(
   const callerAddress = bytesToHex(
     record.payload.slice(
       NOTIFICATION_CALLER_ADDRESS_OFFSET,
-      NOTIFICATION_REQUESTS_INDEX_FIELD_OFFSET,
+      NOTIFICATION_PATH_DEPTH_OFFSET,
     ),
   );
-  const requestsIndexField =
-    record.payload[NOTIFICATION_REQUESTS_INDEX_FIELD_OFFSET];
-  if (requestsIndexField === undefined) {
+  const depth = record.payload[NOTIFICATION_PATH_DEPTH_OFFSET];
+  if (depth === undefined || depth < 1 || depth > MAX_LEDGER_PATH_DEPTH) {
     throw new Error(
-      `SignBidirectionalEventNotification payload is ${record.payload.length} bytes: ` +
-        `too short for the V1 requestsIndexField at offset ${NOTIFICATION_REQUESTS_INDEX_FIELD_OFFSET}`,
+      `SignBidirectionalEventNotification requestsPathDepth ${depth} is out of range ` +
+        `(expected 1 to ${MAX_LEDGER_PATH_DEPTH})`,
     );
   }
+  // payload is a re-padded Bytes<128> and depth is bounded to MAX_LEDGER_PATH_DEPTH
+  // above, so this slice always yields exactly `depth` bytes.
+  const requestsPath = Array.from(
+    record.payload.slice(NOTIFICATION_PATH_OFFSET, NOTIFICATION_PATH_OFFSET + depth),
+  );
   return {
     version: Number(record.version),
     callerAddress,
-    requestsIndexField,
+    requestsPath,
   };
 }
 
@@ -446,7 +466,8 @@ export function signetMapEntryKey(id: RequestIdHex, count: bigint): string {
 
 /** Decode a `Map<RequestId, Counter>` ledger field into a {@link SignetCounterIndex}. */
 function readCounterMap(raw: RawContractState, field: number): SignetCounterIndex {
-  const counterMap = signetFieldNode(raw, field).asMap();
+  // The central singleton is flat (6 fields), so a field number is a depth-1 path.
+  const counterMap = signetFieldNodeByPath(raw, [field]).asMap();
   if (counterMap === undefined) {
     throw new Error(`Ledger field ${field} is not a Map`);
   }
@@ -468,7 +489,7 @@ function readSignetKeyedMap<T>(
   field: number,
   valueType: CompactType<T>,
 ): Map<string, T> {
-  const map = signetFieldNode(raw, field).asMap();
+  const map = signetFieldNodeByPath(raw, [field]).asMap();
   if (map === undefined) {
     throw new Error(`Ledger field ${field} is not a Map`);
   }
@@ -501,10 +522,9 @@ function readSignetKeyedMap<T>(
 export function readSignBidirectionalNotificationIndexFromState(
   raw: RawContractState,
 ): SignBidirectionalNotificationIndex {
-  const notificationMap = signetFieldNode(
-    raw,
+  const notificationMap = signetFieldNodeByPath(raw, [
     SIGN_BIDIRECTIONAL_EVENT_NOTIFICATION_MAP_FIELD,
-  ).asMap();
+  ]).asMap();
   if (notificationMap === undefined) {
     throw new Error(
       `Ledger field ${SIGN_BIDIRECTIONAL_EVENT_NOTIFICATION_MAP_FIELD} is not a Map`,

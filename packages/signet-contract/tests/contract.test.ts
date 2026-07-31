@@ -100,10 +100,12 @@ describe("constructor", () => {
 });
 
 describe("signBidirectional", () => {
-  const notification = (requestsIndexField: bigint) =>
+  // These callers are flat, so a field number is a depth-1 path [field].
+  const notification = (requestsField: bigint) =>
     signetCircuits.constructSignBidirectionalEventNotificationV1(
       NOTIFYING_CALLER,
-      requestsIndexField,
+      1n,
+      [requestsField, 0n, 0n, 0n],
     );
 
   it("stores the notification under (requestId, 0) and returns that map key", async () => {
@@ -195,7 +197,7 @@ describe("signBidirectional", () => {
     expect(decodeSignBidirectionalNotification(record!)).toEqual({
       version: 1,
       callerAddress: bytesToHex(NOTIFYING_CALLER.bytes),
-      requestsIndexField: 4,
+      requestsPath: [4],
     });
   });
 });

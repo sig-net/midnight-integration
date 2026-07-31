@@ -21,7 +21,7 @@ import {
   requestIdHex,
   secp256k1PublicKeyOf,
   signAttestationDigest,
-  signetFieldNode,
+  signetFieldNodeByPath,
   toSignBidirectionalEventIndex,
   type RespondBidirectionalEvent,
   type SignBidirectionalEventLedgerMap,
@@ -42,7 +42,7 @@ import * as SignetSigner from "../src/managed/SignetSigner/contract/index.js";
 
 // THIS contract's ledger layout (declaration order in test-caller-contract.compact):
 // requestLog List at field 0, counter at field 1, request map at field 4.
-// The map position must match the `4 as Uint<8>` requestsIndexField the
+// The map position must match the depth-1 path [4] the
 // contract passes in submitSignatureRequest's notification.
 const REQUEST_LOG_FIELD = 0;
 const NONCE_FIELD = 1;
@@ -224,20 +224,20 @@ describe("test-caller-contract ledger shape", () => {
     expect(toSignBidirectionalEventIndex(ledgerMap).size).toBe(0);
   });
 
-  it("MPC-style: finds the request map in RAW state by position, no ledger()", async () => {
+  it("MPC-style: finds the request map in RAW state by path, no ledger()", async () => {
     const { ctx } = await deployContract();
 
     const rawState = ctx.callContext.currentQueryContext.state;
-    // The List at field 0 is array-typed exactly like a chunked field root,
-    // and resolving the map behind it is the point of this layout.
-    expect(signetFieldNode(rawState, REQUEST_LOG_FIELD).type()).toBe("array");
-    const node = signetFieldNode(rawState, REQUESTS_INDEX_FIELD);
+    // The List at field 0 is array-typed exactly like a chunk, and following
+    // the path lands on the map behind it without inspecting node widths.
+    expect(signetFieldNodeByPath(rawState, [REQUEST_LOG_FIELD]).type()).toBe("array");
+    const node = signetFieldNodeByPath(rawState, [REQUESTS_INDEX_FIELD]);
     expect(node.type()).toBe("map");
 
     const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
       rawState,
-      REQUESTS_INDEX_FIELD,
-      NONCE_FIELD,
+      [REQUESTS_INDEX_FIELD],
+      [NONCE_FIELD],
     );
     const typedIndex = toSignBidirectionalEventIndex(
       ledger(ctx.callContext.currentQueryContext.state).signBidirectionalEventMap,
@@ -266,8 +266,8 @@ describe("submitSignatureRequest round-trip", () => {
     // Read 2: MPC-style raw read (no compiled contract involved).
     const rawLedger = readSignetRequestsLedgerFromState(
       state,
-      REQUESTS_INDEX_FIELD,
-      NONCE_FIELD,
+      [REQUESTS_INDEX_FIELD],
+      [NONCE_FIELD],
     );
 
     expect(typedIndex.size).toBe(1);

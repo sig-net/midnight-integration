@@ -61,7 +61,8 @@ const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
 const CALLER_ADDRESS_BYTES = bytes(32, 0xc1);
 const NOTIFICATION = pureCircuits.constructSignBidirectionalEventNotificationV1(
   { bytes: CALLER_ADDRESS_BYTES },
-  4n,
+  1n,
+  [4n, 0n, 0n, 0n],
 );
 
 /** Counter cell as the runtime stores it: a u64 in a plain cell. */
@@ -171,7 +172,8 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
   it("keeps the FIRST post per request id when re-notifies appended", () => {
     const second = pureCircuits.constructSignBidirectionalEventNotificationV1(
       { bytes: bytes(32, 0xd2) },
-      7n,
+      1n,
+      [7n, 0n, 0n, 0n],
     );
     const notificationMap = new StateMap()
       .insert(mapKey(0n), notificationCell(NOTIFICATION))
@@ -189,11 +191,11 @@ describe("signet-contract-state-reader (MPC-style raw decode)", () => {
     expect(registry.get(requestIdHex(REQUEST_ID))).toEqual(NOTIFICATION);
   });
 
-  it("decodes a circuit-packed notification back to its flat fields (pack↔decode lockstep)", () => {
+  it("decodes a circuit-packed notification back to its fields (pack↔decode lockstep)", () => {
     expect(decodeSignBidirectionalNotification(NOTIFICATION)).toEqual({
       version: 1,
       callerAddress: bytesToHex(CALLER_ADDRESS_BYTES),
-      requestsIndexField: 4,
+      requestsPath: [4],
     });
   });
 

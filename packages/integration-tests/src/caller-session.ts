@@ -137,7 +137,8 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
         const nodeConfig = getMidnightNodeConfig(env);
         reader = new SignetRequestResponseReader({
           requesterContractAddress: requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
-          requesterRequestsIndexField: requestsIndexField,
+          // The caller contract is flat, so a field number is a depth-1 path.
+          requesterRequestsPath: [requestsIndexField],
           signetContractAddress: requireEnv(env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
           publicDataProvider: indexerPublicDataProvider({
             queryURL: nodeConfig.indexerUrl,

@@ -138,13 +138,15 @@ export circuit submitSignatureRequest(
   signBidirectionalEventMap.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 
-  // Notify the MPC via the signet contract's registry: the second argument is
-  // the ledger field position of signBidirectionalEventMap (4, see layout).
+  // Notify the MPC via the signet contract's registry: the notification carries
+  // the resolved ledger-tree path of signBidirectionalEventMap. This flat
+  // contract stores it at field 4, so the path is [4] at depth 1 (see layout).
   const requestMapKey = signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
-      4 as Uint<8>,
+      1 as Uint<8>,
+      [4, 0, 0, 0] as Vector<4, Uint<8>>,
     ),
   );
 
@@ -208,11 +210,13 @@ export circuit submitIsEvenRequest(
   signBidirectionalEventMap.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 
+  // signBidirectionalEventMap sits at flat field 4, path [4] at depth 1.
   return signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
-      4 as Uint<8>,
+      1 as Uint<8>,
+      [4, 0, 0, 0] as Vector<4, Uint<8>>,
     ),
   );
 }
@@ -272,11 +276,13 @@ export circuit submitCheckAndDoubleRequest(
   signBidirectionalEventMap69.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 
+  // signBidirectionalEventMap69 sits at flat field 7, path [7] at depth 1.
   return signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
-      7 as Uint<8>,
+      1 as Uint<8>,
+      [7, 0, 0, 0] as Vector<4, Uint<8>>,
     ),
   );
 }

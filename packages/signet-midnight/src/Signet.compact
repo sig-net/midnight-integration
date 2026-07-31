@@ -210,21 +210,42 @@ module Signet {
   // (via SignetSigner interface) to notify the MPC of a SignBidirectionalEvent.
   export struct SignBidirectionalEventNotification {
       version: Uint<8>;   // payload layout tag; 1 = the V1 layout:
-                          // callerAddress (32) ++ requestsIndexField (1) ++ zero padding (95)
+                          // callerAddress (32) ++ requestsPathDepth (1)
+                          // ++ requestsPath (4) ++ zero padding (91)
       payload: Bytes<128>;
   }
 
-  // Construction helper for the V1 SignBidirectionalEventNotification
+  // Construction helper for the V1 SignBidirectionalEventNotification.
+  //
+  // requestsPath is the resolved ledger-tree path of the client's
+  // SignBidirectionalEventMap, exactly as compactc records it in the client's
+  // own contract-info.json ("index"). A flat contract that declares the map at
+  // field 4 has path [4] with depth 1; a contract past 15 fields, whose map
+  // compactc stored at chunk [1, 14], has depth 2. The MPC follows this path
+  // node for node, the same navigation the generated ledger() accessor
+  // performs, so it never re-derives the chunk structure from the state's
+  // shape. requestsPath carries at most MAX_LEDGER_PATH_DEPTH (4) entries,
+  // which addresses up to 15^4 fields; entries at and beyond requestsPathDepth
+  // are zero. A client hardcodes its own path (a circuit cannot read its
+  // contract-info.json) and pins it against that file in a simulator test.
   export pure circuit constructSignBidirectionalEventNotificationV1(
     // Address of the client contract that stores and notifies of this SignBidirectionalEvent.
     // Set with kernel.self(). MUST match sender in associated SignBidirectionalEvent.
     callerAddress: ContractAddress,
-    requestsIndexField: Uint<8>
+    // Number of meaningful entries in requestsPath (1 to 4).
+    requestsPathDepth: Uint<8>,
+    // Resolved ledger-tree path; entries at and beyond requestsPathDepth are zero.
+    requestsPath: Vector<4, Uint<8>>
   ): SignBidirectionalEventNotification {
     return SignBidirectionalEventNotification {
       version: 1,
-      // 128 = 32 + 1 + 95
-      payload: Bytes[...callerAddress.bytes, requestsIndexField, ...default<Bytes<95>>]
+      // 128 = 32 + 1 + 4 + 91
+      payload: Bytes[
+        ...callerAddress.bytes,
+        requestsPathDepth,
+        requestsPath[0], requestsPath[1], requestsPath[2], requestsPath[3],
+        ...default<Bytes<91>>
+      ]
     };
   }
 

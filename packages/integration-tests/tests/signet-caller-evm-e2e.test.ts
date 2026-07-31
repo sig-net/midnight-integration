@@ -267,7 +267,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         });
         expect(decoded.version).toBe(1);
         expect(decoded.callerAddress).toBe(stripHexPrefix(requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS")).toLowerCase());
-        expect(decoded.requestsIndexField).toBe(method.requestsIndexField);
+        // The caller is flat, so its field number is a depth-1 path.
+        expect(decoded.requestsPath).toEqual([method.requestsIndexField]);
       },
       2 * MINUTE,
     );
