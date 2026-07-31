@@ -83,7 +83,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
 
    Compile with the pinned toolchain (currently `compact update 0.33.0-rc.2`) and always pass `--feature-zkir-v3`: compiled output without it is not compatible with the ledger-9 matched stack (node, indexer, proof server).
 
-2. Declare the required Sig Network protocol state in your ledger (plus recommended deployer identity and initialisation state). The event map can sit at ANY ledger field: each notification your contract registers names the field position holding it (runtime step 1), and the MPC reads the authenticated request from there.
+2. Declare the required Sig Network protocol state in your ledger (plus recommended deployer identity and initialisation state). The event map can sit at ANY ledger field: each notification your contract registers carries the map's resolved ledger-tree path (see [The request map's ledger-tree path](#the-request-maps-ledger-tree-path)), and the MPC reads the authenticated request from there.
 
    ```compact
    // Required: Map of SignBidirectionalEvent signature requests, configured by transaction type.
@@ -141,6 +141,22 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    }
    ```
 
+### The request map's ledger-tree path
+
+Each notification must tell the MPC where your `signBidirectionalEventMap` sits in your contract's compiled on-chain state, so the MPC can read the authenticated request out of raw contract state. The location is a path in the state tree, passed to `constructSignBidirectionalEventNotificationV1` as two arguments:
+
+- `requestsPathDepth`: the number of meaningful entries in the path (1 to 4).
+- `requestsPath`: the path itself, zero padded to 4 entries.
+
+The path shape comes from how compactc lays out state. The compiler packs a contract's public ledger fields into a tree whose array nodes hold at most 15 entries. With 15 or fewer fields, field N sits directly in the root array, at path `[N]` (depth 1). With more than 15 fields, the compiler groups the fields into segments of at most 15 (the remainder segment first) and the root array holds the segments. Each grouping adds one level to the tree and one entry to every field's path. A 20-field contract splits 5 + 15: field 4 sits at `[0, 4]` and field 19 sits at `[1, 14]` (depth 2).
+
+Do not derive the path by hand: the compiler records it in your compiled artifacts. Compile your contract, then look up your map's `"index"` in `managed/<contract>/compiler/contract-info.json` (a bare number `4` means path `[4]`). The generated `managed/<contract>/contract/index.js` accessors walk the same indices, for example `state.asArray()[1].asArray()[14]` for a map recorded at `[1, 14]`. That path packs as `requestsPathDepth = 2` and `requestsPath = [1, 14, 0, 0]`.
+
+The two caller contracts in the [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration) repository are worked examples of each case:
+
+- [`test-caller-contract`](https://github.com/sig-net/midnight-integration/tree/main/packages/test-caller-contract): the flat case, where its 8-field ledger stores the map at field 4, so notifications carry depth `1` and path `[4, 0, 0, 0]`.
+- [`test-caller-contract-20-field`](https://github.com/sig-net/midnight-integration/tree/main/packages/test-caller-contract-20-field): the chunked case, where its 20 fields split 5 + 15, so the map at field 19 packs as depth `2` and path `[1, 14, 0, 0]`.
+
 ### Runtime
 
 Each interaction with your contract that executes a transaction on a foreign chain runs these 5 steps.
@@ -158,8 +174,8 @@ const reader = new SignetRequestResponseReader({
    // Address of YOUR deployed contract
    requesterContractAddress: myContractAddress,
 
-   // signBidirectionalEventMap's field position (Setup step 2)
-   requesterRequestsIndexField: 0,
+   // signBidirectionalEventMap's ledger-tree path (see The request map's ledger-tree path)
+   requesterRequestsPath: [0],
 
    // Address of the Signet singleton contract
    signetContractAddress,
@@ -186,10 +202,15 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
    signBidirectionalEventMap.insert(requestId, disclose(request));
 
    // Notify the MPC of the SignBidirectionalEvent and the location of your signBidirectionalEventMap.
-   // The location is 0 here based on the position of the declaration in Setup step 2.
+   // The map is at ledger field 0 (Setup step 2), so its path is [0] at depth 1
+   // (see The request map's ledger-tree path).
    signetSigner.signBidirectional(
       requestId,
-      constructSignBidirectionalEventNotificationV1(kernel.self(), 0 as Uint<8>),
+      constructSignBidirectionalEventNotificationV1(
+         kernel.self(),
+         1 as Uint<8>,                        // requestsPathDepth
+         [0, 0, 0, 0] as Vector<4, Uint<8>>,  // requestsPath, zero padded
+      ),
    );
    ```
 

@@ -209,32 +209,51 @@ module Signet {
   // Notification delivered by client contracts via cross contract call to Signet singleton
   // (via SignetSigner interface) to notify the MPC of a SignBidirectionalEvent.
   export struct SignBidirectionalEventNotification {
-      version: Uint<8>;   // payload layout tag; 1 = the V1 layout:
-                          // callerAddress (32) ++ requestsPathDepth (1)
-                          // ++ requestsPath (4) ++ zero padding (91)
-      payload: Bytes<128>;
+    // Notification payload layout version.
+    // Curent Layout Version: 1 (see constructSignBidirectionalEventNotificationV1)
+    version: Uint<8>;
+    // Payload containing serialised notification payload.
+    payload: Bytes<128>;
   }
 
   // Construction helper for the V1 SignBidirectionalEventNotification.
   //
-  // requestsPath is the resolved ledger-tree path of the client's
-  // SignBidirectionalEventMap, exactly as compactc records it in the client's
-  // own contract-info.json ("index"). A flat contract that declares the map at
-  // field 4 has path [4] with depth 1; a contract past 15 fields, whose map
-  // compactc stored at chunk [1, 14], has depth 2. The MPC follows this path
-  // node for node, the same navigation the generated ledger() accessor
-  // performs, so it never re-derives the chunk structure from the state's
-  // shape. requestsPath carries at most MAX_LEDGER_PATH_DEPTH (4) entries,
-  // which addresses up to 15^4 fields; entries at and beyond requestsPathDepth
-  // are zero. A client hardcodes its own path (a circuit cannot read its
-  // contract-info.json) and pins it against that file in a simulator test.
+  // The payload is a pointer for the MPC. It names the contract that holds the
+  // SignBidirectionalEventMap (callerAddress) and the position of that map in the
+  // contract's raw on-chain state (requestsPathDepth + requestsPath). The MPC
+  // follows the path through the raw state tree to read the authenticated
+  // request, without the caller's compiled contract.
+  //
+  // Why a path: compactc packs a contract's public ledger fields into a tree of
+  // state values whose array nodes hold at most 15 entries (the compiler's
+  // maximum-ledger-segment-length). A contract with 15 or fewer ledger fields
+  // keeps each field directly in the root array, so field N sits at path [N]
+  // (depth 1). Past 15 fields the compiler splits the declaration list into
+  // segments of at most 15, remainder segment first, and the root array holds
+  // the segments. Each split adds one level to the tree and one entry to every
+  // field's path. Example: 20 fields split into segments of 5 and 15, so
+  // fields 0..4 sit at [0, 0]..[0, 4] and fields 5..19 sit at
+  // [1, 0]..[1, 14] (depth 2).
+  //
+  // How to determine the values: read the path from your contract's compiled
+  // artifacts, do not derive it by hand. The compiler records each field's
+  // resolved path as its "index" in managed/<contract>/compiler/contract-info.json
+  // (a bare number N means path [N]). The generated
+  // managed/<contract>/contract/index.js accessors walk the same indices, for
+  // example state.asArray()[1].asArray()[14] for a map recorded at [1, 14].
+  // Set requestsPathDepth to the number of path entries and requestsPath to
+  // the path itself, zero padded to 4 entries: [1, 14] becomes depth 2 and
+  // path [1, 14, 0, 0].
   export pure circuit constructSignBidirectionalEventNotificationV1(
     // Address of the client contract that stores and notifies of this SignBidirectionalEvent.
     // Set with kernel.self(). MUST match sender in associated SignBidirectionalEvent.
     callerAddress: ContractAddress,
-    // Number of meaningful entries in requestsPath (1 to 4).
+    // Number of meaningful entries in requestsPath: 1 for a flat (15 or fewer
+    // field) contract, one more per chunk level after that (max 4).
     requestsPathDepth: Uint<8>,
-    // Resolved ledger-tree path; entries at and beyond requestsPathDepth are zero.
+    // Resolved ledger-tree path of the caller's SignBidirectionalEventMap, from
+    // its contract-info.json "index". Entries at and beyond requestsPathDepth
+    // are zero.
     requestsPath: Vector<4, Uint<8>>
   ): SignBidirectionalEventNotification {
     return SignBidirectionalEventNotification {
