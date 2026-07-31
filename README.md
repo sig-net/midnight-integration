@@ -7,7 +7,7 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 > This Sig Network Midnight Integration is still Under Construction.
 > Use at your own risk and expect rapid iteration.
 
-This integration achieves this by exposing the MPC's [sign bidirectional flow](https://docs.sig.network/architecture/sign-bidirectional) to contracts on Midnight.
+This integration achieves this by exposing the MPC's [sign bidirectional flow](#sign-bidirectional-flow) to contracts on Midnight.
 
 This repository contains the pieces that make that flow available on Midnight: the Sig Network protocol singleton contract, the client-agnostic SDK that contract builders integrate against, and two test caller contracts that exercise the protocol end to end. Example applications built on this integration (such as an ERC20 cross chain vault demo) live in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples).
 
@@ -32,17 +32,21 @@ Every key the MPC uses is derived for the requesting contract and a path. There 
 
 The key the MPC signs requested foreign transactions with:
 
-`requestSigningKey = f(mpcRootKey[keyVersion], contractAddress, path)`
+`requestSigningKey = f(mpcRootKey[keyVersion], caip2ChainId, contractAddress, hex::encode(path))`
 
-The path is 32 opaque bytes of the contract's choosing (e.g. a fixed literal for a contract-owned account like "vault" or a hash of a caller's secret for per-user accounts). There are no format requirements. The contract address is always part of the derivation, so no contract can reach another contract's derived keys.
+The path is 32 opaque bytes of the contract's choosing (e.g. a fixed literal for a contract-owned account like "vault" or a hash of a caller's secret for per-user accounts). There are no format requirements: any 32 bytes are valid. **CRITICAL:** the MPC renders the path as `hex::encode(path)` before it derives the key: lowercase hex of the full 32 bytes, no trimming, no `0x` prefix. The contract address is always part of the derivation, so no contract can reach another contract's derived keys.
 
 ### Response key
 
 The key the MPC signs remote execution attestations with when posting them back to Midnight:
 
-`responseKey = f(mpcRootKey[keyVersion], contractAddress, "midnight response key")`
+`responseKey = f(mpcRootKey[keyVersion], caip2ChainId, contractAddress, "midnight response key")`
 
-The same derivation, but with the path fixed to the literal `"midnight response key"`, giving each contract one well-known response key. A contract pins its own response key in its ledger after deploy and verifies every response against it in-circuit (step 5 of the flow above).
+The same derivation, but with the path fixed to the literal `"midnight response key"`, giving each contract one well-known response key. This fixed path is a protocol string that enters the derivation verbatim (no hex rendering, unlike a request's 32 path bytes). A contract pins its own response key in its ledger after deploy and verifies every response against it in-circuit (step 5 of the flow above).
+
+> **keyVersion** is the version of the MPC root key that the derivation starts from. Current deployments use version `1`.
+>
+> **caip2ChainId** is the id of the chain the request originates from, in [CAIP-2](https://chainagnostic.org/CAIPs/caip-2) form. For signature requests made on Midnight it is the Midnight variant (currently `midnight:testnet`). It is not the target chain id carried in the request record's `caip2Id` field.
 
 # Integrator Guide
 
@@ -178,6 +182,10 @@ const reader = new SignetRequestResponseReader({
 
 const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my-path");
 ```
+
+> **mpcRootPublicKey** is the root public key of the MPC network. On a local stack there is no fixed value: this repository's [integration-test setup](packages/integration-tests) generates a fresh `MPC_ROOT_KEY`, prints it during setup and appends it to the repo-root `.env`. For the public networks (stagenet, preview, preprod, mainnet) the fixed values are published in `@sig-net/midnight` via `getMpcRootPublicKey` (placeholders until each network's key is published).
+>
+> **signetContractAddress** is the address of the deployed Signet singleton contract. On a local stack the same setup deploys a fresh singleton, prints the address as `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and appends it to `.env`. For the public networks the addresses are published in `@sig-net/midnight` via `getSignetContractAddress` (placeholders until each deployment lands).
 
 1. Store a signature request and notify the MPC via cross contract call:
 

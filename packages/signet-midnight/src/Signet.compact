@@ -58,7 +58,8 @@
 // Read more:
 //   - For full integration examples (such as an ERC20 cross chain vault example) see
 //     the Midnight Examples repository at: https://github.com/sig-net/midnight-examples.
-//   - Signet docs (chain signatures, key derivation): https://docs.sig.network
+//   - The sign bidirectional flow and key derivation: this package's README
+//     ("Sign bidirectional flow", "Derived keys").
 //   - Compact language reference (modules, types):
 //     https://docs.midnight.network/compact/reference/compact-reference
 
@@ -79,11 +80,15 @@ module Signet {
 
     // MPC Key Derivation Parameters.
     // Every key the MPC signs with is scoped by the requesting contract:
-    //   derivedSigningKey = f(mpcRootKey[keyVersion], sender, path)
-    // The path is 32 opaque bytes of the client contract's choosing (e.g a fixed literal
-    // for a contract-owned account or a hash of a caller's secret for per-user
-    // accounts): no format is enforced. The sender is always part of the
-    // derivation, so no contract can reach another contract's derived keys.
+    //   derivedSigningKey = f(mpcRootKey[keyVersion], caip2ChainId, sender, hex::encode(path))
+    // where caip2ChainId is the CAIP-2 id of the ORIGINATING chain (the Midnight
+    // variant for requests made from Midnight contracts), not this record's target
+    // caip2Id. The path is 32 opaque bytes of the client contract's choosing (e.g a
+    // fixed literal for a contract-owned account or a hash of a caller's secret for
+    // per-user accounts): no format is enforced, any 32 bytes are valid. CRITICAL:
+    // the MPC renders the path as hex::encode(path) before deriving (lowercase hex
+    // of the full 32 bytes, no trimming, no 0x prefix). The sender is always part
+    // of the derivation, so no contract can reach another contract's derived keys.
     keyVersion: Uint<8>;      // MPC root-key version to derive from. Set to 1.
     path: Bytes<32>;          // Key derivation path: 32 opaque bytes, client contract's choice.
 
@@ -310,8 +315,10 @@ module Signet {
   //  signature = signSECP256k1(mpcResponseKey, attestationDigest)
   //
   // Where the MPC response key is a per-client-contract key derived using the same derivation function
-  // as request signing keys, with the path set to the fixed "midnight response key":
-  //  mpcResponseKey = f(mpcRootKey[keyVersion], sender, "midnight response key")
+  // as request signing keys, with the path set to the fixed "midnight response key" (a protocol
+  // string that enters the derivation verbatim, unlike a request's 32 path bytes which are
+  // hex-encoded first):
+  //  mpcResponseKey = f(mpcRootKey[keyVersion], caip2ChainId, sender, "midnight response key")
   //
   // Storage & Verification:
   // The execution output is of variable size, so it travels off chain, and the digest

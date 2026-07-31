@@ -4,7 +4,7 @@ import CompactStandardLibrary;
 
 // Shared signet library: request/response structs, request-id hashing,
 // request construction, and the attestation message. See the module header
-// in Signet.compact and https://docs.sig.network/ for the protocol.
+// in Signet.compact for the protocol.
 import "@sig-net/midnight/src/Signet";
 
 // This is the central Sig Network contract on Midnight.

@@ -1,6 +1,6 @@
 // Midnight node connection config — everything needed to talk to one Midnight
 
-import { NETWORK_IDS, type NetworkId } from "./network-id.ts";
+import { MidnightNetwork, NETWORK_IDS, type NetworkId } from "./network-id.ts";
 
 /**
  * The set of endpoints (+ network id) needed to reach the chain. Plain data,
@@ -25,7 +25,7 @@ export const LOCAL_PROOF_SERVER = "http://127.0.0.1:6300";
 // Default endpoints per network. Undeployed is the local standalone stack
 // (Docker containers) run during development.
 export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
-  ["undeployed"]: {
+  [MidnightNetwork.Undeployed]: {
     indexerUrl: "http://127.0.0.1:8088/api/v3/graphql",
     indexerWsUrl: "ws://127.0.0.1:8088/api/v3/graphql/ws",
     nodeUrl: "http://127.0.0.1:9944",
@@ -39,25 +39,25 @@ export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
   //                                   twin derives from it when unset)
   //   MIDNIGHT_NODE_INDEXER_WS_URL  — indexer GraphQL over WebSocket
   // The proof server stays local (it sees private witness data).
-  ["stagenet"]: {
+  [MidnightNetwork.Stagenet]: {
     indexerUrl: "",
     indexerWsUrl: "",
     nodeUrl: "",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
-  ["preview"]: {
+  [MidnightNetwork.Preview]: {
     indexerUrl: "https://indexer.preview.midnight.network/api/v3/graphql",
     indexerWsUrl: "wss://indexer.preview.midnight.network/api/v3/graphql/ws",
     nodeUrl: "https://rpc.preview.midnight.network",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
-  ["preprod"]: {
+  [MidnightNetwork.Preprod]: {
     indexerUrl: "https://indexer.preprod.midnight.network/api/v3/graphql",
     indexerWsUrl: "wss://indexer.preprod.midnight.network/api/v3/graphql/ws",
     nodeUrl: "https://rpc.preprod.midnight.network",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
-  ["mainnet"]: {
+  [MidnightNetwork.Mainnet]: {
     indexerUrl: "https://indexer.mainnet.midnight.network/api/v3/graphql",
     indexerWsUrl: "wss://indexer.mainnet.midnight.network/api/v3/graphql/ws",
     nodeUrl: "https://rpc.mainnet.midnight.network",
@@ -121,7 +121,7 @@ export function indexerWsUrlFromIndexerUrl(indexerUrl: string): string {
 export function getMidnightNodeConfig(
   env: Record<string, string | undefined> = process.env,
 ): MidnightNodeConfig {
-  const networkId: NetworkId = env.NETWORK_ID?.trim() || "undeployed";
+  const networkId: NetworkId = env.NETWORK_ID?.trim() || MidnightNetwork.Undeployed;
   if (!NETWORK_IDS.includes(networkId)) {
     throw new Error(`Invalid NETWORK_ID "${networkId}" — expected one of: ${NETWORK_IDS.join(", ")}.`);
   }
