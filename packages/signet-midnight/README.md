@@ -189,6 +189,8 @@ const reader = new SignetRequestResponseReader({
 
    // signBidirectionalEventMap's ledger-tree path (see The request map's ledger-tree path)
    requesterRequestsPath: [0],
+   // signBidirectionalEventMap's ledger-tree path (see The request map's ledger-tree path)
+   requesterRequestsPath: [0],
 
    // Address of the Signet singleton contract
    signetContractAddress,
@@ -219,6 +221,8 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
    signBidirectionalEventMap.insert(requestId, disclose(request));
 
    // Notify the MPC of the SignBidirectionalEvent and the location of your signBidirectionalEventMap.
+   // The map is at ledger field 0 (Setup step 2), so its path is [0] at depth 1
+   // (see The request map's ledger-tree path).
    // The map is at ledger field 0 (Setup step 2), so its path is [0] at depth 1
    // (see The request map's ledger-tree path).
    signetSigner.signBidirectional(
