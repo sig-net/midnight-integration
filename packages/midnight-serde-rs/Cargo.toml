@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2024"
 description = "Rust twin of Compact's builtin serialize<T, N> / deserialize<T, N> byte layout, pinned against the midnight-serde-conformance golden corpus."
 repository = "https://github.com/sig-net/midnight-integration"
-# Publishing to crates.io is a deliberate future step (licensing and the
-# release flow are undecided): the name is reserved here, the gate is real.
-publish = false
+license = "MIT"
+# The conformance tests read the sibling package's corpus file, which does
+# not exist inside the published .crate: keep tests out of the tarball.
+exclude = ["tests/"]
 
 # Not a member of any Cargo workspace: this crate lives inside a Yarn
 # monorepo, and the empty table stops upward workspace discovery.
