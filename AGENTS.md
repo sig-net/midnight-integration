@@ -21,6 +21,15 @@ node-modules`). Its members live under `packages/`:
   plumbing (`src/plumbing/`) every contract package's deploy script composes.
 - **`packages/integration-tests`** — everything that needs a running stack:
   the generic signet-caller e2e and its setup pipeline.
+- **`packages/midnight-serde-ts`** — `@sig-net/midnight-serde`, the TypeScript
+  twin of Compact's builtin `serialize<T, N>`/`deserialize<T, N>` byte layout.
+  Zero runtime dependencies; its tests pin against the conformance kit.
+- **`packages/midnight-serde-conformance`** — repo-private conformance kit for
+  that byte layout: the fixture contract, the shared descriptor tables, the
+  corpus generator and the COMMITTED golden corpus (`corpus/serde-corpus.jsonl`)
+  every serde implementation is pinned against. Regenerate with
+  `yarn workspace @midnight-protocol/midnight-serde-conformance generate` after
+  a deliberate fixture or layout change; its guard test fails on any drift.
 Example applications built on these packages (e.g. the ERC20 vault) live in
 `sig-net/midnight-examples`, consuming the published `@sig-net/*` packages
 from npm.

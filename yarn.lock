@@ -627,6 +627,19 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@midnight-protocol/midnight-serde-conformance@npm:*, @midnight-protocol/midnight-serde-conformance@workspace:packages/midnight-serde-conformance":
+  version: 0.0.0-use.local
+  resolution: "@midnight-protocol/midnight-serde-conformance@workspace:packages/midnight-serde-conformance"
+  dependencies:
+    "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
+    "@sig-net/midnight-serde": "npm:*"
+    "@types/node": "npm:^26.1.0"
+    tsx: "npm:^4.23.0"
+    typescript: "npm:^6.0.3"
+    vitest: "npm:^4.1.9"
+  languageName: unknown
+  linkType: soft
+
 "@midnight-protocol/test-caller-contract-20-field@workspace:packages/test-caller-contract-20-field":
   version: 0.0.0-use.local
   resolution: "@midnight-protocol/test-caller-contract-20-field@workspace:packages/test-caller-contract-20-field"
@@ -2067,7 +2080,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight-serde@workspace:packages/midnight-serde-ts"
   dependencies:
-    "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
+    "@midnight-protocol/midnight-serde-conformance": "npm:*"
     "@types/node": "npm:^26.1.0"
     typescript: "npm:^6.0.3"
     vitest: "npm:^4.1.9"

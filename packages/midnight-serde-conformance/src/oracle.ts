@@ -1,4 +1,5 @@
-// Shared test plumbing: the hex printer and the toBinaryRepr oracle adapter.
+// The hex printer and the toBinaryRepr oracle adapter, shared by the corpus
+// generator and every implementation's test suite.
 //
 // The adapter maps a twin descriptor onto @midnight-ntwrk/compact-runtime's
 // CompactType classes so toBinaryRepr (test-only, never a runtime dependency)
@@ -19,7 +20,7 @@ import {
   type CompactType as RuntimeCompactType,
 } from '@midnight-ntwrk/compact-runtime';
 
-import type { CompactType, CompactValue } from '../src/index.ts';
+import type { CompactType, CompactValue } from '@sig-net/midnight-serde';
 
 export const hex = (b: Uint8Array): string => Buffer.from(b).toString('hex');
 

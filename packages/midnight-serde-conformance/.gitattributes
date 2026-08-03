@@ -1,0 +1,3 @@
+# The corpus guard byte-compares the committed file against a regeneration:
+# line endings must survive every checkout untouched.
+corpus/*.jsonl -text
