@@ -30,6 +30,14 @@ node-modules`). Its members live under `packages/`:
   every serde implementation is pinned against. Regenerate with
   `yarn workspace @midnight-protocol/midnight-serde-conformance generate` after
   a deliberate fixture or layout change; its guard test fails on any drift.
+- **`packages/midnight-serde-rs`** — the `signet-midnight-serde` Rust crate,
+  the Rust twin of the same byte layout. NOT a yarn workspace member (no
+  package.json) and not a cargo workspace: an isolated crate with a committed
+  `Cargo.lock` and a pinned `rust-toolchain.toml`. Its tests read the
+  conformance corpus file directly, so `cargo test --locked` (or the root
+  `yarn test:midnight-serde-rs`) needs no Node and no compactc. The TS-only
+  rules (no-emit, JSDoc, enum style) do not apply inside it: rustfmt and
+  `clippy -D warnings` are its equivalents, enforced in CI.
 Example applications built on these packages (e.g. the ERC20 vault) live in
 `sig-net/midnight-examples`, consuming the published `@sig-net/*` packages
 from npm.
