@@ -2063,9 +2063,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight-serde@npm:*, @sig-net/midnight-serde@npm:^0.16.0, @sig-net/midnight-serde@workspace:packages/midnight-serde":
+"@sig-net/midnight-serde@npm:*, @sig-net/midnight-serde@npm:^0.16.0, @sig-net/midnight-serde@workspace:packages/midnight-serde-ts":
   version: 0.0.0-use.local
-  resolution: "@sig-net/midnight-serde@workspace:packages/midnight-serde"
+  resolution: "@sig-net/midnight-serde@workspace:packages/midnight-serde-ts"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@types/node": "npm:^26.1.0"

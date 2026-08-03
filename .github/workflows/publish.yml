@@ -1,6 +1,6 @@
 # Publishes the four npm packages, in dependency order:
 #
-#   @sig-net/midnight-serde           (packages/midnight-serde)
+#   @sig-net/midnight-serde           (packages/midnight-serde-ts)
 #   @sig-net/midnight                 (packages/signet-midnight)
 #   @sig-net/midnight-contract        (packages/signet-contract)
 #   @sig-net/midnight-contract-deploy (packages/signet-contract-deploy)
@@ -89,7 +89,7 @@ jobs:
         run: yarn install --immutable
       - name: Verify the four package versions move in lockstep (and match the tag)
         run: |
-          V_SERDE=$(node -p "require('./packages/midnight-serde/package.json').version")
+          V_SERDE=$(node -p "require('./packages/midnight-serde-ts/package.json').version")
           V_MIDNIGHT=$(node -p "require('./packages/signet-midnight/package.json').version")
           V_CONTRACT=$(node -p "require('./packages/signet-contract/package.json').version")
           V_DEPLOY=$(node -p "require('./packages/signet-contract-deploy/package.json').version")
@@ -131,7 +131,7 @@ jobs:
         run: |
           set -euo pipefail
           for entry in \
-            "midnight-serde:@sig-net/midnight-serde" \
+            "midnight-serde-ts:@sig-net/midnight-serde" \
             "signet-midnight:@sig-net/midnight" \
             "signet-contract:@sig-net/midnight-contract" \
             "signet-contract-deploy:@sig-net/midnight-contract-deploy"; do
