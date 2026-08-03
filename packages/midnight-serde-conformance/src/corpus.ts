@@ -14,6 +14,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
+import { respondSchemaDescriptor, serializeRespondOutput } from '@sig-net/midnight';
 import {
   compactDeserialize,
   compactSerialize,
@@ -22,6 +23,8 @@ import {
   type CompactType,
   type CompactValue,
 } from '@sig-net/midnight-serde';
+
+import { SCHEMA_CASES } from './abi-schemas.ts';
 
 import {
   BIG,
@@ -123,6 +126,26 @@ export interface DeserializeRecord {
   provenance: 'circuit' | 'twin';
 }
 
+/**
+ * A respond-schema expectation: the ABI-style JSON schema exactly as carried
+ * on chain in SignBidirectionalEvent (NUL padding included where the fixed
+ * event width exceeds the text), the descriptor it maps to, and the bytes the
+ * value packs to. At generation the production encoder
+ * (@sig-net/midnight's serializeRespondOutput), the twin and the oracle all
+ * agreed on the bytes, hence provenance "production". Consumers must derive
+ * the descriptor from `schema` THEMSELVES (cut at the first NUL, JSON-parse,
+ * map the respond vocabulary) and may cross-check it against `type`.
+ */
+export interface SchemaRecord {
+  record: 'schema';
+  name: string;
+  schema: string;
+  type: JsonType;
+  value: JsonValue;
+  packed: string;
+  provenance: 'production';
+}
+
 /** A seeded random roundtrip case (twin == oracle asserted at generation). */
 export interface SweepRecord {
   record: 'sweep';
@@ -133,7 +156,12 @@ export interface SweepRecord {
   provenance: 'oracle';
 }
 
-export type CorpusRecord = HeaderRecord | SerializeRecord | DeserializeRecord | SweepRecord;
+export type CorpusRecord =
+  | HeaderRecord
+  | SerializeRecord
+  | DeserializeRecord
+  | SchemaRecord
+  | SweepRecord;
 
 /**
  * Encode a descriptor to its corpus JSON form (`bound` always a decimal
@@ -512,6 +540,36 @@ export function buildCorpus(): CorpusRecord[] {
     expect: { value: valueToJson(BOUNDED, boundedValue) },
     provenance: 'circuit',
   });
+
+  // The respond-schema pipeline: schema JSON -> descriptor -> bytes, with the
+  // PRODUCTION encoder (serializeRespondOutput), the twin and the oracle all
+  // required to agree, and the twin decoding the bytes back to the value.
+  for (const c of SCHEMA_CASES) {
+    const descriptor = respondSchemaDescriptor(c.schema);
+    const production = serializeRespondOutput(c.schema, c.abiValue);
+    const twinPacked = compactSerialize(descriptor as never, c.compactValue as never);
+    if (hex(twinPacked) !== hex(production)) {
+      throw new Error(
+        `${c.name}: production respond encoder disagrees with the twin: ` +
+          `${hex(production)} vs ${hex(twinPacked)}`
+      );
+    }
+    if (hex(twinPacked) !== hex(oracleSerialize(descriptor, c.compactValue))) {
+      throw new Error(`${c.name}: twin and oracle disagree`);
+    }
+    if (!sameValue(descriptor, compactDeserialize(descriptor, twinPacked), c.compactValue)) {
+      throw new Error(`${c.name}: twin deserialize returned a different value`);
+    }
+    records.push({
+      record: 'schema',
+      name: c.name,
+      schema: c.schema,
+      type: typeToJson(descriptor),
+      value: valueToJson(descriptor, c.compactValue),
+      packed: hex(twinPacked),
+      provenance: 'production',
+    });
+  }
 
   // The seeded sweep: same rng interleaving as the original property tests.
   const rng = mulberry32(SWEEP_SEED);

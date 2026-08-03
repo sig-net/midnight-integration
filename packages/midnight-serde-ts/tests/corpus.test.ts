@@ -14,10 +14,13 @@ import {
   jsonToValue,
   loadCorpus,
   RejectCategory,
+  respondSchemaDescriptor,
+  typeToJson,
   valueToJson,
   type CorpusRecord,
   type DeserializeRecord,
   type HeaderRecord,
+  type SchemaRecord,
   type SerializeRecord,
   type SweepRecord,
 } from '@midnight-protocol/midnight-serde-conformance';
@@ -39,6 +42,7 @@ const records: CorpusRecord[] = loadCorpus();
 const header = records[0] as HeaderRecord;
 const serializeRecords = records.filter((r): r is SerializeRecord => r.record === 'serialize');
 const deserializeRecords = records.filter((r): r is DeserializeRecord => r.record === 'deserialize');
+const schemaRecords = records.filter((r): r is SchemaRecord => r.record === 'schema');
 const sweepRecords = records.filter((r): r is SweepRecord => r.record === 'sweep');
 
 describe('golden corpus replay', () => {
@@ -47,6 +51,7 @@ describe('golden corpus replay', () => {
     expect(header.schema).toBe(CORPUS_SCHEMA);
     expect(serializeRecords.length).toBeGreaterThan(0);
     expect(deserializeRecords.length).toBeGreaterThan(0);
+    expect(schemaRecords.length).toBeGreaterThan(0);
     expect(sweepRecords.length).toBeGreaterThan(0);
   });
 
@@ -75,6 +80,39 @@ describe('golden corpus replay', () => {
           REJECT_PATTERNS[category]
         );
       }
+    }
+  );
+
+  // The SignBidirectionalEvent pipeline: the on-chain ABI-style schema JSON
+  // (outputDeserializationSchema / respondSerializationSchema) drives the
+  // descriptor the twin serializes with. The descriptors here are derived
+  // from the schema STRINGS through the production mapping
+  // (@sig-net/midnight's respondSchemaDescriptor, re-exported by the
+  // conformance kit), so this replay proves schema -> descriptor -> bytes
+  // works seamlessly, not just descriptor -> bytes.
+  it('schema: the corpus carries the exact on-chain schema literals from test-caller-contract', () => {
+    const schemas = schemaRecords.map((r) => r.schema);
+    const singleBool = '[{"name":"success","type":"bool"}]';
+    const boolUint256 = '[{"name":"success","type":"bool"},{"name":"amount","type":"uint256"}]';
+    expect(schemas).toContain(singleBool);
+    expect(schemas).toContain(boolUint256);
+    // The literals are carried on chain as Bytes<34> / Bytes<69>: exact width.
+    expect(new TextEncoder().encode(singleBool)).toHaveLength(34);
+    expect(new TextEncoder().encode(boolUint256)).toHaveLength(69);
+  });
+
+  it.each(schemaRecords.map((r) => [r.name, r] as const))(
+    'schema %s: the schema string maps to the recorded descriptor and the twin matches the bytes',
+    (_name, record) => {
+      const descriptor = respondSchemaDescriptor(record.schema);
+      expect(typeToJson(descriptor)).toEqual(record.type);
+      const value = jsonToValue(descriptor, record.value);
+      expect(hex(compactSerialize(descriptor as never, value as never))).toBe(record.packed);
+      const bytes = jsonToValue(
+        { kind: 'bytes', length: record.packed.length / 2 },
+        record.packed
+      ) as Uint8Array;
+      expect(valueToJson(descriptor, compactDeserialize(descriptor, bytes))).toEqual(record.value);
     }
   );
 

@@ -4,6 +4,11 @@
 #   @sig-net/midnight                 (packages/signet-midnight)
 #   @sig-net/midnight-contract        (packages/signet-contract)
 #   @sig-net/midnight-contract-deploy (packages/signet-contract-deploy)
+#
+# plus the signet-midnight-serde crate (packages/midnight-serde-rs) to
+# crates.io, via OIDC trusted publishing (configured in the crate's settings
+# on crates.io). The crate versions independently of the npm lockstep, and a
+# version already on crates.io is skipped, so re-tagging never fails on it.
 
 name: publish
 
@@ -149,3 +154,44 @@ jobs:
               yarn workspace "$name" npm publish --provenance
             fi
           done
+
+  publish-crate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # OIDC trusted publishing (crates.io)
+    defaults:
+      run:
+        working-directory: packages/midnight-serde-rs
+    steps:
+      - uses: actions/checkout@v5
+      # rustup reads rust-toolchain.toml and installs the pinned toolchain on
+      # first use: no separate setup action needed.
+      - name: Skip if this crate version is already on crates.io
+        id: version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | \
+            python3 -c "import json,sys; print(json.load(sys.stdin)['packages'][0]['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # A 404 (crate not yet on crates.io) leaves `published` empty.
+          published=$(curl -fsSL "https://crates.io/api/v1/crates/signet-midnight-serde/versions" 2>/dev/null | \
+            python3 -c "import json,sys; print('\n'.join(v['num'] for v in json.load(sys.stdin)['versions']))" 2>/dev/null || true)
+          if printf '%s\n' "$published" | grep -qx "$version"; then
+            echo "signet-midnight-serde@$version is already on crates.io, skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Tests (conformance corpus + native sweep, frozen deps)
+        if: steps.version.outputs.skip != 'true'
+        run: cargo test --locked
+      - name: Authenticate with crates.io (OIDC, no stored secret)
+        if: steps.version.outputs.skip != 'true'
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: Publish signet-midnight-serde to crates.io
+        if: steps.version.outputs.skip != 'true'
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

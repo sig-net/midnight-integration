@@ -632,6 +632,7 @@ __metadata:
   resolution: "@midnight-protocol/midnight-serde-conformance@workspace:packages/midnight-serde-conformance"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
+    "@sig-net/midnight": "npm:*"
     "@sig-net/midnight-serde": "npm:*"
     "@types/node": "npm:^26.1.0"
     tsx: "npm:^4.23.0"

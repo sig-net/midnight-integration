@@ -5,6 +5,11 @@
 // owning fixtures of its own.
 
 export * from './descriptors.ts';
+export { SCHEMA_CASES, type SchemaCase } from './abi-schemas.ts';
+// Re-exported so implementation test suites can derive descriptors from
+// on-chain schema strings through the PRODUCTION mapping without depending
+// on @sig-net/midnight themselves.
+export { respondSchemaDescriptor } from '@sig-net/midnight';
 export { byteWidthOfMax, hex, oracleSerialize, runtimeType } from './oracle.ts';
 export {
   buildCorpus,
@@ -23,6 +28,7 @@ export {
   type HeaderRecord,
   type JsonType,
   type JsonValue,
+  type SchemaRecord,
   type SerializeRecord,
   type SweepRecord,
 } from './corpus.ts';
