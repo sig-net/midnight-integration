@@ -4,7 +4,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/sig-net/midnight-integration",
-    "directory": "packages/midnight-serde"
+    "directory": "packages/midnight-serde-ts"
   },
   "type": "module",
   "description": "TypeScript twin of Compact's builtin serialize<T, N> / deserialize<T, N> byte layout, pinned byte-for-byte against compiled circuits.",
