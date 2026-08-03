@@ -108,8 +108,9 @@ function decodeFrom(
       const size = packedSize(type);
       const value = readUintLE(bytes, offset, size);
       // Mirrors the circuit, which rejects encodings at or above the bound
-      // (pinned by tests via the Bounded, Wide and U12 fixtures; only
-      // reachable for sized uints when the width is not byte-aligned).
+      // (pinned by tests via the Bounded, Wide and U12 fixtures). Reachable
+      // for any bounded uint whose max is not all-ones, and for sized uints
+      // only when the width is not byte-aligned.
       if (value >= bound) {
         throw new Error(`${label}: encoding ${value} exceeds ${uintName(type)}`);
       }
@@ -125,7 +126,13 @@ function decodeFrom(
       return [value, offset + 32];
     }
     case 'bytes':
-      return [bytes.slice(offset, offset + type.length), offset + type.length];
+      // A copy into a PLAIN Uint8Array, never `bytes.slice(...)`: subclasses
+      // may override slice with a non-copying view (Buffer does), and a
+      // decoded value must not alias caller memory the caller may reuse.
+      return [
+        new Uint8Array(bytes.subarray(offset, offset + type.length)),
+        offset + type.length,
+      ];
     case 'enum': {
       const size = packedSize(type);
       const value = readUintLE(bytes, offset, size);

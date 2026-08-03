@@ -959,6 +959,27 @@ describe('hostile field names (legal Compact identifiers, hostile to JS)', () =>
   });
 });
 
+describe('Buffer inputs (Uint8Array subclasses that override slice)', () => {
+  const TAGGED = {
+    kind: 'struct',
+    fields: [{ name: 'tag', type: { kind: 'bytes', length: 4 } }],
+  } as const satisfies CompactType;
+
+  it('decoded Bytes values are plain Uint8Array COPIES, never views of the input', () => {
+    // Buffer.prototype.slice returns a VIEW sharing the input's memory
+    // (unlike Uint8Array.prototype.slice, which copies), and Buffers are the
+    // normal way bytes arrive off-chain (fs.readFile, Buffer.from(hex),
+    // network reads). Decoded values must not alias caller memory: a decode
+    // followed by a buffer reuse would silently change the decoded struct.
+    const input = Buffer.from([1, 2, 3, 4]);
+    const decoded = compactDeserialize(TAGGED, input);
+    expect(decoded.tag.constructor).toBe(Uint8Array);
+    expect(hex(decoded.tag)).toBe('01020304');
+    input[0] = 0xff;
+    expect(hex(decoded.tag)).toBe('01020304');
+  });
+});
+
 // ---- strict descriptor validation ------------------------------------------
 
 describe('strict runtime descriptor validation (TypeScript is not enough)', () => {
