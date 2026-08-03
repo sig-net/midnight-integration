@@ -203,11 +203,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       });
 
       // callerAddress points at the caller (the contract whose authenticated
-      // ledger holds the request), and the event map is at field 4 (the
-      // caller contract's layout, see test-caller-contract.compact).
+      // ledger holds the request), and the event map is at field 4, which for
+      // this flat caller is path [4] (see test-caller-contract.compact).
       expect(decoded.version).toBe(1);
       expect(decoded.callerAddress).toBe(stripHexPrefix(callerAddress).toLowerCase());
-      expect(decoded.requestsIndexField).toBe(4);
+      expect(decoded.requestsPath).toEqual([4]);
 
       banner([
         "Golden SignBidirectionalEventNotification decoded from the live indexer:",
@@ -215,7 +215,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
         `  version:            ${decoded.version}`,
         `  callerAddress:      ${decoded.callerAddress}`,
         `  registered under:   ${signatureRequestId}`,
-        `  requestsIndexField: ${decoded.requestsIndexField}`,
+        `  requestsPath:       ${JSON.stringify(decoded.requestsPath)}`,
       ]);
     },
     2 * MINUTE,

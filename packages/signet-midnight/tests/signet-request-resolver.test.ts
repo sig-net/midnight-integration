@@ -114,7 +114,7 @@ const notificationFor = (
 ): SignBidirectionalNotification => ({
   version: 1,
   callerAddress: CALLER_ADDRESS,
-  requestsIndexField: 0,
+  requestsPath: [0],
   ...overrides,
 });
 
@@ -147,13 +147,13 @@ describe("SignetRequestResolver", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("drops a notification pointing at the wrong requestsIndexField", async () => {
+  it("drops a notification pointing at the wrong requestsPath", async () => {
     const resolver = new SignetRequestResolver({
       source: stubSource({ [CALLER_ADDRESS]: callerState() }),
     });
     // Field 1 is the nonce cell, not the request index.
     await expect(
-      resolver.resolve(REQUEST_ID_HEX, notificationFor({ requestsIndexField: 1 })),
+      resolver.resolve(REQUEST_ID_HEX, notificationFor({ requestsPath: [1] })),
     ).resolves.toBeUndefined();
   });
 

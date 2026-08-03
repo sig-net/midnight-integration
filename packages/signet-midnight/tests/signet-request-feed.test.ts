@@ -118,7 +118,8 @@ const notification = (
 ): SignBidirectionalNotificationRecord =>
   pureCircuits.constructSignBidirectionalEventNotificationV1(
     { bytes: caller },
-    0n,
+    1n,
+    [0n, 0n, 0n, 0n],
   );
 
 /**

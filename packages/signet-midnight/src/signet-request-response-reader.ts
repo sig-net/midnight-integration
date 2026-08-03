@@ -59,12 +59,13 @@ export interface SignetRequestResponseReaderConfig {
   /** Address of the signet-compliant requester contract (e.g. the vault). */
   readonly requesterContractAddress: string;
   /**
-   * Ledger field position of the requester contract's request index: the
-   * same position the contract passes as `requestsIndexField` in its
-   * notifications. A contract is free to declare the index at any field, so
-   * the reader cannot assume one.
+   * Resolved ledger-tree path of the requester contract's request index: the
+   * same path the contract packs as `requestsPath` in its notifications
+   * (`[4]` for a flat contract's field 4, longer once chunking applies). A
+   * contract is free to declare the index at any field, so the reader cannot
+   * assume one.
    */
-  readonly requesterRequestsIndexField: number;
+  readonly requesterRequestsPath: readonly number[];
   /** Address of the central signet contract. */
   readonly signetContractAddress: string;
   /** Source of raw contract state, e.g. midnight-js's `indexerPublicDataProvider`. */
@@ -143,13 +144,13 @@ export class SignetRequestResponseReader {
 
   /**
    * Fetch the request record for `requestId` from the requester contract's
-   * request index (at the configured `requesterRequestsIndexField`). Cached
+   * request index (at the configured `requesterRequestsPath`). Cached
    * after the first fetch.
    *
    * @param requestId - The request id to look up.
    * @returns The stored request record.
    * @throws Error when the requester contract has no state or holds no
-   *   request under `requestId` at the configured index field.
+   *   request under `requestId` at the configured index path.
    */
   async getSignatureRequest(
     requestId: RequestIdHex,
@@ -164,13 +165,13 @@ export class SignetRequestResponseReader {
     );
     const request = lookupSignetRequestAt(
       raw,
-      this.config.requesterRequestsIndexField,
+      this.config.requesterRequestsPath,
       requestId,
     );
     if (request === undefined) {
       throw new Error(
         `request ${requestId} is not on the requester contract's ledger ` +
-          `(request index at field ${this.config.requesterRequestsIndexField}): was it submitted?`,
+          `(request index at path ${JSON.stringify(this.config.requesterRequestsPath)}): was it submitted?`,
       );
     }
     this.requestCache.set(requestId, request);

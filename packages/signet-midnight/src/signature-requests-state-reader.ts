@@ -2,11 +2,11 @@
 // request ledger fields out of a contract's raw state WITHOUT the compiled
 // contract. This is how the MPC monitor consumes signet contracts: it has only
 // a contract address, queries raw state from the indexer
-// (queryContractState(address).data), and decodes by ledger field POSITION.
+// (queryContractState(address).data), and decodes by ledger-tree PATH.
 // A contract is free to place its request index at any field: the caller
-// supplies the position, which the discovery path learns from the
-// notification's requestsIndexField.
-// The compiled contract's generated ledger() does exactly this walk internally.
+// supplies the resolved path, which the discovery path learns from the
+// notification's requestsPath (sourced from the caller's contract-info.json).
+// The compiled contract's generated ledger() follows exactly this path internally.
 // The record descriptors themselves are the parameterised twins in
 // signet-requests.ts. The generic tree walk and shared base descriptors live
 // in signature-state-reading.ts.
@@ -29,7 +29,7 @@ type AlignedValue = Parameters<CompactType<unknown>["fromValue"]>[0];
 
 import {
   requestIdType,
-  signetFieldNode,
+  signetFieldNodeByPath,
   u64,
   type RawContractState,
 } from "./signature-state-reading.ts";
@@ -165,20 +165,20 @@ export interface SignetRequestsLedger {
  *
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`
  *   from the indexer or `ctx.currentQueryContext.state` from the simulator.
- * @param requestsIndexField - Ledger field position of the request index.
- * @param nonceField - Ledger field position of the request counter.
+ * @param requestsIndexPath - Resolved ledger-tree path of the request index.
+ * @param noncePath - Resolved ledger-tree path of the request counter.
  * @returns The decoded {@link SignetRequestsLedger}.
  * @throws Error if a field is missing, has the wrong state-value shape, or a
  *   record matches no capacity split.
  */
 export function readSignetRequestsLedgerFromState(
   raw: RawContractState,
-  requestsIndexField: number,
-  nonceField: number,
+  requestsIndexPath: readonly number[],
+  noncePath: readonly number[],
 ): SignetRequestsLedger {
-  const map = signetFieldNode(raw, requestsIndexField).asMap();
+  const map = signetFieldNodeByPath(raw, requestsIndexPath).asMap();
   if (map === undefined) {
-    throw new Error(`Ledger field ${requestsIndexField} is not a Map`);
+    throw new Error(`Ledger field at path ${JSON.stringify(requestsIndexPath)} is not a Map`);
   }
   const requestsIndex: SignBidirectionalEventIndex = new Map();
   for (const key of map.keys()) {
@@ -189,9 +189,9 @@ export function readSignetRequestsLedgerFromState(
     requestsIndex.set(requestId, decodeSignBidirectionalEvent(cell.value, requestId));
   }
 
-  const nonceCell = signetFieldNode(raw, nonceField).asCell();
+  const nonceCell = signetFieldNodeByPath(raw, noncePath).asCell();
   if (nonceCell === undefined) {
-    throw new Error(`Ledger field ${nonceField} is not a Cell`);
+    throw new Error(`Ledger field at path ${JSON.stringify(noncePath)} is not a Cell`);
   }
   const nonce = u64.fromValue([...nonceCell.value]);
 
@@ -219,20 +219,21 @@ export function readSignetRequestsLedgerFromState(
  * fieldIndex, …).requestsIndex.get(requestId)`.
  *
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`.
- * @param fieldIndex - Ledger field position of the request index in `raw`.
+ * @param requestsPath - Resolved ledger-tree path of the request index in
+ *   `raw`, as the notification carries it.
  * @param requestId - The request id to look up.
  * @returns The stored request record, or `undefined` when it is not a member.
  */
 export function lookupSignetRequestAt(
   raw: RawContractState,
-  fieldIndex: number,
+  requestsPath: readonly number[],
   requestId: RequestIdHex,
 ): SignBidirectionalEvent | undefined {
   let node;
   try {
-    node = signetFieldNode(raw, fieldIndex);
+    node = signetFieldNodeByPath(raw, requestsPath);
   } catch {
-    return undefined; // field position out of range for this contract
+    return undefined; // path out of range for this contract
   }
   const map = node.asMap();
   if (map === undefined) {

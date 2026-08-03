@@ -74,7 +74,7 @@ export class SignetRequestResolver {
   /**
    * Resolve a notification to its authenticated request, or `undefined` when it
    * cannot be trusted: the caller contract has no state, or `requestId` is not
-   * a member of the map at `requestsIndexField` (forged, stale, wrong field,
+   * a member of the map at `requestsPath` (forged, stale, wrong field,
    * or not yet indexed — poll again). Never throws on an untrusted
    * notification; a bad one is dropped, not surfaced as an error.
    *
@@ -102,7 +102,7 @@ export class SignetRequestResolver {
     }
     const request = lookupSignetRequestAt(
       state.data,
-      notification.requestsIndexField,
+      notification.requestsPath,
       requestId,
     );
     if (request === undefined) {

@@ -158,11 +158,11 @@ const syntheticContractState = () => {
 };
 
 describe("state-reader (MPC-style raw decode)", () => {
-  it("round-trips requests and the nonce through raw state by field position", () => {
+  it("round-trips requests and the nonce through raw state by resolved path", () => {
     const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
       syntheticContractState(),
-      0,
-      1,
+      [0],
+      [1],
     );
 
     expect(nonce).toBe(NONCE);
@@ -179,7 +179,7 @@ describe("state-reader (MPC-style raw decode)", () => {
     const fresh = StateValue.newArray()
       .arrayPush(StateValue.newMap(new StateMap()))
       .arrayPush(counterCell(0n));
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(fresh, 0, 1);
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(fresh, [0], [1]);
     expect(requestsIndex.size).toBe(0);
     expect(nonce).toBe(0n);
   });
@@ -188,8 +188,8 @@ describe("state-reader (MPC-style raw decode)", () => {
     // stateWithSecondIndex: index at 0, nonce at 1, a SECOND index at 2.
     const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
       stateWithSecondIndex(),
-      2,
-      1,
+      [2],
+      [1],
     );
     expect(nonce).toBe(NONCE);
     expect(requestsIndex.size).toBe(1);
@@ -200,9 +200,10 @@ describe("state-reader (MPC-style raw decode)", () => {
 
   it("resolves the index behind a List-typed field (array node, like a chunk)", () => {
     // A Compact List field is a fixed THREE-slot cons ARRAY node: the same
-    // node type a chunked field root uses. A List declared before the index
-    // is exactly the layout that breaks positional guessing, so pin it:
-    // list at field 0, nonce at 1, index at 2.
+    // node type a chunk uses. Path-following never inspects a node's width, so
+    // a List sitting before the index cannot be mistaken for a chunk level;
+    // following [2] lands on the index regardless. Layout: list at field 0,
+    // nonce at 1, index at 2.
     const listNode = StateValue.newArray()
       .arrayPush(StateValue.newNull())
       .arrayPush(StateValue.newNull())
@@ -212,18 +213,18 @@ describe("state-reader (MPC-style raw decode)", () => {
       .arrayPush(counterCell(NONCE))
       .arrayPush(StateValue.newMap(sampleIndexMap()));
 
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(state, 2, 1);
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(state, [2], [1]);
     expect(nonce).toBe(NONCE);
     expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
       SAMPLE_REQUEST,
     );
   });
 
-  it("resolves fields inside a compiler-chunked root (16 fields -> chunks of 1 + 15)", () => {
+  it("follows a resolved path into a compiler-chunked root (16 fields -> chunks of 1 + 15)", () => {
     // compactc chunks a >15-field contract remainder-FIRST into a
-    // depth-uniform tree: 16 fields -> [chunk(1), chunk(15)], so the
-    // rightmost chunk is always FULL: the signal that separates a chunk
-    // level from an array-typed field such as a List.
+    // depth-uniform tree: 16 fields -> [chunk(1), chunk(15)]. A notification
+    // carries the resolved path compactc records in contract-info.json, so the
+    // reader follows it node for node with no chunk detection.
     const chunk0 = StateValue.newArray().arrayPush(
       StateValue.newMap(sampleIndexMap()),
     );
@@ -233,9 +234,13 @@ describe("state-reader (MPC-style raw decode)", () => {
     }
     const state = StateValue.newArray().arrayPush(chunk0).arrayPush(chunk1);
 
-    // Flat positions: index = field 0 (chunk 0, slot 0), nonce = field 1
-    // (chunk 1, slot 0).
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(state, 0, 1);
+    // Resolved paths: index = field 0 at chunk [0, 0], nonce = field 1 at
+    // chunk [1, 0].
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
+      state,
+      [0, 0],
+      [1, 0],
+    );
     expect(nonce).toBe(NONCE);
     expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
       SAMPLE_REQUEST,
@@ -243,7 +248,7 @@ describe("state-reader (MPC-style raw decode)", () => {
   });
 });
 
-// A second request index living at a NON-ZERO ledger field, so the field
+// A second request index living at a NON-ZERO ledger field, so the path
 // argument of lookupSignetRequestAt is genuinely exercised. Its member is
 // SAMPLE_REQUEST under a distinct id.
 const FIELD2_REQUEST_ID = bytes(32, 0x5a);
@@ -279,10 +284,10 @@ const stateWithSecondIndex = () => {
 };
 
 describe("lookupSignetRequestAt", () => {
-  it("returns the record for a member id at the right field", () => {
+  it("returns the record for a member id at the right path", () => {
     const request = lookupSignetRequestAt(
       stateWithSecondIndex(),
-      0,
+      [0],
       requestIdHex(SAMPLE_REQUEST_ID),
     );
     expect(request).toEqual(SAMPLE_REQUEST);
@@ -291,7 +296,7 @@ describe("lookupSignetRequestAt", () => {
   it("resolves a member of the index at a non-zero field", () => {
     const request = lookupSignetRequestAt(
       stateWithSecondIndex(),
-      2,
+      [2],
       requestIdHex(FIELD2_REQUEST_ID),
     );
     expect(request).toEqual(SAMPLE_REQUEST);
@@ -301,7 +306,7 @@ describe("lookupSignetRequestAt", () => {
     expect(
       lookupSignetRequestAt(
         stateWithSecondIndex(),
-        0,
+        [0],
         requestIdHex(bytes(32, 0x99)),
       ),
     ).toBeUndefined();
@@ -312,7 +317,7 @@ describe("lookupSignetRequestAt", () => {
     expect(
       lookupSignetRequestAt(
         stateWithSecondIndex(),
-        2,
+        [2],
         requestIdHex(SAMPLE_REQUEST_ID),
       ),
     ).toBeUndefined();
@@ -322,17 +327,17 @@ describe("lookupSignetRequestAt", () => {
     expect(
       lookupSignetRequestAt(
         stateWithSecondIndex(),
-        1,
+        [1],
         requestIdHex(SAMPLE_REQUEST_ID),
       ),
     ).toBeUndefined();
   });
 
-  it("returns undefined when the field index is out of range", () => {
+  it("returns undefined when the path is out of range", () => {
     expect(
       lookupSignetRequestAt(
         stateWithSecondIndex(),
-        9,
+        [9],
         requestIdHex(SAMPLE_REQUEST_ID),
       ),
     ).toBeUndefined();
@@ -340,10 +345,10 @@ describe("lookupSignetRequestAt", () => {
 
   it("agrees byte-for-byte with readSignetRequestsLedgerFromState (reader parity)", () => {
     const raw = stateWithSecondIndex();
-    const viaReader = readSignetRequestsLedgerFromState(raw, 0, 1).requestsIndex.get(
+    const viaReader = readSignetRequestsLedgerFromState(raw, [0], [1]).requestsIndex.get(
       requestIdHex(SAMPLE_REQUEST_ID),
     );
-    expect(lookupSignetRequestAt(raw, 0, requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
+    expect(lookupSignetRequestAt(raw, [0], requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
       viaReader,
     );
   });

@@ -209,22 +209,62 @@ module Signet {
   // Notification delivered by client contracts via cross contract call to Signet singleton
   // (via SignetSigner interface) to notify the MPC of a SignBidirectionalEvent.
   export struct SignBidirectionalEventNotification {
-      version: Uint<8>;   // payload layout tag; 1 = the V1 layout:
-                          // callerAddress (32) ++ requestsIndexField (1) ++ zero padding (95)
-      payload: Bytes<128>;
+    // Notification payload layout version.
+    // Curent Layout Version: 1 (see constructSignBidirectionalEventNotificationV1)
+    version: Uint<8>;
+    // Payload containing serialised notification payload.
+    payload: Bytes<128>;
   }
 
-  // Construction helper for the V1 SignBidirectionalEventNotification
+  // Construction helper for the V1 SignBidirectionalEventNotification.
+  //
+  // The payload is a pointer for the MPC. It names the contract that holds the
+  // SignBidirectionalEventMap (callerAddress) and the position of that map in the
+  // contract's raw on-chain state (requestsPathDepth + requestsPath). The MPC
+  // follows the path through the raw state tree to read the authenticated
+  // request, without the caller's compiled contract.
+  //
+  // Why a path: compactc packs a contract's public ledger fields into a tree of
+  // state values whose array nodes hold at most 15 entries (the compiler's
+  // maximum-ledger-segment-length). A contract with 15 or fewer ledger fields
+  // keeps each field directly in the root array, so field N sits at path [N]
+  // (depth 1). Past 15 fields the compiler splits the declaration list into
+  // segments of at most 15, remainder segment first, and the root array holds
+  // the segments. Each split adds one level to the tree and one entry to every
+  // field's path. Example: 20 fields split into segments of 5 and 15, so
+  // fields 0..4 sit at [0, 0]..[0, 4] and fields 5..19 sit at
+  // [1, 0]..[1, 14] (depth 2).
+  //
+  // How to determine the values: read the path from your contract's compiled
+  // artifacts, do not derive it by hand. The compiler records each field's
+  // resolved path as its "index" in managed/<contract>/compiler/contract-info.json
+  // (a bare number N means path [N]). The generated
+  // managed/<contract>/contract/index.js accessors walk the same indices, for
+  // example state.asArray()[1].asArray()[14] for a map recorded at [1, 14].
+  // Set requestsPathDepth to the number of path entries and requestsPath to
+  // the path itself, zero padded to 4 entries: [1, 14] becomes depth 2 and
+  // path [1, 14, 0, 0].
   export pure circuit constructSignBidirectionalEventNotificationV1(
     // Address of the client contract that stores and notifies of this SignBidirectionalEvent.
     // Set with kernel.self(). MUST match sender in associated SignBidirectionalEvent.
     callerAddress: ContractAddress,
-    requestsIndexField: Uint<8>
+    // Number of meaningful entries in requestsPath: 1 for a flat (15 or fewer
+    // field) contract, one more per chunk level after that (max 4).
+    requestsPathDepth: Uint<8>,
+    // Resolved ledger-tree path of the caller's SignBidirectionalEventMap, from
+    // its contract-info.json "index". Entries at and beyond requestsPathDepth
+    // are zero.
+    requestsPath: Vector<4, Uint<8>>
   ): SignBidirectionalEventNotification {
     return SignBidirectionalEventNotification {
       version: 1,
-      // 128 = 32 + 1 + 95
-      payload: Bytes[...callerAddress.bytes, requestsIndexField, ...default<Bytes<95>>]
+      // 128 = 32 + 1 + 4 + 91
+      payload: Bytes[
+        ...callerAddress.bytes,
+        requestsPathDepth,
+        requestsPath[0], requestsPath[1], requestsPath[2], requestsPath[3],
+        ...default<Bytes<91>>
+      ]
     };
   }
 
