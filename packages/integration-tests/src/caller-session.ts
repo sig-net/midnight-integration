@@ -22,6 +22,7 @@ import {
 } from "@midnight-protocol/test-caller-contract";
 import {
   hexToBytes,
+  signetEventSourceFromPublicDataProvider,
   stripHexPrefix,
   toSignBidirectionalEventIndex,
   SignetRequestResponseReader,
@@ -135,15 +136,19 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
       let reader = sharedReaders.get(requestsIndexField);
       if (!reader) {
         const nodeConfig = getMidnightNodeConfig(env);
+        const publicDataProvider = indexerPublicDataProvider({
+          queryURL: nodeConfig.indexerUrl,
+          subscriptionURL: nodeConfig.indexerWsUrl,
+        });
         reader = new SignetRequestResponseReader({
           requesterContractAddress: requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
           // The caller contract is flat, so a field number is a depth-1 path.
           requesterRequestsPath: [requestsIndexField],
           signetContractAddress: requireEnv(env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
-          publicDataProvider: indexerPublicDataProvider({
-            queryURL: nodeConfig.indexerUrl,
-            subscriptionURL: nodeConfig.indexerWsUrl,
-          }),
+          publicDataProvider,
+          // The MPC's responses are read from the contract events the
+          // signet contract emits, through the same provider.
+          eventSource: signetEventSourceFromPublicDataProvider(publicDataProvider),
         });
         sharedReaders.set(requestsIndexField, reader);
       }

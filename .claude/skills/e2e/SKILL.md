@@ -97,8 +97,8 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 
 - Healthy startup (`docker logs -f fakenet-responder`) prints
   `MidnightMonitor: polling signet contract registry at <signet address>`.
-  The responder DISCOVERS requester contracts through that registry, no
-  caller address needed.
+  The responder DISCOVERS requester contracts through the signet contract,
+  no caller address needed.
 - `FAKENET_MANAGED=0` = you run the responder yourself (responder
   development: `yarn response` in a solana-signet-program checkout with the
   current signet address in its `.env`). The setup then leaves the container

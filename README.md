@@ -76,8 +76,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
 
    The Compact toolchain requirements in [Prerequisites](#prerequisites) apply to integrators too: compile with the pinned compiler version (currently `compact update 0.33.0-rc.2`) and always pass `--feature-zkir-v3`, as above.
 
-3. Declare the required Sig Network protocol state in your ledger (plus recommended deployer identity and initialisation state). The event map can sit at ANY ledger field: each notification your contract registers carries the map's resolved ledger-tree path (see [The request map's ledger-tree path](#the-request-maps-ledger-tree-path)), and the MPC reads the authenticated request from there.
-3. Declare the required Sig Network protocol state in your ledger (plus recommended deployer identity and initialisation state). The event map can sit at ANY ledger field: each notification your contract registers carries the map's resolved ledger-tree path (see [The request map's ledger-tree path](#the-request-maps-ledger-tree-path)), and the MPC reads the authenticated request from there.
+3. Declare the required Sig Network protocol state in your ledger (plus recommended deployer identity and initialisation state). The event map can sit at ANY ledger field. Each notification that your contract emits carries the map's resolved ledger-tree path (see [The request map's ledger-tree path](#the-request-maps-ledger-tree-path)), and the MPC reads the authenticated request from there.
 
    ```compact
    // Required: Map of SignBidirectionalEvent signature requests, configured by transaction type.
@@ -161,7 +160,17 @@ The off-chain steps share one `SignetRequestResponseReader` over your contract /
 
 ```ts
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
-import { deriveEvmAddress, SignetRequestResponseReader } from "@sig-net/midnight";
+import {
+   deriveEvmAddress,
+   signetEventSourceFromPublicDataProvider,
+   SignetRequestResponseReader,
+} from "@sig-net/midnight";
+
+// Provider to index Midnight Blockchain
+const publicDataProvider = indexerPublicDataProvider({
+   queryURL: indexerUrl,
+   subscriptionURL: indexerWsUrl
+});
 
 // SignetRequestResponseReader to poll for Signed Transactions and Signed RespondBidirectionalEvents
 const reader = new SignetRequestResponseReader({
@@ -174,11 +183,12 @@ const reader = new SignetRequestResponseReader({
    // Address of the Signet singleton contract
    signetContractAddress,
 
-   // Provider to index Midnight Blockchain
-   publicDataProvider: indexerPublicDataProvider({
-      queryURL: indexerUrl,
-      subscriptionURL: indexerWsUrl
-   }),
+   // Raw contract state reads (your contract's request map)
+   publicDataProvider,
+
+   // The MPC's responses are read from the contract events the Signet
+   // singleton emits, through the same provider
+   eventSource: signetEventSourceFromPublicDataProvider(publicDataProvider),
 });
 
 const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my-path");
@@ -212,9 +222,9 @@ signetSigner.signBidirectional(
 );
 ```
 
-**NOTE:** `requestId` should be returned from the above circuit call so that it may be used in subsequent steps (or compute it off-chain with the `calculateRequestId` TS twin).
+**NOTE:** Return `requestId` from this circuit call so the client can use it in the next steps. You can also compute it off-chain with the `calculateRequestId` TS twin.
 
-2. Poll the Signet singleton for the MPC's signature response. The response log is unauthenticated (anyone can post), so use the verifying getter: it only returns a post whose signature recovers to `expectedSigner` over the requested transaction's signing hash:
+2. Poll the Signet singleton for the MPC's signature response. The singleton emits each response as a contract event that carries the signature alone, with no request id. The event log is unauthenticated (anyone can post), so use the verifying getter. It only returns a post whose signature recovers to `expectedSigner` over the signing hash of the requested transaction. That verification is also the match between a post and your request:
 
    ```ts
    const { verified } = await reader.getVerifiedSignatureRespondedEvent(requestId, expectedSigner);
@@ -230,7 +240,7 @@ signetSigner.signBidirectional(
    await new JsonRpcProvider(foreignChainRpcUrl).broadcastTransaction(signedTx.serialized);
    ```
 
-4. Poll the Signet singleton for the MPC's attestation of the remote execution output (posted once the MPC observes the transaction execute on the foreign chain). The event carries the MPC's signature alone: both the attestation digest and the serialised output itself travel off chain (you broadcast the transaction in step 3, so you can read its result). The log is unauthenticated, so use the verifying getter, as in step 2: it recomputes the digest over the output you present and returns only a post whose signature verifies against your contract's response key.
+4. Poll the Signet singleton for the MPC's attestation of the remote execution output. The MPC posts it once it observes the transaction execute on the foreign chain, and the singleton emits it as a contract event. The event carries the MPC's signature alone: both the attestation digest and the serialised output travel off chain (you broadcast the transaction in step 3, so you can read its result). The event log is unauthenticated, so use the verifying getter, as in step 2. It recomputes the digest over the output that you present, and it only returns a post whose signature verifies against the response key of your contract.
 
    ```ts
    const respondBidirectionalEvent = await reader.getVerifiedRespondBidirectionalEvent(
@@ -301,7 +311,7 @@ yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
 
 ## Integration Tests
 
-Two end to end suites run against the local docker stack. The generic suite drives the smallest possible client (the test caller [contract](./packages/test-caller-contract/src/test-caller-contract.compact)) through the protocol: submit a signature request, get discovered via the notification registry, receive the MPC signature, and verify it in-circuit. The real-EVM suite carries on past signing: it broadcasts the signed call to the local anvil chain, lets the fakenet observe the mined execution and post its attestation, fetches the raw output from the fakenet's `/responses` helper API, picks the attestation that verifies over the bytes it recomputed, and verifies it in-circuit. Get them running locally:
+Two end to end suites run against the local docker stack. The generic suite drives the smallest possible client (the test caller [contract](./packages/test-caller-contract/src/test-caller-contract.compact)) through the protocol: submit a signature request, get discovered via the signet contract's notification events, receive the MPC signature, and verify it in-circuit. The real-EVM suite carries on past signing: it broadcasts the signed call to the local anvil chain, lets the fakenet observe the mined execution and post its attestation, fetches the raw output from the fakenet's `/responses` helper API, picks the attestation that verifies over the bytes it recomputed, and verifies it in-circuit. Get them running locally:
 
 1. Ensure you have all of the [prerequisites](#prerequisites) installed.
 2. From the repository root, install workspace dependencies, select the required Compact toolchain explicitly, and compile:
@@ -363,8 +373,8 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Package | npm | What it is |
 |---|---|---|
-| [`packages/signet-midnight`](packages/signet-midnight) | `@sig-net/midnight` | Client-agnostic signet protocol library: shared Compact modules, TS twins of the wire structs, state readers, request feed/resolver, crypto (epsilon derivation, secp256k1 ECDSA attestations) |
-| [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: unverified counted response logs + request-notification registry |
+| [`packages/signet-midnight`](packages/signet-midnight) | `@sig-net/midnight` | Client-agnostic signet protocol library: shared Compact modules, TS twins of the wire structs, state readers, event decoders, request feed, crypto (epsilon derivation, secp256k1 ECDSA attestations) |
+| [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: emits unverified request-notification and response events |
 | [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the singleton + the generic deploy/wallet plumbing |
 | [`packages/midnight-serde`](packages/midnight-serde) | `@sig-net/midnight-serde` | TypeScript twin of Compact's builtin `serialize<T,N>`/`deserialize<T,N>` byte layout, pinned byte-for-byte against compiled fixture circuits. Zero runtime dependencies |
 | [`packages/test-caller-contract`](packages/test-caller-contract) | repo-private | Integration-testing caller contract: submit a signature request, verify the response, the smallest thing that drives the protocol. Testing only, not an integration example |

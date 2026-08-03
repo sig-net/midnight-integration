@@ -1,24 +1,30 @@
 // One-stop client-side reader for the signet request/response flow: fetch a
-// request record from the requester contract's ledger, enumerate the posts in
-// the signet contract's signature response log, and verify each candidate
-// against the request.
-// This is the helper the Signet.compact "Response Ledger Layout" comment
-// promises: the log is UNAUTHENTICATED, so a client must verify every post
-// and take the first valid one. This class packages that flow so every
-// consumer (CLI poller, integration tests, a future UI) shares one
-// implementation. Single-shot by design: each call queries state once, and
-// the caller owns any poll loop.
+// request record from the requester contract's ledger, enumerate the
+// responses the signet contract emits as contract events, and verify
+// each candidate against the request.
+// A response is a Misc contract event that carries a signature and nothing
+// else, so no event names the request it answers. VERIFICATION is the
+// correlation: a signature response
+// is the answer to a request exactly when it recovers to that request's
+// derived signer over the request's transaction, and a respond-bidirectional
+// post is the answer exactly when it verifies over (requestId, output)
+// against the request's MPC response key. This class packages that flow so
+// every consumer (CLI poller, integration tests, a future UI) shares one
+// implementation. Single-shot by design: each call queries once, and the
+// caller owns any poll loop.
 
 import type { PublicDataProvider } from "@midnight-ntwrk/midnight-js-types";
 import type { Transaction } from "ethers";
 
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import {
-  readSignetContractLedgerFromState,
-  signetMapEntryKey,
+  decodeRespondBidirectionalEventPayload,
+  decodeSignatureRespondedEventPayload,
+  SignetEventName,
+  type SignetEventSource,
   type SignatureRespondedEvent,
   type RespondBidirectionalEvent,
-} from "./signet-contract-state-reader.ts";
+} from "./signet-contract-events.ts";
 import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
 import {
   verifyRespondBidirectionalSignature,
@@ -70,12 +76,17 @@ export interface SignetRequestResponseReaderConfig {
   readonly signetContractAddress: string;
   /** Source of raw contract state, e.g. midnight-js's `indexerPublicDataProvider`. */
   readonly publicDataProvider: SignetPublicStateSource;
+  /**
+   * Source of the signet contract's emitted events. Adapt a full provider
+   * with `signetEventSourceFromPublicDataProvider`.
+   */
+  readonly eventSource: SignetEventSource;
 }
 
-/** The verdict on one posted response, in `count` order. */
+/** The verdict on one emitted response, in emission order. */
 export interface SignatureResponseVerdict {
-  /** 0-based position of the post in the request's response log. */
-  count: bigint;
+  /** 0-based position of the post among the signature-response events. */
+  index: bigint;
   /** The posted signature record, verbatim. */
   response: SignatureRespondedEvent;
   /** Recovered signer address, absent when the signature did not decode. */
@@ -87,13 +98,13 @@ export interface SignatureResponseVerdict {
 /** Result of {@link SignetRequestResponseReader['getVerifiedSignatureRespondedEvent']}. */
 export interface VerifiedSignatureResponseResult {
   /**
-   * The first valid response (lowest count), or `undefined` when no valid
+   * The first valid response (lowest index), or `undefined` when no valid
    * response has been posted yet: poll again.
    */
   verified?: SignatureRespondedEvent;
   /**
-   * One verdict per post, count order. Pure data: the reader never logs, so
-   * callers decide how to surface rejected posts.
+   * One verdict per post, emission order. Pure data: the reader never logs,
+   * so callers decide how to surface rejected posts.
    */
   verdicts: SignatureResponseVerdict[];
 }
@@ -102,7 +113,7 @@ export interface VerifiedSignatureResponseResult {
  * Reader over one requester contract / signet contract pair.
  * Construct once per pair and reuse: fetched request records are cached (they
  * are immutable, the ledger key is their hash), so repeated verification
- * calls cost one responses-contract query each.
+ * calls cost one event query each.
  */
 export class SignetRequestResponseReader {
   private readonly config: SignetRequestResponseReaderConfig;
@@ -114,32 +125,11 @@ export class SignetRequestResponseReader {
   >();
 
   /**
-   * @param config - The contract pair and state source to read through.
+   * @param config - The contract pair, state source and event source to read
+   *   through.
    */
   constructor(config: SignetRequestResponseReaderConfig) {
     this.config = config;
-  }
-
-  /**
-   * Query one contract's raw state, throwing a uniform error when absent.
-   *
-   * @param contractAddress - The contract to query.
-   * @param role - Human name of the contract for the error message.
-   * @returns The raw ledger state tree.
-   * @throws Error when the address holds no contract state.
-   */
-  private async queryRawState(
-    contractAddress: string,
-    role: string,
-  ): Promise<RawContractState> {
-    const state =
-      await this.config.publicDataProvider.queryContractState(contractAddress);
-    if (!state?.data) {
-      throw new Error(
-        `no state data found for ${role} contract '${contractAddress}' (is it deployed?)`,
-      );
-    }
-    return state.data;
   }
 
   /**
@@ -159,12 +149,16 @@ export class SignetRequestResponseReader {
     if (cached !== undefined) {
       return cached;
     }
-    const raw = await this.queryRawState(
+    const state = await this.config.publicDataProvider.queryContractState(
       this.config.requesterContractAddress,
-      "requester",
     );
+    if (!state?.data) {
+      throw new Error(
+        `no state data found for requester contract '${this.config.requesterContractAddress}' (is it deployed?)`,
+      );
+    }
     const request = lookupSignetRequestAt(
-      raw,
+      state.data,
       this.config.requesterRequestsPath,
       requestId,
     );
@@ -179,83 +173,86 @@ export class SignetRequestResponseReader {
   }
 
   /**
-   * Fetch every response posted for `requestId`, in post (count) order.
-   * UNVERIFIED: any of them may be garbage (see
-   * {@link getVerifiedSignatureRespondedEvent}).
+   * Fetch every event of `name` the signet contract has emitted and decode
+   * each with `decode`, in emission order.
    *
-   * @param requestId - The request id whose posts to enumerate.
-   * @returns The posted payloads, index = count, empty when none yet.
-   * @throws Error when the responses contract has no state, or its counter
-   *   disagrees with the log (inconsistent ledger).
+   * @param name - The signet event name to keep.
+   * @param decode - The payload decoder for that event kind.
+   * @returns The decoded records, oldest first.
    */
-  async getSignatureResponses(
-    requestId: RequestIdHex,
-  ): Promise<SignatureRespondedEvent[]> {
-    const raw = await this.queryRawState(
+  private async getSignetEventsNamed<T>(
+    name: SignetEventName,
+    decode: (payload: Uint8Array) => T,
+  ): Promise<T[]> {
+    const events = await this.config.eventSource.querySignetEvents(
       this.config.signetContractAddress,
-      "signet contract",
     );
-    const { respondCounterMap, respondMap } =
-      readSignetContractLedgerFromState(raw);
-    const totalPosts = respondCounterMap.get(requestId) ?? 0n;
-    const responses: SignatureRespondedEvent[] = [];
-    for (let count = 0n; count < totalPosts; count++) {
-      const response = respondMap.get(
-        signetMapEntryKey(requestId, count),
-      );
-      if (response === undefined) {
-        throw new Error(
-          `response log has no entry ${count} for request ${requestId} ` +
-            `despite its counter reading ${totalPosts}: ledger state is inconsistent`,
-        );
-      }
-      responses.push(response);
-    }
-    return responses;
+    return events
+      .filter((event) => event.name === name)
+      .map((event) => decode(event.payload));
   }
 
   /**
-   * Fetch and verify the responses posted for `requestId`: each post's
-   * signature must recover to `expectedSigner`
-   * (compared case-insensitively) over the signing hash of the transaction
-   * the request record describes. The first valid post wins, and every post
-   * gets a verdict so callers can report the noise.
+   * Fetch every signature response the signet contract has emitted, in
+   * emission order. UNVERIFIED, and NOT scoped to any request: the events
+   * carry a signature and nothing else, so any of them may be garbage or
+   * answer someone else's request (see
+   * {@link getVerifiedSignatureRespondedEvent}, where verification does the
+   * matching).
+   *
+   * @returns The emitted response records, oldest first, empty when none yet.
+   */
+  async getSignatureRespondedEvents(): Promise<SignatureRespondedEvent[]> {
+    return this.getSignetEventsNamed(
+      SignetEventName.SignatureRespondedEvent,
+      decodeSignatureRespondedEventPayload,
+    );
+  }
+
+  /**
+   * Fetch the emitted signature responses and verify each against
+   * `requestId`'s request: a post's signature must recover to
+   * `expectedSigner` (compared case-insensitively) over the signing hash of
+   * the transaction the request record describes. The first valid post wins,
+   * and every post gets a verdict so callers can report the noise. This
+   * verification is also the request↔response matching: the events name no
+   * request.
    *
    * @param requestId - The request id to fetch a verified response for.
    * @param expectedSigner - The EVM address (0x hex, any case) the genuine
    *   response must be signed by: the requester's MPC-derived address.
    * @returns The first valid response (if any) plus per-post verdicts.
-   * @throws Error when either contract has no state, the request is not on
-   *   the requester's ledger, or the responses ledger is inconsistent.
+   * @throws Error when the requester contract has no state or the request is
+   *   not on its ledger.
    */
   async getVerifiedSignatureRespondedEvent(
     requestId: RequestIdHex,
     expectedSigner: string,
   ): Promise<VerifiedSignatureResponseResult> {
     const request = await this.getSignatureRequest(requestId);
-    const responses = await this.getSignatureResponses(requestId);
+    const responses = await this.getSignatureRespondedEvents();
     const verdicts = responses.map(
-      (response, index): SignatureResponseVerdict => {
-        const count = BigInt(index);
+      (response, position): SignatureResponseVerdict => {
+        const index = BigInt(position);
         let signer: string;
         try {
           signer = recoverSignatureResponseSigner(request, response);
         } catch (error) {
           return {
-            count,
+            index,
             response,
             rejectedReason: `not a decodable signature (${String(error)})`,
           };
         }
         if (signer.toLowerCase() !== expectedSigner.toLowerCase()) {
           return {
-            count,
+            index,
             response,
             signer,
             rejectedReason: `signed by ${signer}, expected ${expectedSigner}`,
           };
         }
-        return { count, response, signer };
+        return { index, response, signer };
       },
     );
     return {
@@ -267,7 +264,7 @@ export class SignetRequestResponseReader {
   /**
    * Rebuild the unsigned EIP-1559 transaction for `requestId`: the exact
    * transaction the MPC signs, assembled from the request record's decomposed
-   * fields. No responses-contract query: this needs only the request record
+   * fields. No event query: this needs only the request record
    * (fetched via {@link getSignatureRequest}, cached).
    *
    * @param requestId - The request id whose transaction to rebuild.
@@ -288,7 +285,7 @@ export class SignetRequestResponseReader {
    * Assemble the broadcast-ready signed EIP-1559 transaction for `requestId`:
    * rebuild the request's transaction and attach the first VERIFIED response
    * signed by `expectedSigner` (see {@link getVerifiedSignatureRespondedEvent}:
-   * the response log is unauthenticated, so an `expectedSigner` is required
+   * the event log is unauthenticated, so an `expectedSigner` is required
    * and unverified posts are never attached).
    *
    * @param requestId - The request id to produce a signed transaction for.
@@ -297,8 +294,8 @@ export class SignetRequestResponseReader {
    * @returns The signed ethers transaction (`serialized` is the payload for
    *   `eth_sendRawTransaction`), or `undefined` when no valid response has
    *   been posted yet: poll again.
-   * @throws Error when either contract has no state, the request is not on the
-   *   requester's ledger, or the responses ledger is inconsistent.
+   * @throws Error when the requester contract has no state or the request is
+   *   not on its ledger.
    */
   async getSignedEvmTransaction(
     requestId: RequestIdHex,
@@ -318,74 +315,50 @@ export class SignetRequestResponseReader {
   }
 
   /**
-   * Fetch every respond-bidirectional response posted for `requestId`, in
-   * post (count) order. UNVERIFIED: the signet contract stores posts without
-   * checking them, so any entry may be garbage. Each post carries a signature
-   * and nothing else, so verifying it against the MPC response key you expect
-   * is the only way to pick the genuine one: in-circuit at claim time, or off
-   * chain with {@link verifyRespondBidirectionalSignature} over the output you
-   * fetched. An empty array simply means none posted yet: poll again.
+   * Fetch every respond-bidirectional response the signet contract has
+   * emitted, in emission order. UNVERIFIED, and NOT scoped to any request:
+   * each post carries a signature and nothing else, so verifying it against
+   * the MPC response key you expect is the only way to pick the genuine one
+   * AND the only way to match a post to a request: in-circuit at claim time,
+   * or off chain with {@link verifyRespondBidirectionalSignature} over the
+   * output you fetched. An empty array simply means none posted yet: poll
+   * again.
    *
-   * @param requestId - The request id whose responses to enumerate.
-   * @returns The posted records, index = count, empty when none yet.
-   * @throws Error when the signet contract has no state, or its counter
-   *   disagrees with the log (inconsistent ledger).
+   * @returns The emitted records, oldest first, empty when none yet.
    */
-  async getRespondBidirectionalEvents(
-    requestId: RequestIdHex,
-  ): Promise<RespondBidirectionalEvent[]> {
-    const raw = await this.queryRawState(
-      this.config.signetContractAddress,
-      "signet contract",
+  async getRespondBidirectionalEvents(): Promise<RespondBidirectionalEvent[]> {
+    return this.getSignetEventsNamed(
+      SignetEventName.RespondBidirectionalEvent,
+      decodeRespondBidirectionalEventPayload,
     );
-    const { respondBidirectionalCounterMap, respondBidirectionalMap } =
-      readSignetContractLedgerFromState(raw);
-    const totalPosts = respondBidirectionalCounterMap.get(requestId) ?? 0n;
-    const responses: RespondBidirectionalEvent[] = [];
-    for (let count = 0n; count < totalPosts; count++) {
-      const response = respondBidirectionalMap.get(
-        signetMapEntryKey(requestId, count),
-      );
-      if (response === undefined) {
-        throw new Error(
-          `respond-bidirectional log has no entry ${count} for request ${requestId} ` +
-            `despite its counter reading ${totalPosts}: ledger state is inconsistent`,
-        );
-      }
-      responses.push(response);
-    }
-    return responses;
   }
 
   /**
-   * Fetch the respond-bidirectional posts for `requestId` and return the
-   * first (lowest count) one whose signature verifies over
-   * `serializedOutput` against `mpcResponseKey`: the off-chain twin of the
-   * check the client contract runs in-circuit, and the only way to pick a
-   * genuine post out of an unauthenticated log now that posts carry nothing
-   * but a signature.
+   * Fetch the emitted respond-bidirectional posts and return the first
+   * (oldest) one whose signature verifies over `serializedOutput` against
+   * `mpcResponseKey`: the off-chain twin of the check the client contract
+   * runs in-circuit, and the only way to pick a genuine post out of an
+   * unauthenticated event log whose posts carry nothing but a signature.
    *
    * The output must be the exact unpadded bytes the attestation commits to
    * (the packed respond payload, recomputed from the execution output the
    * client fetched), so a post that verifies here is the post that proves at
    * claim time.
    *
-   * @param requestId - The request id to fetch a verified attestation for.
+   * @param requestId - The request id the attestation must commit to.
    * @param serializedOutput - The serialised execution output the attestation
    *   must commit to, exact unpadded bytes.
    * @param mpcResponseKey - The MPC response key the requesting contract
    *   pinned at deploy (see `deriveMidnightResponseKey`).
    * @returns The first verifying post, or `undefined` when none has been
    *   posted yet (poll again) or none attests this output.
-   * @throws Error when the signet contract has no state, or its counter
-   *   disagrees with the log (inconsistent ledger).
    */
   async getVerifiedRespondBidirectionalEvent(
     requestId: RequestIdHex,
     serializedOutput: Uint8Array,
     mpcResponseKey: Secp256k1Point,
   ): Promise<RespondBidirectionalEvent | undefined> {
-    const events = await this.getRespondBidirectionalEvents(requestId);
+    const events = await this.getRespondBidirectionalEvents();
     return events.find((event) =>
       verifyRespondBidirectionalSignature(
         requestIdBytes(requestId),

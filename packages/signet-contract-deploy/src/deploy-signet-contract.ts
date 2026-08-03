@@ -1,8 +1,8 @@
 // Signet-contract deploy flow: builds, balances, proves and submits the
 // contract's deploy transaction using the generic plumbing in ./plumbing.
-// Everything contract-specific lives HERE: the (empty) private state — the
-// contract has no constructor arguments (every store is an unauthenticated
-// append-only log; verification is the reader's job). Requires the contract
+// Everything contract-specific lives HERE: the (empty) private state. The
+// contract has no constructor arguments (it only emits unauthenticated
+// events: verification is the reader's job). Requires the contract
 // package's compiled assets to carry keys (its published dist/managed
 // always does; an in-repo checkout needs `yarn compile:zk`).
 

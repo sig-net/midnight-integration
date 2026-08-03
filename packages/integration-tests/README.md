@@ -29,10 +29,10 @@ and two flow files:
   2. `submitSignatureRequest` — drive the caller contract's request circuit
      (contract-fixed minimal calldata) and read the request back MPC-style
      from the raw ledger.
-  3. Golden notification — the submit registered a decodable
-     `SignBidirectionalNotification` in the signet contract's registry, read
-     by field position through the hand-composed descriptors, exactly as the
-     MPC reads it.
+  3. Golden notification: the submit emitted a decodable
+     `SignBidirectionalNotification` event on the signet contract, read
+     through the indexer's contract-events query and the shared event
+     decoders, exactly as the MPC reads it.
   4. `pollSignatureResponse` — the fakenet's ECDSA response arrives on the
      signet contract and verifies against the caller's epsilon-derived
      account.

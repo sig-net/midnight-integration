@@ -1,7 +1,7 @@
 // The generic signet e2e flow: the minimal caller contract drives the
 // central signet contract end to end. It submits a signature request (with
-// contract-fixed minimal calldata), watches the notification land in the
-// singleton's registry, polls the MPC's signature response and verifies it
+// contract-fixed minimal calldata), watches the notification event land on
+// the singleton, polls the MPC's signature response and verifies it
 // against the caller's derived account, then verifies an ECDSA-signed
 // respond-bidirectional response in-circuit. The contracts are the ones the
 // caller globalSetup pipeline (src/setup/caller-global-setup.ts, wired by
@@ -177,7 +177,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
         `  request id: ${signatureRequestId}`,
         "",
         "The response server (fakenet compose service, MIDNIGHT_SIGNET_CONTRACT_ADDRESS set)",
-        "polls the signet contract's notification registry and should pick it up",
+        "polls the signet contract's notification events and should pick it up",
         "on its next poll (resolving it from THIS caller's ledger) and sign the EVM tx.",
       ]);
     },
@@ -185,36 +185,35 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
   );
 
   it(
-    "golden notification: the caller's submit registered a decodable notification in the signet registry",
+    "golden notification: the caller's submit emitted a decodable notification event on the signet contract",
     async () => {
-      // Pins the SignBidirectionalEventNotification payload layout against a
-      // LIVE indexer, read exactly the way the MPC reads it: raw signet
-      // state by field position through the hand-composed descriptors. The
-      // caller's submit cross-contract-called signBidirectional to
-      // register this under the request id (the registry map key: the V1
-      // payload itself no longer carries one).
+      // Pins the SignBidirectionalEvent notification payload layout against
+      // a LIVE indexer, read exactly the way the MPC reads it: the signet
+      // contract's Misc events through the shared event decoders. The
+      // caller's submit cross-contract-called signBidirectional to emit
+      // this. The event carries no request id, so caller + path is the
+      // match key.
       expect(signatureRequestId).toBeDefined();
       const callerAddress = requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS");
-
-      const decoded = await pollSignetNotification({
-        env,
-        requestId: signatureRequestId,
-        description: `for request ${signatureRequestId}`,
-      });
 
       // callerAddress points at the caller (the contract whose authenticated
       // ledger holds the request), and the event map is at field 4, which for
       // this flat caller is path [4] (see test-caller-contract.compact).
+      const decoded = await pollSignetNotification({
+        env,
+        callerAddress,
+        requestsPath: [4],
+        description: `naming caller ${callerAddress} at path [4]`,
+      });
       expect(decoded.version).toBe(1);
       expect(decoded.callerAddress).toBe(stripHexPrefix(callerAddress).toLowerCase());
       expect(decoded.requestsPath).toEqual([4]);
 
       banner([
-        "Golden SignBidirectionalEventNotification decoded from the live indexer:",
+        "Golden SignBidirectionalEvent notification decoded from the live indexer:",
         "",
         `  version:            ${decoded.version}`,
         `  callerAddress:      ${decoded.callerAddress}`,
-        `  registered under:   ${signatureRequestId}`,
         `  requestsPath:       ${JSON.stringify(decoded.requestsPath)}`,
       ]);
     },
@@ -237,10 +236,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       );
       console.log(`expected signer (derived caller account): ${expectedSigner}`);
 
-      // Poll the signet contract's UNAUTHENTICATED response log: every post
-      // is judged by whether its signature recovers to the derived sender
-      // over the requested transaction's signing hash, and the first valid
-      // post wins. Rejected posts are immutable log entries: warn each once.
+      // Poll the signet contract's UNAUTHENTICATED response events: every
+      // post is judged by whether its signature recovers to the derived
+      // sender over the requested transaction's signing hash, and the first
+      // valid post wins (that verification is also what matches a post to
+      // THIS request: the events name none). Rejected posts are immutable
+      // log entries: warn each once.
       const reader = session.responseReader();
       const warned = new Set<bigint>();
       const giveUp = new AbortController();
@@ -249,9 +250,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
         while (!giveUp.signal.aborted) {
           const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(signatureRequestId, expectedSigner);
           for (const verdict of verdicts) {
-            if (verdict.rejectedReason !== undefined && !warned.has(verdict.count)) {
-              warned.add(verdict.count);
-              console.warn(`ignoring response post ${verdict.count}: ${verdict.rejectedReason}`);
+            if (verdict.rejectedReason !== undefined && !warned.has(verdict.index)) {
+              warned.add(verdict.index);
+              console.warn(`ignoring response post ${verdict.index}: ${verdict.rejectedReason}`);
             }
           }
           if (verified !== undefined) {
@@ -325,7 +326,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
 
       // No key argument: verifyResponse reads the stored MPC response key
       // straight from the ledger (the initialise leg put it there), and takes
-      // the response in the shape the singleton stores it. The event carries
+      // the response in the shape the singleton emits it. The event carries
       // the signature alone: the circuit recomputes the digest from the
       // output handed in beside it.
       await context.caller.callTx.verifyResponse(

@@ -1,14 +1,14 @@
 # @sig-net/midnight-contract
 
-The central [Sig Network](https://sig.network) signet contract on the [Midnight blockchain](https://midnight.network): the singleton that exposes the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration#sign-bidirectional-flow) to other Midnight contracts. The MPC posts back to it and clients poll it:
+The central [Sig Network](https://sig.network) signet contract on the [Midnight blockchain](https://midnight.network): the singleton that exposes the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration#sign-bidirectional-flow) to other Midnight contracts. Every circuit emits a named contract event: the MPC posts back through the contract, and clients poll its events:
 
-- **Signature responses**: an unauthenticated counted log. Callers verify the signatures off-chain or in their own circuits.
-- **Remote execution responses**: secp256k1 ECDSA attestations by the MPC's per-client response key, stored unverified like the signature responses. The client contract verifies them in its own circuit.
-- **Request-notification registry**: how the MPC discovers new signature requests.
+- **Signature responses**: an unauthenticated event log. Callers verify the signatures off-chain or in their own circuits (the verification is also what matches a post to a request: the events name none).
+- **Remote execution responses**: secp256k1 ECDSA attestations by the MPC's per-client response key, emitted unverified like the signature responses. The client contract verifies them in its own circuit.
+- **Request-notification events**: how the MPC discovers new signature requests (each event names the caller contract and the ledger path of its request map).
 
 ## What is in it
 
-- The curated export surface (package root): the generated contract module (`Contract`, the `ledger` state decoder, `pureCircuits`), the handwritten witnesses, and the platform-agnostic contract surface (circuit ids and the provider type).
+- The curated export surface (package root): the generated contract module (`Contract`), the handwritten witnesses, and the platform-agnostic contract surface (circuit ids and the provider type).
 - The `./managed/*` subpath export: the compiled contract assets (compiler output, `zkir/`, prover/verifier `keys/`) so runtimes can fetch them as files. The published package always carries the proving keys.
 
 Consumers import the package root. The `./managed/*` paths exist only for runtimes that load zk assets.

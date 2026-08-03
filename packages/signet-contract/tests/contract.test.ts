@@ -1,9 +1,13 @@
 // Simulator-level unit tests: the contract runs entirely in-process via
-// @midnight-ntwrk/compact-runtime (no ledger, no network, no proving). Every
-// store on this contract is an UNAUTHENTICATED append-only log: nothing is
-// verified in circuit, each post lands under the next (requestId, count) key,
-// and verification is deliberately the reader's job. The tests pin exactly
-// that: garbage lands too, nothing overwrites, counters and entries agree.
+// @midnight-ntwrk/compact-runtime (no network, no proving). Every circuit
+// emits one named Misc event with a packed payload, nothing is verified in
+// circuit, and verification is deliberately the reader's job. The tests pin
+// exactly that: each circuit's emit lands as one event, garbage lands too,
+// repeats append, and the payloads decode back through the @sig-net/midnight
+// event decoders. That
+// decode is the LOCKSTEP CHECK between the contract's emit literals and the
+// TS byte-plumbing twins: it runs against REAL emitted events, so an offset
+// or field-order drift on either side fails here.
 
 import { describe, expect, it } from "vitest";
 
@@ -15,19 +19,22 @@ import {
 
 import {
   bytesToHex,
+  decodeRespondBidirectionalEventPayload,
+  decodeSignatureRespondedEventPayload,
+  decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
-  readSignetContractLedgerFromState,
-  requestIdHex,
-  signetMapEntryKey,
+  decodeSignetLogEvents,
+  SignetEventName,
+  SIGNET_EVENT_PAYLOAD_LENGTH,
   pureCircuits as signetCircuits,
   type SignatureRespondedEvent,
   type RespondBidirectionalEvent,
+  type SignetMiscEvent,
 } from "@sig-net/midnight";
 
 import {
   Contract,
   createSignetContractPrivateState,
-  ledger,
   witnesses,
   type SignetContractPrivateState,
 } from "../src/index.ts";
@@ -42,7 +49,9 @@ const bytes = (length: number, fill: number) =>
 
 // Request ids the posts below answer, and signature response records.
 // SYNTHETIC signatures, deliberately not verifiable: the contract must
-// store them anyway (verification is the reader's job).
+// emit them anyway (verification is the reader's job). SIG_1 and SIG_2
+// differ in every leaf INCLUDING recoveryId: a decoder that dropped that
+// field would still match a single 0-valued fixture.
 const REQUEST_A = bytes(32, 0xaa);
 const REQUEST_B = bytes(32, 0xbb);
 const SIG_1: SignatureRespondedEvent = {
@@ -53,7 +62,7 @@ const SIG_2: SignatureRespondedEvent = {
 };
 
 // Respond-bidirectional records: SYNTHETIC signatures, deliberately not
-// verifiable. The contract must store them anyway (verification is the
+// verifiable. The contract must emit them anyway (verification is the
 // reader's job).
 const RESPOND_1: RespondBidirectionalEvent = {
   signature: { bigR: { x: bytes(32, 0x07), y: bytes(32, 0x08) }, s: bytes(32, 0x09), recoveryId: 0n },
@@ -74,30 +83,26 @@ const deployContract = async (circuitId: string) => {
     await contract.initialState(
       createConstructorContext(createSignetContractPrivateState(), CPK),
     );
+  const contractAddress = sampleContractAddress();
   const ctx = createCircuitContext(
     circuitId,
-    sampleContractAddress(),
+    contractAddress,
     CPK,
     currentContractState,
     currentPrivateState,
   );
-  return { contract, ctx };
+  return { contract, ctx, contractAddress };
+};
+
+/** All bytes of `payload` from `offset` on must be the emit literal's zero fill. */
+const expectZeroPadding = (payload: Uint8Array, offset: number) => {
+  expect(payload).toHaveLength(SIGNET_EVENT_PAYLOAD_LENGTH);
+  expect(payload.slice(offset)).toEqual(
+    new Uint8Array(SIGNET_EVENT_PAYLOAD_LENGTH - offset),
+  );
 };
 
 // ---- Tests ----
-
-describe("constructor", () => {
-  it("deploys with all six maps empty", async () => {
-    const { ctx } = await deployContract("respond");
-    const state = ledger(ctx.callContext.currentQueryContext.state);
-    expect(state.signBidirectionalEventNotificationCounterMap.isEmpty()).toBe(true);
-    expect(state.signBidirectionalEventNotificationMap.isEmpty()).toBe(true);
-    expect(state.respondCounterMap.isEmpty()).toBe(true);
-    expect(state.respondMap.isEmpty()).toBe(true);
-    expect(state.respondBidirectionalCounterMap.isEmpty()).toBe(true);
-    expect(state.respondBidirectionalMap.isEmpty()).toBe(true);
-  });
-});
 
 describe("signBidirectional", () => {
   // These callers are flat, so a field number is a depth-1 path [field].
@@ -108,31 +113,41 @@ describe("signBidirectional", () => {
       [requestsField, 0n, 0n, 0n],
     );
 
-  it("stores the notification under (requestId, 0) and returns that map key", async () => {
-    const { contract, ctx } = await deployContract("signBidirectional");
+  it("emits the notification as a SignBidirectionalEvent event (decode lockstep)", async () => {
+    const { contract, ctx, contractAddress } = await deployContract(
+      "signBidirectional",
+    );
 
     const { result, context } = await contract.circuits.signBidirectional(
       ctx,
       REQUEST_A,
       notification(4n),
     );
-    const state = ledger(context.callContext.currentQueryContext.state);
+    expect(result).toEqual([]);
 
-    expect(result).toEqual({ count: 0n, requestId: REQUEST_A });
-    expect(
-      state.signBidirectionalEventNotificationCounterMap.lookup(REQUEST_A).read(),
-    ).toBe(1n);
-    expect(state.signBidirectionalEventNotificationMap.size()).toBe(1n);
-    expect(
-      state.signBidirectionalEventNotificationMap.lookup({
-        count: 0n,
-        requestId: REQUEST_A,
-      }),
-    ).toEqual(notification(4n));
+    // The one emitted event, tagged with THIS contract's address.
+    const events = decodeSignetLogEvents(context.events, contractAddress);
+    expect(events).toHaveLength(1);
+    const [event] = events;
+    expect(event.name).toBe(SignetEventName.SignBidirectionalEvent);
+
+    // Emit literal: version (1) ++ notification payload (128) ++ zeros (127).
+    const record = decodeSignBidirectionalEventNotificationPayload(event.payload);
+    expect(record).toEqual(notification(4n));
+    expectZeroPadding(event.payload, 129);
+
+    // The packed V1 payload decodes back to the caller pointer.
+    expect(decodeSignBidirectionalNotification(record)).toEqual({
+      version: 1,
+      callerAddress: bytesToHex(NOTIFYING_CALLER.bytes),
+      requestsPath: [4],
+    });
   });
 
-  it("appends a repeat notify under the next count, nothing overwritten", async () => {
-    const { contract, ctx } = await deployContract("signBidirectional");
+  it("emits a repeat notify as its own event, nothing replaced", async () => {
+    const { contract, ctx, contractAddress } = await deployContract(
+      "signBidirectional",
+    );
 
     const first = await contract.circuits.signBidirectional(
       ctx,
@@ -142,30 +157,21 @@ describe("signBidirectional", () => {
     const second = await contract.circuits.signBidirectional(
       first.context,
       REQUEST_A,
-      notification(7n), // different index field: both posts must survive
+      notification(7n), // different index field: both emits must survive
     );
 
-    expect(second.result).toEqual({ count: 1n, requestId: REQUEST_A });
-    const state = ledger(second.context.callContext.currentQueryContext.state);
+    const events = decodeSignetLogEvents(second.context.events, contractAddress);
+    expect(events).toHaveLength(2);
     expect(
-      state.signBidirectionalEventNotificationCounterMap.lookup(REQUEST_A).read(),
-    ).toBe(2n);
-    expect(state.signBidirectionalEventNotificationMap.size()).toBe(2n);
-    expect(
-      state.signBidirectionalEventNotificationMap.lookup({
-        count: 0n,
-        requestId: REQUEST_A,
-      }),
-    ).toEqual(notification(4n));
-    expect(
-      state.signBidirectionalEventNotificationMap.lookup({
-        count: 1n,
-        requestId: REQUEST_A,
-      }),
-    ).toEqual(notification(7n));
+      events.map((event) =>
+        decodeSignBidirectionalNotification(
+          decodeSignBidirectionalEventNotificationPayload(event.payload),
+        ).requestsPath,
+      ),
+    ).toEqual([[4], [7]]);
   });
 
-  it("rejects a notification whose version is not 1", async () => {
+  it("rejects a notification whose version is not 1, emitting nothing", async () => {
     const { contract, ctx } = await deployContract("signBidirectional");
     await expect(
       contract.circuits.signBidirectional(ctx, REQUEST_A, {
@@ -173,32 +179,7 @@ describe("signBidirectional", () => {
         version: 2n,
       }),
     ).rejects.toThrow(/only version 1 notification supported/);
-  });
-
-  it("MPC-style raw read decodes the stored notification from real contract state", async () => {
-    const { contract, ctx } = await deployContract("signBidirectional");
-    const { context } = await contract.circuits.signBidirectional(
-      ctx,
-      REQUEST_A,
-      notification(4n),
-    );
-
-    // Read the REAL simulator state the way the MPC reads the indexer's raw
-    // state: by field position, through the hand-composed descriptors. This
-    // pins descriptor↔contract encoding lockstep in-process.
-    const raw = readSignetContractLedgerFromState(
-      context.callContext.currentQueryContext.state,
-    );
-    expect(raw.signBidirectionalEventNotificationMap.size).toBe(1);
-    const record = raw.signBidirectionalEventNotificationMap.get(
-      requestIdHex(REQUEST_A),
-    );
-    expect(record).toBeDefined();
-    expect(decodeSignBidirectionalNotification(record!)).toEqual({
-      version: 1,
-      callerAddress: bytesToHex(NOTIFYING_CALLER.bytes),
-      requestsPath: [4],
-    });
+    expect(ctx.events).toHaveLength(0);
   });
 });
 
@@ -208,28 +189,26 @@ interface Post {
   signature: SignatureRespondedEvent;
 }
 
-/** One row of the post table: a post sequence → the exact expected ledger. */
+/**
+ * One row of the post table: a post sequence → the exact expected event log.
+ * The emitted events carry the signature ALONE (no request id: a client
+ * matches a post to its request by verifying the signature), so the expected
+ * log is the ordered signature list.
+ */
 interface PostCase {
-  /** Test name, completing the sentence "stores <name>". */
+  /** Test name, completing the sentence "emits <name>". */
   name: string;
   /** Posts applied in order, each through respond. */
   posts: Post[];
-  /** The FULL expected counter map: total posts per request id. */
-  expectedCounters: { requestId: Uint8Array; total: bigint }[];
-  /** The FULL expected response log: (requestId, count) → signature. */
-  expectedEntries: {
-    requestId: Uint8Array;
-    count: bigint;
-    signature: SignatureRespondedEvent;
-  }[];
+  /** The FULL expected event log, in emission order. */
+  expectedEvents: SignatureRespondedEvent[];
 }
 
 const POST_CASES: PostCase[] = [
   {
-    name: "a single post at count 0, its counter reading 1",
+    name: "a single post as a single event",
     posts: [{ requestId: REQUEST_A, signature: SIG_1 }],
-    expectedCounters: [{ requestId: REQUEST_A, total: 1n }],
-    expectedEntries: [{ requestId: REQUEST_A, count: 0n, signature: SIG_1 }],
+    expectedEvents: [SIG_1],
   },
   {
     name: "a second post for the same request APPENDED, the first untouched",
@@ -237,131 +216,93 @@ const POST_CASES: PostCase[] = [
       { requestId: REQUEST_A, signature: SIG_1 },
       { requestId: REQUEST_A, signature: SIG_2 },
     ],
-    expectedCounters: [{ requestId: REQUEST_A, total: 2n }],
-    expectedEntries: [
-      { requestId: REQUEST_A, count: 0n, signature: SIG_1 },
-      { requestId: REQUEST_A, count: 1n, signature: SIG_2 },
-    ],
+    expectedEvents: [SIG_1, SIG_2],
   },
   {
-    name: "an identical re-post as its own entry (no dedup, no error)",
+    name: "an identical re-post as its own event (no dedup, no error)",
     posts: [
       { requestId: REQUEST_A, signature: SIG_1 },
       { requestId: REQUEST_A, signature: SIG_1 },
     ],
-    expectedCounters: [{ requestId: REQUEST_A, total: 2n }],
-    expectedEntries: [
-      { requestId: REQUEST_A, count: 0n, signature: SIG_1 },
-      { requestId: REQUEST_A, count: 1n, signature: SIG_1 },
-    ],
+    expectedEvents: [SIG_1, SIG_1],
   },
   {
-    name: "independent per-request counts for interleaved posts",
+    name: "interleaved posts for different requests in emission order",
     posts: [
       { requestId: REQUEST_A, signature: SIG_1 },
       { requestId: REQUEST_B, signature: SIG_2 },
       { requestId: REQUEST_A, signature: SIG_2 },
     ],
-    expectedCounters: [
-      { requestId: REQUEST_A, total: 2n },
-      { requestId: REQUEST_B, total: 1n },
-    ],
-    expectedEntries: [
-      { requestId: REQUEST_A, count: 0n, signature: SIG_1 },
-      { requestId: REQUEST_A, count: 1n, signature: SIG_2 },
-      { requestId: REQUEST_B, count: 0n, signature: SIG_2 },
-    ],
+    expectedEvents: [SIG_1, SIG_2, SIG_2],
   },
 ];
 
 describe("respond", () => {
   it.each(POST_CASES)(
-    "stores $name",
-    async ({ posts, expectedCounters, expectedEntries }) => {
-      const { contract, ctx } = await deployContract("respond");
+    "emits $name",
+    async ({ posts, expectedEvents }) => {
+      const { contract, ctx, contractAddress } = await deployContract("respond");
 
       let finalCtx = ctx;
       for (const { requestId, signature } of posts) {
         finalCtx = (
-          await contract.circuits.respond(
-            finalCtx,
-            requestId,
-            signature,
-          )
+          await contract.circuits.respond(finalCtx, requestId, signature)
         ).context;
       }
-      const state = ledger(finalCtx.callContext.currentQueryContext.state);
 
-      // The counter map holds EXACTLY the expected requests, each counter
-      // reading that request's total number of posts.
-      expect(state.respondCounterMap.size()).toBe(
-        BigInt(expectedCounters.length),
+      // The event log holds EXACTLY the posts, in order, each decoding back
+      // to the signature it carried (the emit↔decode lockstep, on REAL
+      // emitted events).
+      const events = decodeSignetLogEvents(finalCtx.events, contractAddress);
+      expect(events.map((event) => event.name)).toEqual(
+        expectedEvents.map(() => SignetEventName.SignatureRespondedEvent),
       );
-      for (const { requestId, total } of expectedCounters) {
-        expect(state.respondCounterMap.lookup(requestId).read()).toBe(
-          total,
-        );
-      }
-
-      // The response log holds EXACTLY the expected (requestId, count) keys.
-      expect(state.respondMap.size()).toBe(
-        BigInt(expectedEntries.length),
-      );
-      for (const { requestId, count, signature } of expectedEntries) {
-        expect(state.respondMap.lookup({ count, requestId })).toEqual(
-          signature,
-        );
-      }
+      expect(
+        events.map((event) => decodeSignatureRespondedEventPayload(event.payload)),
+      ).toEqual(expectedEvents);
     },
   );
 
-  it("MPC-style raw read agrees with the generated ledger()", async () => {
-    // Pins signatureRespondedEventType against REAL contract state. The
-    // nested Signature descriptor is shared with the respond-bidirectional
-    // record, but this event wraps it as a struct's only field: a different
-    // alignment path, so it needs its own lockstep check. Both posts are
-    // read back because SIG_1 and SIG_2 differ in recoveryId: a decoder that
-    // dropped that field would still match a single 0-valued fixture.
-    const { contract, ctx } = await deployContract("respond");
-    const first = await contract.circuits.respond(ctx, REQUEST_A, SIG_1);
-    const { context } = await contract.circuits.respond(
-      first.context,
-      REQUEST_A,
-      SIG_2,
-    );
+  it("packs the emit literal as bigR.x ++ bigR.y ++ s ++ recoveryId ++ zeros", async () => {
+    const { contract, ctx, contractAddress } = await deployContract("respond");
+    const { context } = await contract.circuits.respond(ctx, REQUEST_A, SIG_2);
 
-    const raw = readSignetContractLedgerFromState(
-      context.callContext.currentQueryContext.state,
-    );
-    const idHex = requestIdHex(REQUEST_A);
-    expect(raw.respondCounterMap.get(idHex)).toBe(2n);
-    expect(raw.respondMap.get(signetMapEntryKey(idHex, 0n))).toEqual(SIG_1);
-    expect(raw.respondMap.get(signetMapEntryKey(idHex, 1n))).toEqual(SIG_2);
+    const [event] = decodeSignetLogEvents(context.events, contractAddress);
+    expect(event.payload.slice(0, 32)).toEqual(SIG_2.signature.bigR.x);
+    expect(event.payload.slice(32, 64)).toEqual(SIG_2.signature.bigR.y);
+    expect(event.payload.slice(64, 96)).toEqual(SIG_2.signature.s);
+    expect(event.payload[96]).toBe(1); // SIG_2's recoveryId
+    expectZeroPadding(event.payload, 97);
   });
 });
 
 describe("respondBidirectional", () => {
-  it("stores a post under (requestId, 0), UNVERIFIED by design", async () => {
-    const { contract, ctx } = await deployContract("respondBidirectional");
+  it("emits a post as a RespondBidirectionalEvent event, UNVERIFIED by design", async () => {
+    const { contract, ctx, contractAddress } = await deployContract(
+      "respondBidirectional",
+    );
 
     const { context } = await contract.circuits.respondBidirectional(
       ctx,
       REQUEST_A,
       RESPOND_1,
     );
-    const state = ledger(context.callContext.currentQueryContext.state);
 
-    expect(state.respondBidirectionalCounterMap.lookup(REQUEST_A).read()).toBe(1n);
-    expect(state.respondBidirectionalMap.size()).toBe(1n);
+    const events = decodeSignetLogEvents(context.events, contractAddress);
+    expect(events).toHaveLength(1);
+    expect(events[0].name).toBe(SignetEventName.RespondBidirectionalEvent);
     // The synthetic (unverifiable) signature landed verbatim: the contract
-    // stores, the reader verifies.
-    expect(
-      state.respondBidirectionalMap.lookup({ count: 0n, requestId: REQUEST_A }),
-    ).toEqual(RESPOND_1);
+    // emits, the reader verifies.
+    expect(decodeRespondBidirectionalEventPayload(events[0].payload)).toEqual(
+      RESPOND_1,
+    );
+    expectZeroPadding(events[0].payload, 97);
   });
 
-  it("appends a second post for the same request, nothing overwritten", async () => {
-    const { contract, ctx } = await deployContract("respondBidirectional");
+  it("emits a second post for the same request as its own event, nothing replaced", async () => {
+    const { contract, ctx, contractAddress } = await deployContract(
+      "respondBidirectional",
+    );
 
     const first = await contract.circuits.respondBidirectional(
       ctx,
@@ -374,60 +315,39 @@ describe("respondBidirectional", () => {
       RESPOND_2,
     );
 
-    const state = ledger(second.context.callContext.currentQueryContext.state);
-    expect(state.respondBidirectionalCounterMap.lookup(REQUEST_A).read()).toBe(2n);
-    expect(state.respondBidirectionalMap.size()).toBe(2n);
+    const events = decodeSignetLogEvents(second.context.events, contractAddress);
     expect(
-      state.respondBidirectionalMap.lookup({ count: 0n, requestId: REQUEST_A }),
-    ).toEqual(RESPOND_1);
-    expect(
-      state.respondBidirectionalMap.lookup({ count: 1n, requestId: REQUEST_A }),
-    ).toEqual(RESPOND_2);
+      events.map((event) => decodeRespondBidirectionalEventPayload(event.payload)),
+    ).toEqual([RESPOND_1, RESPOND_2]);
   });
 
-  it("tracks posts per request id", async () => {
-    const { contract, ctx } = await deployContract("respondBidirectional");
-
-    const first = await contract.circuits.respondBidirectional(
-      ctx,
+  it("keeps the three event kinds apart by name in one shared log", async () => {
+    // One circuit of each kind through the same threaded context: the log
+    // holds three differently-named events a reader can partition.
+    const { contract, ctx, contractAddress } = await deployContract("respond");
+    const afterRespond = await contract.circuits.respond(ctx, REQUEST_A, SIG_1);
+    const afterNotify = await contract.circuits.signBidirectional(
+      afterRespond.context,
       REQUEST_A,
-      RESPOND_1,
+      signetCircuits.constructSignBidirectionalEventNotificationV1(
+        NOTIFYING_CALLER,
+        1n,
+        [4n, 0n, 0n, 0n],
+      ),
     );
-    const second = await contract.circuits.respondBidirectional(
-      first.context,
-      REQUEST_B,
-      RESPOND_2,
-    );
-
-    const state = ledger(second.context.callContext.currentQueryContext.state);
-    expect(state.respondBidirectionalCounterMap.lookup(REQUEST_A).read()).toBe(1n);
-    expect(state.respondBidirectionalCounterMap.lookup(REQUEST_B).read()).toBe(1n);
-    expect(
-      state.respondBidirectionalMap.lookup({ count: 0n, requestId: REQUEST_A }),
-    ).toEqual(RESPOND_1);
-    expect(
-      state.respondBidirectionalMap.lookup({ count: 0n, requestId: REQUEST_B }),
-    ).toEqual(RESPOND_2);
-  });
-
-  it("MPC-style raw read agrees with the generated ledger()", async () => {
-    // Both posts are read back because RESPOND_1 and RESPOND_2 differ in every
-    // signature leaf, recoveryId included: a decoder that dropped one would
-    // still match a single fixture whose values happen to be its default.
-    const { contract, ctx } = await deployContract("respondBidirectional");
-    const first = await contract.circuits.respondBidirectional(ctx, REQUEST_A, RESPOND_1);
     const { context } = await contract.circuits.respondBidirectional(
-      first.context,
+      afterNotify.context,
       REQUEST_A,
-      RESPOND_2,
+      RESPOND_1,
     );
 
-    const raw = readSignetContractLedgerFromState(
-      context.callContext.currentQueryContext.state,
+    const names = decodeSignetLogEvents(context.events, contractAddress).map(
+      (event: SignetMiscEvent) => event.name,
     );
-    const idHex = requestIdHex(REQUEST_A);
-    expect(raw.respondBidirectionalCounterMap.get(idHex)).toBe(2n);
-    expect(raw.respondBidirectionalMap.get(signetMapEntryKey(idHex, 0n))).toEqual(RESPOND_1);
-    expect(raw.respondBidirectionalMap.get(signetMapEntryKey(idHex, 1n))).toEqual(RESPOND_2);
+    expect(names).toEqual([
+      SignetEventName.SignatureRespondedEvent,
+      SignetEventName.SignBidirectionalEvent,
+      SignetEventName.RespondBidirectionalEvent,
+    ]);
   });
 });

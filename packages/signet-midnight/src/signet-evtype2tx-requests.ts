@@ -19,7 +19,7 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 import { getAddress, Signature, toBeHex, Transaction } from "ethers";
 
-import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts";
+import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 import {
   bigintToBytes32BE,
   ecdsaSignatureToMpcSignature,
@@ -406,8 +406,8 @@ export function signBidirectionalEventToUnsignedEvmTransaction(
 }
 
 /**
- * Decode a response signature record (as posted to the signet contract's
- * signature response log) into an ethers {@link Signature}. Goes through
+ * Decode a response signature record (as the signet contract emits it in a
+ * signature response event) into an ethers {@link Signature}. Goes through
  * {@link mpcSignatureToEcdsaSignature}, so this and in-circuit claims decode
  * a post identically:
  * ethers' `r` is the ECDSA scalar (`bigR.x` reduced mod the curve order),
@@ -462,7 +462,7 @@ export function signatureToSignatureRespondedEvent(
  * its MPC signature response: rebuild the exact unsigned transaction the MPC
  * signed (see {@link signBidirectionalEventToUnsignedEvmTransaction}) and
  * attach the signature. Does NOT check that the signature recovers to the
- * requester's derived address: the response log is unauthenticated, so
+ * requester's derived address: the response events are unauthenticated, so
  * verify first with `verifySignatureRespondedEvent`.
  *
  * @param request - The on-ledger request record.
