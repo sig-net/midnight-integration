@@ -46,8 +46,10 @@ const NOTIFICATION = pureCircuits.constructSignBidirectionalEventNotificationV1(
   [4n, 0n, 0n, 0n],
 );
 
-// Synthetic signatures (the decoders decode, they do not verify). recoveryId
-// 1 on RESPONSE so a decoder that dropped the byte cannot match a 0 default.
+// The request id the respond posts below declare, and synthetic signatures
+// (the decoders decode, they do not verify). recoveryId 1 on RESPONSE so a
+// decoder that dropped the byte cannot match a 0 default.
+const REQUEST_ID = bytes(32, 0x2f);
 const RESPONSE: SignatureRespondedEvent = {
   signature: { bigR: { x: bytes(32, 0xa0), y: bytes(32, 0xa1) }, s: bytes(32, 0xa2), recoveryId: 1n },
 };
@@ -95,24 +97,25 @@ describe("notification event payload (pack↔decode lockstep)", () => {
 });
 
 describe("respond event payloads (encode↔decode round trip)", () => {
-  it("round-trips a signature response", () => {
+  it("round-trips a signature response with its declared request id", () => {
     expect(
       decodeSignatureRespondedEventPayload(
-        signatureRespondedEventOf(RESPONSE).payload,
+        signatureRespondedEventOf(REQUEST_ID, RESPONSE).payload,
       ),
-    ).toEqual(RESPONSE);
+    ).toEqual({ requestId: REQUEST_ID, event: RESPONSE });
   });
 
-  it("round-trips a respond-bidirectional attestation", () => {
+  it("round-trips a respond-bidirectional attestation with its declared request id", () => {
     expect(
       decodeRespondBidirectionalEventPayload(
-        respondBidirectionalEventOf(RESPOND_BIDIRECTIONAL).payload,
+        respondBidirectionalEventOf(REQUEST_ID, RESPOND_BIDIRECTIONAL).payload,
       ),
-    ).toEqual(RESPOND_BIDIRECTIONAL);
+    ).toEqual({ requestId: REQUEST_ID, event: RESPOND_BIDIRECTIONAL });
   });
 
-  it("rejects a payload too short to hold a signature", () => {
-    expect(() => decodeSignatureRespondedEventPayload(bytes(96, 1))).toThrow(
+  it("rejects a payload too short to hold the packed record", () => {
+    // 128 bytes end exactly where the recovery id byte should sit.
+    expect(() => decodeSignatureRespondedEventPayload(bytes(128, 1))).toThrow(
       /too short/,
     );
   });
@@ -149,18 +152,21 @@ const logEventOf = (
 describe("decodeSignetLogEvents (simulator bridge)", () => {
   it("decodes misc emissions, re-padding the trimmed trailing zeros", () => {
     const decoded = decodeSignetLogEvents([
-      logEventOf(SignetEventName.SignatureRespondedEvent, signatureRespondedEventOf(RESPONSE).payload),
+      logEventOf(SignetEventName.SignatureRespondedEvent, signatureRespondedEventOf(REQUEST_ID, RESPONSE).payload),
     ]);
     expect(decoded).toHaveLength(1);
     expect(decoded[0].name).toBe(SignetEventName.SignatureRespondedEvent);
     expect(decoded[0].payload).toHaveLength(SIGNET_EVENT_PAYLOAD_LENGTH);
-    expect(decodeSignatureRespondedEventPayload(decoded[0].payload)).toEqual(RESPONSE);
+    expect(decodeSignatureRespondedEventPayload(decoded[0].payload)).toEqual({
+      requestId: REQUEST_ID,
+      event: RESPONSE,
+    });
   });
 
   it("filters by emitting contract address when one is given", () => {
     const event = logEventOf(
       SignetEventName.SignatureRespondedEvent,
-      signatureRespondedEventOf(RESPONSE).payload,
+      signatureRespondedEventOf(REQUEST_ID, RESPONSE).payload,
       "bb".repeat(32),
     );
     expect(decodeSignetLogEvents([event], "aa".repeat(32))).toHaveLength(0);
@@ -192,7 +198,7 @@ describe("signetEventSourceFromPublicDataProvider (indexer adapter)", () => {
   const SIGNET_ADDRESS = "signet-contract-address";
 
   it("queries Misc events and normalizes hex name/payload into signet events", async () => {
-    const served = signatureRespondedEventOf(RESPONSE);
+    const served = signatureRespondedEventOf(REQUEST_ID, RESPONSE);
     // The indexer serves hex strings, the payload's trailing zeros trimmed
     // like any stored atom.
     let trimmed = served.payload.length;
@@ -217,7 +223,10 @@ describe("signetEventSourceFromPublicDataProvider (indexer adapter)", () => {
     expect(events).toHaveLength(1);
     expect(events[0].name).toBe(SignetEventName.SignatureRespondedEvent);
     expect(events[0].payload).toHaveLength(SIGNET_EVENT_PAYLOAD_LENGTH);
-    expect(decodeSignatureRespondedEventPayload(events[0].payload)).toEqual(RESPONSE);
+    expect(decodeSignatureRespondedEventPayload(events[0].payload)).toEqual({
+      requestId: REQUEST_ID,
+      event: RESPONSE,
+    });
   });
 
   it("drops non-Misc events and Misc events missing name or payload", async () => {

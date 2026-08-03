@@ -224,7 +224,7 @@ signetSigner.signBidirectional(
 
 **NOTE:** Return `requestId` from this circuit call so the client can use it in the next steps. You can also compute it off-chain with the `calculateRequestId` TS twin.
 
-2. Poll the Signet singleton for the MPC's signature response. The singleton emits each response as a contract event that carries the signature alone, with no request id. The event log is unauthenticated (anyone can post), so use the verifying getter. It only returns a post whose signature recovers to `expectedSigner` over the signing hash of the requested transaction. That verification is also the match between a post and your request:
+2. Poll the Signet singleton for the MPC's signature response. The singleton emits each response as a contract event that carries the request id it answers beside the signature. The id is unauthenticated routing data: it scopes the read to your request's posts and proves nothing. The event log is unauthenticated (anyone can post under any id), so use the verifying getter. It only returns a post whose signature recovers to `expectedSigner` over the signing hash of the requested transaction:
 
    ```ts
    const { verified } = await reader.getVerifiedSignatureRespondedEvent(requestId, expectedSigner);
@@ -240,7 +240,7 @@ signetSigner.signBidirectional(
    await new JsonRpcProvider(foreignChainRpcUrl).broadcastTransaction(signedTx.serialized);
    ```
 
-4. Poll the Signet singleton for the MPC's attestation of the remote execution output. The MPC posts it once it observes the transaction execute on the foreign chain, and the singleton emits it as a contract event. The event carries the MPC's signature alone: both the attestation digest and the serialised output travel off chain (you broadcast the transaction in step 3, so you can read its result). The event log is unauthenticated, so use the verifying getter, as in step 2. It recomputes the digest over the output that you present, and it only returns a post whose signature verifies against the response key of your contract.
+4. Poll the Signet singleton for the MPC's attestation of the remote execution output. The MPC posts it once it observes the transaction execute on the foreign chain, and the singleton emits it as a contract event that carries the request id beside the MPC's signature. Both the attestation digest and the serialised output travel off chain (you broadcast the transaction in step 3, so you can read its result). The event log is unauthenticated, so use the verifying getter, as in step 2. It reads your request's posts by id, recomputes the digest over the output that you present, and only returns a post whose signature verifies against the response key of your contract.
 
    ```ts
    const respondBidirectionalEvent = await reader.getVerifiedRespondBidirectionalEvent(

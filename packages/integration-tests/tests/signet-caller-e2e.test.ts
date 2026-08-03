@@ -236,12 +236,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       );
       console.log(`expected signer (derived caller account): ${expectedSigner}`);
 
-      // Poll the signet contract's UNAUTHENTICATED response events: every
-      // post is judged by whether its signature recovers to the derived
-      // sender over the requested transaction's signing hash, and the first
-      // valid post wins (that verification is also what matches a post to
-      // THIS request: the events name none). Rejected posts are immutable
-      // log entries: warn each once.
+      // Poll the signet contract's UNAUTHENTICATED response events for THIS
+      // request's posts (each event carries the request id it answers, as
+      // routing data). Every candidate is judged by whether its signature
+      // recovers to the derived sender over the requested transaction's
+      // signing hash, and the first valid post wins. Rejected posts are
+      // immutable log entries: warn each once.
       const reader = session.responseReader();
       const warned = new Set<bigint>();
       const giveUp = new AbortController();
@@ -326,8 +326,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
 
       // No key argument: verifyResponse reads the stored MPC response key
       // straight from the ledger (the initialise leg put it there), and takes
-      // the response in the shape the singleton emits it. The event carries
-      // the signature alone: the circuit recomputes the digest from the
+      // the response record in the shape the singleton emits it. The record
+      // never carries the output: the circuit recomputes the digest from the
       // output handed in beside it.
       await context.caller.callTx.verifyResponse(
         requestKey,

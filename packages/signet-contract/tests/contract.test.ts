@@ -191,24 +191,24 @@ interface Post {
 
 /**
  * One row of the post table: a post sequence → the exact expected event log.
- * The emitted events carry the signature ALONE (no request id: a client
- * matches a post to its request by verifying the signature), so the expected
- * log is the ordered signature list.
+ * Each emitted event packs the declared request id beside the signature, so
+ * the expected log is the ordered (requestId, record) post list, exactly as
+ * the decoder returns it.
  */
 interface PostCase {
   /** Test name, completing the sentence "emits <name>". */
   name: string;
   /** Posts applied in order, each through respond. */
   posts: Post[];
-  /** The FULL expected event log, in emission order. */
-  expectedEvents: SignatureRespondedEvent[];
+  /** The FULL expected decoded event log, in emission order. */
+  expectedPosts: { requestId: Uint8Array; event: SignatureRespondedEvent }[];
 }
 
 const POST_CASES: PostCase[] = [
   {
     name: "a single post as a single event",
     posts: [{ requestId: REQUEST_A, signature: SIG_1 }],
-    expectedEvents: [SIG_1],
+    expectedPosts: [{ requestId: REQUEST_A, event: SIG_1 }],
   },
   {
     name: "a second post for the same request APPENDED, the first untouched",
@@ -216,7 +216,10 @@ const POST_CASES: PostCase[] = [
       { requestId: REQUEST_A, signature: SIG_1 },
       { requestId: REQUEST_A, signature: SIG_2 },
     ],
-    expectedEvents: [SIG_1, SIG_2],
+    expectedPosts: [
+      { requestId: REQUEST_A, event: SIG_1 },
+      { requestId: REQUEST_A, event: SIG_2 },
+    ],
   },
   {
     name: "an identical re-post as its own event (no dedup, no error)",
@@ -224,23 +227,30 @@ const POST_CASES: PostCase[] = [
       { requestId: REQUEST_A, signature: SIG_1 },
       { requestId: REQUEST_A, signature: SIG_1 },
     ],
-    expectedEvents: [SIG_1, SIG_1],
+    expectedPosts: [
+      { requestId: REQUEST_A, event: SIG_1 },
+      { requestId: REQUEST_A, event: SIG_1 },
+    ],
   },
   {
-    name: "interleaved posts for different requests in emission order",
+    name: "interleaved posts for different requests in emission order, each under its own id",
     posts: [
       { requestId: REQUEST_A, signature: SIG_1 },
       { requestId: REQUEST_B, signature: SIG_2 },
       { requestId: REQUEST_A, signature: SIG_2 },
     ],
-    expectedEvents: [SIG_1, SIG_2, SIG_2],
+    expectedPosts: [
+      { requestId: REQUEST_A, event: SIG_1 },
+      { requestId: REQUEST_B, event: SIG_2 },
+      { requestId: REQUEST_A, event: SIG_2 },
+    ],
   },
 ];
 
 describe("respond", () => {
   it.each(POST_CASES)(
     "emits $name",
-    async ({ posts, expectedEvents }) => {
+    async ({ posts, expectedPosts }) => {
       const { contract, ctx, contractAddress } = await deployContract("respond");
 
       let finalCtx = ctx;
@@ -251,28 +261,29 @@ describe("respond", () => {
       }
 
       // The event log holds EXACTLY the posts, in order, each decoding back
-      // to the signature it carried (the emit↔decode lockstep, on REAL
-      // emitted events).
+      // to the request id and signature it carried (the emit↔decode
+      // lockstep, on REAL emitted events).
       const events = decodeSignetLogEvents(finalCtx.events, contractAddress);
       expect(events.map((event) => event.name)).toEqual(
-        expectedEvents.map(() => SignetEventName.SignatureRespondedEvent),
+        expectedPosts.map(() => SignetEventName.SignatureRespondedEvent),
       );
       expect(
         events.map((event) => decodeSignatureRespondedEventPayload(event.payload)),
-      ).toEqual(expectedEvents);
+      ).toEqual(expectedPosts);
     },
   );
 
-  it("packs the emit literal as bigR.x ++ bigR.y ++ s ++ recoveryId ++ zeros", async () => {
+  it("packs the emit literal as requestId ++ bigR.x ++ bigR.y ++ s ++ recoveryId ++ zeros", async () => {
     const { contract, ctx, contractAddress } = await deployContract("respond");
     const { context } = await contract.circuits.respond(ctx, REQUEST_A, SIG_2);
 
     const [event] = decodeSignetLogEvents(context.events, contractAddress);
-    expect(event.payload.slice(0, 32)).toEqual(SIG_2.signature.bigR.x);
-    expect(event.payload.slice(32, 64)).toEqual(SIG_2.signature.bigR.y);
-    expect(event.payload.slice(64, 96)).toEqual(SIG_2.signature.s);
-    expect(event.payload[96]).toBe(1); // SIG_2's recoveryId
-    expectZeroPadding(event.payload, 97);
+    expect(event.payload.slice(0, 32)).toEqual(REQUEST_A);
+    expect(event.payload.slice(32, 64)).toEqual(SIG_2.signature.bigR.x);
+    expect(event.payload.slice(64, 96)).toEqual(SIG_2.signature.bigR.y);
+    expect(event.payload.slice(96, 128)).toEqual(SIG_2.signature.s);
+    expect(event.payload[128]).toBe(1); // SIG_2's recoveryId
+    expectZeroPadding(event.payload, 129);
   });
 });
 
@@ -291,12 +302,13 @@ describe("respondBidirectional", () => {
     const events = decodeSignetLogEvents(context.events, contractAddress);
     expect(events).toHaveLength(1);
     expect(events[0].name).toBe(SignetEventName.RespondBidirectionalEvent);
-    // The synthetic (unverifiable) signature landed verbatim: the contract
-    // emits, the reader verifies.
-    expect(decodeRespondBidirectionalEventPayload(events[0].payload)).toEqual(
-      RESPOND_1,
-    );
-    expectZeroPadding(events[0].payload, 97);
+    // The declared request id and the synthetic (unverifiable) signature
+    // landed verbatim: the contract emits, the reader verifies.
+    expect(decodeRespondBidirectionalEventPayload(events[0].payload)).toEqual({
+      requestId: REQUEST_A,
+      event: RESPOND_1,
+    });
+    expectZeroPadding(events[0].payload, 129);
   });
 
   it("emits a second post for the same request as its own event, nothing replaced", async () => {
@@ -318,7 +330,10 @@ describe("respondBidirectional", () => {
     const events = decodeSignetLogEvents(second.context.events, contractAddress);
     expect(
       events.map((event) => decodeRespondBidirectionalEventPayload(event.payload)),
-    ).toEqual([RESPOND_1, RESPOND_2]);
+    ).toEqual([
+      { requestId: REQUEST_A, event: RESPOND_1 },
+      { requestId: REQUEST_A, event: RESPOND_2 },
+    ]);
   });
 
   it("keeps the three event kinds apart by name in one shared log", async () => {

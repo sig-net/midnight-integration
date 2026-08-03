@@ -57,17 +57,21 @@ export function notificationEventOf(
 
 /**
  * The event the `respond` circuit emits for a signature response:
- * bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros.
+ * requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1)
+ * ++ zeros.
  *
+ * @param requestId - The request id the post declares it answers, 32 bytes.
  * @param record - The response record.
  * @returns The event as a stub source serves it.
  */
 export function signatureRespondedEventOf(
+  requestId: Uint8Array,
   record: SignatureRespondedEvent,
 ): SignetMiscEvent {
   return {
     name: SignetEventName.SignatureRespondedEvent,
     payload: packSignetEventPayload(
+      requestId,
       record.signature.bigR.x,
       record.signature.bigR.y,
       record.signature.s,
@@ -78,18 +82,21 @@ export function signatureRespondedEventOf(
 
 /**
  * The event the `respondBidirectional` circuit emits for an attestation:
- * the same packed `Signature` layout as {@link signatureRespondedEventOf}
- * under its own name.
+ * the same packed requestId ++ `Signature` layout as
+ * {@link signatureRespondedEventOf} under its own name.
  *
+ * @param requestId - The request id the post declares it answers, 32 bytes.
  * @param record - The attestation record.
  * @returns The event as a stub source serves it.
  */
 export function respondBidirectionalEventOf(
+  requestId: Uint8Array,
   record: RespondBidirectionalEvent,
 ): SignetMiscEvent {
   return {
     name: SignetEventName.RespondBidirectionalEvent,
     payload: packSignetEventPayload(
+      requestId,
       record.signature.bigR.x,
       record.signature.bigR.y,
       record.signature.s,

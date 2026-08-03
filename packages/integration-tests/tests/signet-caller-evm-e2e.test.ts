@@ -341,17 +341,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         expect(requestId).toBeDefined();
         const reader = session.responseReader(method.requestsIndexField);
         const deadline = Date.now() + 5 * MINUTE;
-        // The events name no request: this stage only waits for SOME post to
-        // exist (the recompute stage below picks the one that verifies over
-        // THIS request's respond bytes).
+        // Wait for a post declared under THIS request's id (the recompute
+        // stage below picks the one that verifies over the recomputed
+        // respond bytes).
         let events: RespondBidirectionalEvent[] = [];
         while (events.length === 0 && Date.now() < deadline) {
-          events = await reader.getRespondBidirectionalEvents();
+          events = await reader.getRespondBidirectionalEvents(requestId);
           if (events.length === 0) {
             await new Promise((resolve) => setTimeout(resolve, 2000));
           }
         }
-        expect(events.length, "the fakenet must post a respond-bidirectional attestation").toBeGreaterThan(0);
+        expect(events.length, "the fakenet must post a respond-bidirectional attestation for this request").toBeGreaterThan(0);
       },
       5 * MINUTE,
     );
@@ -388,11 +388,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         // two conversions and got the same bytes we did. The event carries
         // no digest of its own, so this signature check is the whole match.
         //
-        // Poll: the attestation events name no request, so the previous
-        // stage's coarse "some post exists" gate can be satisfied by another
-        // request's post (for example a failure attestation for a superseded
-        // nonce). Verification is the only per-request signal, so wait until
-        // an emitted post verifies over THIS request's recomputed bytes.
+        // Poll: the declared request id only routes, so a post under this id
+        // may still fail verification (for example a failure attestation for
+        // a superseded nonce). Wait until a post declared under this id
+        // verifies over the recomputed bytes.
         const reader = session.responseReader(method.requestsIndexField);
         const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
         const verifyDeadline = Date.now() + 3 * MINUTE;

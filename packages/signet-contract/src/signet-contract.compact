@@ -45,10 +45,11 @@ export circuit signBidirectional(
 }
 
 // respond emits the MPC's signature response as a SignatureRespondedEvent
-// contract event. The event carries the signature alone, with no request id.
-// Callers poll the event log and verify each candidate off-chain: a post
-// answers their request when its signature recovers to their derived key over
-// that request's transaction.
+// contract event. The payload leads with the request id the post answers.
+// The id is unauthenticated routing data: callers read their request's posts
+// by id, then verify each candidate off-chain. A post answers a request only
+// when its signature recovers to the caller's derived key over that request's
+// transaction.
 export circuit respond(
     requestId: RequestId,
     signatureRespondedEvent: SignatureRespondedEvent,
@@ -56,11 +57,12 @@ export circuit respond(
     emit (Misc {
         name: pad(32, "SignatureRespondedEvent"),
         payload: Bytes[
-            ...disclose(signatureRespondedEvent.signature.bigR.x),  //  32
+            ...disclose(requestId),                                 //  32
+            ...disclose(signatureRespondedEvent.signature.bigR.x),  // +32
             ...disclose(signatureRespondedEvent.signature.bigR.y),  // +32
             ...disclose(signatureRespondedEvent.signature.s),       // +32
             disclose(signatureRespondedEvent.signature.recoveryId), // +1
-            ...default<Bytes<159>>,                                 // +159            
+            ...default<Bytes<127>>,                                 // +127
         ],                                                          // = 256 bytes
     });
 }
@@ -68,10 +70,12 @@ export circuit respond(
 // respondBidirectional emits the MPC's respond-bidirectional response as a
 // RespondBidirectionalEvent contract event: the ECDSA signature that attests
 // the foreign transaction execution (never the digest or the output itself).
-// Emitted unverified, with no request id. Callers poll the event log and
-// verify each candidate themselves against their MPC response key (derived
-// from the caller contract's address + the fixed path "midnight response
-// key", see verifyRespondBidirectionalEvent in Signet.compact).
+// The payload leads with the request id the post answers. The id is
+// unauthenticated routing data, and the post is emitted unverified: callers
+// read their request's posts by id and verify each candidate themselves
+// against their MPC response key (derived from the caller contract's address
+// + the fixed path "midnight response key", see
+// verifyRespondBidirectionalEvent in Signet.compact).
 export circuit respondBidirectional(
     requestId: RequestId,
     respondBidirectionalEvent: RespondBidirectionalEvent
@@ -79,11 +83,12 @@ export circuit respondBidirectional(
     emit (Misc {
         name: pad(32, "RespondBidirectionalEvent"),
         payload: Bytes[
-            ...disclose(respondBidirectionalEvent.signature.bigR.x),  //  32
+            ...disclose(requestId),                                   //  32
+            ...disclose(respondBidirectionalEvent.signature.bigR.x),  // +32
             ...disclose(respondBidirectionalEvent.signature.bigR.y),  // +32
             ...disclose(respondBidirectionalEvent.signature.s),       // +32
             disclose(respondBidirectionalEvent.signature.recoveryId), // +1
-            ...default<Bytes<159>>,                                   // +159            
+            ...default<Bytes<127>>,                                   // +127
         ],                                                            // = 256 bytes
     });
 }

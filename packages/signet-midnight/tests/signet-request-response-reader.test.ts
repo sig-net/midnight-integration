@@ -62,6 +62,9 @@ const REQUEST_DESCRIPTOR = signBidirectionalEventDescriptor(2, 0, 0, 34, 34);
 const REQUEST_ID = bytes(32, 0x2f);
 const REQUEST_ID_HEX = requestIdHex(REQUEST_ID);
 const UNKNOWN_ID_HEX = requestIdHex(bytes(32, 0x30));
+// Someone else's request: posts declared under this id must never surface
+// when reading REQUEST_ID's posts.
+const FOREIGN_REQUEST_ID = bytes(32, 0x31);
 
 const REQUESTER_ADDRESS = "requester-contract-address";
 const SIGNET_CONTRACT_ADDRESS = "signet-contract-address";
@@ -175,11 +178,18 @@ const ATTESTED_RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
  * Build a reader over the synthetic requester state and the given emitted
  * events, counting state-source queries so the request-record caching is
  * observable. Signature responses and respond-bidirectional posts land in
- * ONE event log (as on chain), each under its own event name.
+ * ONE event log (as on chain), each under its own event name. `posts` and
+ * `respondBidirectionalPosts` are declared under REQUEST_ID; `foreignPosts`
+ * are declared under FOREIGN_REQUEST_ID, so the reader's id scoping must
+ * drop them.
  */
 const makeReader = (
   posts: SignatureRespondedEvent[],
   respondBidirectionalPosts: RespondBidirectionalEvent[] = [],
+  foreignPosts: {
+    signatureResponses?: SignatureRespondedEvent[];
+    respondBidirectional?: RespondBidirectionalEvent[];
+  } = {},
 ) => {
   const queries = { requester: 0, events: 0 };
   const publicDataProvider: SignetPublicStateSource = {
@@ -190,8 +200,16 @@ const makeReader = (
     },
   };
   const events: SignetMiscEvent[] = [
-    ...posts.map(signatureRespondedEventOf),
-    ...respondBidirectionalPosts.map(respondBidirectionalEventOf),
+    ...posts.map((post) => signatureRespondedEventOf(REQUEST_ID, post)),
+    ...(foreignPosts.signatureResponses ?? []).map((post) =>
+      signatureRespondedEventOf(FOREIGN_REQUEST_ID, post),
+    ),
+    ...respondBidirectionalPosts.map((post) =>
+      respondBidirectionalEventOf(REQUEST_ID, post),
+    ),
+    ...(foreignPosts.respondBidirectional ?? []).map((post) =>
+      respondBidirectionalEventOf(FOREIGN_REQUEST_ID, post),
+    ),
   ];
   const reader = new SignetRequestResponseReader({
     requesterContractAddress: REQUESTER_ADDRESS,
@@ -247,9 +265,9 @@ describe("getSignatureRequest", () => {
 });
 
 describe("getSignatureRespondedEvents", () => {
-  it("returns every emitted response in emission order", async () => {
+  it("returns the request's posts in emission order", async () => {
     const { reader } = makeReader([UNDECODABLE_RESPONSE, GENUINE_RESPONSE]);
-    expect(await reader.getSignatureRespondedEvents()).toEqual([
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([
       UNDECODABLE_RESPONSE,
       GENUINE_RESPONSE,
     ]);
@@ -257,12 +275,21 @@ describe("getSignatureRespondedEvents", () => {
 
   it("returns an empty array when nothing is posted", async () => {
     const { reader } = makeReader([]);
-    expect(await reader.getSignatureRespondedEvents()).toEqual([]);
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([]);
+  });
+
+  it("excludes posts declared under another request id", async () => {
+    const { reader } = makeReader([GENUINE_RESPONSE], [], {
+      signatureResponses: [IMPOSTER_RESPONSE],
+    });
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([
+      GENUINE_RESPONSE,
+    ]);
   });
 
   it("ignores events under other signet names", async () => {
     const { reader } = makeReader([GENUINE_RESPONSE], [RESPOND_BIDIRECTIONAL]);
-    expect(await reader.getSignatureRespondedEvents()).toEqual([
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([
       GENUINE_RESPONSE,
     ]);
   });
@@ -323,6 +350,20 @@ const VERDICT_CASES: VerdictCase[] = [
 ];
 
 describe("getVerifiedSignatureRespondedEvent", () => {
+  it("never considers a genuine post declared under another request id", async () => {
+    // The signature itself would verify: only the declared id keeps it out,
+    // pinning that routing happens before verification.
+    const { reader } = makeReader([], [], {
+      signatureResponses: [GENUINE_RESPONSE],
+    });
+    const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(
+      REQUEST_ID_HEX,
+      MPC_ADDRESS,
+    );
+    expect(verified).toBeUndefined();
+    expect(verdicts).toEqual([]);
+  });
+
   it.each(VERDICT_CASES)(
     "resolves $name",
     async ({ posts, expectedSigner, verifiedPost, rejectedReasons }) => {
@@ -403,12 +444,12 @@ describe("getSignedEvmTransaction", () => {
 });
 
 describe("getRespondBidirectionalEvents", () => {
-  it("returns the emitted responses in emission order", async () => {
+  it("returns the request's posts in emission order", async () => {
     const { reader } = makeReader([], [
       RESPOND_BIDIRECTIONAL,
       ATTESTED_RESPOND_BIDIRECTIONAL,
     ]);
-    expect(await reader.getRespondBidirectionalEvents()).toEqual([
+    expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([
       RESPOND_BIDIRECTIONAL,
       ATTESTED_RESPOND_BIDIRECTIONAL,
     ]);
@@ -416,12 +457,21 @@ describe("getRespondBidirectionalEvents", () => {
 
   it("returns an empty array when nothing is posted yet", async () => {
     const { reader } = makeReader([]);
-    expect(await reader.getRespondBidirectionalEvents()).toEqual([]);
+    expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([]);
+  });
+
+  it("excludes posts declared under another request id", async () => {
+    const { reader } = makeReader([], [RESPOND_BIDIRECTIONAL], {
+      respondBidirectional: [ATTESTED_RESPOND_BIDIRECTIONAL],
+    });
+    expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([
+      RESPOND_BIDIRECTIONAL,
+    ]);
   });
 
   it("ignores events under other signet names", async () => {
     const { reader } = makeReader([GENUINE_RESPONSE], [RESPOND_BIDIRECTIONAL]);
-    expect(await reader.getRespondBidirectionalEvents()).toEqual([
+    expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([
       RESPOND_BIDIRECTIONAL,
     ]);
   });
@@ -440,6 +490,22 @@ describe("getVerifiedRespondBidirectionalEvent", () => {
         MPC_RESPONSE_KEY,
       ),
     ).toEqual(ATTESTED_RESPOND_BIDIRECTIONAL);
+  });
+
+  it("returns undefined when the attesting post is declared under another request id", async () => {
+    // The signature commits to REQUEST_ID and would verify: only the
+    // declared id keeps it out, pinning that routing happens before
+    // verification.
+    const { reader } = makeReader([], [], {
+      respondBidirectional: [ATTESTED_RESPOND_BIDIRECTIONAL],
+    });
+    expect(
+      await reader.getVerifiedRespondBidirectionalEvent(
+        REQUEST_ID_HEX,
+        ATTESTED_OUTPUT,
+        MPC_RESPONSE_KEY,
+      ),
+    ).toBeUndefined();
   });
 
   it("returns undefined when the attested output is not the one presented", async () => {

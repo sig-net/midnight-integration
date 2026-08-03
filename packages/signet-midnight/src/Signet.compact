@@ -49,12 +49,14 @@
 //    each one to read the SignBidirectionalEvent signature requests from the named client's own ledger.
 //    It generates the signature and posts a SignatureRespondedEvent (the requested signature) through
 //    the Signet singleton, which emits it as a contract event.
-// 3. Client polls the Signet singleton contract's SignatureRespondedEvent events. The events carry no
-//    request id, so the client verifies each candidate and takes the first one whose signature recovers
-//    to its derived key. Then it broadcasts the signed txn to the destination chain.
+// 3. Client polls the Signet singleton contract's SignatureRespondedEvent events. Each event carries
+//    the request id it answers beside the signature. The id is unauthenticated routing data: the client
+//    reads its own request's posts by id, verifies each candidate, and takes the first one whose
+//    signature recovers to its derived key. Then it broadcasts the signed txn to the destination chain.
 // 4. MPC observes txn execution on destination chain and posts a RespondBidirectionalEvent attestation
-//    through the central Signet contract, which emits it as a contract event. The client polls the
-//    emitted events and takes the first one that verifies over the request id and output.
+//    through the central Signet contract, which emits it as a contract event beside the request id.
+//    The client polls its request's posts and takes the first one that verifies over the request id
+//    and output.
 //    The client recovers the execution output itself off chain (for EVM: the mined
 //    call's return data via debug_traceTransaction, also served by the fakenet
 //    responder's /responses/{requestId} helper API) and hands output plus attestation

@@ -3,12 +3,14 @@
 // (MIP-0002 public log emission) whose 32-byte name tags the event kind and
 // whose 256-byte payload packs the record:
 //   SignBidirectionalEvent    - version (1) ++ notification payload (128) ++ zeros (127)
-//   SignatureRespondedEvent   - bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (159)
-//   RespondBidirectionalEvent - bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (159)
+//   SignatureRespondedEvent   - requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (127)
+//   RespondBidirectionalEvent - requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (127)
 // The decoders here are the byte-plumbing twins of the emit literals in
 // signet-contract.compact: field order and offsets must match byte-for-byte
 // (the signet-contract simulator tests pin the lockstep against real emits).
-// Every event is UNAUTHENTICATED: verification is the reader's job.
+// Every event is UNAUTHENTICATED: verification is the reader's job. The
+// request id in the two respond payloads is routing data only, so it scopes
+// reads to one request and proves nothing.
 
 import {
   CompactTypeBytes,
@@ -229,9 +231,10 @@ export interface MpcSignature {
 /**
  * The MPC's signature over the requested EVM transaction (Compact
  * `SignatureRespondedEvent`): decode to an ethers signature with
- * `signatureRespondedEventToSignature`. The event names no request: a client
- * matches a post to its request by VERIFYING the signature against the
- * transaction the request describes (see
+ * `signatureRespondedEventToSignature`. The emitting event carries the
+ * record beside the request id it answers (see {@link SignetRespondPost});
+ * the id routes, and VERIFYING the signature against the transaction the
+ * request describes establishes authenticity (see
  * {@link SignetRequestResponseReader.getVerifiedSignatureRespondedEvent}).
  */
 export interface SignatureRespondedEvent {
@@ -245,48 +248,73 @@ export interface SignatureRespondedEvent {
  * the attestation digest `keccak256(requestId || serializedOutput)`. Both the
  * digest and the output travel off chain: readers fetch the output, recompute
  * the digest (`calculateSignetAttestationDigest`) and verify the signature
- * over it. Emitted UNVERIFIED by the signet contract, so that signature check
+ * over it. Emitted UNVERIFIED by the signet contract, beside the request id
+ * it answers (see {@link SignetRespondPost}), so that signature check
  * against the expected MPC response key is the only thing separating a
- * genuine post from garbage (in-circuit via
+ * genuine post from garbage: in-circuit via
  * `verifyRespondBidirectionalEvent`, off chain via
- * {@link verifyRespondBidirectionalSignature}), and, the event naming no
- * request, also what matches a post to its request.
+ * {@link verifyRespondBidirectionalSignature}.
  */
 export interface RespondBidirectionalEvent {
   /** ECDSA signature over the attestation digest. */
   signature: MpcSignature;
 }
 
-/** Offsets of the packed `Signature` leaves in both respond payloads. */
-const SIGNATURE_BIG_R_X_OFFSET = 0;
-const SIGNATURE_BIG_R_Y_OFFSET = 32;
-const SIGNATURE_S_OFFSET = 64;
-const SIGNATURE_RECOVERY_ID_OFFSET = 96;
+/**
+ * A decoded respond-event payload: the request id the emitting circuit
+ * disclosed beside the posted record. The id is UNAUTHENTICATED routing
+ * data: it scopes reads to one request and proves nothing. Verifying the
+ * record's signature against the request remains the authenticity check
+ * (see {@link SignetRequestResponseReader.getVerifiedSignatureRespondedEvent}
+ * and {@link SignetRequestResponseReader.getVerifiedRespondBidirectionalEvent}).
+ */
+export interface SignetRespondPost<TRecord> {
+  /** The request id the post declares it answers, 32 bytes. Routing data only. */
+  requestId: Uint8Array;
+  /** The posted record, verbatim. */
+  event: TRecord;
+}
+
+/** Offsets of the leaves both respond payloads pack, in emit order. */
+const RESPOND_REQUEST_ID_OFFSET = 0;
+const SIGNATURE_BIG_R_X_OFFSET = 32;
+const SIGNATURE_BIG_R_Y_OFFSET = 64;
+const SIGNATURE_S_OFFSET = 96;
+const SIGNATURE_RECOVERY_ID_OFFSET = 128;
 
 /**
- * Unpack the `Signature` leaves both respond payloads lead with:
- * bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1). Bytes beyond the
- * signature are padding today and are ignored, so a future payload extension
- * does not break existing readers.
+ * Unpack the leaves both respond payloads lead with:
+ * requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1).
+ * Bytes beyond the recovery id are padding today and are ignored, so a
+ * future payload extension does not break existing readers.
  *
  * @param payload - The full event payload.
- * @returns The decoded signature.
- * @throws Error when the payload is too short to hold a signature.
+ * @returns The declared request id and the decoded signature.
+ * @throws Error when the payload is too short to hold the packed leaves.
  */
-function decodeSignaturePayload(payload: Uint8Array): MpcSignature {
+function decodeRespondPayload(payload: Uint8Array): {
+  requestId: Uint8Array;
+  signature: MpcSignature;
+} {
   const recoveryId = payload[SIGNATURE_RECOVERY_ID_OFFSET];
   if (recoveryId === undefined) {
     throw new Error(
-      `signet event payload of ${payload.length} bytes is too short for a packed Signature`,
+      `signet event payload of ${payload.length} bytes is too short for a packed respond record`,
     );
   }
   return {
-    bigR: {
-      x: payload.slice(SIGNATURE_BIG_R_X_OFFSET, SIGNATURE_BIG_R_Y_OFFSET),
-      y: payload.slice(SIGNATURE_BIG_R_Y_OFFSET, SIGNATURE_S_OFFSET),
+    requestId: payload.slice(
+      RESPOND_REQUEST_ID_OFFSET,
+      SIGNATURE_BIG_R_X_OFFSET,
+    ),
+    signature: {
+      bigR: {
+        x: payload.slice(SIGNATURE_BIG_R_X_OFFSET, SIGNATURE_BIG_R_Y_OFFSET),
+        y: payload.slice(SIGNATURE_BIG_R_Y_OFFSET, SIGNATURE_S_OFFSET),
+      },
+      s: payload.slice(SIGNATURE_S_OFFSET, SIGNATURE_RECOVERY_ID_OFFSET),
+      recoveryId: BigInt(recoveryId),
     },
-    s: payload.slice(SIGNATURE_S_OFFSET, SIGNATURE_RECOVERY_ID_OFFSET),
-    recoveryId: BigInt(recoveryId),
   };
 }
 
@@ -295,13 +323,14 @@ function decodeSignaturePayload(payload: Uint8Array): MpcSignature {
  * decode twin of the `respond` circuit's emit literal.
  *
  * @param payload - The event's payload.
- * @returns The decoded record.
- * @throws Error when the payload is too short to hold a signature.
+ * @returns The decoded post: declared request id plus record.
+ * @throws Error when the payload is too short to hold the packed leaves.
  */
 export function decodeSignatureRespondedEventPayload(
   payload: Uint8Array,
-): SignatureRespondedEvent {
-  return { signature: decodeSignaturePayload(payload) };
+): SignetRespondPost<SignatureRespondedEvent> {
+  const { requestId, signature } = decodeRespondPayload(payload);
+  return { requestId, event: { signature } };
 }
 
 /**
@@ -309,13 +338,14 @@ export function decodeSignatureRespondedEventPayload(
  * decode twin of the `respondBidirectional` circuit's emit literal.
  *
  * @param payload - The event's payload.
- * @returns The decoded record.
- * @throws Error when the payload is too short to hold a signature.
+ * @returns The decoded post: declared request id plus record.
+ * @throws Error when the payload is too short to hold the packed leaves.
  */
 export function decodeRespondBidirectionalEventPayload(
   payload: Uint8Array,
-): RespondBidirectionalEvent {
-  return { signature: decodeSignaturePayload(payload) };
+): SignetRespondPost<RespondBidirectionalEvent> {
+  const { requestId, signature } = decodeRespondPayload(payload);
+  return { requestId, event: { signature } };
 }
 
 /**
