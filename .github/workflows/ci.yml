@@ -1,5 +1,7 @@
 # Unit and integration testing.
 #   unit         compile + build + test
+#   rust         the signet-midnight-serde crate: fmt + clippy + cargo test
+#                against the COMMITTED conformance corpus (no Node, no compactc)
 #   integration  compose stack + signet-caller e2e, whose setup deploys the
 #                contracts and starts the fakenet responder
 #
@@ -104,6 +106,33 @@ jobs:
         run: yarn build
       - name: Unit tests (simulator-only, the integration suites self-skip without RUN_INTEGRATION_TESTS)
         run: yarn test
+
+  rust:
+    name: rust (fmt → clippy → test against the committed corpus)
+    if: github.event_name != 'schedule' || github.event.schedule == '17 3 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: packages/midnight-serde-rs
+    steps:
+      - uses: actions/checkout@v5
+      # rustup reads rust-toolchain.toml and installs the pinned toolchain
+      # (with rustfmt + clippy) on first use: no separate setup action needed.
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/midnight-serde-rs/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('packages/midnight-serde-rs/Cargo.lock', 'packages/midnight-serde-rs/rust-toolchain.toml') }}
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Tests (conformance corpus + native sweep, frozen deps)
+        run: cargo test --locked
 
   integration:
     name: integration (compose stack + fakenet + signet-caller e2e)
