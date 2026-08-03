@@ -1,4 +1,5 @@
-// Shared test plumbing: the hex printer and the toBinaryRepr oracle adapter.
+// The hex printer and the toBinaryRepr oracle adapter, shared by the corpus
+// generator and every implementation's test suite.
 //
 // The adapter maps a twin descriptor onto @midnight-ntwrk/compact-runtime's
 // CompactType classes so toBinaryRepr (test-only, never a runtime dependency)
@@ -9,7 +10,6 @@
 // It returns the packed bytes with no padding.
 
 import {
-  type CompactType as RuntimeCompactType,
   CompactTypeBoolean,
   CompactTypeBytes,
   CompactTypeEnum,
@@ -17,11 +17,12 @@ import {
   CompactTypeUnsignedInteger,
   CompactTypeVector,
   toBinaryRepr,
-} from "@midnight-ntwrk/compact-runtime";
+  type CompactType as RuntimeCompactType,
+} from '@midnight-ntwrk/compact-runtime';
 
-import type { CompactType, CompactValue } from "../src/index.ts";
+import type { CompactType, CompactValue } from '@sig-net/midnight-serde';
 
-export const hex = (b: Uint8Array): string => Buffer.from(b).toString("hex");
+export const hex = (b: Uint8Array): string => Buffer.from(b).toString('hex');
 
 /**
  * Byte width of a maximum value, derived from its binary-string length. This
@@ -41,31 +42,40 @@ export function oracleSerialize(type: CompactType, value: CompactValue): Uint8Ar
 
 export function runtimeType(type: CompactType): RuntimeCompactType<unknown> {
   switch (type.kind) {
-    case "boolean":
-      return CompactTypeBoolean;
-    case "field":
-      return CompactTypeField;
-    case "uint": {
+    case 'boolean':
+      return CompactTypeBoolean as RuntimeCompactType<unknown>;
+    case 'field':
+      return CompactTypeField as RuntimeCompactType<unknown>;
+    case 'uint': {
       const bound =
-        Object.hasOwn(type, "bits") && (type as { bits?: number }).bits !== undefined
+        Object.hasOwn(type, 'bits') && (type as { bits?: number }).bits !== undefined
           ? 1n << BigInt((type as { bits: number }).bits)
           : BigInt((type as { bound: number | bigint }).bound);
-      return new CompactTypeUnsignedInteger(bound - 1n, byteWidthOfMax(bound - 1n));
+      return new CompactTypeUnsignedInteger(
+        bound - 1n,
+        byteWidthOfMax(bound - 1n)
+      ) as RuntimeCompactType<unknown>;
     }
-    case "enum":
-      return new CompactTypeEnum(type.variants - 1, byteWidthOfMax(BigInt(type.variants - 1)));
-    case "bytes":
-      return new CompactTypeBytes(type.length);
-    case "vector":
-      return new CompactTypeVector(type.length, runtimeType(type.element));
-    case "tuple": {
+    case 'enum':
+      return new CompactTypeEnum(
+        type.variants - 1,
+        byteWidthOfMax(BigInt(type.variants - 1))
+      ) as RuntimeCompactType<unknown>;
+    case 'bytes':
+      return new CompactTypeBytes(type.length) as RuntimeCompactType<unknown>;
+    case 'vector':
+      return new CompactTypeVector(
+        type.length,
+        runtimeType(type.element)
+      ) as RuntimeCompactType<unknown>;
+    case 'tuple': {
       const elements = type.elements.map(runtimeType);
       return composite(elements, (value) => value as unknown[]);
     }
-    case "struct": {
+    case 'struct': {
       const elements = type.fields.map((f) => runtimeType(f.type));
       return composite(elements, (value) =>
-        type.fields.map((f) => (value as Record<string, unknown>)[f.name]),
+        type.fields.map((f) => (value as Record<string, unknown>)[f.name])
       );
     }
   }
@@ -76,7 +86,7 @@ export function runtimeType(type: CompactType): RuntimeCompactType<unknown> {
 // and this mirrors that pattern.
 function composite(
   elements: RuntimeCompactType<unknown>[],
-  split: (value: unknown) => unknown[],
+  split: (value: unknown) => unknown[]
 ): RuntimeCompactType<unknown> {
   return {
     alignment: () => elements.flatMap((e) => e.alignment() as unknown[]),
@@ -85,7 +95,7 @@ function composite(
       return elements.flatMap((e, i) => e.toValue(parts[i]) as unknown[]);
     },
     fromValue: () => {
-      throw new Error("oracle helper is serialize-only");
+      throw new Error('oracle helper is serialize-only');
     },
   } as unknown as RuntimeCompactType<unknown>;
 }
