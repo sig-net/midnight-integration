@@ -15,8 +15,20 @@ implementation is pinned against:
   golden corpus. One JSON record per line: a header (compactc version, fixture
   hash, encoding conventions), serialize and deserialize expectations with
   provenance (`circuit` / `oracle` / `twin`), rejection cases by
-  language-neutral category, and a 400-case seeded sweep. Uint/Field values
-  and bounds travel as decimal strings, bytes as lowercase hex.
+  language-neutral category, `schema` records, and a 400-case seeded sweep.
+  Uint/Field values and bounds travel as decimal strings, bytes as lowercase
+  hex.
+- [`src/abi-schemas.ts`](src/abi-schemas.ts): the respond-schema cases behind
+  the `schema` records: SignBidirectionalEvent's ABI-style JSON schemas
+  exactly as carried on chain (including the verbatim Bytes<34>/Bytes<69>
+  literals from test-caller-contract.compact and a NUL-padded form). Each
+  record carries the schema STRING, the descriptor the production mapping
+  (@sig-net/midnight's `respondSchemaDescriptor`) derives from it, and the
+  packed bytes: at generation the production encoder
+  (`serializeRespondOutput`), the twin and the oracle must all agree.
+  Implementations must derive the descriptor from the schema string
+  themselves, so the schema-to-descriptor mapping is conformance-tested in
+  every language, not just the bytes.
 
 The corpus is DERIVED, never hand-edited. `src/generate.ts` builds it from the
 compiled circuits, the oracle and the TypeScript twin, and throws unless all

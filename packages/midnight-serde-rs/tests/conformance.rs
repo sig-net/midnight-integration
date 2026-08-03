@@ -148,6 +148,94 @@ fn value_to_json(descriptor: &Descriptor, value: &Value) -> Json {
     }
 }
 
+/// The respond-schema vocabulary of SignBidirectionalEvent's ABI-style JSON
+/// schemas (outputDeserializationSchema / respondSerializationSchema), as an
+/// INDEPENDENT Rust implementation of schema -> descriptor: the corpus's
+/// `schema` records carry descriptors derived by the production TypeScript
+/// mapping (@sig-net/midnight's abi-serde), so matching them here proves two
+/// implementations of the mapping agree, on top of the byte agreement.
+///
+/// On-chain schemas live in fixed-width Bytes<N> fields, so the text is cut
+/// at the first NUL before JSON parsing.
+fn schema_to_descriptor(schema: &str) -> Descriptor {
+    let text = schema
+        .split('\0')
+        .next()
+        .expect("split yields at least one element");
+    let fields: Vec<Json> = serde_json::from_str(text).expect("schema JSON");
+    Descriptor::Struct {
+        fields: fields
+            .iter()
+            .map(|field| {
+                let name = field["name"]
+                    .as_str()
+                    .expect("schema field name")
+                    .to_string();
+                let ty = field["type"].as_str().expect("schema field type");
+                (name, schema_field_descriptor(ty, field))
+            })
+            .collect(),
+    }
+}
+
+fn schema_field_descriptor(ty: &str, field: &Json) -> Descriptor {
+    // Dynamic string/bytes: 8-byte LE length + payload zero-padded to maxBytes.
+    if ty == "string" || ty == "bytes" {
+        let max_bytes = field["maxBytes"].as_u64().expect("maxBytes") as usize;
+        return Descriptor::Struct {
+            fields: vec![
+                ("len".to_string(), Descriptor::UintBits { bits: 64 }),
+                ("data".to_string(), Descriptor::Bytes { length: max_bytes }),
+            ],
+        };
+    }
+    // Arrays: 8-byte LE count + maxItems elements at the element's width.
+    if let Some(element) = ty.strip_suffix("[]") {
+        let max_items = field["maxItems"].as_u64().expect("maxItems") as usize;
+        return Descriptor::Struct {
+            fields: vec![
+                ("len".to_string(), Descriptor::UintBits { bits: 64 }),
+                (
+                    "items".to_string(),
+                    Descriptor::Vector {
+                        length: max_items,
+                        element: Box::new(schema_fixed_descriptor(element)),
+                    },
+                ),
+            ],
+        };
+    }
+    schema_fixed_descriptor(ty)
+}
+
+fn schema_fixed_descriptor(ty: &str) -> Descriptor {
+    match ty {
+        "bool" => Descriptor::Boolean,
+        // uint256, address and field all ride the Compact Field carrier.
+        "field" | "uint256" | "address" => Descriptor::Field,
+        _ => {
+            if let Some(bits) = ty.strip_prefix("uint").and_then(|b| b.parse::<u32>().ok()) {
+                assert!(
+                    (8..=248).contains(&bits) && bits % 8 == 0,
+                    "uint width {bits} outside the respond vocabulary"
+                );
+                return Descriptor::UintBits { bits };
+            }
+            if let Some(n) = ty
+                .strip_prefix("bytes")
+                .and_then(|b| b.parse::<usize>().ok())
+            {
+                assert!(
+                    (1..=32).contains(&n),
+                    "bytes{n} outside the respond vocabulary"
+                );
+                return Descriptor::Bytes { length: n };
+            }
+            panic!("unsupported schema type '{ty}'")
+        }
+    }
+}
+
 fn record_options(record: &Json) -> DeserializeOptions {
     let options = record.get("options");
     DeserializeOptions {
@@ -171,6 +259,10 @@ fn corpus_conformance() {
 
     let mut failures: Vec<String> = Vec::new();
     let mut counts = (0usize, 0usize, 0usize);
+    let mut schema_count = 0usize;
+    // The exact literal test-caller-contract.compact carries as Bytes<34>:
+    // the corpus MUST exercise it verbatim.
+    let mut saw_contract_literal = false;
 
     for line in text.lines().filter(|l| !l.is_empty()) {
         let record: Json = serde_json::from_str(line).expect("corpus line is JSON");
@@ -250,6 +342,42 @@ fn corpus_conformance() {
                     }
                 }
             }
+            "schema" => {
+                schema_count += 1;
+                let schema = record["schema"].as_str().expect("schema string");
+                if schema == "[{\"name\":\"success\",\"type\":\"bool\"}]" {
+                    saw_contract_literal = true;
+                }
+                // Derive the descriptor from the schema string OURSELVES and
+                // cross-check against the production mapping's recorded one.
+                let descriptor = schema_to_descriptor(schema);
+                let recorded = json_to_descriptor(&record["type"]);
+                if descriptor != recorded {
+                    fail(format!(
+                        "schema mapping disagrees with the recorded descriptor: {descriptor:?} vs {recorded:?}"
+                    ));
+                    continue;
+                }
+                let value = json_to_value(&descriptor, &record["value"]);
+                let packed_hex = record["packed"].as_str().expect("packed");
+                match serialize(&descriptor, &value, None) {
+                    Ok(packed) if hex_encode(&packed) == packed_hex => {}
+                    Ok(packed) => fail(format!(
+                        "packed {} != expected {packed_hex}",
+                        hex_encode(&packed)
+                    )),
+                    Err(e) => fail(format!("serialize failed: {e}")),
+                }
+                match deserialize(
+                    &descriptor,
+                    &hex_decode(packed_hex),
+                    DeserializeOptions::default(),
+                ) {
+                    Ok(decoded) if decoded == value => {}
+                    Ok(_) => fail("roundtrip returned a different value".to_string()),
+                    Err(e) => fail(format!("roundtrip failed: {e}")),
+                }
+            }
             "deserialize" => {
                 counts.1 += 1;
                 let descriptor = json_to_descriptor(&record["type"]);
@@ -291,6 +419,11 @@ fn corpus_conformance() {
         counts.2
     );
     assert!(counts.0 > 0 && counts.1 > 0, "corpus missing record kinds");
+    assert!(schema_count > 0, "corpus carries no schema records");
+    assert!(
+        saw_contract_literal,
+        "corpus lost the verbatim test-caller-contract schema literal"
+    );
     assert!(
         failures.is_empty(),
         "{} corpus failures:\n{}",

@@ -14,6 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@sig-net/midnight": "*",
     "@sig-net/midnight-serde": "*"
   },
   "devDependencies": {
