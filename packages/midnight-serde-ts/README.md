@@ -6,16 +6,19 @@ with one `deserialize<T, N>` call, and decode bytes a contract produced with
 `serialize<T, N>`. Zero runtime dependencies.
 
 Every claim is pinned byte-for-byte against COMPILED circuits: the fixture
-contract in [`tests/fixtures/serde-fixtures.compact`](tests/fixtures/serde-fixtures.compact)
-wraps the builtins over structs exercising all supported types and combos, and
-the tests assert twin/circuit equality in both directions. A second oracle
-backs the serialize direction: `toBinaryRepr` from
-`@midnight-ntwrk/compact-runtime` (test-only, never a runtime dependency)
-must agree with the twin on every shape, including the shapes compactc cannot
-compile `serialize<T, N>` for. The oracle adapter computes its byte widths
-independently of the twin's width logic, so a width bug cannot cancel out of
-the comparison, and a seeded randomised suite sweeps hundreds of generated
-descriptor/value pairs through the roundtrip and the oracle on every run.
+contract and the shared descriptor tables live in the sibling conformance kit
+([`../midnight-serde-conformance`](../midnight-serde-conformance)), whose
+circuits wrap the builtins over structs exercising all supported types and
+combos, and the tests assert twin/circuit equality in both directions. A
+second oracle backs the serialize direction: `toBinaryRepr` from
+`@midnight-ntwrk/compact-runtime` (via the conformance kit, never a runtime
+dependency) must agree with the twin on every shape, including the shapes
+compactc cannot compile `serialize<T, N>` for. The oracle adapter computes
+its byte widths independently of the twin's width logic, so a width bug
+cannot cancel out of the comparison, and the conformance kit's COMMITTED
+golden corpus (seeded randomised sweep included) is replayed through the twin
+on every run: the same corpus every other implementation of this layout is
+pinned against.
 
 One honest caveat on what "circuit-pinned" means: the pins execute the
 compiler's JS emission of each circuit (via `@midnight-ntwrk/compact-runtime`
@@ -133,8 +136,8 @@ can still READ such payloads from off-chain encoders. Tuples are unaffected:
 ## Develop
 
 ```bash
-yarn compile   # compile the fixture contract (needed before test/build)
-yarn test      # pin the twin against the compiled circuits + toBinaryRepr
+yarn compile   # at the REPO ROOT: compiles the conformance fixture contract
+yarn test      # pin the twin against the compiled circuits + toBinaryRepr + corpus
 yarn build     # typecheck + emit ./dist for publishing
 ```
 
