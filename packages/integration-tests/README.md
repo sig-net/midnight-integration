@@ -72,7 +72,7 @@ run offline under plain `yarn test`; the flow file gates itself with
 - **compact compiler** on PATH, then `yarn install` + `yarn compile` from
   the root.
 - For the signature-response leg: the fakenet MPC responder — the `fakenet`
-  compose service (`ghcr.io/sig-net/fakenet:0.7.0`, built from
+  compose service (`ghcr.io/sig-net/fakenet:0.11.0`, built from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)).
   **The setup starts it for you**: right after deploying the signet contract
   it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to `.env`
