@@ -9,15 +9,16 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 > This Sig Network Midnight integration is still under construction.
 > Use at your own risk and expect rapid iteration.
 
-## What is in it
+## Package Contents
+This package has 2 components:
 
-- **Compact module**, for contract code on chain: the package ships its `.compact` sources, so your contract imports the protocol structs and circuits directly:
+- **Compact module** for contract code on chain: `.compact` sources for Compact contracts to import the protocol structs and circuits directly:
 
   ```compact
   import "@sig-net/midnight/src/Signet";
   ```
 
-- **TypeScript library**, for clients off chain: readers that poll the signet contract and verify the MPC's responses, key derivation and attestation crypto, output serialisation, the published per-network counterparty values, and typed twins of the on-chain structs and circuits.
+- **TypeScript library** for clients off chain: readers that poll the signet contract and verify the MPC's responses, key derivation and attestation crypto, output serialisation, the published per-network addresses and contstant values, and typed twins of the on-chain structs and circuits.
 
 The [Export highlights](#export-highlights) section lists the specific exports each task uses.
 
@@ -32,16 +33,16 @@ npm install @sig-net/midnight
 The flow has 5 steps:
 
 1. Client calls a contract on Midnight. The contract requests a signature for a transaction destined for a foreign chain. The signature is made with a key derived for the requesting contract (see [Derived keys](#derived-keys)).
-2. The Sig Network MPC serves the request: it generates the transaction signature and posts it back to Midnight.
-3. The client extracts the signature and uses it to submit the signed transaction to the foreign chain.
-4. The MPC observes the foreign transaction and posts an attestation of the execution back to Midnight. The attestation is its ECDSA signature over the digest `keccak256(requestId || serializedOutput)`. Both the digest and the output itself travel off chain.
-5. The client obtains the execution output off chain (see the output recovery note below: it broadcast the transaction in step 3, so it can read the result). It extracts the posted attestation and submits both back to the Midnight contract. The contract recomputes the digest from the output bytes and verifies the MPC's signature in-circuit against its own response key (see [Derived keys](#derived-keys)). This completes the foreign transaction execution.
+2. The Sig Network MPC serves the request: it generates the transaction signature and posts it back to Midnight to the Sig Network Singleton Contract.
+3. The client extracts the signature (from the Sig Network Singleton) and uses it to submit the signed transaction to the foreign chain.
+4. The MPC observes the foreign transaction and posts an attestation of the execution back to Midnight to the Sig Network Singleton Contract. The attestation is an ECDSA signature over the digest `keccak256(requestId || serializedOutput)` created using the requesting contract's MPC response key (see [Derived keys](#derived-keys)). Both the digest and the output itself travel off chain.
+5. The client obtains the execution output off chain (it broadcast the transaction in step 3, so it can read the result, see the output recovery note below for more details). It extracts the posted attestation and submits both back to the calling Midnight contract (same contract as step 1). The contract recomputes the digest from the output bytes and verifies the MPC's signature in-circuit against its own response key (see [Derived keys](#derived-keys)). The contract can then respond to the foreign execution output. This completes the foreign transaction execution.
 
 > **Output recovery:** how the client reads the execution output is chain-specific. For EVM chains it is the mined call's return data. Extract it with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. Clients without trace access can fetch the raw output from the fakenet responder's helper API at `GET /responses/{requestId}` (served by [`ResponsesApi.ts`](https://github.com/sig-net/solana-signet-program/blob/fakenet-v0.8.0/fakenet-signer/src/server/ResponsesApi.ts), port 3040 in the local stack). The fetched bytes stay untrusted until step 5's in-circuit signature verification.
 
 ## Derived keys
 
-Every key the MPC uses is derived for the requesting contract and a path. There are two kinds. The request signing key has a path each contract chooses. The response signing key has a path fixed by the protocol. Both key derivations are **scoped by the address** of the requesting contract.
+Every key the MPC uses is derived for the requesting contract and a path. There are two kinds. The request signing key: derived from a path chosen by the requesting contract. The response signing key: derived from a path fixed by the protocol. Both key derivations are **scoped by the address** of the requesting contract ensuring that only a requesting contract has access to its own keys.
 
 ### Request signing key
 
@@ -72,7 +73,7 @@ A signet-compliant client contract does four things:
 - it submits signature requests
 - it verifies execution responses in-circuit
 
-Concretely, the integration consists of:
+The integration consists of:
 
 - 3 once-off **setup** steps
 - 5 per-request **runtime** steps that drive the full sign bidirectional flow
@@ -162,7 +163,7 @@ Each notification must tell the MPC where your `signBidirectionalEventMap` sits 
 
 The path shape comes from how compactc lays out state. The compiler packs a contract's public ledger fields into a tree whose array nodes hold at most 15 entries. With 15 or fewer fields, field N sits directly in the root array, at path `[N]` (depth 1). With more than 15 fields, the compiler groups the fields into segments of at most 15 (the remainder segment first), and the root array holds the segments. Each grouping adds one level to the tree and one entry to every field's path. A 20-field contract splits 5 + 15: field 4 sits at `[0, 4]` and field 19 sits at `[1, 14]` (depth 2).
 
-Do not derive the path by hand: the compiler records it in your compiled artefacts. Compile your contract, then look up your map's `"index"` in `managed/<contract>/compiler/contract-info.json` (a bare number `4` means path `[4]`). The generated `managed/<contract>/contract/index.js` accessors walk the same indices, for example `state.asArray()[1].asArray()[14]` for a map recorded at `[1, 14]`. That path packs as `requestsPathDepth = 2` and `requestsPath = [1, 14, 0, 0]`.
+**Do not derive the path by hand**. The compiler records it in your compiled artefacts. Compile your contract, then look up your request map's `"path"` in its generated accessor in `managed/<contract>/contract/index.js`. Its accessor shows the indices that the Signet Protocol needs: for example `state.asArray()[1].asArray()[14]` for a map recorded at `[1, 14]`. That path packs as `requestsPathDepth = 2` and `requestsPath = [1, 14, 0, 0]`.
 
 The two caller contracts in the [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration) repository are worked examples of each case:
 
