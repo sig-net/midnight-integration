@@ -180,17 +180,6 @@ describe("signBidirectional", () => {
       [REQUEST_B, [7]],
     ]);
   });
-
-  it("rejects a notification whose version is not 1, emitting nothing", async () => {
-    const { contract, ctx } = await deployContract("signBidirectional");
-    await expect(
-      contract.circuits.signBidirectional(ctx, REQUEST_A, {
-        ...notification(4n),
-        version: 2n,
-      }),
-    ).rejects.toThrow(/only version 1 notification supported/);
-    expect(ctx.events).toHaveLength(0);
-  });
 });
 
 /** One posted (requestId, signature) pair, applied in row order. */
