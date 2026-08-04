@@ -27,8 +27,8 @@ import {
 import { compactDeserialize, compactSerialize, compactSerializedSize } from '../src/index.ts';
 
 // The twin's error messages, keyed by the corpus's language-neutral
-// rejection categories. Message wording is this package's own contract;
-// the categories are the cross-implementation one.
+// rejection categories. Message wording is this package's own contract,
+// and the categories are the cross-implementation contract.
 const REJECT_PATTERNS: Record<RejectCategory, RegExp> = {
   [RejectCategory.UintRange]: /exceeds Uint/,
   [RejectCategory.EnumRange]: /exceeds the last variant index/,

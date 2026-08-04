@@ -7,7 +7,7 @@ use std::fmt;
 
 use crate::u256::U256;
 
-/// Every way serialization, deserialization or validation can fail.
+/// Every way `serialize`, `deserialize` or `validate` can fail.
 #[derive(Debug)]
 pub enum Error {
     /// A descriptor failed structural validation.

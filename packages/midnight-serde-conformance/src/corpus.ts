@@ -330,7 +330,7 @@ interface SerializeCase {
 
 const pc = pureCircuits;
 
-// One case per fixture circuit family; names are the stable corpus slugs.
+// One case per fixture circuit family. Names are the stable corpus slugs.
 const SERIALIZE_CASES: SerializeCase[] = [
   { name: 'primitives', type: PRIMITIVES, value: primitivesValue, n: 89, ser: () => pc.serPrimitives(primitivesValue), de: (b) => pc.dePrimitives(b) },
   { name: 'buffers', type: BUFFERS, value: buffersValue, n: 64, ser: () => pc.serBuffers(buffersValue), de: (b) => pc.deBuffers(b) },
@@ -361,7 +361,7 @@ interface RejectionCase {
   type: CompactType;
   bytes: Uint8Array;
   reject: RejectCategory;
-  /** The de circuit expected to throw on the same bytes; absent for twin-only categories. */
+  /** The de circuit expected to throw on the same bytes (absent for twin-only categories). */
   de?: ((bytes: Uint8Array) => CompactValue) | undefined;
 }
 
@@ -571,7 +571,8 @@ export function buildCorpus(): CorpusRecord[] {
     });
   }
 
-  // The seeded sweep: same rng interleaving as the original property tests.
+  // The seeded sweep: each case draws its type, then its value, from one
+  // shared rng stream. The committed corpus freezes this interleaving.
   const rng = mulberry32(SWEEP_SEED);
   for (let i = 0; i < SWEEP_CASES; i++) {
     const type = randType(rng, 3);

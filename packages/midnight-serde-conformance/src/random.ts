@@ -1,10 +1,10 @@
 // The seeded random descriptor/value generator behind the corpus's sweep
-// records (and originally the TS twin's property tests). DO NOT change its
-// behaviour: the committed corpus freezes its output, and any drift shows up
-// as a corpus-guard failure, not a silent change.
+// records. DO NOT change its behaviour: the committed corpus freezes its
+// output, and any drift shows up as a corpus-guard failure, not a silent
+// change.
 //
 // Deterministic on purpose: a fixed seed means every regeneration produces
-// the same cases. No property-testing dependency: the generator is ~80 lines.
+// the same cases.
 
 import { FIELD_MODULUS, type CompactType, type CompactValue } from '@sig-net/midnight-serde';
 
