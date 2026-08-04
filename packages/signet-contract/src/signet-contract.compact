@@ -32,14 +32,13 @@ export circuit signBidirectional(
       requestId: RequestId,
       notification: SignBidirectionalEventNotification
 ): [] {
-    assert(notification.version == 1, "only version 1 notification supported");
-
     emit (Misc {
         name: pad(32, "SignBidirectionalEvent"),
         payload: Bytes[
             disclose(notification.version),    //  1
+            ...disclose(requestId),            // +32
             ...disclose(notification.payload), // +128
-            ...default<Bytes<127>>             // +127
+            ...default<Bytes<95>>              // +95
         ],                                     // = 256 bytes
     });
 }

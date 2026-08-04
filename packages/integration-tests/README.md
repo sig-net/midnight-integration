@@ -30,9 +30,9 @@ and two flow files:
      (contract-fixed minimal calldata) and read the request back MPC-style
      from the raw ledger.
   3. Golden notification: the submit emitted a decodable
-     `SignBidirectionalNotification` event on the signet contract, read
-     through the indexer's contract-events query and the shared event
-     decoders, exactly as the MPC reads it.
+     `SignBidirectionalNotification` event on the signet contract declaring
+     the stored request's id, read through the indexer's contract-events
+     query and the shared event decoders, exactly as the MPC reads it.
   4. `pollSignatureResponse` — the fakenet's ECDSA response arrives on the
      signet contract and verifies against the caller's epsilon-derived
      account.
@@ -72,7 +72,7 @@ run offline under plain `yarn test`; the flow file gates itself with
 - **compact compiler** on PATH, then `yarn install` + `yarn compile` from
   the root.
 - For the signature-response leg: the fakenet MPC responder — the `fakenet`
-  compose service (`ghcr.io/sig-net/fakenet:0.11.0`, built from
+  compose service (`ghcr.io/sig-net/fakenet:0.13.0`, built from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)).
   **The setup starts it for you**: right after deploying the signet contract
   it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to `.env`

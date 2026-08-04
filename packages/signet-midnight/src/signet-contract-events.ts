@@ -2,14 +2,14 @@
 // events. Every signet contract circuit emits one `Misc` contract event
 // (MIP-0002 public log emission) whose 32-byte name tags the event kind and
 // whose 256-byte payload packs the record:
-//   SignBidirectionalEvent    - version (1) ++ notification payload (128) ++ zeros (127)
+//   SignBidirectionalEvent    - version (1) ++ requestId (32) ++ notification payload (128) ++ zeros (95)
 //   SignatureRespondedEvent   - requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (127)
 //   RespondBidirectionalEvent - requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (127)
 // The decoders here are the byte-plumbing twins of the emit literals in
 // signet-contract.compact: field order and offsets must match byte-for-byte
 // (the signet-contract simulator tests pin the lockstep against real emits).
 // Every event is UNAUTHENTICATED: verification is the reader's job. The
-// request id in the two respond payloads is routing data only, so it scopes
+// request id every payload discloses is routing data only, so it scopes
 // reads to one request and proves nothing.
 
 import {
@@ -232,7 +232,7 @@ export interface MpcSignature {
  * The MPC's signature over the requested EVM transaction (Compact
  * `SignatureRespondedEvent`): decode to an ethers signature with
  * `signatureRespondedEventToSignature`. The emitting event carries the
- * record beside the request id it answers (see {@link SignetRespondPost});
+ * record beside the request id it answers (see {@link SignetEventPost});
  * the id routes, and VERIFYING the signature against the transaction the
  * request describes establishes authenticity (see
  * {@link SignetRequestResponseReader.getVerifiedSignatureRespondedEvent}).
@@ -249,7 +249,7 @@ export interface SignatureRespondedEvent {
  * digest and the output travel off chain: readers fetch the output, recompute
  * the digest (`calculateSignetAttestationDigest`) and verify the signature
  * over it. Emitted UNVERIFIED by the signet contract, beside the request id
- * it answers (see {@link SignetRespondPost}), so that signature check
+ * it answers (see {@link SignetEventPost}), so that signature check
  * against the expected MPC response key is the only thing separating a
  * genuine post from garbage: in-circuit via
  * `verifyRespondBidirectionalEvent`, off chain via
@@ -261,15 +261,18 @@ export interface RespondBidirectionalEvent {
 }
 
 /**
- * A decoded respond-event payload: the request id the emitting circuit
+ * A decoded signet event payload: the request id the emitting circuit
  * disclosed beside the posted record. The id is UNAUTHENTICATED routing
- * data: it scopes reads to one request and proves nothing. Verifying the
- * record's signature against the request remains the authenticity check
- * (see {@link SignetRequestResponseReader.getVerifiedSignatureRespondedEvent}
- * and {@link SignetRequestResponseReader.getVerifiedRespondBidirectionalEvent}).
+ * data: it scopes reads to one request and proves nothing. For the respond
+ * events, verifying the record's signature against the request remains the
+ * authenticity check (see
+ * {@link SignetRequestResponseReader.getVerifiedSignatureRespondedEvent} and
+ * {@link SignetRequestResponseReader.getVerifiedRespondBidirectionalEvent});
+ * for the notification, reading the declared request back from the named
+ * caller's own ledger does (see signet-request-feed.ts).
  */
-export interface SignetRespondPost<TRecord> {
-  /** The request id the post declares it answers, 32 bytes. Routing data only. */
+export interface SignetEventPost<TRecord> {
+  /** The request id the post declares it concerns, 32 bytes. Routing data only. */
   requestId: Uint8Array;
   /** The posted record, verbatim. */
   event: TRecord;
@@ -328,7 +331,7 @@ function decodeRespondPayload(payload: Uint8Array): {
  */
 export function decodeSignatureRespondedEventPayload(
   payload: Uint8Array,
-): SignetRespondPost<SignatureRespondedEvent> {
+): SignetEventPost<SignatureRespondedEvent> {
   const { requestId, signature } = decodeRespondPayload(payload);
   return { requestId, event: { signature } };
 }
@@ -343,7 +346,7 @@ export function decodeSignatureRespondedEventPayload(
  */
 export function decodeRespondBidirectionalEventPayload(
   payload: Uint8Array,
-): SignetRespondPost<RespondBidirectionalEvent> {
+): SignetEventPost<RespondBidirectionalEvent> {
   const { requestId, signature } = decodeRespondPayload(payload);
   return { requestId, event: { signature } };
 }
@@ -364,24 +367,28 @@ export interface SignBidirectionalNotificationRecord {
 /** Offset of the notification's version tag in the event payload. */
 const NOTIFICATION_EVENT_VERSION_OFFSET = 0;
 
+/** Offset of the declared request id in the event payload. */
+const NOTIFICATION_EVENT_REQUEST_ID_OFFSET = 1;
+
 /** Offset of the packed notification payload in the event payload. */
-const NOTIFICATION_EVENT_PAYLOAD_OFFSET = 1;
+const NOTIFICATION_EVENT_PAYLOAD_OFFSET = 33;
 
 /** Byte width of the packed notification payload (Compact `Bytes<128>`). */
 const NOTIFICATION_PAYLOAD_LENGTH = 128;
 
 /**
  * Decode a {@link SignetEventName.SignBidirectionalEvent} payload into the
- * raw notification record: the decode twin of the `signBidirectional`
- * circuit's emit literal (version (1) ++ notification payload (128)).
+ * declared request id and the raw notification record: the decode twin of
+ * the `signBidirectional` circuit's emit literal
+ * (version (1) ++ requestId (32) ++ notification payload (128)).
  *
  * @param payload - The event's payload.
- * @returns The raw notification record.
+ * @returns The decoded post: declared request id plus raw notification record.
  * @throws Error when the payload is too short to hold the record.
  */
 export function decodeSignBidirectionalEventNotificationPayload(
   payload: Uint8Array,
-): SignBidirectionalNotificationRecord {
+): SignetEventPost<SignBidirectionalNotificationRecord> {
   const version = payload[NOTIFICATION_EVENT_VERSION_OFFSET];
   const end = NOTIFICATION_EVENT_PAYLOAD_OFFSET + NOTIFICATION_PAYLOAD_LENGTH;
   if (version === undefined || payload.length < end) {
@@ -390,8 +397,14 @@ export function decodeSignBidirectionalEventNotificationPayload(
     );
   }
   return {
-    version: BigInt(version),
-    payload: payload.slice(NOTIFICATION_EVENT_PAYLOAD_OFFSET, end),
+    requestId: payload.slice(
+      NOTIFICATION_EVENT_REQUEST_ID_OFFSET,
+      NOTIFICATION_EVENT_PAYLOAD_OFFSET,
+    ),
+    event: {
+      version: BigInt(version),
+      payload: payload.slice(NOTIFICATION_EVENT_PAYLOAD_OFFSET, end),
+    },
   };
 }
 
@@ -417,8 +430,9 @@ const SUPPORTED_NOTIFICATION_VERSION = 1n;
 /**
  * A decoded V1 notification: the flat pointer a client emitted to tell the
  * MPC a request was stored, and WHERE to read the authenticated copy. The
- * event carries no request id: the MPC enumerates the request map the
- * notification points at and reads every request from the named caller's own
+ * emitting event declares the stored request's id beside this record (see
+ * {@link SignetEventPost}): the MPC looks that id up in the request map the
+ * notification points at and reads the request from the named caller's own
  * authenticated ledger (see signet-request-feed.ts). The fields themselves
  * confer no authority.
  */

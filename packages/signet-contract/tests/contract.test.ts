@@ -131,13 +131,18 @@ describe("signBidirectional", () => {
     const [event] = events;
     expect(event.name).toBe(SignetEventName.SignBidirectionalEvent);
 
-    // Emit literal: version (1) ++ notification payload (128) ++ zeros (127).
-    const record = decodeSignBidirectionalEventNotificationPayload(event.payload);
-    expect(record).toEqual(notification(4n));
-    expectZeroPadding(event.payload, 129);
+    // Emit literal: version (1) ++ requestId (32) ++ notification
+    // payload (128) ++ zeros (95), pinned by raw offset here.
+    expect(event.payload[0]).toBe(1); // version
+    expect(event.payload.slice(1, 33)).toEqual(REQUEST_A);
+    expect(event.payload.slice(33, 161)).toEqual(notification(4n).payload);
+    expectZeroPadding(event.payload, 161);
 
-    // The packed V1 payload decodes back to the caller pointer.
-    expect(decodeSignBidirectionalNotification(record)).toEqual({
+    // The decode twin returns the declared id beside the record, and the
+    // packed V1 payload decodes back to the caller pointer.
+    const post = decodeSignBidirectionalEventNotificationPayload(event.payload);
+    expect(post).toEqual({ requestId: REQUEST_A, event: notification(4n) });
+    expect(decodeSignBidirectionalNotification(post.event)).toEqual({
       version: 1,
       callerAddress: bytesToHex(NOTIFYING_CALLER.bytes),
       requestsPath: [4],
@@ -156,30 +161,24 @@ describe("signBidirectional", () => {
     );
     const second = await contract.circuits.signBidirectional(
       first.context,
-      REQUEST_A,
+      REQUEST_B, // its own id under its own event
       notification(7n), // different index field: both emits must survive
     );
 
     const events = decodeSignetLogEvents(second.context.events, contractAddress);
     expect(events).toHaveLength(2);
     expect(
-      events.map((event) =>
-        decodeSignBidirectionalNotification(
-          decodeSignBidirectionalEventNotificationPayload(event.payload),
-        ).requestsPath,
-      ),
-    ).toEqual([[4], [7]]);
-  });
-
-  it("rejects a notification whose version is not 1, emitting nothing", async () => {
-    const { contract, ctx } = await deployContract("signBidirectional");
-    await expect(
-      contract.circuits.signBidirectional(ctx, REQUEST_A, {
-        ...notification(4n),
-        version: 2n,
+      events.map((event) => {
+        const post = decodeSignBidirectionalEventNotificationPayload(event.payload);
+        return [
+          post.requestId,
+          decodeSignBidirectionalNotification(post.event).requestsPath,
+        ];
       }),
-    ).rejects.toThrow(/only version 1 notification supported/);
-    expect(ctx.events).toHaveLength(0);
+    ).toEqual([
+      [REQUEST_A, [4]],
+      [REQUEST_B, [7]],
+    ]);
   });
 });
 

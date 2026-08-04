@@ -41,17 +41,24 @@ export function packSignetEventPayload(
 
 /**
  * The event the `signBidirectional` circuit emits for a notification record:
- * version (1) ++ packed notification payload (128) ++ zeros.
+ * version (1) ++ requestId (32) ++ packed notification payload (128) ++
+ * zeros.
  *
+ * @param requestId - The stored request id the notification declares, 32 bytes.
  * @param record - The raw notification record.
  * @returns The event as a stub source serves it.
  */
 export function notificationEventOf(
+  requestId: Uint8Array,
   record: SignBidirectionalNotificationRecord,
 ): SignetMiscEvent {
   return {
     name: SignetEventName.SignBidirectionalEvent,
-    payload: packSignetEventPayload(Number(record.version), record.payload),
+    payload: packSignetEventPayload(
+      Number(record.version),
+      requestId,
+      record.payload,
+    ),
   };
 }
 

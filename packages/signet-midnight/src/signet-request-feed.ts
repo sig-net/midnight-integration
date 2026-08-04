@@ -1,16 +1,17 @@
 // The MPC's single entry point for discovering signature requests: poll the
 // central signet contract's emitted SignBidirectionalEvent notifications,
-// follow each to the named caller contract, and enumerate the AUTHENTICATED
-// requests in that caller's own request map. A notification is a doorbell,
-// never an authority: it says only WHERE to look (caller address + the
-// resolved ledger-tree path of its request map), and every request served
-// comes from the named caller's own ledger. An attacker cannot write into a
-// contract it does not control, so a forged notification can at most
-// re-point at a legitimate caller's map, never inject a request.
+// follow each to the named caller contract, and read the AUTHENTICATED
+// request it declares from that caller's own request map. A notification is
+// a doorbell, never an authority: it says only WHERE to look (caller
+// address + the resolved ledger-tree path of its request map) and WHICH
+// request (the declared id), and every request served comes from the named
+// caller's own ledger. An attacker cannot write into a contract it does not
+// control, so a forged notification can at most re-point at a legitimate
+// caller's stored request, never inject one.
 //
 // The event log has no on-ledger cursor the feed consumes, so the feed's
-// in-memory `yielded` set is the diff cursor: every poll enumerates the
-// pointed-at maps and serves what it has not served before.
+// in-memory `yielded` set is the diff cursor: every poll looks up the
+// notified requests and serves what it has not served before.
 //
 // The requester allow-list is an OPTIONAL policy filter here (drop requests
 // from contracts you choose not to serve), never a security requirement and
@@ -23,9 +24,11 @@ import {
   SignetEventName,
   type SignetEventSource,
 } from "./signet-contract-events.ts";
-import { readSignetRequestIndexAt } from "./signature-requests-state-reader.ts";
+import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import type { SignetPublicStateSource } from "./signet-request-response-reader.ts";
+import type { RawContractState } from "./signature-state-reading.ts";
 import {
+  requestIdHex,
   stripHexPrefix,
   type RequestIdHex,
   type SignBidirectionalEvent,
@@ -108,12 +111,13 @@ function normalizeAddress(address: string): string {
 
 /**
  * The event-polling request feed. Reads the signet contract's emitted
- * notifications (discovery) and enumerates each pointed-at caller's own
- * request map (authentication by construction: the records come from the
- * caller's ledger), yielding each member request once. Dedupes by request id
- * across its lifetime, so a re-notified or still-pending request is not
- * re-yielded. Call {@link forget} to re-arm a request whose downstream
- * processing failed.
+ * notifications (discovery) and looks each declared request id up in the
+ * pointed-at caller's own request map (authentication by construction: the
+ * records come from the caller's ledger), yielding each found request once.
+ * A request stored WITHOUT a notification is never discovered: the
+ * notification is the doorbell. Dedupes by request id across its lifetime,
+ * so a re-notified or still-pending request is not re-yielded. Call
+ * {@link forget} to re-arm a request whose downstream processing failed.
  */
 export class SignetRequestFeed {
   private readonly signetContractAddress: string;
@@ -150,64 +154,72 @@ export class SignetRequestFeed {
   }
 
   /**
-   * The unique `(callerAddress, requestsPath)` pointers of the currently
-   * emitted notification events, allow-list applied, in ascending
-   * caller-address order (event enumeration order is per-source, so a
-   * stable sort keeps the poll deterministic). Undecodable or
-   * unsupported-version events are skipped (and logged): they carry no
-   * request, so nothing is lost.
+   * The unique `(callerAddress, requestsPath, requestId)` pointers of the
+   * currently emitted notification events, allow-list applied, in ascending
+   * (caller-address, request-id) order (event enumeration order is
+   * per-source, so a stable sort keeps the poll deterministic). Deduped by
+   * the FULL triple, not the id alone, so a forged notification declaring a
+   * genuine id under a wrong pointer cannot shadow the genuine one.
+   * Undecodable or unsupported-version events are skipped (and logged):
+   * they carry no readable pointer, so nothing is lost.
    *
-   * @returns The deduplicated pointers to enumerate this cycle.
+   * @returns The deduplicated pointers to look up this cycle.
    */
   private async notificationPointers(): Promise<
-    { callerAddress: string; requestsPath: number[] }[]
+    { callerAddress: string; requestsPath: number[]; requestId: RequestIdHex }[]
   > {
     const events = await this.eventSource.querySignetEvents(
       this.signetContractAddress,
     );
     const pointers = new Map<
       string,
-      { callerAddress: string; requestsPath: number[] }
+      { callerAddress: string; requestsPath: number[]; requestId: RequestIdHex }
     >();
     for (const event of events) {
       if (event.name !== SignetEventName.SignBidirectionalEvent) continue;
-      let notification;
+      let pointer;
       try {
-        notification = decodeSignBidirectionalNotification(
-          decodeSignBidirectionalEventNotificationPayload(event.payload),
+        const post = decodeSignBidirectionalEventNotificationPayload(
+          event.payload,
         );
+        const notification = decodeSignBidirectionalNotification(post.event);
+        pointer = {
+          callerAddress: notification.callerAddress,
+          requestsPath: notification.requestsPath,
+          requestId: requestIdHex(post.requestId),
+        };
       } catch (error) {
         console.warn(
           `SignetRequestFeed: skipping undecodable notification event: ${String(error)}`,
         );
         continue;
       }
-      if (!this.allowed(notification.callerAddress)) continue;
+      if (!this.allowed(pointer.callerAddress)) continue;
       pointers.set(
-        `${notification.callerAddress}:${notification.requestsPath.join(",")}`,
-        {
-          callerAddress: notification.callerAddress,
-          requestsPath: notification.requestsPath,
-        },
+        `${pointer.callerAddress}:${pointer.requestsPath.join(",")}:${pointer.requestId}`,
+        pointer,
       );
     }
-    return [...pointers.values()].sort((a, b) =>
-      a.callerAddress < b.callerAddress
-        ? -1
-        : a.callerAddress > b.callerAddress
-          ? 1
-          : 0,
-    );
+    return [...pointers.values()].sort((a, b) => {
+      const byCaller =
+        a.callerAddress < b.callerAddress
+          ? -1
+          : a.callerAddress > b.callerAddress
+            ? 1
+            : 0;
+      if (byCaller !== 0) return byCaller;
+      return a.requestId < b.requestId ? -1 : a.requestId > b.requestId ? 1 : 0;
+    });
   }
 
   /**
-   * One-shot: every request in a notified caller's request map that is
-   * admitted by the allow-list and not already yielded. Within one caller's
-   * map, requests are processed in ascending request-id-hex order: a
-   * stable, deterministic sequence. A pointer at a caller with no readable
-   * state, or at a field that is not a request map, yields nothing WITHOUT
-   * marking anything, so a genuine request whose ledger write has not
-   * indexed yet is retried next cycle.
+   * One-shot: every notified request that is admitted by the allow-list,
+   * not already yielded, and found by id in the pointed-at caller's own
+   * request map. A pointer whose caller has no readable state, whose path
+   * holds no request map, or whose declared id is not (yet) a member yields
+   * nothing WITHOUT marking anything, so a genuine request whose ledger
+   * write has not indexed yet is retried next cycle. One caller's state is
+   * queried at most once per cycle.
    *
    * @returns The newly-discovered authenticated requests this cycle.
    * @throws Error when the event source itself fails (e.g. the indexer is
@@ -215,31 +227,39 @@ export class SignetRequestFeed {
    */
   async poll(): Promise<ResolvedSignetRequest[]> {
     const out: ResolvedSignetRequest[] = [];
+    // Per-cycle caller-state cache: null marks a caller whose state could
+    // not be read this cycle (not a contract / transient read error).
+    const states = new Map<string, RawContractState | null>();
     for (const pointer of await this.notificationPointers()) {
-      let state;
-      try {
-        state = await this.source.queryContractState(pointer.callerAddress);
-      } catch {
-        continue; // caller address not a contract / transient read error
+      if (this.yielded.has(pointer.requestId)) continue;
+      let raw = states.get(pointer.callerAddress);
+      if (raw === undefined) {
+        try {
+          raw =
+            (await this.source.queryContractState(pointer.callerAddress))
+              ?.data ?? null;
+        } catch {
+          raw = null;
+        }
+        states.set(pointer.callerAddress, raw);
       }
-      if (!state?.data) {
+      if (raw === null) {
         continue; // no state at the named caller: nothing to serve yet
       }
-      const index = readSignetRequestIndexAt(
-        state.data,
+      const request = lookupSignetRequestAt(
+        raw,
         pointer.requestsPath,
+        pointer.requestId,
       );
-      for (const [requestId, request] of [...index.entries()].sort(
-        ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0),
-      )) {
-        if (this.yielded.has(requestId)) continue;
-        this.yielded.add(requestId);
-        out.push({
-          callerAddress: pointer.callerAddress,
-          requestId,
-          request,
-        });
+      if (request === undefined) {
+        continue; // forged pointer, or the ledger write has not indexed yet
       }
+      this.yielded.add(pointer.requestId);
+      out.push({
+        callerAddress: pointer.callerAddress,
+        requestId: pointer.requestId,
+        request,
+      });
     }
     return out;
   }

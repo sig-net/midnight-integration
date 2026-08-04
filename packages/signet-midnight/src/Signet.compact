@@ -44,9 +44,9 @@
 // 1. Client contract stores a SignBidirectionalEvent in a SignBidirectionalEventMap in its own ledger
 //    (against the calculated RequestId) and requests a signature from the MPC via a cross contract call
 //    against the SignetSigner interface. The Signet singleton emits the
-//    SignBidirectionalEventNotification as a contract event.
+//    SignBidirectionalEventNotification as a contract event, the RequestId disclosed beside it.
 // 2. MPC polls the Signet singleton contract's events for SignBidirectionalEventNotifications and uses
-//    each one to read the SignBidirectionalEvent signature requests from the named client's own ledger.
+//    each one to look the declared SignBidirectionalEvent signature request up in the named client's own ledger.
 //    It generates the signature and posts a SignatureRespondedEvent (the requested signature) through
 //    the Signet singleton, which emits it as a contract event.
 // 3. Client polls the Signet singleton contract's SignatureRespondedEvent events. Each event carries
@@ -211,6 +211,8 @@ module Signet {
     // Called by client contracts to notify the MPC of a SignBidirectionalEvent.
     circuit signBidirectional(
       // Canonical id of the SignBidirectionalEvent (calculate with calculateRequestId).
+      // Disclosed in the emitted notification event: the MPC looks this id up in the
+      // caller's own request map.
       requestId: RequestId,
       // Versioned notification of the SignBidirectionalEvent
       // (construct with constructSignBidirectionalEventNotificationV1).

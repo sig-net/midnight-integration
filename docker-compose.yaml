@@ -79,7 +79,7 @@ services:
     # starts this service. Manual equivalent (and the FAKENET_MANAGED=0 path):
     #   docker compose --profile fakenet up -d --force-recreate fakenet
     container_name: 'fakenet-responder'
-    image: 'ghcr.io/sig-net/fakenet:0.11.0'
+    image: 'ghcr.io/sig-net/fakenet:0.13.0'
     profiles: ['fakenet']
     depends_on:
       indexer:

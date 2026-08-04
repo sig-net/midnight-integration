@@ -46,7 +46,7 @@ const NOTIFICATION = pureCircuits.constructSignBidirectionalEventNotificationV1(
   [4n, 0n, 0n, 0n],
 );
 
-// The request id the respond posts below declare, and synthetic signatures
+// The request id the notification and respond posts below declare, and synthetic signatures
 // (the decoders decode, they do not verify). recoveryId 1 on RESPONSE so a
 // decoder that dropped the byte cannot match a 0 default.
 const REQUEST_ID = bytes(32, 0x2f);
@@ -72,11 +72,11 @@ describe("decodeSignetEventName", () => {
 });
 
 describe("notification event payload (pack↔decode lockstep)", () => {
-  it("decodes a circuit-packed notification back to its fields", () => {
-    const event = notificationEventOf(NOTIFICATION);
-    const record = decodeSignBidirectionalEventNotificationPayload(event.payload);
-    expect(record).toEqual(NOTIFICATION);
-    expect(decodeSignBidirectionalNotification(record)).toEqual({
+  it("decodes a circuit-packed notification back to its declared id and fields", () => {
+    const event = notificationEventOf(REQUEST_ID, NOTIFICATION);
+    const post = decodeSignBidirectionalEventNotificationPayload(event.payload);
+    expect(post).toEqual({ requestId: REQUEST_ID, event: NOTIFICATION });
+    expect(decodeSignBidirectionalNotification(post.event)).toEqual({
       version: 1,
       callerAddress: bytesToHex(CALLER_ADDRESS_BYTES),
       requestsPath: [4],
