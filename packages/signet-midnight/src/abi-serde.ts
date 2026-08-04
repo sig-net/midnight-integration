@@ -231,8 +231,8 @@ export function respondSchemaDescriptor(schema: AbiSchemaInput): CompactType {
 }
 
 // ===========================================================================
-// Helpers from here down. The functions above are the whole public surface;
-// everything below serves them.
+// Helpers from here down. The functions above are the whole public surface,
+// and everything below serves them.
 // ===========================================================================
 
 // ---------------------------------------------------------------------------

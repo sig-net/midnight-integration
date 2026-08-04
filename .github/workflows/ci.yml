@@ -118,7 +118,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       # rustup reads rust-toolchain.toml and installs the pinned toolchain
-      # (with rustfmt + clippy) on first use: no separate setup action needed.
+      # (with rustfmt + clippy) on first use.
       - name: Cache cargo registry and build output
         uses: actions/cache@v4
         with:

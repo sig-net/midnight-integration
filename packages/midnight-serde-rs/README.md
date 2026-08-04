@@ -56,6 +56,6 @@ From the repo root: `yarn test:midnight-serde-rs` / `yarn build:midnight-serde-r
 ## Pinning
 
 An isolated crate (not part of any Cargo workspace): `Cargo.lock` is
-committed and CI runs `--locked`, `rust-toolchain.toml` pins the toolchain,
-and `publish = false` gates crates.io publication until licensing and the
-release flow are decided.
+committed and CI runs `--locked`, and `rust-toolchain.toml` pins the
+toolchain. Releases go to crates.io through the repo's publish workflow
+(OIDC trusted publishing), which skips any version already published.

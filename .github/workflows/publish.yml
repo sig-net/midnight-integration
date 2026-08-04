@@ -167,7 +167,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       # rustup reads rust-toolchain.toml and installs the pinned toolchain on
-      # first use: no separate setup action needed.
+      # first use.
       - name: Skip if this crate version is already on crates.io
         id: version
         run: |

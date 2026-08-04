@@ -1,8 +1,8 @@
 // The conformance kit's export surface: the compiled fixture circuits, the
 // shared descriptor tables and values, the toBinaryRepr oracle, the corpus
-// model with its JSON codecs, and the committed-corpus loader. Every
-// midnight-serde implementation's test suite consumes this package instead of
-// owning fixtures of its own.
+// model with its JSON codecs, and the committed-corpus loader. This package
+// owns the fixtures every midnight-serde implementation's test suite
+// consumes.
 
 export * from './descriptors.ts';
 export { SCHEMA_CASES, type SchemaCase } from './abi-schemas.ts';

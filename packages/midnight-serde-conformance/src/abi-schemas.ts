@@ -45,7 +45,7 @@ const RAW_DATA = (() => {
 /**
  * Every schema case in the corpus. The exact-width single-bool and
  * bool+uint256 schemas are byte-identical to the `as Bytes<34>` / `as
- * Bytes<69>` literals in test-caller-contract.compact; the rest sweep the
+ * Bytes<69>` literals in test-caller-contract.compact. The rest sweep the
  * respond vocabulary (whole-byte uints, uint256/address as Field carriers,
  * bytesN, dynamic string/bytes with maxBytes, arrays with maxItems, and the
  * NUL-padded on-chain form).
