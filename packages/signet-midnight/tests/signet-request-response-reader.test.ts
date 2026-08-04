@@ -1,7 +1,9 @@
-// SignetRequestResponseReader over synthetic contract states: the requester
-// and responses ledgers are encoded with the canonical descriptors into
-// StateValue trees (the shape the indexer returns), served through a stub
-// state source: no network, no compiled contract.
+// SignetRequestResponseReader over stub sources: the requester ledger is
+// encoded with the canonical descriptors into a StateValue tree (the shape
+// the indexer returns) and served through a stub state source; the signet
+// contract's responses are served as decoded events through a stub event
+// source (built by the test-local encode twins in signet-event-fixtures.ts).
+// No network, no compiled contract.
 
 import { describe, expect, it } from "vitest";
 
@@ -30,15 +32,18 @@ import {
   requestIdHex,
   requestIdType,
   signBidirectionalEventDescriptor,
-  signatureRespondedEventType,
-  respondBidirectionalEventType,
-  signetMapKeyType,
   SignetRequestResponseReader,
   type SignBidirectionalEvent,
   type SignatureRespondedEvent,
+  type SignetMiscEvent,
   type SignetPublicStateSource,
   type RespondBidirectionalEvent,
 } from "../src/index.ts";
+
+import {
+  respondBidirectionalEventOf,
+  signatureRespondedEventOf,
+} from "./signet-event-fixtures.ts";
 
 // The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
 // (the app-level constant lives in the cli).
@@ -57,6 +62,9 @@ const REQUEST_DESCRIPTOR = signBidirectionalEventDescriptor(2, 0, 0, 34, 34);
 const REQUEST_ID = bytes(32, 0x2f);
 const REQUEST_ID_HEX = requestIdHex(REQUEST_ID);
 const UNKNOWN_ID_HEX = requestIdHex(bytes(32, 0x30));
+// Someone else's request: posts declared under this id must never surface
+// when reading REQUEST_ID's posts.
+const FOREIGN_REQUEST_ID = bytes(32, 0x31);
 
 const REQUESTER_ADDRESS = "requester-contract-address";
 const SIGNET_CONTRACT_ADDRESS = "signet-contract-address";
@@ -121,7 +129,7 @@ const UNDECODABLE_RESPONSE: SignatureRespondedEvent = {
   signature: { ...GENUINE_RESPONSE.signature, recoveryId: 5n },
 };
 
-// ---- Synthetic ledger states (signet layout convention) ----
+// ---- Synthetic requester ledger state (signet layout convention) ----
 
 /** Requester state: request index (field 0) holding REQUEST, nonce (field 1). */
 const requesterState = (): StateValue => {
@@ -150,8 +158,8 @@ const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
 
 // The MPC response key of the requesting contract, and a genuinely signed
 // attestation of ATTESTED_OUTPUT under it: what the verified getter must
-// pick out of the log (RESPOND_BIDIRECTIONAL above is the garbage post it
-// must reject).
+// pick out of the event log (RESPOND_BIDIRECTIONAL above is the garbage post
+// it must reject).
 const MPC_RESPONSE_SECRET = bytes(32, 0x11);
 const MPC_RESPONSE_KEY = secp256k1PublicKeyOf(MPC_RESPONSE_SECRET);
 const ATTESTED_OUTPUT = Uint8Array.from([1]);
@@ -164,112 +172,57 @@ const ATTESTED_RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
   ),
 };
 
-/** A one-entry `Map<RequestId, Counter>` for REQUEST_ID, empty at 0. */
-const counterMapOf = (total: bigint): StateMap => {
-  let map = new StateMap();
-  if (total > 0n) {
-    map = map.insert(
-      {
-        value: requestIdType.toValue(REQUEST_ID),
-        alignment: requestIdType.alignment(),
-      },
-      StateValue.newCell({
-        value: u64.toValue(total),
-        alignment: u64.alignment(),
-      }),
-    );
-  }
-  return map;
-};
-
-/**
- * Signet contract state in the 6-field layout: notification counter/map
- * (fields 0/1, empty), signature counter/map (fields 2/3), respond-
- * bidirectional counter/map (fields 4/5) for REQUEST_ID. `counterOverride`
- * forces a counter that disagrees with the log, for the inconsistency test.
- */
-const signetContractState = (
-  posts: SignatureRespondedEvent[],
-  counterOverride?: bigint,
-  respondBidirectionalPosts: RespondBidirectionalEvent[] = [],
-): StateValue => {
-  const total = counterOverride ?? BigInt(posts.length);
-  let responseMap = new StateMap();
-  posts.forEach((post, index) => {
-    responseMap = responseMap.insert(
-      {
-        value: signetMapKeyType.toValue({
-          count: BigInt(index),
-          requestId: REQUEST_ID,
-        }),
-        alignment: signetMapKeyType.alignment(),
-      },
-      StateValue.newCell({
-        value: signatureRespondedEventType.toValue(post),
-        alignment: signatureRespondedEventType.alignment(),
-      }),
-    );
-  });
-  let respondBidirectionalMap = new StateMap();
-  respondBidirectionalPosts.forEach((post, index) => {
-    respondBidirectionalMap = respondBidirectionalMap.insert(
-      {
-        value: signetMapKeyType.toValue({
-          count: BigInt(index),
-          requestId: REQUEST_ID,
-        }),
-        alignment: signetMapKeyType.alignment(),
-      },
-      StateValue.newCell({
-        value: respondBidirectionalEventType.toValue(post),
-        alignment: respondBidirectionalEventType.alignment(),
-      }),
-    );
-  });
-  return StateValue.newArray()
-    .arrayPush(StateValue.newMap(new StateMap())) // field 0: notification counter map
-    .arrayPush(StateValue.newMap(new StateMap())) // field 1: notification map
-    .arrayPush(StateValue.newMap(counterMapOf(total))) // field 2: signature counter map
-    .arrayPush(StateValue.newMap(responseMap)) // field 3: signature map
-    .arrayPush(
-      StateValue.newMap(counterMapOf(BigInt(respondBidirectionalPosts.length))),
-    ) // field 4: respond-bidirectional counter map
-    .arrayPush(StateValue.newMap(respondBidirectionalMap)); // field 5: respond-bidirectional map
-};
-
 // ---- Harness ----
 
 /**
- * Build a reader over synthetic states, counting state-source queries so the
- * request-record caching is observable.
+ * Build a reader over the synthetic requester state and the given emitted
+ * events, counting state-source queries so the request-record caching is
+ * observable. Signature responses and respond-bidirectional posts land in
+ * ONE event log (as on chain), each under its own event name. `posts` and
+ * `respondBidirectionalPosts` are declared under REQUEST_ID; `foreignPosts`
+ * are declared under FOREIGN_REQUEST_ID, so the reader's id scoping must
+ * drop them.
  */
 const makeReader = (
   posts: SignatureRespondedEvent[],
-  counterOverride?: bigint,
   respondBidirectionalPosts: RespondBidirectionalEvent[] = [],
+  foreignPosts: {
+    signatureResponses?: SignatureRespondedEvent[];
+    respondBidirectional?: RespondBidirectionalEvent[];
+  } = {},
 ) => {
-  const queries = { requester: 0, responses: 0 };
+  const queries = { requester: 0, events: 0 };
   const publicDataProvider: SignetPublicStateSource = {
     queryContractState: async (contractAddress) => {
-      if (contractAddress === REQUESTER_ADDRESS) {
-        queries.requester += 1;
-        return { data: requesterState() };
-      }
-      queries.responses += 1;
-      return {
-        data: signetContractState(
-          posts,
-          counterOverride,
-          respondBidirectionalPosts,
-        ),
-      };
+      expect(contractAddress).toBe(REQUESTER_ADDRESS);
+      queries.requester += 1;
+      return { data: requesterState() };
     },
   };
+  const events: SignetMiscEvent[] = [
+    ...posts.map((post) => signatureRespondedEventOf(REQUEST_ID, post)),
+    ...(foreignPosts.signatureResponses ?? []).map((post) =>
+      signatureRespondedEventOf(FOREIGN_REQUEST_ID, post),
+    ),
+    ...respondBidirectionalPosts.map((post) =>
+      respondBidirectionalEventOf(REQUEST_ID, post),
+    ),
+    ...(foreignPosts.respondBidirectional ?? []).map((post) =>
+      respondBidirectionalEventOf(FOREIGN_REQUEST_ID, post),
+    ),
+  ];
   const reader = new SignetRequestResponseReader({
     requesterContractAddress: REQUESTER_ADDRESS,
     requesterRequestsPath: [0],
     signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     publicDataProvider,
+    eventSource: {
+      querySignetEvents: async (contractAddress) => {
+        expect(contractAddress).toBe(SIGNET_CONTRACT_ADDRESS);
+        queries.events += 1;
+        return events;
+      },
+    },
   });
   return { reader, queries };
 };
@@ -298,14 +251,12 @@ describe("getSignatureRequest", () => {
   });
 
   it("throws when the requester contract has no state", async () => {
-    const publicDataProvider: SignetPublicStateSource = {
-      queryContractState: async () => null,
-    };
     const reader = new SignetRequestResponseReader({
       requesterContractAddress: REQUESTER_ADDRESS,
       requesterRequestsPath: [0],
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
-      publicDataProvider,
+      publicDataProvider: { queryContractState: async () => null },
+      eventSource: { querySignetEvents: async () => [] },
     });
     await expect(reader.getSignatureRequest(REQUEST_ID_HEX)).rejects.toThrow(
       /is it deployed/,
@@ -313,10 +264,10 @@ describe("getSignatureRequest", () => {
   });
 });
 
-describe("getSignatureResponses", () => {
-  it("returns every post in count order", async () => {
+describe("getSignatureRespondedEvents", () => {
+  it("returns the request's posts in emission order", async () => {
     const { reader } = makeReader([UNDECODABLE_RESPONSE, GENUINE_RESPONSE]);
-    expect(await reader.getSignatureResponses(REQUEST_ID_HEX)).toEqual([
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([
       UNDECODABLE_RESPONSE,
       GENUINE_RESPONSE,
     ]);
@@ -324,26 +275,35 @@ describe("getSignatureResponses", () => {
 
   it("returns an empty array when nothing is posted", async () => {
     const { reader } = makeReader([]);
-    expect(await reader.getSignatureResponses(REQUEST_ID_HEX)).toEqual([]);
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([]);
   });
 
-  it("throws when the counter disagrees with the log", async () => {
-    const { reader } = makeReader([GENUINE_RESPONSE], 2n);
-    await expect(reader.getSignatureResponses(REQUEST_ID_HEX)).rejects.toThrow(
-      /ledger state is inconsistent/,
-    );
+  it("excludes posts declared under another request id", async () => {
+    const { reader } = makeReader([GENUINE_RESPONSE], [], {
+      signatureResponses: [IMPOSTER_RESPONSE],
+    });
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([
+      GENUINE_RESPONSE,
+    ]);
+  });
+
+  it("ignores events under other signet names", async () => {
+    const { reader } = makeReader([GENUINE_RESPONSE], [RESPOND_BIDIRECTIONAL]);
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([
+      GENUINE_RESPONSE,
+    ]);
   });
 });
 
-/** One row of the verdict table: posted responses → expected result. */
+/** One row of the verdict table: emitted responses → expected result. */
 interface VerdictCase {
   /** Test name, completing the sentence "resolves <name>". */
   name: string;
-  /** The posts on the ledger, in count order. */
+  /** The posts in the event log, in emission order. */
   posts: SignatureRespondedEvent[];
   /** The signer verification demands. */
   expectedSigner: string;
-  /** Index (count) of the post expected as `verified`; absent = none valid. */
+  /** Index of the post expected as `verified`; absent = none valid. */
   verifiedPost?: number;
   /** Per-post rejection-reason pattern; `undefined` = the post is valid. */
   rejectedReasons: (RegExp | undefined)[];
@@ -390,6 +350,20 @@ const VERDICT_CASES: VerdictCase[] = [
 ];
 
 describe("getVerifiedSignatureRespondedEvent", () => {
+  it("never considers a genuine post declared under another request id", async () => {
+    // The signature itself would verify: only the declared id keeps it out,
+    // pinning that routing happens before verification.
+    const { reader } = makeReader([], [], {
+      signatureResponses: [GENUINE_RESPONSE],
+    });
+    const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(
+      REQUEST_ID_HEX,
+      MPC_ADDRESS,
+    );
+    expect(verified).toBeUndefined();
+    expect(verdicts).toEqual([]);
+  });
+
   it.each(VERDICT_CASES)(
     "resolves $name",
     async ({ posts, expectedSigner, verifiedPost, rejectedReasons }) => {
@@ -405,7 +379,7 @@ describe("getVerifiedSignatureRespondedEvent", () => {
 
       expect(verdicts).toHaveLength(rejectedReasons.length);
       verdicts.forEach((verdict, index) => {
-        expect(verdict.count).toBe(BigInt(index));
+        expect(verdict.index).toBe(BigInt(index));
         expect(verdict.response).toEqual(posts[index]);
         const expectedReason = rejectedReasons[index];
         if (expectedReason === undefined) {
@@ -428,8 +402,8 @@ describe("getUnsignedEvmTransaction", () => {
     expect(tx.unsignedHash).toBe(
       signBidirectionalEventToUnsignedEvmTransaction(REQUEST).unsignedHash,
     );
-    // Unsigned needs only the request record: it never touches the signet contract.
-    expect(queries.responses).toBe(0);
+    // Unsigned needs only the request record: it never touches the event log.
+    expect(queries.events).toBe(0);
   });
 
   it("throws for a request id not on the ledger", async () => {
@@ -470,8 +444,8 @@ describe("getSignedEvmTransaction", () => {
 });
 
 describe("getRespondBidirectionalEvents", () => {
-  it("returns the posted responses in count order", async () => {
-    const { reader } = makeReader([], undefined, [
+  it("returns the request's posts in emission order", async () => {
+    const { reader } = makeReader([], [
       RESPOND_BIDIRECTIONAL,
       ATTESTED_RESPOND_BIDIRECTIONAL,
     ]);
@@ -483,15 +457,29 @@ describe("getRespondBidirectionalEvents", () => {
 
   it("returns an empty array when nothing is posted yet", async () => {
     const { reader } = makeReader([]);
-    expect(
-      await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX),
-    ).toEqual([]);
+    expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([]);
+  });
+
+  it("excludes posts declared under another request id", async () => {
+    const { reader } = makeReader([], [RESPOND_BIDIRECTIONAL], {
+      respondBidirectional: [ATTESTED_RESPOND_BIDIRECTIONAL],
+    });
+    expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([
+      RESPOND_BIDIRECTIONAL,
+    ]);
+  });
+
+  it("ignores events under other signet names", async () => {
+    const { reader } = makeReader([GENUINE_RESPONSE], [RESPOND_BIDIRECTIONAL]);
+    expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([
+      RESPOND_BIDIRECTIONAL,
+    ]);
   });
 });
 
 describe("getVerifiedRespondBidirectionalEvent", () => {
   it("picks the post that attests the output, past the garbage in front of it", async () => {
-    const { reader } = makeReader([], undefined, [
+    const { reader } = makeReader([], [
       RESPOND_BIDIRECTIONAL,
       ATTESTED_RESPOND_BIDIRECTIONAL,
     ]);
@@ -504,10 +492,24 @@ describe("getVerifiedRespondBidirectionalEvent", () => {
     ).toEqual(ATTESTED_RESPOND_BIDIRECTIONAL);
   });
 
+  it("returns undefined when the attesting post is declared under another request id", async () => {
+    // The signature commits to REQUEST_ID and would verify: only the
+    // declared id keeps it out, pinning that routing happens before
+    // verification.
+    const { reader } = makeReader([], [], {
+      respondBidirectional: [ATTESTED_RESPOND_BIDIRECTIONAL],
+    });
+    expect(
+      await reader.getVerifiedRespondBidirectionalEvent(
+        REQUEST_ID_HEX,
+        ATTESTED_OUTPUT,
+        MPC_RESPONSE_KEY,
+      ),
+    ).toBeUndefined();
+  });
+
   it("returns undefined when the attested output is not the one presented", async () => {
-    const { reader } = makeReader([], undefined, [
-      ATTESTED_RESPOND_BIDIRECTIONAL,
-    ]);
+    const { reader } = makeReader([], [ATTESTED_RESPOND_BIDIRECTIONAL]);
     expect(
       await reader.getVerifiedRespondBidirectionalEvent(
         REQUEST_ID_HEX,

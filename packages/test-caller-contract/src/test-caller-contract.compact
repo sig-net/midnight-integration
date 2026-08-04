@@ -33,7 +33,7 @@ export ledger signetRequestNonce: Counter;
 export ledger mpcResponseKey: Secp256k1Point;
 
 // field 3: the central signet contract, sealed at deploy. submitSignatureRequest
-// cross-contract-calls it to register the request notification the MPC polls.
+// cross-contract-calls it to emit the request notification the MPC polls.
 sealed ledger signetSigner: SignetSigner;
 
 // field 4: the request map the MPC reads requests back from. Sized for EVM
@@ -94,7 +94,7 @@ export circuit initialise(responseKey: Secp256k1Point): [] {
 export circuit submitSignatureRequest(
   evmNonce: Uint<64>,
   keyVersion: Uint<8>
-): SignetMapKey {
+): [] {
   const calldata = EvmCalldata<1> {
     selector: Bytes [0xca, 0x11, 0xab, 0x1e],
     noWords: 1 as Uint<16>,
@@ -138,10 +138,11 @@ export circuit submitSignatureRequest(
   signBidirectionalEventMap.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 
-  // Notify the MPC via the signet contract's registry: the notification carries
-  // the resolved ledger-tree path of signBidirectionalEventMap. This flat
-  // contract stores it at field 4, so the path is [4] at depth 1 (see layout).
-  const requestMapKey = signetSigner.signBidirectional(
+  // Notify the MPC via the signet contract's notification event: the payload
+  // carries the resolved ledger-tree path of signBidirectionalEventMap. This
+  // flat contract stores it at field 4, so the path is [4] at depth 1 (see
+  // layout).
+  signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
@@ -149,8 +150,6 @@ export circuit submitSignatureRequest(
       [4, 0, 0, 0] as Vector<4, Uint<8>>,
     ),
   );
-
-  return requestMapKey;
 }
 
 // Real EVM leg, stage 1a: SignetEvmTarget.isEven(uint256) on the local
@@ -167,7 +166,7 @@ export circuit submitIsEvenRequest(
   keyVersion: Uint<8>,
   to: Bytes<20>,
   argWord: Bytes<32>
-): SignetMapKey {
+): [] {
   const calldata = EvmCalldata<1> {
     selector: Bytes [0x2a, 0x2e, 0x13, 0x20],
     noWords: 1 as Uint<16>,
@@ -211,7 +210,7 @@ export circuit submitIsEvenRequest(
   requestLog.pushFront(requestId as Bytes<32>);
 
   // signBidirectionalEventMap sits at flat field 4, path [4] at depth 1.
-  return signetSigner.signBidirectional(
+  signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
@@ -233,7 +232,7 @@ export circuit submitCheckAndDoubleRequest(
   keyVersion: Uint<8>,
   to: Bytes<20>,
   argWord: Bytes<32>
-): SignetMapKey {
+): [] {
   const calldata = EvmCalldata<1> {
     selector: Bytes [0xe6, 0xcf, 0x21, 0x87],
     noWords: 1 as Uint<16>,
@@ -277,7 +276,7 @@ export circuit submitCheckAndDoubleRequest(
   requestLog.pushFront(requestId as Bytes<32>);
 
   // signBidirectionalEventMap69 sits at flat field 7, path [7] at depth 1.
-  return signetSigner.signBidirectional(
+  signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
@@ -302,7 +301,7 @@ struct BoolResponse {
 // own declaration: the single-bool respond schema (submitSignatureRequest
 // and submitIsEvenRequest) packs to exactly 1 byte (no padding: the digest
 // hashes the output at its exact length). The event is taken exactly as the
-// singleton stores it, with no off-chain unpacking or byte-order handling
+// singleton emits it, with no off-chain unpacking or byte-order handling
 // by the caller: the attested bytes deserialize into BoolResponse in-circuit
 // and the decoded value gates settlement, the way a real client would react
 // to a foreign call's return value.

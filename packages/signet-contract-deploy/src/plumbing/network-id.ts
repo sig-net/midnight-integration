@@ -1,44 +1,31 @@
-// Network identity — the single source of named network ids.
-//
-// midnight-js types a network id as a bare `string` (`NetworkId`) with no
-// companion enum, so the named values live here. Convention: a network id is
-// ALWAYS named `networkId` and ALWAYS typed `NetworkId`.
+// Network identity plumbing. The named networks live in @sig-net/midnight's
+// MidnightNetwork enum (the protocol library sits at the root of the
+// dependency graph, so every @sig-net/midnight* package can reach it); this
+// module widens the enum back to the SDK's bare-string network-id type and
+// adds the deploy-side helpers. Convention: a network id is ALWAYS named
+// `networkId` and ALWAYS typed `NetworkId`.
 import type { NetworkId as MidnightSDKNetworkId } from "@midnight-ntwrk/midnight-js/network-id";
+import { MidnightNetwork } from "@sig-net/midnight";
 
-/** A Midnight network id: the SDK's bare-string type plus our known named networks. */
-export type NetworkId =
-    // Include the SDK type so we stay assignable if it ever narrows.
-    MidnightSDKNetworkId |
-    // Local standalone stack (Docker node + indexer + proof server on localhost).
-    "undeployed" |
-    // Public staging network, pre-preview
-    "stagenet" |
-    // Public test network for early/breaking changes — bleeding-edge ledger.
-    "preview" |
-    // Public test network that mirrors mainnet config; the final staging step.
-    "preprod" |
-    // Production network (live, real value).
-    "mainnet";
+export { MidnightNetwork };
+
+/** A Midnight network id: the SDK's bare-string type plus the named networks. */
+export type NetworkId = MidnightSDKNetworkId | MidnightNetwork;
 
 // All known network ids, for runtime validation and iteration.
-export const NETWORK_IDS: readonly NetworkId[] = [
-    "undeployed",
-    "stagenet",
-    "preview",
-    "preprod",
-    "mainnet",
-];
+export const NETWORK_IDS: readonly NetworkId[] = Object.values(MidnightNetwork);
 
 /**
  * Whether a network's genesis mint wallet is pre-funded. TRUE only for the
- * local standalone chain (`undeployed`), whose genesis block mints to the
- * well-known genesis seed. Every deployed network (preview / preprod /
- * stagenet / mainnet) starts each wallet at zero, so a run against one needs
- * a seed funded out of band (via that network's faucet).
+ * local standalone chain ({@link MidnightNetwork.Undeployed}), whose genesis
+ * block mints to the well-known genesis seed. Every deployed network
+ * (preview / preprod / stagenet / mainnet) starts each wallet at zero, so a
+ * run against one needs a seed funded out of band (via that network's
+ * faucet).
  *
  * @param networkId - The network to classify.
  * @returns Whether the genesis mint wallet holds spendable funds here.
  */
 export function isLocalStandaloneNetwork(networkId: NetworkId): boolean {
-    return networkId === "undeployed";
+    return networkId === MidnightNetwork.Undeployed;
 }

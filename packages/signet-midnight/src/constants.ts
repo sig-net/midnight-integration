@@ -1,8 +1,10 @@
-// MPC routing constants + the padded-ASCII codec for the signet request
-// structs. Field widths mirror Signet.compact (the wire format: keep in
-// lockstep), and the string constants are the values the MPC network
-// routes on. Ported from the MVP's contract-cli signet/constants.ts, adapted
-// to the refactor's zero-padded convention (Compact `pad(N, "text")`).
+// MPC routing constants, the padded-ASCII codec for the signet request
+// structs, and the published per-network counterparty values (the MPC root
+// public key and the signet contract address). Field widths mirror
+// Signet.compact (the wire format: keep in lockstep), and the string
+// constants are the values the MPC network routes on. Ported from the MVP's
+// contract-cli signet/constants.ts, adapted to the refactor's zero-padded
+// convention (Compact `pad(N, "text")`).
 //
 // The routing constants belong in github.com/sig-net/signet.js, kept here
 // until upstreamed.
@@ -82,4 +84,95 @@ export function asciiPadded(text: string, length: number): Uint8Array {
   const out = new Uint8Array(length);
   out.set(encoded);
   return out;
+}
+
+/**
+ * A named Midnight network: the single source of the network names shared
+ * across the `@sig-net/midnight*` packages. midnight-js types a network id
+ * as a bare `string` with no companion enum, so the names live here, and
+ * `@sig-net/midnight-contract-deploy`'s network-id plumbing widens this
+ * enum back to the SDK's string type for its deploy config.
+ */
+export enum MidnightNetwork {
+  /** Local standalone stack (Docker node, indexer and proof server on localhost). */
+  Undeployed = "undeployed",
+  /** Public staging network, pre-preview. */
+  Stagenet = "stagenet",
+  /** Public test network for early and breaking changes (bleeding-edge ledger). */
+  Preview = "preview",
+  /** Public test network that mirrors mainnet config: the final staging step. */
+  Preprod = "preprod",
+  /** Production network (live, real value). */
+  Mainnet = "mainnet",
+}
+
+/**
+ * A public, long-lived Midnight network: every named network except the
+ * local standalone stack. Only these have fixed protocol counterparty
+ * values published in this package (see {@link getMpcRootPublicKey} and
+ * {@link getSignetContractAddress}); a local stack generates its own values
+ * per deployment instead.
+ */
+export type DeployedNetwork = Exclude<MidnightNetwork, MidnightNetwork.Undeployed>;
+
+// TODO: fill in each network's MPC root public key once it is generated and
+// published for that network. An empty string means "not yet published" and
+// makes getMpcRootPublicKey throw for that network.
+const mpcRootPublicKeys: Record<DeployedNetwork, string> = {
+  [MidnightNetwork.Stagenet]: "",
+  [MidnightNetwork.Preview]: "",
+  [MidnightNetwork.Preprod]: "",
+  [MidnightNetwork.Mainnet]: "",
+};
+
+/**
+ * The MPC root public key of a deployed Midnight network, as hex: the
+ * `mpcRootPublicKey` every client key derivation starts from (see
+ * `deriveEvmAddress`). Only the {@link DeployedNetwork} networks have a
+ * fixed key. A local standalone stack has none: its setup generates a fresh
+ * `MPC_ROOT_KEY` per stack (the integration-test setup prints it and
+ * appends it to the repo-root `.env`).
+ *
+ * @param networkId - The deployed network to look up.
+ * @returns The network's MPC root public key.
+ * @throws Error when the network's key is not yet published in this package.
+ */
+export function getMpcRootPublicKey(networkId: DeployedNetwork): string {
+  const publicKey = mpcRootPublicKeys[networkId];
+  if (!publicKey) {
+    throw new Error(`no MPC root public key published for the '${networkId}' network yet`);
+  }
+  return publicKey;
+}
+
+// TODO: fill in each network's signet contract address as the signet
+// singleton is deployed there. An empty string means "not yet deployed or
+// published" and makes getSignetContractAddress throw for that network.
+const signetContractAddresses: Record<DeployedNetwork, string> = {
+  [MidnightNetwork.Stagenet]: "",
+  [MidnightNetwork.Preview]: "",
+  [MidnightNetwork.Preprod]: "",
+  [MidnightNetwork.Mainnet]: "",
+};
+
+/**
+ * The address of the central signet singleton contract on a deployed
+ * Midnight network: the `signetContractAddress` a
+ * `SignetRequestResponseReader` polls. Only the {@link DeployedNetwork}
+ * networks have a fixed address. A local standalone stack has none: each
+ * stack deploys its own singleton (the integration-test setup prints the
+ * address as `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and appends it to the
+ * repo-root `.env`).
+ *
+ * @param networkId - The deployed network to look up.
+ * @returns The network's signet contract address.
+ * @throws Error when the singleton's address is not yet published in this
+ *   package.
+ */
+export function getSignetContractAddress(networkId: DeployedNetwork): string {
+  const contractAddress = signetContractAddresses[networkId];
+  if (!contractAddress) {
+    throw new Error(`no signet contract address published for the '${networkId}' network yet`);
+  }
+  return contractAddress;
 }

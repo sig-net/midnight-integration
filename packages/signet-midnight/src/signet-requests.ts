@@ -16,8 +16,8 @@
 // the assertion, so any structural drift between the generated managed types
 // and these twins fails that package's `yarn build` / `yarn test`.
 //
-// Read more: https://docs.sig.network/ (signet protocol) and the module
-// header in Signet.compact (key derivation, event flow).
+// Read more: the module header in Signet.compact (key derivation, event
+// flow) and this package's README ("Sign bidirectional flow").
 
 import {
   CompactTypeBoolean,

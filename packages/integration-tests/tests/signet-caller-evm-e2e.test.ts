@@ -257,13 +257,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
     );
 
     it(
-      `${method.name} notification: registered in the signet registry under field ${method.requestsIndexField}`,
+      `${method.name} notification: emitted on the signet contract naming field ${method.requestsIndexField}`,
       async () => {
         expect(requestId).toBeDefined();
+        // The notification declares the stored request's id: id + this
+        // method's caller + map-field path is the match key.
         const decoded = await pollSignetNotification({
           env,
+          callerAddress: requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
+          requestsPath: [method.requestsIndexField],
           requestId,
-          description: `for request ${requestId}`,
+          description: `declaring request ${requestId} for the caller at path [${method.requestsIndexField}]`,
         });
         expect(decoded.version).toBe(1);
         expect(decoded.callerAddress).toBe(stripHexPrefix(requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS")).toLowerCase());
@@ -289,9 +293,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         while (Date.now() < deadline) {
           const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(requestId, expectedSigner);
           for (const verdict of verdicts) {
-            if (verdict.rejectedReason !== undefined && !warned.has(verdict.count)) {
-              warned.add(verdict.count);
-              console.warn(`ignoring response post ${verdict.count}: ${verdict.rejectedReason}`);
+            if (verdict.rejectedReason !== undefined && !warned.has(verdict.index)) {
+              warned.add(verdict.index);
+              console.warn(`ignoring response post ${verdict.index}: ${verdict.rejectedReason}`);
             }
           }
           if (verified !== undefined) {
@@ -338,6 +342,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         expect(requestId).toBeDefined();
         const reader = session.responseReader(method.requestsIndexField);
         const deadline = Date.now() + 5 * MINUTE;
+        // Wait for a post declared under THIS request's id (the recompute
+        // stage below picks the one that verifies over the recomputed
+        // respond bytes).
         let events: RespondBidirectionalEvent[] = [];
         while (events.length === 0 && Date.now() < deadline) {
           events = await reader.getRespondBidirectionalEvents(requestId);
@@ -345,7 +352,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
             await new Promise((resolve) => setTimeout(resolve, 2000));
           }
         }
-        expect(events.length, "the fakenet must post a respond-bidirectional attestation").toBeGreaterThan(0);
+        expect(events.length, "the fakenet must post a respond-bidirectional attestation for this request").toBeGreaterThan(0);
       },
       5 * MINUTE,
     );
@@ -381,13 +388,25 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         // against the pinned response key ONLY if the fakenet ran the SAME
         // two conversions and got the same bytes we did. The event carries
         // no digest of its own, so this signature check is the whole match.
-        const attested = await session
-          .responseReader(method.requestsIndexField)
-          .getVerifiedRespondBidirectionalEvent(
+        //
+        // Poll: the declared request id only routes, so a post under this id
+        // may still fail verification (for example a failure attestation for
+        // a superseded nonce). Wait until a post declared under this id
+        // verifies over the recomputed bytes.
+        const reader = session.responseReader(method.requestsIndexField);
+        const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
+        const verifyDeadline = Date.now() + 3 * MINUTE;
+        let attested: RespondBidirectionalEvent | undefined;
+        while (attested === undefined && Date.now() < verifyDeadline) {
+          attested = await reader.getVerifiedRespondBidirectionalEvent(
             requestId,
             respondBytes,
-            parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY")),
+            mpcResponseKey,
           );
+          if (attested === undefined) {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+        }
         expect(attested, "a posted attestation must verify over the recomputed respond bytes").toBeDefined();
         attestedEvent = attested!;
 
@@ -403,7 +422,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           "(fakenet and this suite) and agreed byte for byte.",
         ]);
       },
-      2 * MINUTE,
+      5 * MINUTE,
     );
 
     it(

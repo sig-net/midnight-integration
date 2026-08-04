@@ -29,17 +29,17 @@ and two flow files:
   2. `submitSignatureRequest` — drive the caller contract's request circuit
      (contract-fixed minimal calldata) and read the request back MPC-style
      from the raw ledger.
-  3. Golden notification — the submit registered a decodable
-     `SignBidirectionalNotification` in the signet contract's registry, read
-     by field position through the hand-composed descriptors, exactly as the
-     MPC reads it.
+  3. Golden notification: the submit emitted a decodable
+     `SignBidirectionalNotification` event on the signet contract declaring
+     the stored request's id, read through the indexer's contract-events
+     query and the shared event decoders, exactly as the MPC reads it.
   4. `pollSignatureResponse` — the fakenet's ECDSA response arrives on the
      signet contract and verifies against the caller's epsilon-derived
      account.
   5. `verifyResponse`: verify an ECDSA respond-bidirectional attestation
      (the MPC's signature over the digest of the request id and serialised
-     output) in-circuit and consume the request. The event carries the
-     signature alone, so the circuit takes the output bytes as an argument
+     output) in-circuit and consume the request. The event never carries the
+     output, so the circuit takes the output bytes as an argument
      and re-hashes them into the digest the signature must cover. The
      fakenet only attests after observing a broadcast on the destination
      chain (a leg this generic exercise deliberately omits), so the
@@ -72,7 +72,7 @@ run offline under plain `yarn test`; the flow file gates itself with
 - **compact compiler** on PATH, then `yarn install` + `yarn compile` from
   the root.
 - For the signature-response leg: the fakenet MPC responder — the `fakenet`
-  compose service (`ghcr.io/sig-net/fakenet:0.7.0`, built from
+  compose service (`ghcr.io/sig-net/fakenet:0.13.0`, built from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)).
   **The setup starts it for you**: right after deploying the signet contract
   it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to `.env`

@@ -201,14 +201,14 @@ export function readSignetRequestsLedgerFromState(
 /**
  * Look up ONE request by id in a contract's request index at an arbitrary
  * ledger field, the single-record sibling of
- * {@link readSignetRequestsLedgerFromState}, and what the discovery path
- * uses: a notification names both the requester contract AND which field
- * holds its index.
+ * {@link readSignetRequestsLedgerFromState}: the discovery primitive of the
+ * event-based feed and what a point verification uses. A notification
+ * declares the stored request's id and names both the requester contract
+ * AND which field holds its index.
  *
- * This is the mandatory membership check of the discovery flow (see
- * signet-request-resolver.ts): `undefined` means the id is NOT a member of the
- * index at `fieldIndex` (the notification is forged, stale, points at the
- * wrong field, or the request is not yet indexed) and the caller MUST drop it.
+ * `undefined` means the id is NOT a member of the index at `requestsPath`
+ * (the pointer is forged, stale, points at the wrong field, or the request is
+ * not yet indexed) and the caller MUST drop it.
  * Every non-membership case (field out of range, field is not a Map, id absent,
  * a cell that fails to decode) returns `undefined` rather than throwing, so a
  * malformed or adversarial notification can never crash the reader.

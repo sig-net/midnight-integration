@@ -36,7 +36,7 @@ the central notifier, a client contract, or the driver?*
 | Layer | Package | Owns | NEVER holds |
 |---|---|---|---|
 | **Seed SDK** | `packages/signet-midnight` | Client-agnostic protocol: request/response structs, request-id hashing, secp256k1 ECDSA attestations, the `CompactType` descriptors and readers, `pureCircuits` (compiled `circuits.compact`) | Anything specific to one client contract |
-| **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to register a `SignBidirectionalNotification` in its registry. The MPC discovers requesters by polling ITS state | Application logic, per-client state |
+| **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to emit a `SignBidirectionalNotification` event. The MPC discovers requesters by polling ITS events | Application logic, per-client state |
 | **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit a request with contract-fixed calldata, verify the ECDSA response in-circuit. Seals the signet contract address and the MPC key at deploy | Reusable protocol code (that belongs in the seed). Business logic beyond what exercising the singleton needs |
 | **Driver** | `packages/integration-tests` | Orchestration a downstream app would do: build circuit args, submit calls via midnight-js, poll the signet contract, verify responses. The e2e drives the caller THROUGH these sequences | Rules a contract should enforce |
 
@@ -56,12 +56,12 @@ before touching any stage:
 
 1. **Request**: the client circuit (`submitSignatureRequest`) builds the
    contract-enforced calldata, inserts the request into its request index,
-   and cross-contract-calls the signet contract to register a
-   `SignBidirectionalNotification` in its registry. The e2e recomputes the
+   and cross-contract-calls the signet contract to emit a
+   `SignBidirectionalNotification` event. The e2e recomputes the
    request id off-chain (`calculateRequestId`) and asserts it landed on the
    ledger.
 2. **Discover + sign**: the MPC responder (external, `/e2e` starts it) polls
-   the **signet contract's** notification registry, resolves the request from
+   the **signet contract's** notification events, resolves the request from
    the requester's RAW ledger, signs the EVM tx, and posts a signature
    response to the signet contract.
 3. **Poll signed tx**: the e2e reconstructs a typed ethers `Transaction`

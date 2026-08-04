@@ -1,4 +1,4 @@
-// The signet contract has no witnesses: it stores posts without verifying
+// The signet contract has no witnesses: it emits posts without verifying
 // them, and there is no private state, since posting carries no caller
 // secrets.
 
