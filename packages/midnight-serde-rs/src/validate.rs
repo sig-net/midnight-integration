@@ -9,8 +9,8 @@ use crate::types::{Descriptor, MAX_UINT_BITS};
 use crate::u256::U256;
 
 /// Assert that a descriptor is structurally valid, recursively. Rejects
-/// out-of-range widths and bounds, zero or negative enum variant counts, and
-/// empty or duplicate struct field names.
+/// out-of-range widths and bounds, a zero enum variant count, and empty or
+/// duplicate struct field names.
 pub fn validate(descriptor: &Descriptor) -> Result<(), Error> {
     validate_at(descriptor, "type")
 }

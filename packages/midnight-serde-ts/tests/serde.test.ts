@@ -3,28 +3,8 @@
 // serialize<T, N> / deserialize<T, N> pair. The fixture contract, the shared
 // descriptor tables and the toBinaryRepr oracle live in the conformance
 // package (../midnight-serde-conformance): run `yarn compile` at the repo
-// root first, the tests import its generated bindings.
-//
-// Coverage per fixture struct:
-//   - twin encode === circuit serialize, byte for byte (boundary values incl.)
-//   - circuit deserialize accepts twin-encoded bytes and returns the values
-//   - twin decode of circuit-serialized bytes returns the original values
-//   - the deserialize-only shapes (VectorsDeep, Nested) prove the twin can
-//     encode layouts circuits can READ even where compactc cannot re-serialize
-//     them in-circuit (see the bug notes in serde-fixtures.compact)
-//   - circuit REJECTIONS are pinned too: out-of-range bounded uint, sized
-//     uint, enum and Field encodings throw in-circuit exactly where the twin
-//     throws
-//   - BOTH divergences from the circuit (padding, booleans) are pinned with
-//     bytes the CIRCUIT actually sees, and both opt-outs are pinned to match
-//     the circuit byte for byte
-//   - a second oracle: @midnight-ntwrk/compact-runtime's toBinaryRepr must
-//     agree with the twin on every shape, INCLUDING the shapes compactc
-//     cannot compile serialize for (the conformance oracle adapter computes
-//     its widths independently of the twin so width bugs cannot cancel out)
-//   - tests/corpus.test.ts replays the committed golden corpus through the
-//     twin, adding the seeded randomised coverage on top of the hand-picked
-//     shapes here
+// root first, the tests import its generated bindings. tests/corpus.test.ts
+// replays the committed golden corpus on top of the hand-picked shapes here.
 
 import vm from 'node:vm';
 import { describe, expect, expectTypeOf, it } from 'vitest';
@@ -424,9 +404,6 @@ describe('stdlib Maybe/Either serialize as plain structs, constructors zero-fill
 
 // ---- second oracle: compact-runtime's toBinaryRepr --------------------------
 
-// See tests/helpers.ts: the oracle's byte widths are computed independently
-// of the twin's width logic, so a width bug cannot cancel out of the
-// comparison.
 describe('toBinaryRepr (compact-runtime) agrees with the twin', () => {
   for (const [name, type, value] of SHAPES) {
     it(name, () => {
@@ -639,7 +616,7 @@ describe('twin rejections', () => {
       /unknown field 'c'/
     );
     // The dangerous shape: the typo'd key ALONGSIDE the correct ones would
-    // previously vanish silently.
+    // otherwise vanish silently.
     expect(() =>
       compactSerialize(INNER, { ...innerValue, oK: false } as never)
     ).toThrow(/unknown field 'oK'/);

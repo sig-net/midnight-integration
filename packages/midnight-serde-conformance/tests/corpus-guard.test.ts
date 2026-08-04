@@ -1,7 +1,7 @@
 // The anti-staleness guard: the committed corpus must equal a fresh
 // regeneration from the compiled circuits + oracle + twin, byte for byte.
 // Byte-comparing the WHOLE file (not record-by-record semantics) also pins
-// ordering and formatting, so the committed artifact is provably the
+// ordering and formatting, so the committed file is provably the
 // generator's output.
 
 import { existsSync, readFileSync } from 'node:fs';

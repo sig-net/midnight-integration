@@ -1,7 +1,7 @@
-//! A Rust-native seeded randomised sweep, independent of the corpus: fresh
-//! descriptor/value pairs (deliberately NOT a port of the conformance kit's
-//! mulberry32 generator: the corpus already carries those cases) driven
-//! through size, strict roundtrip and padding checks.
+//! A Rust-native seeded randomised sweep, independent of the corpus: a
+//! crate-local generator produces fresh descriptor/value pairs (the corpus
+//! already carries the conformance kit's cases) and drives them through
+//! size, strict roundtrip and padding checks.
 
 use signet_midnight_serde::{
     Descriptor, DeserializeOptions, FIELD_MODULUS, U256, Value, deserialize, serialize,
@@ -35,7 +35,7 @@ fn random_descriptor(rng: &mut Rng, depth: u32) -> Descriptor {
             bits: 1 + rng.below(248) as u32,
         },
         3 => {
-            // Bounds across the width range, biased small; always at least 1.
+            // Bounds across the width range, biased small and always at least 1.
             let bits = rng.below(64) as u32;
             Descriptor::UintBound {
                 bound: U256::from_u64(1 + rng.below(1u64 << bits.min(62))),

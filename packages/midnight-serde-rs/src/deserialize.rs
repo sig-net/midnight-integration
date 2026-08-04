@@ -17,12 +17,13 @@ use crate::types::{Descriptor, FIELD_MODULUS, MAX_ZERO_WIDTH_ELEMENTS, Value};
 use crate::u256::U256;
 use crate::validate::validate;
 
-/// Opt-outs from the strict defaults; both set mirrors the circuit exactly.
+/// Opt-outs from the strict defaults: with both set, decoding mirrors the
+/// circuit exactly.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DeserializeOptions {
     /// Skip the all-zero check on bytes after the packed value.
     pub ignore_padding: bool,
-    /// Decode boolean bytes above 0x01 as false instead of failing.
+    /// Decode boolean bytes above 0x01 as false, as the circuit does.
     pub lenient_booleans: bool,
 }
 

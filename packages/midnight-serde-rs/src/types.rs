@@ -46,17 +46,17 @@ pub enum Descriptor {
     Field,
     /// Compact `Bytes<length>`: raw bytes, copied verbatim.
     Bytes {
-        /// Byte length; 0 is legal.
+        /// Byte length (0 is legal).
         length: usize,
     },
     /// A Compact enum: the variant index packed like `Uint<0..variants>`.
     Enum {
-        /// Variant count, 1 or more; a single-variant enum is ZERO bytes.
+        /// Variant count, 1 or more. A single-variant enum is ZERO bytes.
         variants: u64,
     },
     /// Compact `Vector<length, element>`: elements back to back, no prefix.
     Vector {
-        /// Element count; 0 is legal.
+        /// Element count (0 is legal).
         length: usize,
         /// The element descriptor.
         element: Box<Descriptor>,
