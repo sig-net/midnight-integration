@@ -282,17 +282,19 @@ describe("submitSignatureRequest round-trip", () => {
     const [idHex, record] = [...typedIndex.entries()][0];
 
     // The cross-contract call's observable effect: the signet contract
-    // emitted the notification event, its payload naming THIS caller and the
-    // field-4 request map (decoded through the shared library's decoders,
-    // the same read the MPC's discovery feed performs).
+    // emitted the notification event, its payload declaring the stored
+    // request's id and naming THIS caller and the field-4 request map
+    // (decoded through the shared library's decoders, the same read the
+    // MPC's discovery feed performs).
     const notificationEvents = decodeSignetLogEvents(next.events, SIGNET_ADDRESS);
     expect(notificationEvents).toHaveLength(1);
     expect(notificationEvents[0].name).toBe(SignetEventName.SignBidirectionalEvent);
-    expect(
-      decodeSignBidirectionalNotification(
-        decodeSignBidirectionalEventNotificationPayload(notificationEvents[0].payload),
-      ),
-    ).toEqual({
+    const notificationPost = decodeSignBidirectionalEventNotificationPayload(
+      notificationEvents[0].payload,
+    );
+    // The declared id IS the stored map key: the MPC looks it up directly.
+    expect(requestIdHex(notificationPost.requestId)).toBe(idHex);
+    expect(decodeSignBidirectionalNotification(notificationPost.event)).toEqual({
       version: 1,
       callerAddress: bytesToHex(CALLER_ADDRESS_BYTES),
       requestsPath: [4],
@@ -429,13 +431,16 @@ describe("EVM target submit circuits round-trip", () => {
     // Map key = the request-id TS twin, same as the base circuit.
     expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
 
-    // The notification event names THIS circuit's request map position: the
-    // in-circuit path literal the MPC's discovery follows.
+    // The notification event declares the stored request's id and names
+    // THIS circuit's request map position: the in-circuit path literal the
+    // MPC's discovery follows.
     const [notificationEvent] = decodeSignetLogEvents(next.events, SIGNET_ADDRESS);
+    const notificationPost = decodeSignBidirectionalEventNotificationPayload(
+      notificationEvent.payload,
+    );
+    expect(requestIdHex(notificationPost.requestId)).toBe(idHex);
     expect(
-      decodeSignBidirectionalNotification(
-        decodeSignBidirectionalEventNotificationPayload(notificationEvent.payload),
-      ).requestsPath,
+      decodeSignBidirectionalNotification(notificationPost.event).requestsPath,
     ).toEqual(requestsPath);
   });
 

@@ -260,13 +260,14 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
       `${method.name} notification: emitted on the signet contract naming field ${method.requestsIndexField}`,
       async () => {
         expect(requestId).toBeDefined();
-        // The notification events carry no request id: this method's caller
-        // + map-field path is the match key.
+        // The notification declares the stored request's id: id + this
+        // method's caller + map-field path is the match key.
         const decoded = await pollSignetNotification({
           env,
           callerAddress: requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
           requestsPath: [method.requestsIndexField],
-          description: `naming the caller at path [${method.requestsIndexField}]`,
+          requestId,
+          description: `declaring request ${requestId} for the caller at path [${method.requestsIndexField}]`,
         });
         expect(decoded.version).toBe(1);
         expect(decoded.callerAddress).toBe(stripHexPrefix(requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS")).toLowerCase());

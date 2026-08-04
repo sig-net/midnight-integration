@@ -191,8 +191,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // a LIVE indexer, read exactly the way the MPC reads it: the signet
       // contract's Misc events through the shared event decoders. The
       // caller's submit cross-contract-called signBidirectional to emit
-      // this. The event carries no request id, so caller + path is the
-      // match key.
+      // this. The event declares the stored request's id, so id + caller +
+      // path is the match key.
       expect(signatureRequestId).toBeDefined();
       const callerAddress = requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS");
 
@@ -203,7 +203,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
         env,
         callerAddress,
         requestsPath: [4],
-        description: `naming caller ${callerAddress} at path [4]`,
+        requestId: signatureRequestId,
+        description: `declaring request ${signatureRequestId} for caller ${callerAddress} at path [4]`,
       });
       expect(decoded.version).toBe(1);
       expect(decoded.callerAddress).toBe(stripHexPrefix(callerAddress).toLowerCase());
@@ -213,6 +214,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
         "Golden SignBidirectionalEvent notification decoded from the live indexer:",
         "",
         `  version:            ${decoded.version}`,
+        `  declared requestId: ${signatureRequestId}`,
         `  callerAddress:      ${decoded.callerAddress}`,
         `  requestsPath:       ${JSON.stringify(decoded.requestsPath)}`,
       ]);

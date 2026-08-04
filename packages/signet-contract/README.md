@@ -4,7 +4,7 @@ The central [Sig Network](https://sig.network) signet contract on the [Midnight 
 
 - **Signature responses**: an unauthenticated event log. Each event carries the request id it answers as routing data. Callers read their request's posts by id and verify the signatures off-chain or in their own circuits: the verification is what separates a genuine post from garbage.
 - **Remote execution responses**: secp256k1 ECDSA attestations by the MPC's per-client response key, emitted unverified like the signature responses. The client contract verifies them in its own circuit.
-- **Request-notification events**: how the MPC discovers new signature requests (each event names the caller contract and the ledger path of its request map).
+- **Request-notification events**: how the MPC discovers new signature requests (each event declares the stored request's id and names the caller contract and the ledger path of its request map).
 
 ## What is in it
 

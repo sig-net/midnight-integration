@@ -96,7 +96,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
 
    Compile with the pinned toolchain (currently `compact update 0.33.0-rc.2`), and always pass `--feature-zkir-v3`. Compiled output without that flag is not compatible with the ledger-9 matched stack (node, indexer, proof server).
 
-2. Declare the required Sig Network protocol state in your ledger, plus the recommended deployer identity and initialisation state. The event map can sit at ANY ledger field. Each notification that your contract emits carries the map's resolved ledger-tree path (see [The request map's ledger-tree path](#the-request-maps-ledger-tree-path)), and the MPC reads the authenticated request from there.
+2. Declare the required Sig Network protocol state in your ledger, plus the recommended deployer identity and initialisation state. The event map can sit at ANY ledger field. Each notification that your contract emits declares the stored request's id and carries the map's resolved ledger-tree path (see [The request map's ledger-tree path](#the-request-maps-ledger-tree-path)), and the MPC looks the authenticated request up there by that id.
 
    ```compact
    // Required: Map of SignBidirectionalEvent signature requests, configured by transaction type.
@@ -371,7 +371,7 @@ What clients import from `@sig-net/midnight`:
 | Convert a foreign execution output into respond bytes | `deserializeEvmOutput` (raw EVM return data to named values) and `serializeRespondOutput` (named values to the packed respond payload the MPC attests): together they rebuild the `serializedOutput` of steps 4 and 5. |
 | Recognise a failed remote execution | `MPC_FAILURE_OUTPUT` and `isMpcFailureOutput`: the MPC's fixed 5-byte failure payload for reverted or replaced transactions. |
 | Verify attestations without the reader | `calculateSignetAttestationDigest` and `verifyRespondBidirectionalSignature`: the checks the reader runs internally, exposed for custom pipelines. |
-| Discover requests MPC-side (responders, background workers) | `SignetRequestFeed`: polls the signet contract's emitted notification events, enumerates each named caller's own request map (the authenticated read), and dedupes by request id. |
+| Discover requests MPC-side (responders, background workers) | `SignetRequestFeed`: polls the signet contract's emitted notification events, looks each declared request id up in the named caller's own request map (the authenticated read), and dedupes by request id. |
 | Call the compiled protocol circuits | `pureCircuits`: the compiled circuits of `Signet.compact`, for example the notification packer. Off-chain code calls these compiled artefacts, so it always agrees with what the contracts prove. |
 
 ## More examples

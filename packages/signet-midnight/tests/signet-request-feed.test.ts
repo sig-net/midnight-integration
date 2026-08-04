@@ -1,10 +1,10 @@
 // Feed tests over stub sources: the stub event source serves the signet
 // contract's emitted notification events (records packed by the REAL
 // compiled circuit, lockstep by construction) and the stub state source
-// serves the caller ledgers the feed enumerates. No network, no docker.
-// Covers discovery, caller-map enumeration, forged-notification drops,
-// dedupe, forget, unsupported-version skips, stable ordering, and the
-// optional policy allow-list.
+// serves the caller ledgers the feed reads. No network, no docker.
+// Covers discovery, the per-notified-request lookup, forged-notification
+// drops, not-yet-indexed retries, dedupe, forget, unsupported-version
+// skips, stable ordering, and the optional policy allow-list.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -110,13 +110,18 @@ const callerStateWith = (...requestIds: Uint8Array[]): StateValueType => {
 };
 
 /**
- * A notification event for `caller`'s field-0 request map, packed by the
- * REAL compiled circuit (the same packer client contracts call in-circuit),
- * so these fixtures pin the pack↔decode lockstep by construction. The event
- * carries no request id: the feed enumerates the pointed-at map.
+ * A notification event declaring `requestId` in `caller`'s field-0 request
+ * map, its record packed by the REAL compiled circuit (the same packer
+ * client contracts call in-circuit), so these fixtures pin the pack↔decode
+ * lockstep by construction. The feed looks the declared id up in the
+ * pointed-at map.
  */
-const notification = (caller: Uint8Array): SignetMiscEvent =>
+const notification = (
+  caller: Uint8Array,
+  requestId: Uint8Array,
+): SignetMiscEvent =>
   notificationEventOf(
+    requestId,
     pureCircuits.constructSignBidirectionalEventNotificationV1(
       { bytes: caller },
       1n,
@@ -127,7 +132,8 @@ const notification = (caller: Uint8Array): SignetMiscEvent =>
 /**
  * Stub sources: the event source serves the signet contract's notification
  * events, the state source serves the caller ledgers, like a real indexer
- * provider pair would.
+ * provider pair would. `callers` is read at query time, so a test can
+ * mutate it between polls to simulate a ledger write indexing late.
  */
 const stubSources = (
   events: SignetMiscEvent[],
@@ -165,10 +171,13 @@ async function collect<T>(
 }
 
 describe("SignetRequestFeed", () => {
-  it("yields every request in a notified caller's map, read from that caller's own ledger", async () => {
+  it("yields each notified request, read from the named caller's own ledger", async () => {
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
-      ...stubSources([notification(CALLER_A_BYTES), notification(CALLER_B_BYTES)]),
+      ...stubSources([
+        notification(CALLER_A_BYTES, REQUEST_A_ID),
+        notification(CALLER_B_BYTES, REQUEST_B_ID),
+      ]),
     });
     const resolved = await feed.poll();
     expect(resolved.map((r) => r.callerAddress)).toEqual([CALLER_A, CALLER_B]);
@@ -179,13 +188,32 @@ describe("SignetRequestFeed", () => {
     expect(resolved.map((r) => r.request)).toEqual([REQUEST, REQUEST]);
   });
 
-  it("processes callers in address order and one caller's requests in request-id order", async () => {
-    // Notify B before A, and give A two requests inserted high-id first: the
-    // stable ordering must still yield A's requests first, ascending.
+  it("does NOT yield a stored request that was never notified", async () => {
+    // A's map holds two requests, only REQUEST_A_ID is notified: the
+    // notification is the doorbell, so the un-notified member stays unseen.
+    const feed = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      ...stubSources([notification(CALLER_A_BYTES, REQUEST_A_ID)], {
+        [CALLER_A]: callerStateWith(REQUEST_A_ID, REQUEST_B_ID),
+      }),
+    });
+    const resolved = await feed.poll();
+    expect(resolved.map((r) => r.requestId)).toEqual([
+      requestIdHex(REQUEST_A_ID),
+    ]);
+  });
+
+  it("processes callers in address order and one caller's notified requests in request-id order", async () => {
+    // Notify B's request first, then A's two high-id-first: the stable
+    // ordering must still yield A's requests first, ascending.
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
       ...stubSources(
-        [notification(CALLER_B_BYTES), notification(CALLER_A_BYTES)],
+        [
+          notification(CALLER_B_BYTES, bytes(32, 0x99)),
+          notification(CALLER_A_BYTES, REQUEST_B_ID),
+          notification(CALLER_A_BYTES, REQUEST_A_ID),
+        ],
         {
           [CALLER_A]: callerStateWith(REQUEST_B_ID, REQUEST_A_ID),
           [CALLER_B]: callerStateWith(bytes(32, 0x99)),
@@ -202,28 +230,64 @@ describe("SignetRequestFeed", () => {
     ]);
   });
 
+  it("queries one caller's state at most once per poll cycle", async () => {
+    const sources = stubSources(
+      [
+        notification(CALLER_A_BYTES, REQUEST_A_ID),
+        notification(CALLER_A_BYTES, REQUEST_B_ID),
+      ],
+      { [CALLER_A]: callerStateWith(REQUEST_A_ID, REQUEST_B_ID) },
+    );
+    const feed = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      ...sources,
+    });
+    expect(await feed.poll()).toHaveLength(2);
+    expect(sources.source.queryContractState).toHaveBeenCalledTimes(1);
+  });
+
   it("drops a notification whose caller holds no state, WITHOUT marking anything yielded", async () => {
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
       ...stubSources([
-        notification(FORGED_CALLER_BYTES),
-        notification(CALLER_A_BYTES),
+        notification(FORGED_CALLER_BYTES, REQUEST_B_ID),
+        notification(CALLER_A_BYTES, REQUEST_A_ID),
       ]),
     });
     const resolved = await feed.poll();
     expect(resolved).toHaveLength(1);
     expect(resolved[0].callerAddress).toBe(CALLER_A);
     // Nothing was marked for the stateless caller: were its state to appear
-    // later, its requests would still be served (forget() not required).
+    // later, its request would still be served (forget() not required).
     const retry = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
-      ...stubSources([notification(CALLER_B_BYTES)]),
+      ...stubSources([notification(CALLER_B_BYTES, REQUEST_B_ID)]),
     });
     expect(await retry.poll()).toHaveLength(1);
   });
 
+  it("retries a notified id the map does not hold yet, WITHOUT marking it", async () => {
+    // The notification indexed before the caller's ledger write: the first
+    // poll finds the map without the id and yields nothing, the next poll
+    // (write now indexed) serves it.
+    const callers: Record<string, StateValueType> = {
+      [CALLER_A]: callerStateWith(),
+    };
+    const feed = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      ...stubSources([notification(CALLER_A_BYTES, REQUEST_A_ID)], callers),
+    });
+    expect(await feed.poll()).toHaveLength(0);
+    callers[CALLER_A] = callerStateWith(REQUEST_A_ID);
+    const resolved = await feed.poll();
+    expect(resolved.map((r) => r.requestId)).toEqual([
+      requestIdHex(REQUEST_A_ID),
+    ]);
+  });
+
   it("yields nothing for a notification pointing at a non-map field", async () => {
     const wrongPath = notificationEventOf(
+      REQUEST_A_ID,
       pureCircuits.constructSignBidirectionalEventNotificationV1(
         { bytes: CALLER_A_BYTES },
         1n,
@@ -238,12 +302,12 @@ describe("SignetRequestFeed", () => {
   });
 
   it("skips an unsupported-version event without dropping the others", async () => {
-    const v1 = notification(CALLER_A_BYTES);
+    const v1 = notification(CALLER_A_BYTES, REQUEST_A_ID);
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
       ...stubSources([
         { ...v1, payload: Uint8Array.from([2, ...v1.payload.slice(1)]) },
-        notification(CALLER_B_BYTES),
+        notification(CALLER_B_BYTES, REQUEST_B_ID),
       ]),
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -259,7 +323,7 @@ describe("SignetRequestFeed", () => {
   });
 
   it("ignores events under other signet names", async () => {
-    const v1 = notification(CALLER_A_BYTES);
+    const v1 = notification(CALLER_A_BYTES, REQUEST_A_ID);
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
       ...stubSources([{ ...v1, name: "SignatureRespondedEvent" }]),
@@ -270,7 +334,7 @@ describe("SignetRequestFeed", () => {
   it("dedupes a repeated request id across polls", async () => {
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
-      ...stubSources([notification(CALLER_A_BYTES)]),
+      ...stubSources([notification(CALLER_A_BYTES, REQUEST_A_ID)]),
     });
     expect(await feed.poll()).toHaveLength(1);
     expect(await feed.poll()).toHaveLength(0); // already yielded
@@ -279,17 +343,37 @@ describe("SignetRequestFeed", () => {
   it("re-yields a forgotten requestId (downstream-failure retry)", async () => {
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
-      ...stubSources([notification(CALLER_A_BYTES)]),
+      ...stubSources([notification(CALLER_A_BYTES, REQUEST_A_ID)]),
     });
     expect(await feed.poll()).toHaveLength(1);
     feed.forget(requestIdHex(REQUEST_A_ID));
     expect(await feed.poll()).toHaveLength(1);
   });
 
+  it("serves the genuine pointer beside a forged one declaring the same id", async () => {
+    // A forged notification re-points REQUEST_A_ID at a stateless caller.
+    // Pointers dedupe by the full (caller, path, id) triple, so the forgery
+    // cannot shadow the genuine notification, whichever indexed first.
+    const feed = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      ...stubSources([
+        notification(FORGED_CALLER_BYTES, REQUEST_A_ID),
+        notification(CALLER_A_BYTES, REQUEST_A_ID),
+      ]),
+    });
+    const resolved = await feed.poll();
+    expect(
+      resolved.map((r) => [r.callerAddress, r.requestId]),
+    ).toEqual([[CALLER_A, requestIdHex(REQUEST_A_ID)]]);
+  });
+
   it("applies the allow-list when set (0x/case-insensitive)", async () => {
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
-      ...stubSources([notification(CALLER_A_BYTES), notification(CALLER_B_BYTES)]),
+      ...stubSources([
+        notification(CALLER_A_BYTES, REQUEST_A_ID),
+        notification(CALLER_B_BYTES, REQUEST_B_ID),
+      ]),
       allowContracts: [`0x${CALLER_B.toUpperCase()}`],
     });
     const resolved = await feed.poll();
@@ -299,7 +383,10 @@ describe("SignetRequestFeed", () => {
   it("passes all callers when the allow-list is unset", async () => {
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
-      ...stubSources([notification(CALLER_A_BYTES), notification(CALLER_B_BYTES)]),
+      ...stubSources([
+        notification(CALLER_A_BYTES, REQUEST_A_ID),
+        notification(CALLER_B_BYTES, REQUEST_B_ID),
+      ]),
     });
     expect(await feed.poll()).toHaveLength(2);
   });
@@ -320,7 +407,10 @@ describe("SignetRequestFeed", () => {
   it("requests() streams resolved requests then can be stopped", async () => {
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
-      ...stubSources([notification(CALLER_A_BYTES), notification(CALLER_B_BYTES)]),
+      ...stubSources([
+        notification(CALLER_A_BYTES, REQUEST_A_ID),
+        notification(CALLER_B_BYTES, REQUEST_B_ID),
+      ]),
       pollIntervalMs: 1,
     });
     const resolved = await collect(feed.requests(), 2);

@@ -199,58 +199,12 @@ export function readSignetRequestsLedgerFromState(
 }
 
 /**
- * Enumerate a contract's WHOLE request index at an arbitrary ledger path:
- * the discovery primitive of the event-based feed. A notification event
- * names only the requester contract and the path of its request map, so the
- * MPC enumerates that map and serves what it has not served before: every
- * record here was read from the caller's own authenticated ledger.
- *
- * Fail-closed like {@link lookupSignetRequestAt}: a path out of range, a
- * non-Map node, or an undecodable cell yields an EMPTY (or smaller) index
- * rather than a throw, so a malformed or adversarial notification can never
- * crash the reader.
- *
- * @param raw - Raw contract state, e.g. `queryContractState(address).data`.
- * @param requestsPath - Resolved ledger-tree path of the request index in
- *   `raw`, as the notification carries it.
- * @returns The decoded index, keyed by hex request id, empty when the path
- *   holds no readable request map.
- */
-export function readSignetRequestIndexAt(
-  raw: RawContractState,
-  requestsPath: readonly number[],
-): SignBidirectionalEventIndex {
-  const index: SignBidirectionalEventIndex = new Map();
-  let node;
-  try {
-    node = signetFieldNodeByPath(raw, requestsPath);
-  } catch {
-    return index; // path out of range for this contract
-  }
-  const map = node.asMap();
-  if (map === undefined) {
-    return index; // the named field is not a request index
-  }
-  for (const key of map.keys()) {
-    // fromValue consumes its input, so hand each descriptor a copy.
-    const requestId = requestIdHex(requestIdType.fromValue([...key.value]));
-    const cell = map.get(key)?.asCell();
-    if (cell === undefined) continue;
-    try {
-      index.set(requestId, decodeSignBidirectionalEvent(cell.value, requestId));
-    } catch {
-      continue; // a cell that is not a decodable request record
-    }
-  }
-  return index;
-}
-
-/**
  * Look up ONE request by id in a contract's request index at an arbitrary
  * ledger field, the single-record sibling of
- * {@link readSignetRequestsLedgerFromState}, and what a point verification
- * uses: a notification names both the requester contract AND which field
- * holds its index.
+ * {@link readSignetRequestsLedgerFromState}: the discovery primitive of the
+ * event-based feed and what a point verification uses. A notification
+ * declares the stored request's id and names both the requester contract
+ * AND which field holds its index.
  *
  * `undefined` means the id is NOT a member of the index at `requestsPath`
  * (the pointer is forged, stale, points at the wrong field, or the request is

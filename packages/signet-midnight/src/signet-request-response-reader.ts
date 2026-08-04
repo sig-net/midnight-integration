@@ -22,7 +22,7 @@ import {
   decodeSignatureRespondedEventPayload,
   SignetEventName,
   type SignetEventSource,
-  type SignetRespondPost,
+  type SignetEventPost,
   type SignatureRespondedEvent,
   type RespondBidirectionalEvent,
 } from "./signet-contract-events.ts";
@@ -187,7 +187,7 @@ export class SignetRequestResponseReader {
    */
   private async getRespondPostsNamed<TRecord>(
     name: SignetEventName,
-    decode: (payload: Uint8Array) => SignetRespondPost<TRecord>,
+    decode: (payload: Uint8Array) => SignetEventPost<TRecord>,
     requestId: RequestIdHex,
   ): Promise<TRecord[]> {
     const events = await this.config.eventSource.querySignetEvents(

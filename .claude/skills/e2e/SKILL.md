@@ -102,7 +102,23 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 - `FAKENET_MANAGED=0` = you run the responder yourself (responder
   development: `yarn response` in a solana-signet-program checkout with the
   current signet address in its `.env`). The setup then leaves the container
-  AND `.env` alone.
+  AND `.env` alone. When THIS repo's `@sig-net/midnight` /
+  `@sig-net/midnight-contract` changes are unpublished (a decoder or event
+  layout the image's npm copies do not know), this is the required mode:
+  register classic-yarn links at `~/.config/yarn/link/@sig-net/{midnight →
+  packages/signet-midnight, midnight-contract → packages/signet-contract}`
+  pointing into this repo, run `yarn link @sig-net/midnight` and
+  `yarn link @sig-net/midnight-contract` in the responder checkout, rotate
+  its `fakenet-signer/midnight-level-db` aside, set its `.env`
+  `MPC_ROOT_KEY` / `MIDNIGHT_WALLET_SEED` (the funded `MPC_RESPONDER_SEED`)
+  / `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` from this repo's values, and start it
+  AFTER the signet deploy prints the fresh address. Linking also gives
+  prover/verifier parity for free: the responder proves with the same
+  `src/managed` keys the deploy used. Gotcha: classic yarn's link step can
+  leave EMPTY directories (e.g. `ethers/`) in the linked package's own
+  `node_modules`, which break node ESM resolution with "Cannot find package
+  … ethers/index.js": delete the empty dirs. Only one responder may run:
+  the `/responses` helper API binds :3040.
 - Prover/verifier parity: the image proves its posts with the signet zk keys
   from the published `@sig-net/midnight-contract` npm package. That is
   correct as long as the deployed signet contract came from the same
