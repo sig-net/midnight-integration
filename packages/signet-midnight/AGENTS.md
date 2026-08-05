@@ -13,6 +13,6 @@ here too. Member-specific rules:
   it must serve any Midnight×sig-net client contract, not one application.
   Client-specific glue belongs in that client's contract package (in this
   repo: test-caller-contract) or its integration tests.
-- **Responses are polled from the signet contract** via
-  `signet-request-response-reader.ts` / `signet-contract-state-reader.ts`. The old websocket subscription is
-  purged repo-wide: do not reintroduce it here of all places.
+- **Responses are polled from the signet contract's emitted events** via
+  `signet-request-response-reader.ts` / `signet-contract-events.ts`. NEVER use
+  a websocket subscription for responses, here of all places.

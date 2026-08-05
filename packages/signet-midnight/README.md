@@ -96,7 +96,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
 
    Compile with the pinned toolchain (currently `compact update 0.33.0-rc.2`), and always pass `--feature-zkir-v3`. Compiled output without that flag is not compatible with the ledger-9 matched stack (node, indexer, proof server).
 
-2. Declare the required Sig Network protocol state in your ledger, plus the recommended deployer identity and initialisation state. The event map can sit at ANY ledger field: each notification your contract registers carries the map's resolved ledger-tree path (see [The request map's ledger-tree path](#the-request-maps-ledger-tree-path)), and the MPC reads the authenticated request from there.
+2. Declare the required Sig Network protocol state in your ledger, plus the recommended deployer identity and initialisation state. The event map can sit at ANY ledger field. Each notification that your contract emits declares the stored request's id and carries the map's resolved ledger-tree path (see [The request map's ledger-tree path](#the-request-maps-ledger-tree-path)), and the MPC looks the authenticated request up there by that id.
 
    ```compact
    // Required: Map of SignBidirectionalEvent signature requests, configured by transaction type.
@@ -180,7 +180,17 @@ The off-chain steps share two values. The first is one `SignetRequestResponseRea
 
 ```ts
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
-import { deriveEvmAddress, SignetRequestResponseReader } from "@sig-net/midnight";
+import {
+   deriveEvmAddress,
+   signetEventSourceFromPublicDataProvider,
+   SignetRequestResponseReader,
+} from "@sig-net/midnight";
+
+// Provider to index Midnight Blockchain
+const publicDataProvider = indexerPublicDataProvider({
+   queryURL: indexerUrl,
+   subscriptionURL: indexerWsUrl
+});
 
 // SignetRequestResponseReader to poll for Signed Transactions and Signed RespondBidirectionalEvents
 const reader = new SignetRequestResponseReader({
@@ -195,11 +205,12 @@ const reader = new SignetRequestResponseReader({
    // Address of the Signet singleton contract
    signetContractAddress,
 
-   // Provider to index Midnight Blockchain
-   publicDataProvider: indexerPublicDataProvider({
-      queryURL: indexerUrl,
-      subscriptionURL: indexerWsUrl
-   }),
+   // Raw contract state reads (your contract's request map)
+   publicDataProvider,
+
+   // The MPC's responses are read from the contract events the Signet
+   // singleton emits, through the same provider
+   eventSource: signetEventSourceFromPublicDataProvider(publicDataProvider),
 });
 
 const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my-path");
@@ -237,7 +248,7 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
 
    **NOTE:** Return `requestId` from this circuit call so the client can use it in the next steps. You can also compute it off-chain with the `calculateRequestId` TS twin.
 
-2. Poll the Signet singleton for the MPC's signature response. The response log is unauthenticated (anyone can post), so use the verifying getter. It only returns a post whose signature recovers to `expectedSigner` over the requested transaction's signing hash:
+2. Poll the Signet singleton for the MPC's signature response. The singleton emits each response as a contract event that carries the request id it answers beside the signature. The id is unauthenticated routing data: it scopes the read to your request's posts and proves nothing. The event log is unauthenticated (anyone can post under any id), so use the verifying getter. It only returns a post whose signature recovers to `expectedSigner` over the signing hash of the requested transaction:
 
    ```ts
    const { verified } = await reader.getVerifiedSignatureRespondedEvent(requestId, expectedSigner);
@@ -253,7 +264,7 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
    await new JsonRpcProvider(foreignChainRpcUrl).broadcastTransaction(signedTx.serialized);
    ```
 
-4. Poll the Signet singleton for the MPC's attestation of the remote execution output. The MPC posts it once it observes the transaction execute on the foreign chain. The event carries the MPC's signature alone: both the attestation digest and the serialised output travel off chain (you broadcast the transaction in step 3, so you can read its result). The log is unauthenticated, so use the verifying getter, as in step 2. It recomputes the digest over the output you present, and only returns a post whose signature verifies against your contract's response key.
+4. Poll the Signet singleton for the MPC's attestation of the remote execution output. The MPC posts it once it observes the transaction execute on the foreign chain, and the singleton emits it as a contract event that carries the request id beside the MPC's signature. Both the attestation digest and the serialised output travel off chain (you broadcast the transaction in step 3, so you can read its result). The event log is unauthenticated, so use the verifying getter, as in step 2. It reads your request's posts by id, recomputes the digest over the output that you present, and only returns a post whose signature verifies against the response key of your contract.
 
    ```ts
    const respondBidirectionalEvent = await reader.getVerifiedRespondBidirectionalEvent(
@@ -364,7 +375,7 @@ What clients import from `@sig-net/midnight`:
 | Convert a foreign execution output into respond bytes | `deserializeEvmOutput` (raw EVM return data to named values) and `serializeRespondOutput` (named values to the packed respond payload the MPC attests): together they rebuild the `serializedOutput` of steps 4 and 5. |
 | Recognise a failed remote execution | `MPC_FAILURE_OUTPUT` and `isMpcFailureOutput`: the MPC's fixed 5-byte failure payload for reverted or replaced transactions. |
 | Verify attestations without the reader | `calculateSignetAttestationDigest` and `verifyRespondBidirectionalSignature`: the checks the reader runs internally, exposed for custom pipelines. |
-| Discover and authenticate requests MPC-side (responders, background workers) | `SignetRequestFeed` (polls the signet contract's notification registry, dedupes by request id) and `SignetRequestResolver` (authenticates each notification against the caller contract's ledger). |
+| Discover requests MPC-side (responders, background workers) | `SignetRequestFeed`: polls the signet contract's emitted notification events, looks each declared request id up in the named caller's own request map (the authenticated read), and dedupes by request id. |
 | Call the compiled protocol circuits | `pureCircuits`: the compiled circuits of `Signet.compact`, for example the notification packer. Off-chain code calls these compiled artefacts, so it always agrees with what the contracts prove. |
 
 ## More examples

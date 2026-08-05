@@ -1,6 +1,6 @@
-// Client-side verification of MPC signature responses. Posting to the
-// signet contract's signature response log is UNAUTHENTICATED (see "Signet
-// Layout" in Signet.compact), so a poller must verify every posted response
+// Client-side verification of MPC signature responses. The signet contract
+// emits signature responses UNAUTHENTICATED (see the module header in
+// Signet.compact), so a poller must verify every posted response
 // before trusting it: rebuild the unsigned EVM transaction from the on-ledger
 // request record, assembled exactly as the MPC assembles it (sig-net/mpc
 // response server, managed/erc20-vault/signet/calldata-builder.ts), and
@@ -14,7 +14,7 @@ import {
   signatureRespondedEventToSignature,
 } from "./signet-evtype2tx-requests.ts";
 import type { SignBidirectionalEvent } from "./signet-requests.ts";
-import type { SignatureRespondedEvent } from "./signet-contract-state-reader.ts";
+import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 
 /**
  * Recover the EVM address that produced a response signature, over the

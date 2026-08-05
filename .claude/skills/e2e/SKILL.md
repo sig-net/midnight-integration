@@ -92,24 +92,51 @@ contract it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to
 `.env` (docker compose interpolates the `fakenet` service's environment from
 that file) and runs
 `docker compose --profile fakenet up -d [--force-recreate] fakenet`
-(`ghcr.io/sig-net/fakenet:0.9.0`, built from
+(`ghcr.io/sig-net/fakenet:0.13.0`, built from
 sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 
 - Healthy startup (`docker logs -f fakenet-responder`) prints
   `MidnightMonitor: polling signet contract registry at <signet address>`.
-  The responder DISCOVERS requester contracts through that registry, no
-  caller address needed.
+  The responder DISCOVERS requester contracts through the signet contract,
+  no caller address needed.
 - `FAKENET_MANAGED=0` = you run the responder yourself (responder
   development: `yarn response` in a solana-signet-program checkout with the
   current signet address in its `.env`). The setup then leaves the container
-  AND `.env` alone.
-- Prover/verifier parity: the image proves its posts with the signet zk keys
-  from the published `@sig-net/midnight-contract` npm package. That is
-  correct as long as the deployed signet contract came from the same
-  published sources. If you changed `packages/signet-contract` and deployed
-  it, every post fails verification: publish + re-release the image, or
-  (local iteration) bind-mount `./packages/signet-contract/src/managed`
-  over the container's key directory.
+  AND `.env` alone. When THIS repo's `@sig-net/midnight` /
+  `@sig-net/midnight-contract` changes are unpublished (a decoder or event
+  layout the image's npm copies do not know), this is the required mode:
+  register classic-yarn links at `~/.config/yarn/link/@sig-net/{midnight →
+  packages/signet-midnight, midnight-contract → packages/signet-contract}`
+  pointing into this repo, run `yarn link @sig-net/midnight` and
+  `yarn link @sig-net/midnight-contract` in the responder checkout, rotate
+  its `fakenet-signer/midnight-level-db` aside, set its `.env`
+  `MPC_ROOT_KEY` / `MIDNIGHT_WALLET_SEED` (the funded `MPC_RESPONDER_SEED`)
+  / `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` from this repo's values, and start it
+  AFTER the signet deploy prints the fresh address. Linking also gives
+  prover/verifier parity for free: the responder proves with the same
+  `src/managed` keys the deploy used. Gotcha: classic yarn's link step can
+  leave EMPTY directories (e.g. `ethers/`) in the linked package's own
+  `node_modules`, which break node ESM resolution with "Cannot find package
+  … ethers/index.js": delete the empty dirs. Only one responder may run:
+  the `/responses` helper API binds :3040.
+- Prover/verifier parity: the image carries the signet zk keys from the
+  published `@sig-net/midnight-contract` npm package, and it joins the
+  deployed contract through midnight-js `findDeployedContract`, which
+  compares the verifier key of EVERY operation, not only the `respond` it
+  calls. Any edit that changes a circuit changes that circuit's verifier key,
+  so touching `signBidirectional` alone locks the responder out. The join
+  throws `ContractTypeError: Following operations: … are undefined or have
+  mismatched verifier keys`, no post ever happens, and the poll test times
+  out with nothing in the test output to explain it. `packages/signet-contract`
+  must therefore compile to the same artifacts as the published release the
+  pinned image bundles. Check that without a zk build:
+  `npm pack @sig-net/midnight-contract@<version>`, then diff its
+  `dist/managed/zkir/*.zkir` against `src/managed/zkir/*.zkir` from a plain
+  `yarn compile:signet-contract`. Keygen is deterministic, so identical zkir
+  means identical keys. To land a real contract change: release the packages,
+  rebuild and re-release the image on them, then bump the pin here. For local
+  iteration, bind-mount `./packages/signet-contract/src/managed` over the
+  container's key directory instead.
 - The image tag is pinned in `docker-compose.yaml` (part of the matched
   set). On a `fakenet-v*` release, bump the tag there and
   `docker compose pull fakenet`.
@@ -123,8 +150,10 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   with `CALLER_REQUEST_ID=<id>` to skip the heavy submit prove. If the OOM
   killed the prove itself there is nothing to resume: rerun plain.
 - **The signature-poll test times out** while setup and the submit passed:
-  the responder is down or watching a stale signet address. Check with
-  `docker ps -a`, `docker logs fakenet-responder`. A responder killed
+  the responder is down, watching a stale signet address, or refusing to join
+  the contract on a verifier-key mismatch (see prover/verifier parity above).
+  The test output distinguishes none of these. Check with `docker ps -a`,
+  `docker logs fakenet-responder`. A responder killed
   mid-post (e.g. by a proof-server restart: it proves its posts through
   the same server) does not retry, but a plain
   `docker compose --profile fakenet restart fakenet` re-discovers

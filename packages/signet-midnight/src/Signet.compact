@@ -6,9 +6,10 @@
 //  Terms:
 //    - client contract(s): contracts on the Midnight blockchain that integrate with the Signet Distributed MPC
 //                       to execute arbitrary transactions on foreign blockchains.
-//    - Signet singleton: a single contract on the Midnight blockchain holding the Signet registry for transaction
-//                        signature requests and responses, as well as signed attestations of transactions executed
-//                        on foreign blockchains (the execution outputs themselves travel off chain).
+//    - Signet singleton: a single contract on the Midnight blockchain through which clients notify the MPC of
+//                        signature requests, and through which the MPC posts back signatures and signed attestations
+//                        of foreign executions. Each post is emitted as a contract event (the execution
+//                        outputs themselves travel off chain).
 //
 //  Usage:
 //   // Import this module at the start of a contract (resolved through node_modules via COMPACT_PATH):
@@ -28,28 +29,34 @@
 //  - SignBidirectionalEventNotification: Notification delivered by client contracts via cross contract call to Signet singleton
 //                                        (via SignetSigner interface) to notify the MPC of a SignBidirectionalEvent.
 //  - SignatureRespondedEvent: Counterpart to SignBidirectionalEvent containing MPC generated signature requested by a SignBidirectionalEvent.
-//                             Posted by MPC back to Signet singleton for clients to extract to build a signed transaction.
+//                             Posted by the MPC through the Signet singleton, which emits it as a contract
+//                             event. Clients extract it to build a signed transaction.
 //  - RespondBidirectionalEvent: Attestation of a transaction executed on a foreign blockchain: the MPC's ECDSA
 //                               signature over the attestation digest of the request id and serialised output
 //                               (see calculateSignetAttestationDigest), signed with the MPC's RESPONSE key for
 //                               the requesting contract: the key derived from the client contract's address +
 //                               the fixed path "midnight response key". Both the digest and the output itself
-//                               travel off chain. Posted by MPC back to Signet singleton for clients to extract,
-//                               verify (see verifyRespondBidirectionalEvent) and deliver back to the client
-//                               contract.
+//                               travel off chain. Posted by the MPC through the Signet singleton, which
+//                               emits it as a contract event. Clients extract it, verify it (see
+//                               verifyRespondBidirectionalEvent) and deliver it back to the client contract.
 //
 // These key types are best understood within the sign bidirectional flow that they enable:
-// 1. Client contract stores a SignBidirectionalEvent in a SignBidirectionalEventMap its own ledger
-//    (against the calculated RequestId) and requests a signature from the MPC by registering a
-//    SignBidirectionalEventNotification in the Signet singleton contract's registry
-//    (via cross contract call against the SignetSigner interface).
-// 2. MPC polls the Signet singleton contract's registry for the SignBidirectionalEventNotification,
-//    using it to read the SignBidirectionalEvent signature request from the client's ledger. It generates the
-//    signature and and posts a SignatureRespondedEvent (the requested signature) to the Signet singleton contract.
-// 3. Client polls the Signet singleton contract SignatureRespondedEventMap for the signature by RequestId,
-//    verifies the posted SignatureRespondedEvent and broadcasts txn to destination chain.
-// 4. MPC observes txn execution on destination chain, posts a RespondBidirectionalEvent
-//    attestation to the central Signet contract, and the client polls it by RequestId.
+// 1. Client contract stores a SignBidirectionalEvent in a SignBidirectionalEventMap in its own ledger
+//    (against the calculated RequestId) and requests a signature from the MPC via a cross contract call
+//    against the SignetSigner interface. The Signet singleton emits the
+//    SignBidirectionalEventNotification as a contract event, the RequestId disclosed beside it.
+// 2. MPC polls the Signet singleton contract's events for SignBidirectionalEventNotifications and uses
+//    each one to look the declared SignBidirectionalEvent signature request up in the named client's own ledger.
+//    It generates the signature and posts a SignatureRespondedEvent (the requested signature) through
+//    the Signet singleton, which emits it as a contract event.
+// 3. Client polls the Signet singleton contract's SignatureRespondedEvent events. Each event carries
+//    the request id it answers beside the signature. The id is unauthenticated routing data: the client
+//    reads its own request's posts by id, verifies each candidate, and takes the first one whose
+//    signature recovers to its derived key. Then it broadcasts the signed txn to the destination chain.
+// 4. MPC observes txn execution on destination chain and posts a RespondBidirectionalEvent attestation
+//    through the central Signet contract, which emits it as a contract event beside the request id.
+//    The client polls its request's posts and takes the first one that verifies over the request id
+//    and output.
 //    The client recovers the execution output itself off chain (for EVM: the mined
 //    call's return data via debug_traceTransaction, also served by the fakenet
 //    responder's /responses/{requestId} helper API) and hands output plus attestation
@@ -204,11 +211,13 @@ module Signet {
     // Called by client contracts to notify the MPC of a SignBidirectionalEvent.
     circuit signBidirectional(
       // Canonical id of the SignBidirectionalEvent (calculate with calculateRequestId).
+      // Disclosed in the emitted notification event: the MPC looks this id up in the
+      // caller's own request map.
       requestId: RequestId,
       // Versioned notification of the SignBidirectionalEvent
       // (construct with constructSignBidirectionalEventNotificationV1).
       notification: SignBidirectionalEventNotification
-    ): SignetMapKey;
+    ): [];
   }
 
   // Notification delivered by client contracts via cross contract call to Signet singleton
@@ -326,18 +335,11 @@ module Signet {
   // the attestation digest and verifies the signature in-circuit via
   // verifyRespondBidirectionalEvent against its derived MPC response key. The signature
   // is the ONLY thing that distinguishes a genuine post from garbage: the Signet
-  // singleton is an unauthenticated log and stores every post unverified.
+  // singleton is an unauthenticated log and emits every post unverified.
   export struct RespondBidirectionalEvent {
     // The MPC's ECDSA signature over the attestation digest.
     signature: Signature;
   }
-
-  // SignetMapKey used to locate SignBidirectionalEventNotifications, SignatureRespondedEvent and
-  // RespondBidirectionalEvents in Signet singleton contract storage.
-  export struct SignetMapKey {
-    count: Uint<64>;
-    requestId: RequestId;
-  };
 
   // Calculates the 32-byte attestation digest for a remote execution output:
   //    attestationDigest = keccak256(requestId + serializedOutput)
@@ -378,7 +380,7 @@ module Signet {
   // signatures, and one that is not simply fails to verify.
   //
   // Note: Client contracts must run this check before consuming outputs, as the Signet
-  // singleton stores responses unverified.
+  // singleton emits responses unverified.
   export pure circuit verifyRespondBidirectionalEvent<#serializedOutputLength>(
     requestId: RequestId,
     serializedOutput: Bytes<serializedOutputLength>,

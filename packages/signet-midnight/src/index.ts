@@ -1,16 +1,15 @@
 // Midnight-side sig-net integration: the client-agnostic signet protocol
-// library (wire structs, state readers, request feed/resolver, crypto) plus
-// the compiled pure circuits of the shared Compact module.
+// library (wire structs, state readers, event decoders, request feed,
+// crypto) plus the compiled pure circuits of the shared Compact module.
 
 export * from "./abi-serde.ts";
 export * from "./signet-requests.ts";
 export * from "./signet-evtype2tx-requests.ts";
 export * from "./signature-state-reading.ts";
 export * from "./signature-requests-state-reader.ts";
-export * from "./signet-contract-state-reader.ts";
+export * from "./signet-contract-events.ts";
 export * from "./signature-response-verification.ts";
 export * from "./signet-request-response-reader.ts";
-export * from "./signet-request-resolver.ts";
 export * from "./signet-request-feed.ts";
 export * from "./constants.ts";
 export * from "./epsilon-derivation.ts";

@@ -12,9 +12,14 @@ import {
 import {
   MPCDestination,
   MPCSignatureAlgorithm,
+  SignetEventName,
   TxParamType,
   asciiPadded,
+  bytesToHex,
   calculateRequestId,
+  decodeSignBidirectionalEventNotificationPayload,
+  decodeSignBidirectionalNotification,
+  decodeSignetLogEvents,
   ecdsaSignatureToMpcSignature,
   readSignetRequestsLedgerFromState,
   requestIdBytes,
@@ -252,7 +257,7 @@ describe("submitSignatureRequest round-trip", () => {
   it("stores a fully contract-composed request readable identically via ledger(), the shared parser, and the RAW reader", async () => {
     const { contract, ctx } = await deployContract();
 
-    const { result, context: next } = await contract.circuits.submitSignatureRequest(
+    const { context: next } = await contract.circuits.submitSignatureRequest(
       ctx,
       EVM_NONCE,
       KEY_VERSION,
@@ -276,9 +281,24 @@ describe("submitSignatureRequest round-trip", () => {
 
     const [idHex, record] = [...typedIndex.entries()][0];
 
-    // The cross-contract call's return value: the notification landed under
-    // (requestId, 0) in the signet contract's registry.
-    expect(result).toEqual({ count: 0n, requestId: requestIdBytes(idHex) });
+    // The cross-contract call's observable effect: the signet contract
+    // emitted the notification event, its payload declaring the stored
+    // request's id and naming THIS caller and the field-4 request map
+    // (decoded through the shared library's decoders, the same read the
+    // MPC's discovery feed performs).
+    const notificationEvents = decodeSignetLogEvents(next.events, SIGNET_ADDRESS);
+    expect(notificationEvents).toHaveLength(1);
+    expect(notificationEvents[0].name).toBe(SignetEventName.SignBidirectionalEvent);
+    const notificationPost = decodeSignBidirectionalEventNotificationPayload(
+      notificationEvents[0].payload,
+    );
+    // The declared id IS the stored map key: the MPC looks it up directly.
+    expect(requestIdHex(notificationPost.requestId)).toBe(idHex);
+    expect(decodeSignBidirectionalNotification(notificationPost.event)).toEqual({
+      version: 1,
+      callerAddress: bytesToHex(CALLER_ADDRESS_BYTES),
+      requestsPath: [4],
+    });
 
     // The contract-composed envelope: the fixed placeholder recipient on the
     // fixed dev chain, no ETH value, the contract-fixed gas envelope, the
@@ -360,6 +380,7 @@ describe("EVM target submit circuits round-trip", () => {
       selector: SELECTOR_IS_EVEN,
       schema: EXPECTED_SCHEMA,
       map: "signBidirectionalEventMap" as const,
+      requestsPath: [4],
     },
     {
       name: "submitCheckAndDoubleRequest",
@@ -367,10 +388,11 @@ describe("EVM target submit circuits round-trip", () => {
       selector: SELECTOR_CHECK_AND_DOUBLE,
       schema: EXPECTED_SCHEMA_BOOL_UINT,
       map: "signBidirectionalEventMap69" as const,
+      requestsPath: [7],
     },
   ];
 
-  it.each(CASES)("$name stores the caller-supplied target and word inside the fixed envelope", async ({ submit, selector, schema, map }) => {
+  it.each(CASES)("$name stores the caller-supplied target and word inside the fixed envelope", async ({ submit, selector, schema, map, requestsPath }) => {
     const { contract, ctx } = await deployContract();
 
     const next = (
@@ -408,6 +430,18 @@ describe("EVM target submit circuits round-trip", () => {
 
     // Map key = the request-id TS twin, same as the base circuit.
     expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
+
+    // The notification event declares the stored request's id and names
+    // THIS circuit's request map position: the in-circuit path literal the
+    // MPC's discovery follows.
+    const [notificationEvent] = decodeSignetLogEvents(next.events, SIGNET_ADDRESS);
+    const notificationPost = decodeSignBidirectionalEventNotificationPayload(
+      notificationEvent.payload,
+    );
+    expect(requestIdHex(notificationPost.requestId)).toBe(idHex);
+    expect(
+      decodeSignBidirectionalNotification(notificationPost.event).requestsPath,
+    ).toEqual(requestsPath);
   });
 
   it("all three submit circuits share the nonce counter and mint distinct ids", async () => {
@@ -454,7 +488,7 @@ const OUTPUT_FAILURE = compactSerialize(BOOL_RESPONSE, { success: false }, 1);
  * Sign a REAL respond-bidirectional response for (requestId, output) with
  * `secretKey`: the digest comes from the TS twin (pinned against the
  * compiled oracle circuits), exactly like the MPC. The result is the event
- * as the singleton stores it (full R point, big-endian bytes), which is
+ * as the singleton emits it (full R point, big-endian bytes), which is
  * what a client reads and hands to verifyResponse.
  */
 const respond = (

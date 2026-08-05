@@ -22,7 +22,7 @@ import type { RequestId } from "./signet-requests.ts";
 import type {
   MpcSignature,
   RespondBidirectionalEvent,
-} from "./signet-contract-state-reader.ts";
+} from "./signet-contract-events.ts";
 
 // Re-exported because it appears throughout this module's public signatures:
 // SDK consumers shouldn't have to depend on compact-runtime just for the type.
@@ -309,10 +309,11 @@ export function calculateSignetAttestationDigest(
  * the attestation digest of `(requestId, serializedOutput)` and verify the
  * event's ECDSA signature over it against `mpcResponseKey`.
  *
- * The event carries the signature alone, so this check is the ONLY way to
- * tell a genuine post from garbage: the signet contract's log is
- * unauthenticated and every post is stored unverified. Use it to sift the
- * candidates {@link SignetRequestResponseReader.getRespondBidirectionalEvents}
+ * The event's declared request id is unauthenticated routing data, so this
+ * check is the ONLY way to tell a genuine post from garbage: the signet
+ * contract's event log is unauthenticated and every post is emitted
+ * unverified. Use it to sift the candidates
+ * {@link SignetRequestResponseReader.getRespondBidirectionalEvents}
  * returns before handing one to a contract. It is the off-chain counterpart
  * of the in-circuit `verifyRespondBidirectionalEvent` and answers the same
  * question, so a post this accepts is the post that proves at claim time.
