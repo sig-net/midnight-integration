@@ -3,9 +3,55 @@
 // crypto) plus the compiled pure circuits of the shared Compact module.
 
 export * from "./abi-serde.ts";
-export * from "./signet-requests.ts";
-export * from "./signet-evtype2tx-requests.ts";
-export * from "./signature-state-reading.ts";
+export {
+  BLS_ORDER,
+  bigintToBytes32,
+  bigintToBytes32BE,
+  bytesToBigint,
+  bytesToBigintBE,
+  bytesToHex,
+  hexToBytes,
+  stripHexPrefix,
+} from "./byte-codecs.ts";
+// Explicit lists for the request/state modules: the runtime descriptor
+// toolkit (compact-descriptors.ts and the per-module record descriptors) is
+// package-internal, consumed only through the reader and request functions.
+export {
+  MPCDestination,
+  MPCSignatureAlgorithm,
+  PATH_BYTES,
+  TxParamType,
+  parseRequestIdHex,
+  requestIdBytes,
+  requestIdHex,
+  toSignBidirectionalEventIndex,
+  type ContractAddress,
+  type Maybe,
+  type RequestId,
+  type RequestIdHex,
+  type SignBidirectionalEvent,
+  type SignBidirectionalEventIndex,
+  type SignBidirectionalEventLedgerMap,
+} from "./signet-requests.ts";
+export { calculateRequestId } from "./signet-request-id.ts";
+export {
+  abiWordToBool,
+  abiWordToUint128,
+  assembleCalldata,
+  boolAbiWord,
+  evmAddressAbiWord,
+  numericAbiWord,
+  signatureRespondedEventToSignature,
+  signBidirectionalEventToSignedEvmTransaction,
+  signBidirectionalEventToUnsignedEvmTransaction,
+  type EvmAccessListEntry,
+  type EvmCalldata,
+  type EvmType2TxParams,
+} from "./signet-evtype2tx-requests.ts";
+export {
+  signetFieldNodeByPath,
+  type RawContractState,
+} from "./raw-contract-state.ts";
 export * from "./signature-requests-state-reader.ts";
 export * from "./signet-contract-events.ts";
 export * from "./signature-response-verification.ts";
@@ -17,12 +63,7 @@ export * from "./epsilon-derivation.ts";
 // (the attestation-minting helpers that take a secret key live THERE), and
 // its record decoder (mpcSignatureToEcdsaSignature) is package-internal.
 export {
-  BLS_ORDER,
   SECP256K1_ORDER,
-  bigintToBytes32,
-  bigintToBytes32BE,
-  bytesToBigint,
-  bytesToBigintBE,
   formatSecp256k1PublicKey,
   parseSecp256k1PublicKey,
   verifyRespondBidirectionalSignature,

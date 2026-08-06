@@ -1,36 +1,8 @@
-// Common signet raw-state reading for the request-side readers
-// (signature-requests-state-reader.ts): decode a contract's ledger fields
-// out of its raw state by resolved ledger-tree path. Here live the generic
-// path walk and the base type descriptors the readers share.
+// Raw contract state and the walk over it: the state shape every signet
+// reader accepts, and the resolved ledger-tree path walk that finds a
+// contract's ledger fields in it.
 
-import {
-  CompactTypeBytes,
-  CompactTypeUnsignedInteger,
-  type CompactType,
-  type StateValue,
-} from "@midnight-ntwrk/compact-runtime";
-
-import { type RequestId } from "./signet-requests.ts";
-
-// ---- Shared base type descriptors ----
-// fromValue consumes the aligned value sequentially, so any width change here
-// is silent data corruption, not an error. These mirror the Compact base types
-// used across both signet layouts.
-
-/** Descriptor for a Compact `Uint<64>` (8-byte unsigned integer). */
-export const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
-
-/** Descriptor for a Compact `Bytes<32>`. */
-export const bytes32 = new CompactTypeBytes(32);
-
-/**
- * Descriptor for a request id ledger key (Compact `RequestId`, a nominal
- * `Bytes<32>`): encodes a {@link RequestId} to the stored aligned form and
- * back.
- */
-export const requestIdType: CompactType<RequestId> = bytes32;
-
-// ---- Raw state walk ----
+import type { StateValue } from "@midnight-ntwrk/compact-runtime";
 
 /**
  * What the indexer / simulator hands us: a bare `StateValue`, or anything
@@ -90,3 +62,22 @@ export function signetFieldNodeByPath(
   }
   return node;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

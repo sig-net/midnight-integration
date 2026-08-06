@@ -1,8 +1,7 @@
 // secp256k1 ECDSA helpers: the TS side of the respond-bidirectional
 // attestation flow in Signet.compact: SIGNING (which needs the secret
-// scalar, so it cannot be a circuit), key parsing/formatting, the
-// byte-order conversions between noble's bigints and the little-endian
-// scalar bytes Compact's casts read, and the attestation digest's TS twin.
+// scalar, so it cannot be a circuit), key parsing/formatting, and the
+// attestation digest's TS twin.
 // Everything provable stays in Compact where possible: in-circuit
 // verification is `verifyRespondBidirectionalEvent`. The digest circuit is
 // size-generic and the compiler cannot export size-generic circuits
@@ -19,6 +18,7 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
 import type { RequestId } from "./signet-requests.ts";
 
+import { bigintToBytes32BE, bytesToBigintBE } from "./byte-codecs.ts";
 import type {
   MpcSignature,
   RespondBidirectionalEvent,
@@ -30,79 +30,6 @@ export type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
 
 /** secp256k1 curve (group) order n. */
 export const SECP256K1_ORDER = secp256k1.Point.Fn.ORDER;
-
-/** BLS12-381 scalar field order (the Compact `Field` type modulus). */
-export const BLS_ORDER = 52435875175126190479447740508185965837690552500527637822603658699938581184513n;
-
-/**
- * Little-endian bytes to a bigint: the byte order Compact's
- * `Bytes<32> as Field` / `as Secp256k1Scalar` casts read.
- *
- * @param bytes - Little-endian byte array.
- * @returns The decoded non-negative integer.
- */
-export function bytesToBigint(bytes: Uint8Array): bigint {
-  let result = 0n;
-  for (let i = bytes.length - 1; i >= 0; i--) {
-    // The index is in range by construction: the assertion satisfies
-    // consumers compiling with noUncheckedIndexedAccess.
-    result = (result << 8n) | BigInt(bytes[i]!);
-  }
-  return result;
-}
-
-/**
- * A bigint to exactly 32 little-endian bytes: the inverse of
- * {@link bytesToBigint}. Negative inputs are interpreted in the BLS scalar
- * field.
- *
- * @param n - The integer to encode.
- * @returns The 32-byte little-endian encoding.
- */
-export function bigintToBytes32(n: bigint): Uint8Array {
-  const buf = new Uint8Array(32);
-  let v = n < 0n ? n + BLS_ORDER : n;
-  for (let i = 0; i < 32; i++) {
-    buf[i] = Number(v & 0xffn);
-    v >>= 8n;
-  }
-  return buf;
-}
-
-/**
- * Big-endian (SEC1) bytes to a bigint: the byte order stored signatures use.
- *
- * @param bytes - Big-endian byte array.
- * @returns The decoded non-negative integer.
- */
-export function bytesToBigintBE(bytes: Uint8Array): bigint {
-  let value = 0n;
-  for (const byte of bytes) {
-    value = (value << 8n) | BigInt(byte);
-  }
-  return value;
-}
-
-/**
- * A bigint to exactly 32 big-endian (SEC1) bytes: the inverse of
- * {@link bytesToBigintBE}.
- *
- * @param value - The non-negative integer to encode.
- * @returns The 32-byte big-endian encoding.
- * @throws Error if the value is negative or does not fit 32 bytes.
- */
-export function bigintToBytes32BE(value: bigint): Uint8Array {
-  if (value < 0n || value >= 1n << 256n) {
-    throw new Error(`value does not fit 32 big-endian bytes: ${value}`);
-  }
-  const out = new Uint8Array(32);
-  let v = value;
-  for (let i = 31; i >= 0; i--) {
-    out[i] = Number(v & 0xffn);
-    v >>= 8n;
-  }
-  return out;
-}
 
 /**
  * An ECDSA signature in scalar form: what {@link signAttestationDigest}

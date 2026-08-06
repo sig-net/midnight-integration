@@ -17,10 +17,7 @@ import {
   type LogEvent,
 } from "@midnight-ntwrk/compact-runtime";
 
-import {
-  bytesToHex,
-  hexToBytes,
-} from "./signet-requests.ts";
+import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
 
 /**
  * The event names the signet contract emits, exactly as the contract's

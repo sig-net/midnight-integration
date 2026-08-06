@@ -9,26 +9,28 @@
 // contract-stored bytes untouched.
 
 import {
-  CompactTypeBytes,
-  CompactTypeUnsignedInteger,
   CompactTypeVector,
-  keccak256,
   type CompactType,
 } from "@midnight-ntwrk/compact-runtime";
 import { getAddress, Signature, toBeHex, Transaction } from "ethers";
 
 import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
+import { bigintToBytes32BE, bytesToHex } from "./byte-codecs.ts";
+import { mpcSignatureToEcdsaSignature } from "./ecdsa-attestation.ts";
 import {
-  bigintToBytes32BE,
-  mpcSignatureToEcdsaSignature,
-} from "./ecdsa-attestation.ts";
-import {
-  bytesToHex,
+  BYTES_4,
+  BYTES_20,
+  BYTES_32,
+  UINT_8,
+  UINT_16,
+  UINT_64,
+  UINT_128,
   compactMaybeDescriptor,
   compactStructDescriptor,
-  signBidirectionalEventDescriptorWith,
   type Maybe,
-  type RequestId,
+} from "./compact-descriptors.ts";
+import {
+  signBidirectionalEventDescriptorWith,
   type SignBidirectionalEvent,
 } from "./signet-requests.ts";
 
@@ -95,15 +97,8 @@ export interface EvmType2TxParams {
 }
 
 // ---- Runtime descriptors (see the deviation note in signet-requests.ts) ----
-// Base-type literals match what the compiler emits for the EVM structs'
-// fields (Uint<8/16/64/128>, Bytes<4/20/32>).
-const BYTES_4 = new CompactTypeBytes(4);
-const BYTES_20 = new CompactTypeBytes(20);
-const BYTES_32 = new CompactTypeBytes(32);
-const UINT_8 = new CompactTypeUnsignedInteger(2n ** 8n - 1n, 1);
-const UINT_16 = new CompactTypeUnsignedInteger(2n ** 16n - 1n, 2);
-const UINT_64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
-const UINT_128 = new CompactTypeUnsignedInteger(2n ** 128n - 1n, 16);
+// Base-type descriptors come from compact-descriptors.ts at the literals the
+// compiler emits for the EVM structs' fields (Uint<8/16/64/128>, Bytes<4/20/32>).
 
 /**
  * Descriptor of {@link EvmCalldata} at one word capacity: the TS analogue
@@ -171,6 +166,27 @@ export function evmType2TxParamsDescriptor(
 }
 
 /**
+ * Descriptor of {@link EvmType2TxParams} at the capacity instantiation a
+ * stored value itself exhibits: vector capacities are read off the value's
+ * array lengths, which carry the contract's compile-time throttles. For
+ * hashing or re-encoding a record already decoded at full capacity (see
+ * `calculateRequestId` in signet-request-id.ts).
+ *
+ * @param txParams - The transaction decomposition to size against.
+ * @returns The tx-params descriptor at the value's capacities.
+ */
+export function evmType2TxParamsDescriptorOf(
+  txParams: EvmType2TxParams,
+): CompactType<EvmType2TxParams> {
+  const maxAccessListEntries = txParams.accessList.length;
+  return evmType2TxParamsDescriptor(
+    txParams.calldata.value.words.length,
+    maxAccessListEntries,
+    maxAccessListEntries === 0 ? 0 : txParams.accessList[0]!.storageKeys.length,
+  );
+}
+
+/**
  * Descriptor of {@link SignBidirectionalEvent} at one EVM Type-2 capacity
  * instantiation.
  *
@@ -198,34 +214,6 @@ export function signBidirectionalEventDescriptor(
     ),
     lenOutputDeserialization,
     lenRespondSerialization,
-  );
-}
-
-/**
- * Canonical id of a signet request: the keccak256 of the entire event
- * record, the sender address included, with no extra domain tag. TS twin of
- * Signet.compact's `calculateRequestId` circuit (see the deviation note in
- * signet-requests.ts). Pass the record exactly as the ledger stores it,
- * unused slots included and schemas at their declared widths.
- *
- * @param request - The full event record (contract-shaped, all slots).
- * @returns The 32-byte request id, the record's ledger map key.
- */
-export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
-  const { txParams } = request;
-  const maxCalldataWords = txParams.calldata.value.words.length;
-  const maxAccessListEntries = txParams.accessList.length;
-  const maxStorageKeysPerEntry =
-    maxAccessListEntries === 0 ? 0 : txParams.accessList[0]!.storageKeys.length;
-  return keccak256(
-    signBidirectionalEventDescriptor(
-      maxCalldataWords,
-      maxAccessListEntries,
-      maxStorageKeysPerEntry,
-      request.outputDeserializationSchema.length,
-      request.respondSerializationSchema.length,
-    ),
-    request,
   );
 }
 

@@ -20,13 +20,12 @@ import {
   MPCSignatureAlgorithm,
   TxParamType,
   asciiPadded,
+  calculateRequestId,
   evmAddressAbiWord,
   numericAbiWord,
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
   requestIdHex,
-  requestIdType,
-  signBidirectionalEventDescriptor,
   SignetRequestResponseReader,
   type SignBidirectionalEvent,
   type SignatureRespondedEvent,
@@ -34,6 +33,9 @@ import {
   type SignetPublicStateSource,
   type RespondBidirectionalEvent,
 } from "../src/index.ts";
+// Package-internal descriptors, imported from their defining modules.
+import { requestIdType } from "../src/signet-requests.ts";
+import { signBidirectionalEventDescriptor } from "../src/signet-evtype2tx-requests.ts";
 import {
   calculateSignetAttestationDigest,
   ecdsaSignatureToMpcSignature,
@@ -60,11 +62,9 @@ const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 /** The sample request's capacities (the vault's EvmType2TxParams<2, 0, 0>). */
 const REQUEST_DESCRIPTOR = signBidirectionalEventDescriptor(2, 0, 0, 34, 34);
 
-const REQUEST_ID = bytes(32, 0x2f);
-const REQUEST_ID_HEX = requestIdHex(REQUEST_ID);
 const UNKNOWN_ID_HEX = requestIdHex(bytes(32, 0x30));
 // Someone else's request: posts declared under this id must never surface
-// when reading REQUEST_ID's posts.
+// when reading REQUEST_ID's posts. Routing data only, so it needs no record.
 const FOREIGN_REQUEST_ID = bytes(32, 0x31);
 
 const REQUESTER_ADDRESS = "requester-contract-address";
@@ -103,10 +103,14 @@ const REQUEST: SignBidirectionalEvent = {
     },
   },
   caip2Id: asciiPadded("eip155:11155111", 32),
-  // Schema fixtures end in a non-zero byte (the exact-length convention).
   outputDeserializationSchema: bytes(34, 0x07),
   respondSerializationSchema: bytes(34, 0x08),
 };
+
+// The ledger files a record under its computed id, and the reader's lookup
+// recomputes and drops mismatches, so the fixture id must be the real one.
+const REQUEST_ID = calculateRequestId(REQUEST);
+const REQUEST_ID_HEX = requestIdHex(REQUEST_ID);
 
 // The "MPC" of these tests: a plain secp256k1 key standing in for the user's
 // derived signer, plus a second key playing the imposter.

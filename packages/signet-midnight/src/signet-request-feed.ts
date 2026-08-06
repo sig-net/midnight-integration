@@ -13,10 +13,10 @@ import {
 } from "./signet-contract-events.ts";
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import type { SignetPublicStateSource } from "./signet-request-response-reader.ts";
-import type { RawContractState } from "./signature-state-reading.ts";
+import type { RawContractState } from "./raw-contract-state.ts";
+import { stripHexPrefix } from "./byte-codecs.ts";
 import {
   requestIdHex,
-  stripHexPrefix,
   type RequestIdHex,
   type SignBidirectionalEvent,
 } from "./signet-requests.ts";

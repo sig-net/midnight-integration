@@ -22,15 +22,17 @@ import {
   TxParamType,
   asciiPadded,
   bytesToHex,
+  calculateRequestId,
   evmAddressAbiWord,
   numericAbiWord,
   pureCircuits,
   requestIdHex,
-  requestIdType,
-  signBidirectionalEventDescriptor,
   type SignetMiscEvent,
   type SignBidirectionalEvent,
 } from "../src/index.ts";
+// Package-internal descriptors, imported from their defining modules.
+import { requestIdType } from "../src/signet-requests.ts";
+import { signBidirectionalEventDescriptor } from "../src/signet-evtype2tx-requests.ts";
 
 import { notificationEventOf } from "./signet-event-fixtures.ts";
 
@@ -52,8 +54,6 @@ const CALLER_A = bytesToHex(CALLER_A_BYTES);
 const CALLER_B_BYTES = bytes(32, 0x7c);
 const CALLER_B = bytesToHex(CALLER_B_BYTES);
 
-const REQUEST_A_ID = bytes(32, 0x2f);
-const REQUEST_B_ID = bytes(32, 0x31);
 const FORGED_CALLER_BYTES = bytes(32, 0xff); // no state at this address
 
 const REQUEST: SignBidirectionalEvent = {
@@ -85,19 +85,31 @@ const REQUEST: SignBidirectionalEvent = {
     },
   },
   caip2Id: asciiPadded("eip155:11155111", 32),
-  // Schema fixtures end in a non-zero byte (the exact-length convention).
   outputDeserializationSchema: bytes(34, 0x07),
   respondSerializationSchema: bytes(34, 0x08),
 };
 
-/** Caller state with the given ids in the field-0 request index. */
-const callerStateWith = (...requestIds: Uint8Array[]): StateValueType => {
+// Distinct requests (nonce variations of REQUEST) under their computed ids:
+// the feed's lookup recomputes a record's id and drops mismatches, so every
+// fixture record must live under the id it hashes to.
+const REQUEST_A = REQUEST;
+const REQUEST_B: SignBidirectionalEvent = { ...REQUEST, requestNonce: 1n };
+const REQUEST_C: SignBidirectionalEvent = { ...REQUEST, requestNonce: 2n };
+const REQUEST_A_ID = calculateRequestId(REQUEST_A);
+const REQUEST_B_ID = calculateRequestId(REQUEST_B);
+const REQUEST_C_ID = calculateRequestId(REQUEST_C);
+
+/** Caller state with the given records in the field-0 request index, each under its computed id. */
+const callerStateWith = (...requests: SignBidirectionalEvent[]): StateValueType => {
   let map = new StateMap();
-  for (const requestId of requestIds) {
+  for (const request of requests) {
     map = map.insert(
-      { value: requestIdType.toValue(requestId), alignment: requestIdType.alignment() },
+      {
+        value: requestIdType.toValue(calculateRequestId(request)),
+        alignment: requestIdType.alignment(),
+      },
       StateValue.newCell({
-        value: REQUEST_DESCRIPTOR.toValue(REQUEST),
+        value: REQUEST_DESCRIPTOR.toValue(request),
         alignment: REQUEST_DESCRIPTOR.alignment(),
       }),
     );
@@ -138,8 +150,8 @@ const notification = (
 const stubSources = (
   events: SignetMiscEvent[],
   callers: Record<string, StateValueType> = {
-    [CALLER_A]: callerStateWith(REQUEST_A_ID),
-    [CALLER_B]: callerStateWith(REQUEST_B_ID),
+    [CALLER_A]: callerStateWith(REQUEST_A),
+    [CALLER_B]: callerStateWith(REQUEST_B),
   },
 ) => {
   return {
@@ -185,7 +197,7 @@ describe("SignetRequestFeed", () => {
       requestIdHex(REQUEST_A_ID),
       requestIdHex(REQUEST_B_ID),
     ]);
-    expect(resolved.map((r) => r.request)).toEqual([REQUEST, REQUEST]);
+    expect(resolved.map((r) => r.request)).toEqual([REQUEST_A, REQUEST_B]);
   });
 
   it("does NOT yield a stored request that was never notified", async () => {
@@ -194,7 +206,7 @@ describe("SignetRequestFeed", () => {
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
       ...stubSources([notification(CALLER_A_BYTES, REQUEST_A_ID)], {
-        [CALLER_A]: callerStateWith(REQUEST_A_ID, REQUEST_B_ID),
+        [CALLER_A]: callerStateWith(REQUEST_A, REQUEST_B),
       }),
     });
     const resolved = await feed.poll();
@@ -210,23 +222,28 @@ describe("SignetRequestFeed", () => {
       signetContractAddress: SIGNET_ADDRESS,
       ...stubSources(
         [
-          notification(CALLER_B_BYTES, bytes(32, 0x99)),
+          notification(CALLER_B_BYTES, REQUEST_C_ID),
           notification(CALLER_A_BYTES, REQUEST_B_ID),
           notification(CALLER_A_BYTES, REQUEST_A_ID),
         ],
         {
-          [CALLER_A]: callerStateWith(REQUEST_B_ID, REQUEST_A_ID),
-          [CALLER_B]: callerStateWith(bytes(32, 0x99)),
+          [CALLER_A]: callerStateWith(REQUEST_B, REQUEST_A),
+          [CALLER_B]: callerStateWith(REQUEST_C),
         },
       ),
     });
     const resolved = await feed.poll();
+    // Computed ids: derive A's ascending order rather than assuming it.
+    const aIdsAscending = [
+      requestIdHex(REQUEST_A_ID),
+      requestIdHex(REQUEST_B_ID),
+    ].sort();
     expect(
       resolved.map((r) => [r.callerAddress, r.requestId]),
     ).toEqual([
-      [CALLER_A, requestIdHex(REQUEST_A_ID)],
-      [CALLER_A, requestIdHex(REQUEST_B_ID)],
-      [CALLER_B, requestIdHex(bytes(32, 0x99))],
+      [CALLER_A, aIdsAscending[0]],
+      [CALLER_A, aIdsAscending[1]],
+      [CALLER_B, requestIdHex(REQUEST_C_ID)],
     ]);
   });
 
@@ -236,7 +253,7 @@ describe("SignetRequestFeed", () => {
         notification(CALLER_A_BYTES, REQUEST_A_ID),
         notification(CALLER_A_BYTES, REQUEST_B_ID),
       ],
-      { [CALLER_A]: callerStateWith(REQUEST_A_ID, REQUEST_B_ID) },
+      { [CALLER_A]: callerStateWith(REQUEST_A, REQUEST_B) },
     );
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
@@ -278,7 +295,7 @@ describe("SignetRequestFeed", () => {
       ...stubSources([notification(CALLER_A_BYTES, REQUEST_A_ID)], callers),
     });
     expect(await feed.poll()).toHaveLength(0);
-    callers[CALLER_A] = callerStateWith(REQUEST_A_ID);
+    callers[CALLER_A] = callerStateWith(REQUEST_A);
     const resolved = await feed.poll();
     expect(resolved.map((r) => r.requestId)).toEqual([
       requestIdHex(REQUEST_A_ID),

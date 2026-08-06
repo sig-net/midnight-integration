@@ -1,9 +1,9 @@
 // Round-trip test for the MPC-style raw state reader: encode a request with
 // the canonical descriptors into a synthetic StateValue tree (the shape the
 // indexer returns for a contract address), then decode it back by field
-// position alone, with no compiled contract involved. The reader recovers each
-// record's capacity instantiation (calldata words, access-list entries,
-// storage keys per entry) from the atom count by candidate enumeration, so
+// position alone, with no compiled contract involved. The reader measures
+// each record's capacity instantiation (calldata words, access-list entries,
+// storage keys per entry) from the cell's declared alignment widths, so
 // records with and without access lists are both exercised.
 
 import { describe, expect, it } from "vitest";
@@ -20,10 +20,11 @@ import {
   numericAbiWord,
   readSignetRequestsLedgerFromState,
   requestIdHex,
-  requestIdType,
-  signBidirectionalEventDescriptor,
   type SignBidirectionalEvent,
 } from "../src/index.ts";
+// Package-internal descriptors, imported from their defining modules.
+import { requestIdType } from "../src/signet-requests.ts";
+import { signBidirectionalEventDescriptor } from "../src/signet-evtype2tx-requests.ts";
 
 // The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
 // (the app-level constant lives in the cli).
@@ -34,8 +35,7 @@ const bytes = (length: number, fill: number) =>
 
 // Shared across tests: NEVER mutate. Build a variation as an explicit spread.
 // The vault's shape: <2 calldata words, 0 access-list entries, 0 keys> with
-// 34-byte schemas. Schema fixtures deliberately end in a non-zero byte (the
-// exact-length protocol convention the raw reader relies on).
+// 34-byte schemas.
 const SAMPLE_REQUEST: SignBidirectionalEvent = {
   sender: { bytes: bytes(32, 0x01) },
   requestNonce: 7n,
@@ -92,9 +92,8 @@ const CAPACITIES = {
   accessList: [2, 1, 2],
 } as const;
 
-// Real ids: an access-list record's atom count is also a valid
-// calldata-only split, so the reader can only tell them apart by the id the
-// record is filed under.
+// Real ids: the ledger files each record under its computed id, and
+// lookupSignetRequestAt recomputes it and drops mismatches.
 const SAMPLE_REQUEST_ID = calculateRequestId(SAMPLE_REQUEST);
 const ACCESS_LIST_REQUEST_ID = calculateRequestId(ACCESS_LIST_REQUEST);
 const NONCE = 8n;
@@ -175,6 +174,34 @@ describe("state-reader (MPC-style raw decode)", () => {
     );
   });
 
+  it("decodes a schema ending in a zero byte at its declared width", () => {
+    // The state layer trims trailing zeros off stored atoms: the declared
+    // alignment width, not the trimmed atom length, sizes the schema fields.
+    const schema = bytes(34, 0x07);
+    schema[33] = 0;
+    const request: SignBidirectionalEvent = {
+      ...SAMPLE_REQUEST,
+      respondSerializationSchema: schema,
+    };
+    const id = calculateRequestId(request);
+    const state = StateValue.newArray()
+      .arrayPush(
+        StateValue.newMap(
+          new StateMap().insert(
+            {
+              value: requestIdType.toValue(id),
+              alignment: requestIdType.alignment(),
+            },
+            requestCell(request, CAPACITIES.sample),
+          ),
+        ),
+      )
+      .arrayPush(counterCell(0n));
+
+    const { requestsIndex } = readSignetRequestsLedgerFromState(state, [0], [1]);
+    expect(requestsIndex.get(requestIdHex(id))).toEqual(request);
+  });
+
   it("returns an empty index and a zero nonce for a fresh contract", () => {
     const fresh = StateValue.newArray()
       .arrayPush(StateValue.newMap(new StateMap()))
@@ -194,7 +221,7 @@ describe("state-reader (MPC-style raw decode)", () => {
     expect(nonce).toBe(NONCE);
     expect(requestsIndex.size).toBe(1);
     expect(requestsIndex.get(requestIdHex(FIELD2_REQUEST_ID))).toEqual(
-      SAMPLE_REQUEST,
+      FIELD2_REQUEST,
     );
   });
 
@@ -249,9 +276,13 @@ describe("state-reader (MPC-style raw decode)", () => {
 });
 
 // A second request index living at a NON-ZERO ledger field, so the path
-// argument of lookupSignetRequestAt is genuinely exercised. Its member is
-// SAMPLE_REQUEST under a distinct id.
-const FIELD2_REQUEST_ID = bytes(32, 0x5a);
+// argument of lookupSignetRequestAt is genuinely exercised. Its member is a
+// nonce variation of SAMPLE_REQUEST under its own computed id.
+const FIELD2_REQUEST: SignBidirectionalEvent = {
+  ...SAMPLE_REQUEST,
+  requestNonce: 9n,
+};
+const FIELD2_REQUEST_ID = calculateRequestId(FIELD2_REQUEST);
 
 /** Contract state: index (field 0), nonce (field 1), a SECOND index (field 2). */
 const stateWithSecondIndex = () => {
@@ -275,7 +306,7 @@ const stateWithSecondIndex = () => {
       value: requestIdType.toValue(FIELD2_REQUEST_ID),
       alignment: requestIdType.alignment(),
     },
-    requestCell(SAMPLE_REQUEST, CAPACITIES.sample),
+    requestCell(FIELD2_REQUEST, CAPACITIES.sample),
   );
   return StateValue.newArray()
     .arrayPush(StateValue.newMap(field0))
@@ -299,7 +330,25 @@ describe("lookupSignetRequestAt", () => {
       [2],
       requestIdHex(FIELD2_REQUEST_ID),
     );
-    expect(request).toEqual(SAMPLE_REQUEST);
+    expect(request).toEqual(FIELD2_REQUEST);
+  });
+
+  it("drops a record filed under an id it does not hash to", () => {
+    const spoofedId = bytes(32, 0x5b);
+    const state = StateValue.newArray().arrayPush(
+      StateValue.newMap(
+        new StateMap().insert(
+          {
+            value: requestIdType.toValue(spoofedId),
+            alignment: requestIdType.alignment(),
+          },
+          requestCell(SAMPLE_REQUEST, CAPACITIES.sample),
+        ),
+      ),
+    );
+    expect(
+      lookupSignetRequestAt(state, [0], requestIdHex(spoofedId)),
+    ).toBeUndefined();
   });
 
   it("returns undefined for a non-member id", () => {

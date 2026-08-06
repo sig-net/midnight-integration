@@ -23,7 +23,7 @@ import {
   verifyRespondBidirectionalSignature,
   type Secp256k1Point,
 } from "./ecdsa-attestation.ts";
-import type { RawContractState } from "./signature-state-reading.ts";
+import type { RawContractState } from "./raw-contract-state.ts";
 import {
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,

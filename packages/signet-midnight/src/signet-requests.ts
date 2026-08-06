@@ -10,14 +10,25 @@
 // packages/test-caller-contract/tests/contract.test.ts).
 
 import {
-  CompactTypeBoolean,
   CompactTypeBytes,
   CompactTypeEnum,
-  CompactTypeUnsignedInteger,
   type CompactType,
 } from "@midnight-ntwrk/compact-runtime";
 
+import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
+import {
+  BYTES_32,
+  BYTES_64,
+  CONTRACT_ADDRESS,
+  UINT_8,
+  UINT_64,
+  compactStructDescriptor,
+  type ContractAddress,
+} from "./compact-descriptors.ts";
 import type { EvmType2TxParams } from "./signet-evtype2tx-requests.ts";
+
+// Public re-export: these types appear throughout the request record's shape.
+export type { ContractAddress, Maybe } from "./compact-descriptors.ts";
 
 /**
  * 32-byte signet request id (Compact: `new type RequestId = Bytes<32>`).
@@ -26,13 +37,11 @@ import type { EvmType2TxParams } from "./signet-evtype2tx-requests.ts";
 export type RequestId = Uint8Array;
 
 /**
- * A Midnight contract address as the generated code represents it in struct
- * fields (Compact `ContractAddress`): a single-field wrapper around the raw
- * 32 address bytes.
+ * Descriptor of a request id ledger key (Compact `RequestId`, a nominal
+ * `Bytes<32>`): encodes a {@link RequestId} to the stored aligned form and
+ * back.
  */
-export interface ContractAddress {
-  bytes: Uint8Array;
-}
+export const requestIdType: CompactType<RequestId> = BYTES_32;
 
 /**
  * Which transaction-param decomposition a request carries (Compact:
@@ -72,16 +81,6 @@ export const MPCDestination = {
   /** Never emitted: the >= 2 variants padding (see {@link TxParamType}). */
   reserved: 1,
 } as const;
-
-/**
- * Compact's standard-library `Maybe<T>` as the compiler generates it: a
- * plain struct. Even when `is_some` is false, `value` carries a full
- * default-valued `T` (so vector capacities remain inferable).
- */
-export interface Maybe<T> {
-  is_some: boolean;
-  value: T;
-}
 
 /**
  * Canonical signet request record (Compact:
@@ -124,79 +123,22 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
 // rule (see circuits.compact): the request-id circuit is generic over the
 // tx-params type and schema lengths, and the Compact compiler cannot export
 // type-parameterised circuits from the top level, so the record descriptor
-// (and the per-decomposition `calculateRequestId` built on it, see
-// signet-evtype2tx-requests.ts) gets a TS twin here. Ids come from the same
-// `persistentHash` runtime builtin compiled circuits call. Lockstep with
+// (and `calculateRequestId` built on it, see signet-request-id.ts) gets a TS
+// twin here. Ids come from the same
+// `keccak256` runtime builtin compiled circuits call. Lockstep with
 // Signet.compact is enforced by test-caller-contract's
 // "submitSignatureRequest round-trip" test, which asserts the id computed
 // here equals the ledger map key minted by the compiled contract.
 
-// Runtime descriptors of the Compact base types the generic record fields
-// use, at the same literals the compiler emits. NOTE: a 1-variant enum would
-// compile to `CompactTypeEnum(0, 0)`, zero bytes, which the proof server
-// cannot parse inside persistentHash preimages. Every enum therefore carries
-// a padding `reserved` variant so it stays at (1, 1).
-const BYTES_32 = new CompactTypeBytes(32);
-const BYTES_64 = new CompactTypeBytes(64);
-const UINT_8 = new CompactTypeUnsignedInteger(2n ** 8n - 1n, 1);
-const UINT_64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
+// Runtime descriptors of the signet enums, at the literals the compiler
+// emits. NOTE: a 1-variant enum would compile to `CompactTypeEnum(0, 0)`,
+// zero bytes, which the proof server cannot parse inside persistentHash
+// preimages. Every enum therefore carries a padding `reserved` variant so it
+// stays at (1, 1). The Compact-generic base descriptors live in
+// compact-descriptors.ts.
 const TX_PARAM_TYPE = new CompactTypeEnum(1, 1);
 const MPC_SIGNATURE_ALGORITHM = new CompactTypeEnum(1, 1);
 const MPC_DESTINATION = new CompactTypeEnum(1, 1);
-
-/**
- * Descriptor of a Compact `ContractAddress` struct field: a single-field
- * `{ bytes: Bytes<32> }` wrapper, exactly as the compiler generates it.
- */
-const CONTRACT_ADDRESS: CompactType<ContractAddress> = {
-  alignment: () => BYTES_32.alignment(),
-  fromValue: (value) => ({ bytes: BYTES_32.fromValue(value) }),
-  toValue: (value) => BYTES_32.toValue(value.bytes),
-};
-
-/**
- * Build the runtime descriptor of a Compact struct from its per-field
- * descriptors. Field ORDER is the encoding order and must match the Compact
- * struct declaration order: object literals preserve insertion order for
- * string keys, so pass fields in declaration order.
- *
- * @param fields - One runtime descriptor per struct field, in declaration order.
- * @returns The composed struct descriptor.
- */
-export function compactStructDescriptor<T extends object>(fields: {
-  readonly [K in keyof T]-?: CompactType<T[K]>;
-}): CompactType<T> {
-  const entries = Object.entries(fields) as unknown as ReadonlyArray<
-    [keyof T & string, CompactType<T[keyof T & string]>]
-  >;
-  return {
-    alignment: () =>
-      entries.flatMap(([, type]) => type.alignment()),
-    toValue: (value) =>
-      entries.flatMap(([key, type]) => type.toValue(value[key])),
-    fromValue: (value) => {
-      const result = {} as Record<keyof T & string, unknown>;
-      for (const [key, type] of entries) {
-        result[key] = type.fromValue(value);
-      }
-      return result as T;
-    },
-  };
-}
-
-/**
- * Descriptor of Compact's standard-library `Maybe<T>`: the compiler
- * generates it as the struct `{ is_some: Boolean, value: T }`.
- *
- * @param inner - Descriptor of the wrapped type.
- * @returns The Maybe struct descriptor.
- */
-export function compactMaybeDescriptor<T>(inner: CompactType<T>): CompactType<Maybe<T>> {
-  return compactStructDescriptor<Maybe<T>>({
-    is_some: CompactTypeBoolean,
-    value: inner,
-  });
-}
 
 /**
  * Descriptor of {@link SignBidirectionalEvent} over ANY tx-params
@@ -279,41 +221,6 @@ export type SignBidirectionalEventIndex = Map<
 >;
 
 /**
- * Render bytes as a lowercase hex string, no `0x` prefix.
- *
- * @param bytes - The bytes to render.
- * @returns Lowercase hex, two chars per byte.
- */
-export function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/**
- * Strip an optional `0x`/`0X` prefix from a hex string.
- *
- * @param hex - A hex string, with or without a `0x` prefix.
- * @returns The bare hex digits.
- */
-export function stripHexPrefix(hex: string): string {
-  return hex.startsWith("0x") || hex.startsWith("0X") ? hex.slice(2) : hex;
-}
-
-/**
- * Decode a hex string into bytes: the inverse of {@link bytesToHex}.
- *
- * @param hex - Hex digits, with or without a `0x` prefix.
- * @returns The decoded bytes.
- */
-export function hexToBytes(hex: string): Uint8Array {
-  const digits = stripHexPrefix(hex);
-  const out = new Uint8Array(digits.length >> 1);
-  for (let i = 0; i < out.length; i++) {
-    out[i] = Number.parseInt(digits.slice(2 * i, 2 * i + 2), 16);
-  }
-  return out;
-}
-
-/**
  * Render a request id in its canonical TS form (see {@link RequestIdHex}).
  *
  * @param requestId - 32-byte request id.
@@ -348,11 +255,7 @@ export function parseRequestIdHex(value: string): RequestIdHex {
  * @returns The 32-byte request id.
  */
 export function requestIdBytes(id: RequestIdHex): RequestId {
-  const bytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    bytes[i] = Number.parseInt(id.slice(2 * i, 2 * i + 2), 16);
-  }
-  return bytes;
+  return hexToBytes(id);
 }
 
 /**

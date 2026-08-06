@@ -8,6 +8,7 @@
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { computeAddress, keccak256, SigningKey, toUtf8Bytes } from "ethers";
 
+import { bigintToBytes32BE, bytesToBigintBE } from "./byte-codecs.ts";
 import { SECP256K1_ORDER, type Secp256k1Point } from "./ecdsa-attestation.ts";
 
 /**
@@ -155,10 +156,7 @@ export function deriveMidnightResponseSecretKey(
   if (mpcRootSecretKey.length !== 32) {
     throw new Error(`MPC root secret key must be 32 bytes, got ${mpcRootSecretKey.length}`);
   }
-  let root = 0n;
-  for (const byte of mpcRootSecretKey) {
-    root = (root << 8n) | BigInt(byte);
-  }
+  const root = bytesToBigintBE(mpcRootSecretKey);
   const epsilon = deriveEpsilon(
     normaliseRequesterAddress(clientContractAddress),
     MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
@@ -168,11 +166,5 @@ export function deriveMidnightResponseSecretKey(
   if (child === 0n) {
     throw new Error("derived response secret key is zero (invalid scalar)");
   }
-  const out = new Uint8Array(32);
-  let value = child;
-  for (let i = 31; i >= 0; i--) {
-    out[i] = Number(value & 0xffn);
-    value >>= 8n;
-  }
-  return out;
+  return bigintToBytes32BE(child);
 }
