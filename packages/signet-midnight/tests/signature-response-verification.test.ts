@@ -19,7 +19,6 @@ import {
   asciiPadded,
   evmAddressAbiWord,
   numericAbiWord,
-  signatureToSignatureRespondedEvent,
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
   recoverSignatureResponseSigner,
@@ -27,6 +26,7 @@ import {
   type SignBidirectionalEvent,
   type SignatureRespondedEvent,
 } from "../src/index.ts";
+import { ecdsaSignatureToMpcSignature } from "../src/testing.ts";
 
 // The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
 // (the app-level constant lives in the cli).
@@ -89,12 +89,18 @@ const IMPOSTER_KEY = new SigningKey(`0x${"22".repeat(32)}`);
 const signResponse = (
   key: SigningKey,
   request: SignBidirectionalEvent,
-): SignatureRespondedEvent =>
-  signatureToSignatureRespondedEvent(
-    key.sign(
-      signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash,
-    ),
+): SignatureRespondedEvent => {
+  const signature = key.sign(
+    signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash,
   );
+  return {
+    signature: ecdsaSignatureToMpcSignature({
+      r: BigInt(signature.r),
+      s: BigInt(signature.s),
+      recoveryId: signature.yParity,
+    }),
+  };
+};
 
 const VALID_RESPONSE = signResponse(MPC_KEY, REQUEST);
 

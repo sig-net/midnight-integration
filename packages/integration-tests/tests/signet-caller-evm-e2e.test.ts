@@ -26,7 +26,6 @@
 
 import {
   calculateRequestId,
-  calculateSignetAttestationDigest,
   deriveEvmAddress,
   deserializeEvmOutput,
   hexToBytes,
@@ -42,6 +41,7 @@ import {
   type RequestIdHex,
   type RespondBidirectionalEvent,
 } from "@sig-net/midnight";
+import { calculateSignetAttestationDigest } from "@sig-net/midnight/testing";
 import { getAddress, getBytes, id as keccakId, toBeHex, type Transaction, type TransactionReceipt } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
 import {

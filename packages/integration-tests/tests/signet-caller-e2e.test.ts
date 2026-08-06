@@ -25,19 +25,21 @@ import {
   calculateRequestId,
   deriveEvmAddress,
   deriveMidnightResponseSecretKey,
-  ecdsaSignatureToMpcSignature,
   hexToBytes,
   parseSecp256k1PublicKey,
   requestIdBytes,
   requestIdHex,
-  signAttestationDigest,
   sleepUnlessAborted,
   stripHexPrefix,
   SIGNET_DEFAULT_KEY_VERSION,
   type RequestIdHex,
-  calculateSignetAttestationDigest,
 } from "@sig-net/midnight";
 import { signBidirectionalEventToSignedEvmTransaction } from "@sig-net/midnight";
+import {
+  calculateSignetAttestationDigest,
+  ecdsaSignatureToMpcSignature,
+  signAttestationDigest,
+} from "@sig-net/midnight/testing";
 import { getAddress } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
 import {

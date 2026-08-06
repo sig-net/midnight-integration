@@ -6,30 +6,20 @@
 //   decoded values --serializeRespondOutput--> RespondBidirectionalEvent bytes
 //                        (respondSerializationSchema)
 //
-// Who runs them:
-//   - fakenet (and eventually the real MPC): both, back to back, after the
-//     destination-chain transaction confirms.
-//   - signet clients: both, to independently recompute the exact respond
-//     bytes the MPC attested (read the EVM result off chain, re-encode, then
-//     hand the result to their Compact contract for claim/validation) or to
-//     display a decoded result.
+// Run by fakenet (and eventually the real MPC), back to back, after the
+// destination-chain transaction confirms, and by signet clients to
+// independently recompute the respond bytes the MPC attested or to display
+// a decoded result.
 //
-// The respond output is UNBOUNDED: this module never pads or clamps it. The
-// protocol attests a hash of the bytes, clients fetch the full output off
-// chain and recompute; any fixed event-field width is the caller's concern.
+// The respond output is UNBOUNDED: this module never pads or clamps it. Any
+// fixed event-field width is the caller's concern. Schemas are the ABI-style
+// JSON carried on chain (NUL-padded fixed-width bytes). Both functions
+// accept the schema in any form: already-parsed fields, a JSON string, or
+// the raw on-chain bytes.
 //
-// Schemas are the ABI-style JSON carried on chain (NUL-padded fixed-width
-// bytes). Both functions accept the schema in any form: already-parsed
-// fields, a JSON string, or the raw on-chain bytes.
-//
-// Validation is split exactly the way the MPC splits it:
-//   - decode side: the type grammar is left FULLY to the ABI library
-//     (ethers), the same way the MPC delegates to alloy's DynSolType parser.
-//     This module only checks the schema's shape (a non-empty array of
-//     uniquely, non-emptily named fields).
-//   - respond side: the restricted Compact-carrier vocabulary below is the
-//     law, strictly enforced: unknown types, missing capacities, duplicate
-//     names and malformed JSON all throw with the offending field named.
+// Decode-side type grammar is left FULLY to the ABI library (ethers): this
+// module checks only the schema's shape. Respond-side types are restricted
+// to the Compact-carrier vocabulary below, strictly enforced.
 //
 // The respond byte layout is Compact's builtin serialize<T, N> /
 // deserialize<T, N> (via @sig-net/midnight-serde, pinned against compiled
@@ -50,11 +40,9 @@
 //
 // RANGE TRAP: uint256, address and field all map to Compact `Field`, whose
 // values must lie strictly below the BLS12-381 Fr modulus (just under
-// 2^255). An EVM uint256 at or above Fr therefore cannot be
-// respond-serialised, and `serializeRespondOutput` throws at respond time.
-// The max-uint256 allowance readback is the everyday case that hits this.
-// Schema authors who need the full 256-bit range should carry the value as
-// bytes32 instead.
+// 2^255). An EVM uint256 at or above Fr cannot be respond-serialised, and
+// `serializeRespondOutput` throws at respond time. Schema authors who need
+// the full 256-bit range carry the value as bytes32.
 
 import { ethers } from "ethers";
 
@@ -81,10 +69,7 @@ export interface AbiFixedField {
   type: AbiFixedType;
 }
 
-/**
- * A dynamic string/bytes field. `maxBytes` is the fixed Compact buffer
- * capacity (Compact types are fixed-size, so capacity is part of the type).
- */
+/** A dynamic string/bytes field. `maxBytes` is the fixed Compact buffer capacity. */
 export interface AbiDynamicField {
   name: string;
   type: "string" | "bytes";
@@ -108,9 +93,8 @@ export type AbiSchemaInput = AbiSchema | string | Uint8Array;
 
 /**
  * A decode-side schema field: `type` is ANY type string the ABI library
- * accepts (the canonical ABI grammar, so signed ints, tuples and unbounded
- * arrays are all fine here). The restricted {@link AbiSchemaField} vocabulary
- * is a respond-side concern only, and is assignable to this shape.
+ * accepts. The restricted {@link AbiSchemaField} vocabulary is a respond-side
+ * concern only, and is assignable to this shape.
  */
 export interface EvmSchemaField {
   name: string;
@@ -148,14 +132,10 @@ export type AbiDecodedOutput = { [field: string]: AbiDecodedValue };
 /**
  * Decode a raw EVM call result (eth_call return data / debug_trace output)
  * into named values, driven by the request's outputDeserializationSchema.
- *
- * Type validation is FULLY delegated to ethers (the canonical ABI grammar,
- * mirroring the MPC's delegation to alloy): this function only checks the
- * schema's shape, then hands the type strings straight to the ABI coder.
- *
- * Returns a plain object keyed by field name (never an ethers `Result`, so it
- * survives JSON round-trips and structural comparison), with nested ethers
- * Results flattened to plain arrays.
+ * The decode-side counterpart of {@link serializeRespondOutput}. Type
+ * validation is FULLY delegated to ethers: this function checks the schema's
+ * shape only. Returns a plain object (never an ethers `Result`), so it
+ * survives JSON round-trips and structural comparison.
  *
  * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
  * @param callResult - The ABI-encoded return data (hex string or bytes).
@@ -183,17 +163,15 @@ export function deserializeEvmOutput(
 
 /**
  * Encode decoded output values into the respond payload, driven by the
- * request's respondSerializationSchema. The bytes are exactly what a consumer
- * contract reads with `deserialize<T, N>` and what the MPC attests, so
- * clients can recompute and verify them independently.
+ * request's respondSerializationSchema: the bytes a consumer contract reads
+ * with `deserialize<T, N>` and the MPC attests. The respond-side counterpart
+ * of {@link deserializeEvmOutput}.
  *
  * The result is the PACKED value, unpadded and unbounded: its length follows
- * entirely from the schema. Padding to any fixed container width is the
- * caller's concern.
- *
- * Strict: values are range-checked (Uint widths, the Field modulus, the
- * 2^160 address bound), dynamic payloads must fit their capacity (no silent
- * truncation), and signed integer types are rejected outright.
+ * entirely from the schema, and padding to a fixed container width is the
+ * caller's concern. Strict: values are range-checked, dynamic payloads must
+ * fit their capacity with no silent truncation, and signed integer types are
+ * rejected.
  *
  * @param schema - The respondSerializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
  * @param output - Decoded values keyed by field name (from {@link deserializeEvmOutput} or any source using the same forms).
@@ -218,7 +196,7 @@ export function serializeRespondOutput(
 
 // ===========================================================================
 // Helpers from here down. The two functions above are the whole public
-// surface; everything below serves them.
+// surface: everything below serves them.
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
@@ -277,9 +255,7 @@ interface RawSchemaField {
 /**
  * Parse a schema in any input form and check its SHAPE only: a non-empty
  * array of fields with non-empty, unique names and non-empty type strings.
- * The type grammar is deliberately not checked here: the decode side leaves
- * it fully to the ABI library, the respond side runs
- * {@link normalizeRespondSchema} on top.
+ * The respond side runs {@link normalizeRespondSchema} on top.
  */
 function parseSchemaShape(schema: EvmSchemaInput | AbiSchemaInput): RawSchemaField[] {
   const parsed: unknown =
@@ -349,13 +325,11 @@ function assertCapacity(value: unknown, label: string): asserts value is number 
 }
 
 /**
- * Classify a fixed-width respond type into its Compact carrier, validating
- * the respond-side vocabulary in one place: both the schema check
- * ({@link normalizeRespondSchema}) and the descriptor build
- * ({@link respondSchemaToCompactType}) call this, so the grammar cannot
- * drift between them. Respond-side uint widths are restricted to whole-byte
- * widths (multiples of 8 from 8 to 248, packing to bits / 8 bytes), plus
- * uint256 which maps to Field. Throws with the offending field named.
+ * Classify a fixed-width respond type into its Compact carrier. Both
+ * {@link normalizeRespondSchema} and {@link respondSchemaToCompactType} call
+ * this, so the grammar cannot drift between them. Uint widths are restricted
+ * to multiples of 8 from 8 to 248, plus uint256 which maps to Field. Throws
+ * with the offending field named.
  */
 function classifyFixedType(type: string, fieldName: string): CompactType {
   if (type === "bool") return { kind: "boolean" };

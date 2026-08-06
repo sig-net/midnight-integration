@@ -35,9 +35,8 @@ export const SECP256K1_ORDER = secp256k1.Point.Fn.ORDER;
 export const BLS_ORDER = 52435875175126190479447740508185965837690552500527637822603658699938581184513n;
 
 /**
- * Convert little-endian bytes to a bigint. Matches Compact's
- * `Bytes<32> as Field` / `Bytes<32> as Secp256k1Scalar` interpretation (both
- * casts are little-endian).
+ * Little-endian bytes to a bigint: the byte order Compact's
+ * `Bytes<32> as Field` / `as Secp256k1Scalar` casts read.
  *
  * @param bytes - Little-endian byte array.
  * @returns The decoded non-negative integer.
@@ -53,10 +52,9 @@ export function bytesToBigint(bytes: Uint8Array): bigint {
 }
 
 /**
- * Convert a bigint to exactly 32 little-endian bytes. Matches Compact's
- * `Field as Bytes<32>` / `Secp256k1Scalar as Bytes<32>` encoding (the inverse
- * of {@link bytesToBigint}). Negative inputs are interpreted in the BLS
- * scalar field.
+ * A bigint to exactly 32 little-endian bytes: the inverse of
+ * {@link bytesToBigint}. Negative inputs are interpreted in the BLS scalar
+ * field.
  *
  * @param n - The integer to encode.
  * @returns The 32-byte little-endian encoding.
@@ -72,8 +70,7 @@ export function bigintToBytes32(n: bigint): Uint8Array {
 }
 
 /**
- * Convert big-endian bytes to a bigint (SEC1 coordinate order, the byte
- * order the respond events' stored signature uses).
+ * Big-endian (SEC1) bytes to a bigint: the byte order stored signatures use.
  *
  * @param bytes - Big-endian byte array.
  * @returns The decoded non-negative integer.
@@ -87,9 +84,8 @@ export function bytesToBigintBE(bytes: Uint8Array): bigint {
 }
 
 /**
- * Convert a bigint to exactly 32 BIG-endian bytes (SEC1 scalar/coordinate
- * order, also the ABI word encoding): the big-endian counterpart of
- * {@link bigintToBytes32} and the inverse of {@link bytesToBigintBE}.
+ * A bigint to exactly 32 big-endian (SEC1) bytes: the inverse of
+ * {@link bytesToBigintBE}.
  *
  * @param value - The non-negative integer to encode.
  * @returns The 32-byte big-endian encoding.
@@ -109,11 +105,9 @@ export function bigintToBytes32BE(value: bigint): Uint8Array {
 }
 
 /**
- * An ECDSA signature over the attestation digest, in the MPC's canonical
- * `Signature { big_r, s, recovery_id }` spirit with `r` already reduced to
- * the scalar `big_r.x mod n`, the form Compact's `Secp256k1EcdsaSignature`
- * takes. Build the stored form for posting in a respond event with
- * {@link ecdsaSignatureToMpcSignature}.
+ * An ECDSA signature in scalar form: what {@link signAttestationDigest}
+ * produces, and what {@link ecdsaSignatureToMpcSignature} encodes into the
+ * stored form respond events carry.
  */
 export interface EcdsaSignature {
   /** Signature scalar r (= R.x mod n). */
@@ -126,9 +120,8 @@ export interface EcdsaSignature {
 
 /**
  * ECDSA-sign a 32-byte digest with a secp256k1 secret key, exactly as the
- * MPC signs the attestation digest: RFC 6979 deterministic, low-s, the digest
- * interpreted big-endian with NO extra hashing (`prehash: false`), the same
- * convention `secp256k1EcdsaVerify` checks in-circuit.
+ * MPC signs the attestation digest: the result verifies in-circuit against
+ * the matching public key. For posters and test fixtures.
  *
  * @param digest - The 32-byte digest to sign (e.g. the
  *   {@link calculateSignetAttestationDigest} output).
@@ -158,13 +151,8 @@ export function signAttestationDigest(
 }
 
 /**
- * Build the stored-form signature both respond events carry from a
- * scalar-form one: R is reconstructed by decompressing the curve point with
- * x = `r` and the parity `recoveryId` names, undoing the compression an
- * `r || s || v` signature performs. For MPC-side posters (the fakenet
- * signer, tests). The negligible caveat: an R.x that overflowed the curve
- * order cannot be told apart from its reduced twin, so reconstruction picks
- * the x equal to `r` itself.
+ * Encode a scalar-form signature as the stored-form record both respond
+ * events carry. For MPC-side posters (the fakenet signer) and test fixtures.
  *
  * @param signature - The scalar-form signature (the signer's output shape).
  * @returns The stored-form signature: R as a full point, big-endian bytes.
@@ -193,13 +181,10 @@ export function ecdsaSignatureToMpcSignature(signature: EcdsaSignature): MpcSign
 }
 
 /**
- * Read a stored-form signature back into scalar form: the inverse of
+ * Decode a stored-form signature back to scalar form: the inverse of
  * {@link ecdsaSignatureToMpcSignature}, for off-chain consumers building a
- * transaction from the response. `r` comes out as `bigR.x` reduced mod the
- * curve order. Rejects records that do not even hold the shape, since posts
- * are unauthenticated and a malformed record is garbage. `bigR.y` is NOT
- * checked against the curve or the recovery id: signature verification is
- * the authority, not this decoder.
+ * transaction from the response. Checks shape only: acceptance does not mean
+ * the signature verifies.
  *
  * @param signature - The stored-form signature as posted.
  * @returns The scalar-form signature.
@@ -278,18 +263,10 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
 /**
  * The attestation digest of a respond-bidirectional response:
  * `keccak256(requestId || serializedOutput)`, the 32-byte digest the MPC
- * ECDSA-signs to attest a remote execution.
- *
- * TS twin of the size-generic Compact circuit
- * `calculateSignetAttestationDigest` (which the compiler cannot export
- * compiled, so this is the one sanctioned re-implementation, pinned
- * byte-for-byte against the fixed-width oracle circuits in
- * circuits.compact). The constructions agree because the circuit's keccak
- * preimage of the `[RequestId, Bytes<N>]` pair is the raw concatenated
- * bytes, and it matches the MPC's respond-bidirectional hash
- * (`hash(request_id || serialized_output)`: one flat concatenation, one
- * hash). The output is hashed AS GIVEN, at its exact length: no padding and
- * no length binding.
+ * ECDSA-signs to attest a remote execution. TS twin of the size-generic
+ * Compact circuit of the same name, pinned against its fixed-width oracle
+ * circuits in tests. The output is hashed as given, at its exact length:
+ * no padding, no length prefix.
  *
  * @param requestId - The 32-byte request id the response answers.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
@@ -305,31 +282,17 @@ export function calculateSignetAttestationDigest(
 }
 
 /**
- * Off-chain check of a posted respond-bidirectional attestation: recompute
- * the attestation digest of `(requestId, serializedOutput)` and verify the
- * event's ECDSA signature over it against `mpcResponseKey`.
- *
- * The event's declared request id is unauthenticated routing data, so this
- * check is the ONLY way to tell a genuine post from garbage: the signet
- * contract's event log is unauthenticated and every post is emitted
- * unverified. Use it to sift the candidates
- * {@link SignetRequestResponseReader.getRespondBidirectionalEvents}
- * returns before handing one to a contract. It is the off-chain counterpart
- * of the in-circuit `verifyRespondBidirectionalEvent` and answers the same
- * question, so a post this accepts is the post that proves at claim time.
- *
- * Malformed records are garbage, not faults: a signature whose components
- * have the wrong width, whose `r` is off-curve, or which simply does not
- * verify all return `false` rather than throwing. High-`s` signatures are
- * accepted, matching the in-circuit verification (which enforces no low-`s`
- * policy) rather than the signer's own normalisation.
+ * Off-chain twin of the in-circuit `verifyRespondBidirectionalEvent`: checks
+ * a posted respond-bidirectional attestation against the execution output
+ * and the contract's pinned MPC response key. Clients run it to sift
+ * candidate posts before calling a contract: a post this accepts verifies
+ * in-circuit. Malformed records return `false` rather than throwing.
  *
  * @param requestId - The 32-byte request id the response answers.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @param event - The posted record to check, as read off the ledger.
- * @param mpcResponseKey - The response key the requesting contract pinned:
- *   the MPC key derived for its address and the fixed "midnight response key"
- *   path (see {@link deriveMidnightResponseKey}).
+ * @param mpcResponseKey - The response key the requesting contract pinned
+ *   (see {@link deriveMidnightResponseKey}).
  * @returns Whether the post is a genuine attestation of that output.
  */
 export function verifyRespondBidirectionalSignature(

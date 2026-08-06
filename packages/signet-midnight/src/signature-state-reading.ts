@@ -1,10 +1,7 @@
 // Common signet raw-state reading for the request-side readers
-// (signature-requests-state-reader.ts).
-// This is the MPC-/client-style path: decode a contract's ledger fields out of
-// its raw state WITHOUT the compiled contract, following a resolved ledger-tree
-// path. Here live the generic path walk (RawContractState,
-// signetFieldNodeByPath) and the base type descriptors both readers share; each
-// reader adds only the descriptors for its own layout.
+// (signature-requests-state-reader.ts): decode a contract's ledger fields
+// out of its raw state by resolved ledger-tree path. Here live the generic
+// path walk and the base type descriptors the readers share.
 
 import {
   CompactTypeBytes,
@@ -27,9 +24,9 @@ export const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 export const bytes32 = new CompactTypeBytes(32);
 
 /**
- * Descriptor for a request id ledger key (Compact `RequestId`, a
- * nominal `Bytes<32>`). Use it to encode a {@link RequestId} into the
- * aligned form the state tree stores, or decode one back.
+ * Descriptor for a request id ledger key (Compact `RequestId`, a nominal
+ * `Bytes<32>`): encodes a {@link RequestId} to the stored aligned form and
+ * back.
  */
 export const requestIdType: CompactType<RequestId> = bytes32;
 
@@ -53,21 +50,14 @@ const unwrap = (raw: RawContractState): StateValue =>
 
 /**
  * Follow a resolved ledger-tree path to its node in raw state: the
- * MPC-perspective primitive, given only a contract's raw state and the path a
- * notification carries. It walks the path node for node, exactly as the
- * compiled `ledger()` accessor does, and never inspects array widths or
- * re-derives the compiler's chunk structure.
- *
- * The path is the value compactc records for a field in the client's own
- * `contract-info.json` (`"index"`): a single-element path (`[4]`) for a flat
- * contract's field, a longer one (`[1, 14]`) once a contract declares more
- * than 15 fields and the compiler stores them in a chunk tree. Because the
- * consumer is told the path rather than guessing it, no field whose own value
- * is an array can be mistaken for a compiler chunk.
+ * MPC-perspective primitive, given only a contract's raw state and the path
+ * a notification carries. The path is the value compactc records for a
+ * field in the client's own `contract-info.json` (`"index"`): a
+ * single-element path (`[4]`) for a flat contract's field, a longer one
+ * (`[1, 14]`) once the compiler stores fields in a chunk tree.
  *
  * @param raw - Raw contract state from the indexer or simulator.
- * @param path - Resolved chunk-tree path in declaration order, from the
- *   notification (which sources it from the client's `contract-info.json`).
+ * @param path - Resolved chunk-tree path in declaration order.
  * @returns The `StateValue` node at the end of the path.
  * @throws Error if `path` is empty, steps into a non-array, or an index is out
  *   of range.
@@ -83,7 +73,7 @@ export function signetFieldNodeByPath(
   for (const [level, index] of path.entries()) {
     if (node.type() !== "array") {
       // A one-field contract stores its field as the bare (non-array) root,
-      // addressable only as the whole state at a final [0]; the compiled
+      // addressable only as the whole state at a final [0]. The compiled
       // accessor reads it the same way.
       if (index === 0 && level === path.length - 1) return node;
       throw new Error(

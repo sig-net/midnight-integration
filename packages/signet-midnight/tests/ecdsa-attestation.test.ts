@@ -13,22 +13,26 @@ import { describe, expect, it } from "vitest";
 
 import {
   bigintToBytes32BE,
-  calculateSignetAttestationDigest,
-  ecdsaSignatureToMpcSignature,
   formatSecp256k1PublicKey,
   isMpcFailureOutput,
   MPC_FAILURE_OUTPUT,
-  mpcSignatureToEcdsaSignature,
   parseSecp256k1PublicKey,
   SECP256K1_ORDER,
-  secp256k1PublicKeyOf,
-  signAttestationDigest,
   verifyRespondBidirectionalSignature,
   pureCircuits as signetCircuits,
-  type EcdsaSignature,
   type MpcSignature,
   type RespondBidirectionalEvent,
 } from "../src/index.ts";
+import {
+  calculateSignetAttestationDigest,
+  ecdsaSignatureToMpcSignature,
+  secp256k1PublicKeyOf,
+  signAttestationDigest,
+  type EcdsaSignature,
+} from "../src/testing.ts";
+// Package-internal (deliberately absent from both entry points), tested via
+// its defining module.
+import { mpcSignatureToEcdsaSignature } from "../src/ecdsa-attestation.ts";
 
 const bytes = (length: number, fill: number) =>
   new Uint8Array(length).fill(fill);

@@ -2,9 +2,7 @@
 // structs, and the published per-network counterparty values (the MPC root
 // public key and the signet contract address). Field widths mirror
 // Signet.compact (the wire format: keep in lockstep), and the string
-// constants are the values the MPC network routes on. Ported from the MVP's
-// contract-cli signet/constants.ts, adapted to the refactor's zero-padded
-// convention (Compact `pad(N, "text")`).
+// constants are the values the MPC network routes on.
 //
 // The routing constants belong in github.com/sig-net/signet.js, kept here
 // until upstreamed.
@@ -21,33 +19,18 @@ export const SELECTOR_BYTES = 4;
 /**
  * The complete serialised output the MPC attests for a FAILED remote
  * execution (reverted or replaced transaction): the 4-byte error marker
- * `0xdeadbeef` followed by one `0x01` byte. Schema-independent by design,
- * mirroring the canonical MPC's Borsh-format failure payload (sig-net/mpc,
- * node/src/respond_bidirectional.rs), so every respond schema shares one
- * fixed 5-byte failure width. Clients recompute their failure candidate from
- * this constant alone: no receipt or schema needed.
- *
- * The exact-equality check ({@link isMpcFailureOutput}) is unambiguous for
- * every respond schema whose packed width differs from 5 bytes. A schema
- * whose packed width is exactly 5 could in principle produce a legitimate
- * output equal to this sentinel, and such clients must route settlement by
- * digest-candidate matching (recompute both the real-output candidate and
- * the failure candidate, and see which digest the MPC attested), never by
- * inspecting output bytes.
+ * `0xdeadbeef` followed by one `0x01` byte, mirroring the canonical MPC's
+ * failure payload (sig-net/mpc, node/src/respond_bidirectional.rs). A
+ * respond schema whose packed width is exactly 5 bytes could produce a
+ * legitimate output equal to this sentinel: such clients must route
+ * settlement by digest-candidate matching, never by inspecting output
+ * bytes. See {@link isMpcFailureOutput}.
  */
 export const MPC_FAILURE_OUTPUT = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01]);
 
 /**
  * Whether an attested serialised output IS the MPC's fixed failure payload:
- * exact byte equality with the 5-byte {@link MPC_FAILURE_OUTPUT} (the length
- * must be exactly 5 and every byte must match). A prefix check would be
- * unsafe, as a legitimate packed output can begin with the same bytes.
- *
- * Unambiguous for every respond schema whose packed width differs from 5
- * bytes. A schema whose packed width is exactly 5 could in principle produce
- * a legitimate output equal to the sentinel: such clients must route
- * settlement by digest-candidate matching instead of inspecting output
- * bytes (see {@link MPC_FAILURE_OUTPUT}).
+ * exact byte equality with the 5-byte {@link MPC_FAILURE_OUTPUT}.
  *
  * @param serializedOutput - The attested serialised output.
  * @returns `true` when the output equals the MPC failure payload exactly.
@@ -60,9 +43,8 @@ export function isMpcFailureOutput(serializedOutput: Uint8Array): boolean {
 }
 
 /**
- * Default MPC key version (`keyVersion` field value). Version 0 is the
- * unsupported legacy format: the canonical MPC (and
- * `constructSignBidirectionalEvent`) requires `keyVersion >= 1`.
+ * Default MPC key version (`keyVersion` field value). The canonical MPC
+ * (and `constructSignBidirectionalEvent`) requires `keyVersion >= 1`.
  */
 export const SIGNET_DEFAULT_KEY_VERSION = 1n;
 
@@ -88,10 +70,7 @@ export function asciiPadded(text: string, length: number): Uint8Array {
 
 /**
  * A named Midnight network: the single source of the network names shared
- * across the `@sig-net/midnight*` packages. midnight-js types a network id
- * as a bare `string` with no companion enum, so the names live here, and
- * `@sig-net/midnight-contract-deploy`'s network-id plumbing widens this
- * enum back to the SDK's string type for its deploy config.
+ * across the `@sig-net/midnight*` packages.
  */
 export enum MidnightNetwork {
   /** Local standalone stack (Docker node, indexer and proof server on localhost). */
@@ -110,8 +89,7 @@ export enum MidnightNetwork {
  * A public, long-lived Midnight network: every named network except the
  * local standalone stack. Only these have fixed protocol counterparty
  * values published in this package (see {@link getMpcRootPublicKey} and
- * {@link getSignetContractAddress}); a local stack generates its own values
- * per deployment instead.
+ * {@link getSignetContractAddress}).
  */
 export type DeployedNetwork = Exclude<MidnightNetwork, MidnightNetwork.Undeployed>;
 
@@ -128,10 +106,8 @@ const mpcRootPublicKeys: Record<DeployedNetwork, string> = {
 /**
  * The MPC root public key of a deployed Midnight network, as hex: the
  * `mpcRootPublicKey` every client key derivation starts from (see
- * `deriveEvmAddress`). Only the {@link DeployedNetwork} networks have a
- * fixed key. A local standalone stack has none: its setup generates a fresh
- * `MPC_ROOT_KEY` per stack (the integration-test setup prints it and
- * appends it to the repo-root `.env`).
+ * `deriveEvmAddress`). A local standalone stack has no fixed key: its setup
+ * generates a fresh `MPC_ROOT_KEY` per stack.
  *
  * @param networkId - The deployed network to look up.
  * @returns The network's MPC root public key.
@@ -158,11 +134,8 @@ const signetContractAddresses: Record<DeployedNetwork, string> = {
 /**
  * The address of the central signet singleton contract on a deployed
  * Midnight network: the `signetContractAddress` a
- * `SignetRequestResponseReader` polls. Only the {@link DeployedNetwork}
- * networks have a fixed address. A local standalone stack has none: each
- * stack deploys its own singleton (the integration-test setup prints the
- * address as `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and appends it to the
- * repo-root `.env`).
+ * `SignetRequestResponseReader` polls. A local standalone stack has no
+ * fixed address: each stack deploys its own singleton.
  *
  * @param networkId - The deployed network to look up.
  * @returns The network's signet contract address.

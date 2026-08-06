@@ -20,13 +20,8 @@ import {
   MPCSignatureAlgorithm,
   TxParamType,
   asciiPadded,
-  calculateSignetAttestationDigest,
-  ecdsaSignatureToMpcSignature,
   evmAddressAbiWord,
   numericAbiWord,
-  secp256k1PublicKeyOf,
-  signAttestationDigest,
-  signatureToSignatureRespondedEvent,
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
   requestIdHex,
@@ -39,6 +34,12 @@ import {
   type SignetPublicStateSource,
   type RespondBidirectionalEvent,
 } from "../src/index.ts";
+import {
+  calculateSignetAttestationDigest,
+  ecdsaSignatureToMpcSignature,
+  secp256k1PublicKeyOf,
+  signAttestationDigest,
+} from "../src/testing.ts";
 
 import {
   respondBidirectionalEventOf,
@@ -115,12 +116,18 @@ const IMPOSTER_KEY = new SigningKey(`0x${"22".repeat(32)}`);
 const IMPOSTER_ADDRESS = computeAddress(IMPOSTER_KEY.publicKey);
 
 /** Sign `REQUEST`'s rebuilt tx hash with `key`, packed as a response record. */
-const signResponse = (key: SigningKey): SignatureRespondedEvent =>
-  signatureToSignatureRespondedEvent(
-    key.sign(
-      signBidirectionalEventToUnsignedEvmTransaction(REQUEST).unsignedHash,
-    ),
+const signResponse = (key: SigningKey): SignatureRespondedEvent => {
+  const signature = key.sign(
+    signBidirectionalEventToUnsignedEvmTransaction(REQUEST).unsignedHash,
   );
+  return {
+    signature: ecdsaSignatureToMpcSignature({
+      r: BigInt(signature.r),
+      s: BigInt(signature.s),
+      recoveryId: signature.yParity,
+    }),
+  };
+};
 
 const GENUINE_RESPONSE = signResponse(MPC_KEY);
 const IMPOSTER_RESPONSE = signResponse(IMPOSTER_KEY);

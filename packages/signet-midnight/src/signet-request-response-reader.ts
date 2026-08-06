@@ -1,17 +1,9 @@
-// One-stop client-side reader for the signet request/response flow: fetch a
-// request record from the requester contract's ledger, read the request's
-// responses out of the contract events the signet contract emits, and verify
-// each candidate against the request.
-// A response is a Misc contract event that carries the request id it answers
-// beside a signature. The id is UNAUTHENTICATED routing data: it scopes a
-// read to one request's posts, and VERIFICATION establishes authenticity. A
-// signature response answers a request exactly when it recovers to that
-// request's derived signer over the request's transaction, and a
-// respond-bidirectional post answers exactly when it verifies over
-// (requestId, output) against the request's MPC response key. This class
-// packages that flow so every consumer (CLI poller, integration tests, a
-// future UI) shares one implementation. Single-shot by design: each call
-// queries once, and the caller owns any poll loop.
+// Client-side reader for the signet request/response flow: fetch a request
+// record from the requester contract's ledger, read the request's responses
+// out of the contract events the signet contract emits, and verify each
+// candidate against the request. The request id a response declares is
+// UNAUTHENTICATED routing data: VERIFICATION establishes authenticity.
+// Single-shot: each call queries once, and the caller owns any poll loop.
 
 import type { PublicDataProvider } from "@midnight-ntwrk/midnight-js-types";
 import type { Transaction } from "ethers";
@@ -69,9 +61,7 @@ export interface SignetRequestResponseReaderConfig {
   /**
    * Resolved ledger-tree path of the requester contract's request index: the
    * same path the contract packs as `requestsPath` in its notifications
-   * (`[4]` for a flat contract's field 4, longer once chunking applies). A
-   * contract is free to declare the index at any field, so the reader cannot
-   * assume one.
+   * (`[4]` for a flat contract's field 4, longer once chunking applies).
    */
   readonly requesterRequestsPath: readonly number[];
   /** Address of the central signet contract. */
@@ -104,18 +94,14 @@ export interface VerifiedSignatureResponseResult {
    * response has been posted yet: poll again.
    */
   verified?: SignatureRespondedEvent;
-  /**
-   * One verdict per post, emission order. Pure data: the reader never logs,
-   * so callers decide how to surface rejected posts.
-   */
+  /** One verdict per post, emission order. */
   verdicts: SignatureResponseVerdict[];
 }
 
 /**
- * Reader over one requester contract / signet contract pair.
- * Construct once per pair and reuse: fetched request records are cached (they
- * are immutable, the ledger key is their hash), so repeated verification
- * calls cost one event query each.
+ * Reader over one requester contract / signet contract pair. Construct once
+ * per pair and reuse: fetched request records are cached, so repeated
+ * verification calls cost one event query each.
  */
 export class SignetRequestResponseReader {
   private readonly config: SignetRequestResponseReaderConfig;
@@ -136,13 +122,12 @@ export class SignetRequestResponseReader {
 
   /**
    * Fetch the request record for `requestId` from the requester contract's
-   * request index (at the configured `requesterRequestsPath`). Cached
-   * after the first fetch.
+   * request index. Cached after the first fetch.
    *
    * @param requestId - The request id to look up.
    * @returns The stored request record.
    * @throws Error when the requester contract has no state or holds no
-   *   request under `requestId` at the configured index path.
+   *   request under `requestId`.
    */
   async getSignatureRequest(
     requestId: RequestIdHex,
@@ -175,10 +160,8 @@ export class SignetRequestResponseReader {
   }
 
   /**
-   * Fetch every event of `name` the signet contract has emitted, decode each
-   * with `decode`, and keep the posts whose declared request id is
-   * `requestId`, in emission order. The declared id is routing data only:
-   * the verified getters run the actual authenticity checks.
+   * Fetch the signet contract's posts of event `name` that declare
+   * `requestId`, in emission order. The declared id is routing data only.
    *
    * @param name - The signet event name to keep.
    * @param decode - The payload decoder for that event kind.
@@ -202,10 +185,8 @@ export class SignetRequestResponseReader {
 
   /**
    * Fetch every signature response posted under `requestId`, in emission
-   * order. UNVERIFIED: the declared id is routing data on an unauthenticated
-   * event log, so any post may still be garbage (see
-   * {@link getVerifiedSignatureRespondedEvent}, where verification
-   * establishes authenticity).
+   * order. UNVERIFIED: any post may still be garbage, sift with
+   * {@link getVerifiedSignatureRespondedEvent} first.
    *
    * @param requestId - The request id the posts must declare.
    * @returns The request's posted records, oldest first, empty when none yet.
@@ -222,12 +203,10 @@ export class SignetRequestResponseReader {
 
   /**
    * Fetch the signature responses posted under `requestId` and verify each
-   * against the request: a post's signature must recover to
+   * against the request: a valid post's signature recovers to
    * `expectedSigner` (compared case-insensitively) over the signing hash of
-   * the transaction the request record describes. The first valid post wins,
-   * and every candidate gets a verdict so callers can report the noise. The
-   * declared id only routes: this verification is what separates the genuine
-   * response from garbage posted under the same id.
+   * the request's transaction. The first valid post wins, and every
+   * candidate gets a verdict.
    *
    * @param requestId - The request id to fetch a verified response for.
    * @param expectedSigner - The EVM address (0x hex, any case) the genuine
@@ -274,9 +253,8 @@ export class SignetRequestResponseReader {
 
   /**
    * Rebuild the unsigned EIP-1559 transaction for `requestId`: the exact
-   * transaction the MPC signs, assembled from the request record's decomposed
-   * fields. No event query: this needs only the request record
-   * (fetched via {@link getSignatureRequest}, cached).
+   * transaction the MPC signs, from the request record alone (fetched via
+   * {@link getSignatureRequest}, cached).
    *
    * @param requestId - The request id whose transaction to rebuild.
    * @returns The unsigned ethers transaction (`unsignedHash` is the MPC's
@@ -293,11 +271,10 @@ export class SignetRequestResponseReader {
   }
 
   /**
-   * Assemble the broadcast-ready signed EIP-1559 transaction for `requestId`:
-   * rebuild the request's transaction and attach the first VERIFIED response
-   * signed by `expectedSigner` (see {@link getVerifiedSignatureRespondedEvent}:
-   * the event log is unauthenticated, so an `expectedSigner` is required
-   * and unverified posts are never attached).
+   * Assemble the broadcast-ready signed EIP-1559 transaction for
+   * `requestId`, attaching the first VERIFIED response signed by
+   * `expectedSigner` (see {@link getVerifiedSignatureRespondedEvent}).
+   * Unverified posts are never attached.
    *
    * @param requestId - The request id to produce a signed transaction for.
    * @param expectedSigner - The EVM address (0x hex, any case) the genuine
@@ -327,12 +304,9 @@ export class SignetRequestResponseReader {
 
   /**
    * Fetch every respond-bidirectional response posted under `requestId`, in
-   * emission order. UNVERIFIED: the declared id is routing data on an
-   * unauthenticated event log, so verifying a post against the MPC response
-   * key you expect is still the only way to pick the genuine one: in-circuit
-   * at claim time, or off chain with
-   * {@link verifyRespondBidirectionalSignature} over the output you fetched.
-   * An empty array simply means none posted yet: poll again.
+   * emission order. UNVERIFIED: any post may still be garbage, sift with
+   * {@link getVerifiedRespondBidirectionalEvent} (or in-circuit at claim
+   * time) first.
    *
    * @param requestId - The request id the posts must declare.
    * @returns The request's posted records, oldest first, empty when none yet.
@@ -351,13 +325,9 @@ export class SignetRequestResponseReader {
    * Fetch the respond-bidirectional posts declared under `requestId` and
    * return the first (oldest) one whose signature verifies over
    * `serializedOutput` against `mpcResponseKey`: the off-chain twin of the
-   * check the client contract runs in-circuit, and the only way to pick a
-   * genuine post out of an unauthenticated event log.
-   *
-   * The output must be the exact unpadded bytes the attestation commits to
-   * (the packed respond payload, recomputed from the execution output the
-   * client fetched), so a post that verifies here is the post that proves at
-   * claim time.
+   * check the client contract runs in-circuit. The output must be the exact
+   * unpadded bytes the attestation commits to, so a post that verifies here
+   * is the post that proves at claim time.
    *
    * @param requestId - The request id the posts must declare and the
    *   attestation must commit to.

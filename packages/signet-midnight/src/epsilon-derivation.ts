@@ -2,11 +2,8 @@
 //
 // This belongs in github.com/sig-net/signet.js, kept here until upstreamed.
 //
-// v2.0.0 (COLON-separated) is the only scheme the MPC answers. The v1.0.0
-// COMMA-separated form is `key_version 0` in the MPC's KDF and is not served;
-// the Compact contracts also assert `keyVersion >= 1`, which selects v2. The
-// two schemes hash different strings and derive different accounts, so a
-// v1 signer silently gets the wrong address rather than an error.
+// v2.0.0 (COLON-separated) is the only scheme the MPC answers: the Compact
+// contracts assert `keyVersion >= 1`, which selects v2.
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { computeAddress, keccak256, SigningKey, toUtf8Bytes } from "ethers";
@@ -28,19 +25,14 @@ export const MIDNIGHT_TESTNET_CHAIN_ID = "midnight:testnet";
 
 /**
  * The FIXED derivation path of the MPC's respond-bidirectional RESPONSE key
- * for Midnight client contracts, mirroring the real MPC's per-chain
- * `<chain> response key` convention (sig-net/mpc
- * chain-signatures/node/src/respond_bidirectional.rs, where the epsilon
- * requester is the requesting tx's SENDER). The response key is derived PER
- * CLIENT CONTRACT from (the client contract's own address, this path): it is
- * not the MPC root key and not the key that signs the requested transaction.
- *
- * The key depends on the client contract's address, and a Midnight contract
- * address is a hash over the deploy (constructor arguments included), so the
- * key cannot exist before the deploy transaction is built. Client contracts
- * therefore pin its hash with a one-shot `initialise` circuit right after
- * deploy (never a constructor seal) and verify RespondBidirectionalEvents
- * against the pin.
+ * for Midnight client contracts. It enters the derivation string verbatim,
+ * mirroring the real MPC's per-chain `<chain> response key` convention
+ * (sig-net/mpc chain-signatures/node/src/respond_bidirectional.rs). The
+ * response key is derived PER CLIENT CONTRACT from (the client contract's
+ * own address, this path): it is not the MPC root key and not the key that
+ * signs the requested transaction. Client contracts pin its hash with a
+ * one-shot `initialise` circuit after deploy and verify
+ * RespondBidirectionalEvents against the pin.
  */
 export const MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH = "midnight response key";
 
@@ -48,14 +40,11 @@ export const MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH = "midnight response key";
  * Derive the EVM address the MPC network signs from for a given Midnight
  * contract and derivation path, using the sig-net v2.0.0 epsilon scheme:
  * `epsilon = keccak256("<prefix>:<chainId>:<contractAddress>:<path>")` and
- * `derivedPubKey = mpcRootPubKey + epsilon * G` on secp256k1.
- *
- * The MPC treats `path` as an opaque string: the vault's own account uses the
- * literal path `"vault"`, a user's account uses the lowercase hex of their
- * identity commitment.
+ * `derivedPubKey = mpcRootPubKey + epsilon * G` on secp256k1. The MPC
+ * treats `path` as an opaque string.
  *
  * @param mpcSecp256k1PubkeyHex - The MPC root secp256k1 public key as 0x-hex
- *   (compressed or uncompressed; normalized internally).
+ *   (compressed or uncompressed, normalised internally).
  * @param contractAddress - The Midnight contract address the request
  *   originates from (the "requester" in the derivation string).
  * @param path - The derivation path string (e.g. `"vault"` or a commitment
@@ -112,8 +101,7 @@ function deriveChildPoint(
 /**
  * Normalise a Midnight contract address for use as the requester component
  * of the derivation string: strip an optional `0x` prefix and lowercase.
- * Both sides of the protocol (the deploy pinning a key and the MPC signing
- * with it) derive through this, so the rendering always agrees.
+ * Both sides of the protocol must derive through this exact rendering.
  */
 function normaliseRequesterAddress(contractAddress: string): string {
   const hex =
@@ -126,10 +114,8 @@ function normaliseRequesterAddress(contractAddress: string): string {
 /**
  * Derive the MPC's respond-bidirectional RESPONSE key for one client
  * contract, public side: what the client pins via its `initialise` circuit
- * (`MPC_RESPONSE_KEY`) and what response verification checks against. See
- * {@link MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH} for the scheme (the requester
- * is the client contract's own address, mirroring the real MPC's
- * sender-scoped derivation).
+ * and what response verification checks against. See
+ * {@link MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH} for the scheme.
  *
  * @param mpcSecp256k1PubkeyHex - The MPC root secp256k1 public key as 0x-hex
  *   (compressed or uncompressed).
@@ -154,10 +140,9 @@ export function deriveMidnightResponseKey(
  * Derive the MPC's respond-bidirectional RESPONSE key for one client
  * contract, secret side: `(rootSecret + epsilon) mod n`. MPC-side only
  * (the fakenet signer, test harnesses): a real client never holds the root
- * key. The result feeds `signAttestationDigest` directly.
+ * key.
  *
- * @param mpcRootSecretKey - The 32-byte MPC root secret key (big-endian, the
- *   standard secp256k1 encoding).
+ * @param mpcRootSecretKey - The 32-byte MPC root secret key (big-endian).
  * @param clientContractAddress - The client contract's Midnight address
  *   (`0x` prefix optional, case-insensitive).
  * @returns The 32-byte response secret key (big-endian).

@@ -13,7 +13,21 @@ export * from "./signet-request-response-reader.ts";
 export * from "./signet-request-feed.ts";
 export * from "./constants.ts";
 export * from "./epsilon-derivation.ts";
-export * from "./ecdsa-attestation.ts";
+// Explicit list: ecdsa-attestation.ts also backs the ./testing entry point
+// (the attestation-minting helpers that take a secret key live THERE), and
+// its record decoder (mpcSignatureToEcdsaSignature) is package-internal.
+export {
+  BLS_ORDER,
+  SECP256K1_ORDER,
+  bigintToBytes32,
+  bigintToBytes32BE,
+  bytesToBigint,
+  bytesToBigintBE,
+  formatSecp256k1PublicKey,
+  parseSecp256k1PublicKey,
+  verifyRespondBidirectionalSignature,
+  type Secp256k1Point,
+} from "./ecdsa-attestation.ts";
 
 /**
  * Compiled pure circuits of Signet.compact (run `yarn compile` first).

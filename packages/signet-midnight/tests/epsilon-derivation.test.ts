@@ -10,8 +10,8 @@ import {
   deriveEvmAddress,
   deriveMidnightResponseKey,
   deriveMidnightResponseSecretKey,
-  secp256k1PublicKeyOf,
 } from "../src/index.ts";
+import { secp256k1PublicKeyOf } from "../src/testing.ts";
 
 // The compressed secp256k1 public key of the fixed MPC root key 9e3b…9e0f
 // from the golden-vector run (also asserted in mpc-keys.test.ts).

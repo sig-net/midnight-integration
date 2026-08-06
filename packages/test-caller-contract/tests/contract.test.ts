@@ -20,18 +20,20 @@ import {
   decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
   decodeSignetLogEvents,
-  ecdsaSignatureToMpcSignature,
   readSignetRequestsLedgerFromState,
   requestIdBytes,
   requestIdHex,
-  secp256k1PublicKeyOf,
-  signAttestationDigest,
   signetFieldNodeByPath,
   toSignBidirectionalEventIndex,
   type RespondBidirectionalEvent,
   type SignBidirectionalEventLedgerMap,
-  calculateSignetAttestationDigest,
 } from "@sig-net/midnight";
+import {
+  calculateSignetAttestationDigest,
+  ecdsaSignatureToMpcSignature,
+  secp256k1PublicKeyOf,
+  signAttestationDigest,
+} from "@sig-net/midnight/testing";
 
 import { compactSerialize, type CompactType } from "@sig-net/midnight-serde";
 
