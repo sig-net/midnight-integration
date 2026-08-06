@@ -269,6 +269,8 @@ For full integration examples (such as an ERC20 cross chain vault) see the [`sig
 
 Get set up for contributing by getting both test layers green: the offline unit tests, then the end to end integration suites.
 
+Every change must also pass the linter and the formatter, which CI enforces on every pull request. One ESLint flat config (`eslint.config.js`) and one Prettier config (`.prettierrc.json`) at the repo root cover all packages, so there is nothing to configure per package. In VS Code, install the two recommended extensions the editor offers on first open (`dbaeumer.vscode-eslint` and `esbenp.prettier-vscode`) and both run on save.
+
 ## Compiling, Building and Running Unit Tests
 
 Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime, so zk keys are not needed before running them. From the root of the repository:
@@ -292,6 +294,18 @@ yarn test
 # Requires both 'yarn compile' and 'yarn compile:zk': packages that ship
 # zk keys refuse to build without them.
 yarn build
+
+## --- Linting and formatting (whole workspace, from the root) ---
+
+# Check formatting (Prettier). Needs nothing compiled.
+yarn format:check
+yarn format        # rewrite files in place
+
+# Lint (ESLint + typescript-eslint, type-aware).
+# Requires 'yarn compile': the rules read the generated src/managed/ types,
+# the same reason 'yarn build' needs it.
+yarn lint
+yarn lint:fix      # apply every autofix
 
 ## --- Independently (for example) ---
 

@@ -19,9 +19,9 @@ export interface CallerPrivateState {
  *   consumes it; any 32 bytes satisfy the other circuits).
  * @returns A fresh private state holding `secretKey`.
  */
-export const createCallerPrivateState = (
-  secretKey: Uint8Array,
-): CallerPrivateState => ({ secretKey });
+export const createCallerPrivateState = (secretKey: Uint8Array): CallerPrivateState => ({
+  secretKey,
+});
 
 /**
  * Witness implementations, typed against the generated `Witnesses` shape.

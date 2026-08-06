@@ -12,15 +12,9 @@
 // request id every payload discloses is routing data only, so it scopes
 // reads to one request and proves nothing.
 
-import {
-  CompactTypeBytes,
-  type LogEvent,
-} from "@midnight-ntwrk/compact-runtime";
+import { CompactTypeBytes, type LogEvent } from "@midnight-ntwrk/compact-runtime";
 
-import {
-  bytesToHex,
-  hexToBytes,
-} from "./signet-requests.ts";
+import { bytesToHex, hexToBytes } from "./signet-requests.ts";
 
 /**
  * The event names the signet contract emits, exactly as the contract's
@@ -73,9 +67,24 @@ export interface SignetEventSource {
 }
 
 /** Descriptor re-padding a name ++ payload event atom to its full width. */
-const eventBytes = new CompactTypeBytes(
-  SIGNET_EVENT_NAME_LENGTH + SIGNET_EVENT_PAYLOAD_LENGTH,
-);
+const eventBytes = new CompactTypeBytes(SIGNET_EVENT_NAME_LENGTH + SIGNET_EVENT_PAYLOAD_LENGTH);
+
+/**
+ * Whether a decoded event carries `name`.
+ *
+ * A decoded event's `name` comes from arbitrary on-chain bytes, so it is a
+ * plain string and NOT the enum. Comparing the two directly is what
+ * `no-unsafe-enum-comparison` exists to catch, and it is right to: the
+ * widening belongs here, once, rather than at every call site.
+ *
+ * @param event - The decoded signet event.
+ * @param event.name - Its decoded, NUL-stripped event name.
+ * @param name - The event name to match.
+ * @returns Whether the event's decoded name equals `name`.
+ */
+export function isSignetEventNamed(event: { name: string }, name: SignetEventName): boolean {
+  return event.name === (name as string);
+}
 
 /**
  * Strip the NUL padding off a fixed-width event name and decode it as ASCII:
@@ -102,7 +111,7 @@ export function decodeSignetEventName(name: Uint8Array): string {
  * @param events - The `context.events` of a `CircuitResults`.
  * @param contractAddress - Optional filter: only events this contract emitted.
  * @returns The decoded events, in emission order.
- * @throws Error when a `misc` event is not a single bytes atom of the signet
+ * @throws {Error} When a `misc` event is not a single bytes atom of the signet
  *   name ++ payload width.
  */
 export function decodeSignetLogEvents(
@@ -116,9 +125,7 @@ export function decodeSignetLogEvents(
       continue;
     }
     if (event.data.tag !== "cell") {
-      throw new Error(
-        `misc event data is a '${event.data.tag}', expected a cell`,
-      );
+      throw new Error(`misc event data is a '${event.data.tag}', expected a cell`);
     }
     // fromValue consumes its input and re-pads the trailing zeros the state
     // layer trims, so hand it a copy.
@@ -142,6 +149,8 @@ export interface SignetContractEventQuerySource {
    * `PublicDataProvider.queryContractEvents`.
    *
    * @param filter - The contract address and event-type narrowing.
+   * @param filter.contractAddress - The contract whose events to read.
+   * @param filter.types - Event types to keep; omit for all of them.
    * @returns The matching events, oldest first.
    */
   queryContractEvents(filter: {
@@ -293,7 +302,7 @@ const SIGNATURE_RECOVERY_ID_OFFSET = 128;
  *
  * @param payload - The full event payload.
  * @returns The declared request id and the decoded signature.
- * @throws Error when the payload is too short to hold the packed leaves.
+ * @throws {Error} When the payload is too short to hold the packed leaves.
  */
 function decodeRespondPayload(payload: Uint8Array): {
   requestId: Uint8Array;
@@ -302,14 +311,11 @@ function decodeRespondPayload(payload: Uint8Array): {
   const recoveryId = payload[SIGNATURE_RECOVERY_ID_OFFSET];
   if (recoveryId === undefined) {
     throw new Error(
-      `signet event payload of ${payload.length} bytes is too short for a packed respond record`,
+      `signet event payload of ${String(payload.length)} bytes is too short for a packed respond record`,
     );
   }
   return {
-    requestId: payload.slice(
-      RESPOND_REQUEST_ID_OFFSET,
-      SIGNATURE_BIG_R_X_OFFSET,
-    ),
+    requestId: payload.slice(RESPOND_REQUEST_ID_OFFSET, SIGNATURE_BIG_R_X_OFFSET),
     signature: {
       bigR: {
         x: payload.slice(SIGNATURE_BIG_R_X_OFFSET, SIGNATURE_BIG_R_Y_OFFSET),
@@ -327,7 +333,7 @@ function decodeRespondPayload(payload: Uint8Array): {
  *
  * @param payload - The event's payload.
  * @returns The decoded post: declared request id plus record.
- * @throws Error when the payload is too short to hold the packed leaves.
+ * @throws {Error} When the payload is too short to hold the packed leaves.
  */
 export function decodeSignatureRespondedEventPayload(
   payload: Uint8Array,
@@ -342,7 +348,7 @@ export function decodeSignatureRespondedEventPayload(
  *
  * @param payload - The event's payload.
  * @returns The decoded post: declared request id plus record.
- * @throws Error when the payload is too short to hold the packed leaves.
+ * @throws {Error} When the payload is too short to hold the packed leaves.
  */
 export function decodeRespondBidirectionalEventPayload(
   payload: Uint8Array,
@@ -384,7 +390,7 @@ const NOTIFICATION_PAYLOAD_LENGTH = 128;
  *
  * @param payload - The event's payload.
  * @returns The decoded post: declared request id plus raw notification record.
- * @throws Error when the payload is too short to hold the record.
+ * @throws {Error} When the payload is too short to hold the record.
  */
 export function decodeSignBidirectionalEventNotificationPayload(
   payload: Uint8Array,
@@ -393,7 +399,7 @@ export function decodeSignBidirectionalEventNotificationPayload(
   const end = NOTIFICATION_EVENT_PAYLOAD_OFFSET + NOTIFICATION_PAYLOAD_LENGTH;
   if (version === undefined || payload.length < end) {
     throw new Error(
-      `signet event payload of ${payload.length} bytes is too short for a packed notification`,
+      `signet event payload of ${String(payload.length)} bytes is too short for a packed notification`,
     );
   }
   return {
@@ -472,7 +478,7 @@ export interface SignBidirectionalNotification {
  * @param record - The raw notification record.
  * @returns The decoded notification, its `requestsPath` trimmed to the
  *   declared depth.
- * @throws Error if the record's `version` is not one this decoder understands,
+ * @throws {Error} If the record's `version` is not one this decoder understands,
  *   or its `requestsPathDepth` is zero or exceeds {@link MAX_LEDGER_PATH_DEPTH}.
  */
 export function decodeSignBidirectionalNotification(
@@ -480,21 +486,18 @@ export function decodeSignBidirectionalNotification(
 ): SignBidirectionalNotification {
   if (record.version !== SUPPORTED_NOTIFICATION_VERSION) {
     throw new Error(
-      `SignBidirectionalEventNotification version ${record.version} is not supported ` +
-        `(this decoder understands version ${SUPPORTED_NOTIFICATION_VERSION})`,
+      `SignBidirectionalEventNotification version ${String(record.version)} is not supported ` +
+        `(this decoder understands version ${String(SUPPORTED_NOTIFICATION_VERSION)})`,
     );
   }
   const callerAddress = bytesToHex(
-    record.payload.slice(
-      NOTIFICATION_CALLER_ADDRESS_OFFSET,
-      NOTIFICATION_PATH_DEPTH_OFFSET,
-    ),
+    record.payload.slice(NOTIFICATION_CALLER_ADDRESS_OFFSET, NOTIFICATION_PATH_DEPTH_OFFSET),
   );
   const depth = record.payload[NOTIFICATION_PATH_DEPTH_OFFSET];
   if (depth === undefined || depth < 1 || depth > MAX_LEDGER_PATH_DEPTH) {
     throw new Error(
-      `SignBidirectionalEventNotification requestsPathDepth ${depth} is out of range ` +
-        `(expected 1 to ${MAX_LEDGER_PATH_DEPTH})`,
+      `SignBidirectionalEventNotification requestsPathDepth ${String(depth)} is out of range ` +
+        `(expected 1 to ${String(MAX_LEDGER_PATH_DEPTH)})`,
     );
   }
   // payload is a re-padded Bytes<128> and depth is bounded to MAX_LEDGER_PATH_DEPTH

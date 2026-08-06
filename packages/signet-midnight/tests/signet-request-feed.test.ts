@@ -6,40 +6,37 @@
 // drops, not-yet-indexed retries, dedupe, forget, unsupported-version
 // skips, stable ordering, and the optional policy allow-list.
 
-import { describe, expect, it, vi } from "vitest";
-
 import {
   CompactTypeUnsignedInteger,
   StateMap,
   StateValue,
   type StateValue as StateValueType,
 } from "@midnight-ntwrk/compact-runtime";
+import { describe, expect, it, vi } from "vitest";
 
 import {
-  MPCDestination,
-  MPCSignatureAlgorithm,
-  SignetRequestFeed,
-  TxParamType,
   asciiPadded,
   bytesToHex,
   evmAddressAbiWord,
+  MPCDestination,
+  MPCSignatureAlgorithm,
   numericAbiWord,
   pureCircuits,
   requestIdHex,
   requestIdType,
+  type SignBidirectionalEvent,
   signBidirectionalEventDescriptor,
   type SignetMiscEvent,
-  type SignBidirectionalEvent,
+  SignetRequestFeed,
+  TxParamType,
 } from "../src/index.ts";
-
 import { notificationEventOf } from "./signet-event-fixtures.ts";
 
 // The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
 // (the app-level constant lives in the cli, not the SDK).
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 const REQUEST_DESCRIPTOR = signBidirectionalEventDescriptor(2, 0, 0, 34, 34);
@@ -104,9 +101,7 @@ const callerStateWith = (...requestIds: Uint8Array[]): StateValueType => {
   }
   return StateValue.newArray()
     .arrayPush(StateValue.newMap(map))
-    .arrayPush(
-      StateValue.newCell({ value: u64.toValue(1n), alignment: u64.alignment() }),
-    );
+    .arrayPush(StateValue.newCell({ value: u64.toValue(1n), alignment: u64.alignment() }));
 };
 
 /**
@@ -116,17 +111,15 @@ const callerStateWith = (...requestIds: Uint8Array[]): StateValueType => {
  * lockstep by construction. The feed looks the declared id up in the
  * pointed-at map.
  */
-const notification = (
-  caller: Uint8Array,
-  requestId: Uint8Array,
-): SignetMiscEvent =>
+const notification = (caller: Uint8Array, requestId: Uint8Array): SignetMiscEvent =>
   notificationEventOf(
     requestId,
-    pureCircuits.constructSignBidirectionalEventNotificationV1(
-      { bytes: caller },
-      1n,
-      [0n, 0n, 0n, 0n],
-    ),
+    pureCircuits.constructSignBidirectionalEventNotificationV1({ bytes: caller }, 1n, [
+      0n,
+      0n,
+      0n,
+      0n,
+    ]),
   );
 
 /**
@@ -144,24 +137,21 @@ const stubSources = (
 ) => {
   return {
     eventSource: {
-      querySignetEvents: vi.fn(async (address: string) => {
+      querySignetEvents: vi.fn((address: string) => {
         expect(address).toBe(SIGNET_ADDRESS);
-        return events;
+        return Promise.resolve(events);
       }),
     },
     source: {
-      queryContractState: vi.fn(async (address: string) => {
+      queryContractState: vi.fn((address: string) => {
         const data = callers[address];
-        return data ? { data } : null;
+        return Promise.resolve(data ? { data } : null);
       }),
     },
   };
 };
 
-async function collect<T>(
-  iterable: AsyncIterable<T>,
-  count: number,
-): Promise<T[]> {
+async function collect<T>(iterable: AsyncIterable<T>, count: number): Promise<T[]> {
   const out: T[] = [];
   for await (const item of iterable) {
     out.push(item);
@@ -198,9 +188,7 @@ describe("SignetRequestFeed", () => {
       }),
     });
     const resolved = await feed.poll();
-    expect(resolved.map((r) => r.requestId)).toEqual([
-      requestIdHex(REQUEST_A_ID),
-    ]);
+    expect(resolved.map((r) => r.requestId)).toEqual([requestIdHex(REQUEST_A_ID)]);
   });
 
   it("processes callers in address order and one caller's notified requests in request-id order", async () => {
@@ -221,9 +209,7 @@ describe("SignetRequestFeed", () => {
       ),
     });
     const resolved = await feed.poll();
-    expect(
-      resolved.map((r) => [r.callerAddress, r.requestId]),
-    ).toEqual([
+    expect(resolved.map((r) => [r.callerAddress, r.requestId])).toEqual([
       [CALLER_A, requestIdHex(REQUEST_A_ID)],
       [CALLER_A, requestIdHex(REQUEST_B_ID)],
       [CALLER_B, requestIdHex(bytes(32, 0x99))],
@@ -232,10 +218,7 @@ describe("SignetRequestFeed", () => {
 
   it("queries one caller's state at most once per poll cycle", async () => {
     const sources = stubSources(
-      [
-        notification(CALLER_A_BYTES, REQUEST_A_ID),
-        notification(CALLER_A_BYTES, REQUEST_B_ID),
-      ],
+      [notification(CALLER_A_BYTES, REQUEST_A_ID), notification(CALLER_A_BYTES, REQUEST_B_ID)],
       { [CALLER_A]: callerStateWith(REQUEST_A_ID, REQUEST_B_ID) },
     );
     const feed = new SignetRequestFeed({
@@ -255,8 +238,7 @@ describe("SignetRequestFeed", () => {
       ]),
     });
     const resolved = await feed.poll();
-    expect(resolved).toHaveLength(1);
-    expect(resolved[0].callerAddress).toBe(CALLER_A);
+    expect(resolved.map((r) => r.callerAddress)).toEqual([CALLER_A]);
     // Nothing was marked for the stateless caller: were its state to appear
     // later, its request would still be served (forget() not required).
     const retry = new SignetRequestFeed({
@@ -280,9 +262,7 @@ describe("SignetRequestFeed", () => {
     expect(await feed.poll()).toHaveLength(0);
     callers[CALLER_A] = callerStateWith(REQUEST_A_ID);
     const resolved = await feed.poll();
-    expect(resolved.map((r) => r.requestId)).toEqual([
-      requestIdHex(REQUEST_A_ID),
-    ]);
+    expect(resolved.map((r) => r.requestId)).toEqual([requestIdHex(REQUEST_A_ID)]);
   });
 
   it("yields nothing for a notification pointing at a non-map field", async () => {
@@ -310,12 +290,10 @@ describe("SignetRequestFeed", () => {
         notification(CALLER_B_BYTES, REQUEST_B_ID),
       ]),
     });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       const resolved = await feed.poll();
-      expect(resolved.map((r) => r.requestId)).toEqual([
-        requestIdHex(REQUEST_B_ID),
-      ]);
+      expect(resolved.map((r) => r.requestId)).toEqual([requestIdHex(REQUEST_B_ID)]);
       expect(warn).toHaveBeenCalledOnce();
     } finally {
       warn.mockRestore();
@@ -362,9 +340,9 @@ describe("SignetRequestFeed", () => {
       ]),
     });
     const resolved = await feed.poll();
-    expect(
-      resolved.map((r) => [r.callerAddress, r.requestId]),
-    ).toEqual([[CALLER_A, requestIdHex(REQUEST_A_ID)]]);
+    expect(resolved.map((r) => [r.callerAddress, r.requestId])).toEqual([
+      [CALLER_A, requestIdHex(REQUEST_A_ID)],
+    ]);
   });
 
   it("applies the allow-list when set (0x/case-insensitive)", async () => {
@@ -395,9 +373,7 @@ describe("SignetRequestFeed", () => {
     const feed = new SignetRequestFeed({
       signetContractAddress: SIGNET_ADDRESS,
       eventSource: {
-        querySignetEvents: async () => {
-          throw new Error("indexer unreachable");
-        },
+        querySignetEvents: () => Promise.reject(new Error("indexer unreachable")),
       },
       source: stubSources([]).source,
     });

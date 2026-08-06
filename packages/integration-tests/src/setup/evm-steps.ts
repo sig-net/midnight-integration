@@ -13,10 +13,10 @@ import { requireEnv } from "../e2e-env.ts";
 import {
   assertLocalDevChain,
   deployEvmContract,
+  type EvmContractArtifact,
   evmRpcUrl,
   hasContractCode,
   topUpEth,
-  type EvmContractArtifact,
 } from "../local-evm.ts";
 import { logSkip } from "../output.ts";
 import { runCommand } from "../subprocess.ts";
@@ -61,8 +61,12 @@ export async function deployEvmTargetStep(env: NodeJS.ProcessEnv): Promise<void>
   const artifact = JSON.parse(readFileSync(TARGET_ARTIFACT_URL, "utf8")) as EvmContractArtifact;
   env.EVM_TARGET_CONTRACT_ADDRESS = await deployEvmContract(rpc, artifact);
   console.log(`deployed a fresh EVM_TARGET_CONTRACT_ADDRESS=${env.EVM_TARGET_CONTRACT_ADDRESS}`);
-  console.log(` ➜ the SignetEvmTarget Solidity contract on the local anvil: the real-EVM e2e's call target`);
-  console.log(` ➜ 💡 Set as EVM_TARGET_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
+  console.log(
+    ` ➜ the SignetEvmTarget Solidity contract on the local anvil: the real-EVM e2e's call target`,
+  );
+  console.log(
+    ` ➜ 💡 Set as EVM_TARGET_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`,
+  );
 }
 
 /**
@@ -84,6 +88,8 @@ export async function fundDerivedSenderStep(env: NodeJS.ProcessEnv): Promise<voi
     CALLER_PATH,
   );
   const balance = await topUpEth(rpc, derivedSender);
-  console.log(`derived caller EVM sender ${derivedSender} holds ${balance} wei`);
-  console.log(` ➜ the account the MPC signs from for the caller's requests; it pays the broadcast gas`);
+  console.log(`derived caller EVM sender ${derivedSender} holds ${String(balance)} wei`);
+  console.log(
+    ` ➜ the account the MPC signs from for the caller's requests; it pays the broadcast gas`,
+  );
 }

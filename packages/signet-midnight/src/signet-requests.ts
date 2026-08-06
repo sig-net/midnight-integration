@@ -20,11 +20,11 @@
 // flow) and this package's README ("Sign bidirectional flow").
 
 import {
+  type CompactType,
   CompactTypeBoolean,
   CompactTypeBytes,
   CompactTypeEnum,
   CompactTypeUnsignedInteger,
-  type CompactType,
 } from "@midnight-ntwrk/compact-runtime";
 
 import type { EvmType2TxParams } from "./signet-evtype2tx-requests.ts";
@@ -195,14 +195,13 @@ const CONTRACT_ADDRESS: CompactType<ContractAddress> = {
 export function compactStructDescriptor<T extends object>(fields: {
   readonly [K in keyof T]-?: CompactType<T[K]>;
 }): CompactType<T> {
-  const entries = Object.entries(fields) as unknown as ReadonlyArray<
-    [keyof T & string, CompactType<T[keyof T & string]>]
-  >;
+  const entries = Object.entries(fields) as unknown as readonly [
+    keyof T & string,
+    CompactType<T[keyof T & string]>,
+  ][];
   return {
-    alignment: () =>
-      entries.flatMap(([, type]) => type.alignment()),
-    toValue: (value) =>
-      entries.flatMap(([key, type]) => type.toValue(value[key])),
+    alignment: () => entries.flatMap(([, type]) => type.alignment()),
+    toValue: (value) => entries.flatMap(([key, type]) => type.toValue(value[key])),
     fromValue: (value) => {
       const result = {} as Record<keyof T & string, unknown>;
       for (const [key, type] of entries) {
@@ -269,8 +268,9 @@ export function signBidirectionalEventDescriptorWith<TxParams>(
  * what a contract's `ledger(state).signetRequestsIndex` provides. Structural,
  * so any contract exposing the index satisfies it.
  */
-export interface SignBidirectionalEventLedgerMap
-  extends Iterable<[RequestId, SignBidirectionalEvent]> {
+export interface SignBidirectionalEventLedgerMap extends Iterable<
+  [RequestId, SignBidirectionalEvent]
+> {
   /** @returns `true` when the index holds no requests. */
   isEmpty(): boolean;
   /** @returns Number of requests in the index. */
@@ -305,10 +305,7 @@ export type RequestIdHex = string & {
 };
 
 /** Plain-JS index parsed out of the ledger, keyed by hex request id. */
-export type SignBidirectionalEventIndex = Map<
-  RequestIdHex,
-  SignBidirectionalEvent
->;
+export type SignBidirectionalEventIndex = Map<RequestIdHex, SignBidirectionalEvent>;
 
 /**
  * Render bytes as a lowercase hex string, no `0x` prefix.
@@ -364,7 +361,7 @@ export function requestIdHex(requestId: RequestId): RequestIdHex {
  *
  * @param value - The candidate request id string.
  * @returns The branded, normalised request id hex.
- * @throws Error if the value is not 64 hex chars after normalisation.
+ * @throws {Error} If the value is not 64 hex chars after normalisation.
  */
 export function parseRequestIdHex(value: string): RequestIdHex {
   const hex = value.replace(/^0x/i, "").toLowerCase();

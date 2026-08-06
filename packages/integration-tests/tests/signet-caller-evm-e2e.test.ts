@@ -25,6 +25,8 @@
 // request-id resume vars) for one clean redeploy.
 
 import {
+  type AbiDecodedOutput,
+  type AbiSchema,
   calculateRequestId,
   calculateSignetAttestationDigest,
   deriveEvmAddress,
@@ -32,31 +34,37 @@ import {
   hexToBytes,
   parseSecp256k1PublicKey,
   requestIdBytes,
+  type RequestIdHex,
   requestIdHex,
+  type RespondBidirectionalEvent,
   serializeRespondOutput,
   signBidirectionalEventToSignedEvmTransaction,
-  stripHexPrefix,
   SIGNET_DEFAULT_KEY_VERSION,
-  type AbiDecodedOutput,
-  type AbiSchema,
-  type RequestIdHex,
-  type RespondBidirectionalEvent,
+  stripHexPrefix,
 } from "@sig-net/midnight";
-import { getAddress, getBytes, id as keccakId, toBeHex, type Transaction, type TransactionReceipt } from "ethers";
-import { afterAll, describe, expect, it } from "vitest";
 import {
+  getAddress,
+  getBytes,
+  id as keccakId,
+  toBeHex,
+  type Transaction,
+  type TransactionReceipt,
+} from "ethers";
+import { afterAll, describe, expect, it } from "vitest";
+
+import {
+  type CallerContext,
+  type CallerRequestMap,
   createCallerE2eSession,
   ensureMpcResponseKeyStored,
   readCallerRequestIds as readRequestIds,
-  type CallerContext,
-  type CallerRequestMap,
 } from "../src/caller-session.ts";
+import { CALLER_PATH } from "../src/constants.ts";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
 import { fetchFakenetResponse } from "../src/fakenet-responses.ts";
 import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
 import { broadcastSignedTx, evmRpcUrl, getEvmNonce } from "../src/local-evm.ts";
 import { banner, logSkip } from "../src/output.ts";
-import { CALLER_PATH } from "../src/constants.ts";
 import { pollSignetNotification } from "../src/signet-notifications.ts";
 
 const MINUTE = 60_000;
@@ -106,7 +114,12 @@ interface EvmMethodCase {
   /** Resume var: a request id to reuse instead of re-proving the submit. */
   resumeEnvVar: string;
   /** Drive the method's submit circuit. */
-  submit(context: CallerContext, evmNonce: bigint, to: Uint8Array, argWord: Uint8Array): Promise<unknown>;
+  submit(
+    context: CallerContext,
+    evmNonce: bigint,
+    to: Uint8Array,
+    argWord: Uint8Array,
+  ): Promise<unknown>;
   /** Drive the method's verify circuit. */
   verify(
     context: CallerContext,
@@ -143,7 +156,12 @@ const METHODS: EvmMethodCase[] = [
     packedWidth: 33,
     resumeEnvVar: "CALLER_EVM_REQUEST_ID_CHECKANDDOUBLE",
     submit: (context, evmNonce, to, argWord) =>
-      context.caller.callTx.submitCheckAndDoubleRequest(evmNonce, SIGNET_DEFAULT_KEY_VERSION, to, argWord),
+      context.caller.callTx.submitCheckAndDoubleRequest(
+        evmNonce,
+        SIGNET_DEFAULT_KEY_VERSION,
+        to,
+        argWord,
+      ),
     verify: (context, requestId, event, serializedOutput) =>
       context.caller.callTx.verifyCheckAndDoubleResponse(requestId, event, serializedOutput),
   },
@@ -159,7 +177,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
   // The derived sender is shared by every method (all submit circuits fix
   // the same "caller-path"), resolved lazily once env is populated.
   const derivedSender = (): string =>
-    deriveEvmAddress(requireEnv("MPC_SECP256K1_PUBKEY"), requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"), CALLER_PATH);
+    deriveEvmAddress(
+      requireEnv("MPC_SECP256K1_PUBKEY"),
+      requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
+      CALLER_PATH,
+    );
 
   it(
     "initialise [signet-caller contract method call]: the MPC response key is stored (idempotent)",
@@ -169,7 +191,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
       // not guarantee the base file ran first.
       const context = await session.callerContext();
       const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
-      await ensureMpcResponseKeyStored(context, mpcResponseKey);
+      const outcome = await ensureMpcResponseKeyStored(context, mpcResponseKey);
+      expect(outcome).toMatch(/^(stored|already-stored)$/);
     },
     15 * MINUTE,
   );
@@ -177,7 +200,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
   for (const method of METHODS) {
     // Per-method state threaded through the ordered stages below.
     let requestId: RequestIdHex;
-    let signedTx: Transaction;
+    let signedTx: Transaction | undefined;
     let receipt: TransactionReceipt;
     let respondBytes: Uint8Array;
     let attestedEvent: RespondBidirectionalEvent;
@@ -222,23 +245,33 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         const deadline = Date.now() + MINUTE;
         let fresh: RequestIdHex[] = [];
         while (fresh.length === 0 && Date.now() < deadline) {
-          fresh = [...(await readRequestIds(context, method.map))].filter((entry) => !before.has(entry));
+          fresh = [...(await readRequestIds(context, method.map))].filter(
+            (entry) => !before.has(entry),
+          );
           if (fresh.length === 0) {
             await new Promise((resolve) => setTimeout(resolve, 1000));
           }
         }
         expect(fresh, "the submit must add exactly one request to its map").toHaveLength(1);
-        requestId = fresh[0]!;
+        const [firstFresh] = fresh;
+        if (firstFresh === undefined) {
+          throw new Error("the length assertion above proves this is unreachable");
+        }
+        requestId = firstFresh;
 
         // MPC-convention verification: fetch the record the way the response
         // server does and pin the caller-supplied fields, the in-circuit
         // selector literal (against its ethers derivation), the schema
         // literals, and the request-id TS twin.
-        const record = await session.responseReader(method.requestsIndexField).getSignatureRequest(requestId);
+        const record = await session
+          .responseReader(method.requestsIndexField)
+          .getSignatureRequest(requestId);
         expect(record.txParams.nonce).toBe(evmNonce);
         expect(record.txParams.to).toEqual(to);
         expect(record.txParams.calldata.is_some).toBe(true);
-        expect(record.txParams.calldata.value.selector).toEqual(getBytes(keccakId(method.signature).slice(0, 10)));
+        expect(record.txParams.calldata.value.selector).toEqual(
+          getBytes(keccakId(method.signature).slice(0, 10)),
+        );
         expect(record.txParams.calldata.value.words[0]).toEqual(argWord);
         const schemaJson = new TextDecoder().decode(record.respondSerializationSchema);
         expect(JSON.parse(schemaJson)).toEqual(method.schema);
@@ -246,18 +279,18 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         expect(requestId).toBe(requestIdHex(calculateRequestId(record)));
 
         banner([
-          `${method.name} request recorded on the caller ledger (map field ${method.requestsIndexField}):`,
+          `${method.name} request recorded on the caller ledger (map field ${String(method.requestsIndexField)}):`,
           "",
           `  request id: ${requestId}`,
           `  target:     ${targetAddress}`,
-          `  argument:   ${method.arg}`,
+          `  argument:   ${String(method.arg)}`,
         ]);
       },
       15 * MINUTE,
     );
 
     it(
-      `${method.name} notification: emitted on the signet contract naming field ${method.requestsIndexField}`,
+      `${method.name} notification: emitted on the signet contract naming field ${String(method.requestsIndexField)}`,
       async () => {
         expect(requestId).toBeDefined();
         // The notification declares the stored request's id: id + this
@@ -267,10 +300,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           callerAddress: requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
           requestsPath: [method.requestsIndexField],
           requestId,
-          description: `declaring request ${requestId} for the caller at path [${method.requestsIndexField}]`,
+          description: `declaring request ${requestId} for the caller at path [${String(method.requestsIndexField)}]`,
         });
         expect(decoded.version).toBe(1);
-        expect(decoded.callerAddress).toBe(stripHexPrefix(requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS")).toLowerCase());
+        expect(decoded.callerAddress).toBe(
+          stripHexPrefix(requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS")).toLowerCase(),
+        );
         // The caller is flat, so its field number is a depth-1 path.
         expect(decoded.requestsPath).toEqual([method.requestsIndexField]);
       },
@@ -291,22 +326,33 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         const warned = new Set<bigint>();
         const deadline = Date.now() + 3 * MINUTE;
         while (Date.now() < deadline) {
-          const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(requestId, expectedSigner);
+          const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(
+            requestId,
+            expectedSigner,
+          );
           for (const verdict of verdicts) {
             if (verdict.rejectedReason !== undefined && !warned.has(verdict.index)) {
               warned.add(verdict.index);
-              console.warn(`ignoring response post ${verdict.index}: ${verdict.rejectedReason}`);
+              console.warn(
+                `ignoring response post ${String(verdict.index)}: ${verdict.rejectedReason}`,
+              );
             }
           }
           if (verified !== undefined) {
             const request = await reader.getSignatureRequest(requestId);
             signedTx = signBidirectionalEventToSignedEvmTransaction(request, verified);
-            expect(signedTx.from).toBe(getAddress(expectedSigner));
-            return;
+            break;
           }
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
-        throw new Error(`timed out waiting for a valid signature response to request ${requestId}`);
+        // Asserted after the loop: an expect on the success path alone would
+        // pass vacuously on a timeout.
+        if (signedTx === undefined) {
+          throw new Error(
+            `timed out waiting for a valid signature response to request ${requestId}`,
+          );
+        }
+        expect(signedTx.from).toBe(getAddress(expectedSigner));
       },
       5 * MINUTE,
     );
@@ -323,14 +369,16 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           logSkip(`${method.name} broadcast`, `request ${requestId} already consumed`);
           return;
         }
-        expect(signedTx).toBeDefined();
+        if (signedTx === undefined) {
+          throw new Error(`no signed transaction for request ${requestId}`);
+        }
         receipt = await broadcastSignedTx(evmRpcUrl(env), signedTx);
         expect(receipt.status).toBe(1);
         banner([
           `${method.name} transaction mined:`,
           "",
-          `  tx hash: ${signedTx.hash}`,
-          `  block:   ${receipt.blockNumber}`,
+          `  tx hash: ${String(signedTx.hash)}`,
+          `  block:   ${String(receipt.blockNumber)}`,
         ]);
       },
       2 * MINUTE,
@@ -352,7 +400,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
             await new Promise((resolve) => setTimeout(resolve, 2000));
           }
         }
-        expect(events.length, "the fakenet must post a respond-bidirectional attestation for this request").toBeGreaterThan(0);
+        expect(
+          events.length,
+          "the fakenet must post a respond-bidirectional attestation for this request",
+        ).toBeGreaterThan(0);
       },
       5 * MINUTE,
     );
@@ -374,14 +425,21 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         // over the bytes recomputed from it.
         const cached = await fetchFakenetResponse(requestId);
         expect(cached.success, "the fakenet must report a succeeded execution").toBe(true);
-        expect(cached.output, "a succeeded execution must carry its raw output").toBeTruthy();
-        const callResult = cached.output!;
+        const callResult = cached.output;
+        if (callResult === null) {
+          throw new Error("a succeeded execution must carry its raw output");
+        }
 
         // The two abi-serde conversions under test, on live protocol data.
         const decoded = deserializeEvmOutput(method.schema, callResult);
-        expect(decoded, "the EVM output must decode to the expected values").toEqual(method.expectedDecoded);
+        expect(decoded, "the EVM output must decode to the expected values").toEqual(
+          method.expectedDecoded,
+        );
         respondBytes = serializeRespondOutput(method.schema, decoded);
-        expect(respondBytes, "the packed respond payload must have the schema's exact width").toHaveLength(method.packedWidth);
+        expect(
+          respondBytes,
+          "the packed respond payload must have the schema's exact width",
+        ).toHaveLength(method.packedWidth);
 
         // The signature seals the round trip: the post attests a digest over
         // respond bytes only the fakenet's side produced, so it verifies
@@ -407,15 +465,21 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
             await new Promise((resolve) => setTimeout(resolve, 2000));
           }
         }
-        expect(attested, "a posted attestation must verify over the recomputed respond bytes").toBeDefined();
-        attestedEvent = attested!;
+        expect(
+          attested,
+          "a posted attestation must verify over the recomputed respond bytes",
+        ).toBeDefined();
+        if (attested === undefined) {
+          throw new Error("the toBeDefined assertion above proves this is unreachable");
+        }
+        attestedEvent = attested;
 
         banner([
           `${method.name} attestation verifies over the recomputed respond bytes:`,
           "",
           `  raw output: ${callResult} (from the fakenet /responses API)`,
           `  decoded:    ${JSON.stringify(decoded, (_, v: unknown) => (typeof v === "bigint" ? v.toString() : v))}`,
-          `  payload:    0x${Buffer.from(respondBytes).toString("hex")} (${respondBytes.length} bytes)`,
+          `  payload:    0x${Buffer.from(respondBytes).toString("hex")} (${String(respondBytes.length)} bytes)`,
           `  digest:     0x${Buffer.from(calculateSignetAttestationDigest(requestIdBytes(requestId), respondBytes)).toString("hex")}`,
           "",
           "deserializeEvmOutput and serializeRespondOutput ran on BOTH sides",
@@ -435,7 +499,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         // the request (checked before the attestedEvent assertion, so a
         // resumed-and-consumed request lands here instead of failing).
         if (!(await readRequestIds(context, method.map)).has(requestId)) {
-          logSkip(`${method.name} verify`, `request ${requestId} already verified (not on the ledger)`);
+          logSkip(
+            `${method.name} verify`,
+            `request ${requestId} already verified (not on the ledger)`,
+          );
           return;
         }
         expect(attestedEvent).toBeDefined();
@@ -456,9 +523,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         }
         expect(stillPresent, "the verify must consume the request from its map").toBe(false);
 
-        banner([
-          `${method.name} request ${requestId} verified in-circuit and consumed.`,
-        ]);
+        banner([`${method.name} request ${requestId} verified in-circuit and consumed.`]);
       },
       15 * MINUTE,
     );

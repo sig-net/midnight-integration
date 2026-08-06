@@ -9,25 +9,24 @@ import { findDeployedContract, type FoundContract } from "@midnight-ntwrk/midnig
 // takes it explicitly). The context builder sets it once per session.
 import { setNetworkId } from "@midnight-ntwrk/midnight-js/network-id";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
-
 import {
   buildCallerProviders,
-  callerCompiledContract,
-  createCallerPrivateState,
-  ledger as callerContractLedger,
   CALLER_PRIVATE_STATE_ID,
+  callerCompiledContract,
   type CallerPrivateState,
   type CallerProviders,
   type Contract as CallerContract,
+  createCallerPrivateState,
+  ledger as callerContractLedger,
 } from "@midnight-protocol/test-caller-contract";
 import {
   hexToBytes,
-  signetEventSourceFromPublicDataProvider,
-  stripHexPrefix,
-  toSignBidirectionalEventIndex,
-  SignetRequestResponseReader,
   type RequestIdHex,
   type Secp256k1Point,
+  signetEventSourceFromPublicDataProvider,
+  SignetRequestResponseReader,
+  stripHexPrefix,
+  toSignBidirectionalEventIndex,
 } from "@sig-net/midnight";
 import {
   deriveAccountKeys,
@@ -156,7 +155,7 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
     },
 
     async stop(): Promise<void> {
-      await sharedWallet?.facade.stop().catch(() => { });
+      await sharedWallet?.facade.stop().catch(() => undefined);
     },
   };
 }
@@ -177,17 +176,21 @@ export type CallerRequestMap = "signBidirectionalEventMap" | "signBidirectionalE
  * @param context - The session's caller context.
  * @param map - Which per-width map to read (default: the bool-schema map).
  * @returns The set of request ids currently in that map.
- * @throws Error when the contract has no state on-chain.
+ * @throws {Error} When the contract has no state on-chain.
  */
 export async function readCallerRequestIds(
   context: CallerContext,
   map: CallerRequestMap = "signBidirectionalEventMap",
 ): Promise<Set<RequestIdHex>> {
-  const contractState = await context.providers.publicDataProvider.queryContractState(context.contractAddress);
+  const contractState = await context.providers.publicDataProvider.queryContractState(
+    context.contractAddress,
+  );
   if (!contractState) {
     throw new Error(`no contract state found at ${context.contractAddress}`);
   }
-  return new Set(toSignBidirectionalEventIndex(callerContractLedger(contractState.data)[map]).keys());
+  return new Set(
+    toSignBidirectionalEventIndex(callerContractLedger(contractState.data)[map]).keys(),
+  );
 }
 
 /**
@@ -207,7 +210,9 @@ export async function ensureMpcResponseKeyStored(
   mpcResponseKey: Secp256k1Point,
 ): Promise<"stored" | "already-stored"> {
   const readKeyState = async () => {
-    const state = await context.providers.publicDataProvider.queryContractState(context.contractAddress);
+    const state = await context.providers.publicDataProvider.queryContractState(
+      context.contractAddress,
+    );
     if (!state) {
       throw new Error(`no contract state found at ${context.contractAddress}`);
     }
@@ -217,7 +222,9 @@ export async function ensureMpcResponseKeyStored(
 
   const before = await readKeyState();
   if (before.initialised !== 0n) {
-    expect(before.storedKey, "the stored key must match the derived MPC_RESPONSE_KEY").toEqual(mpcResponseKey);
+    expect(before.storedKey, "the stored key must match the derived MPC_RESPONSE_KEY").toEqual(
+      mpcResponseKey,
+    );
     logSkip("initialise", "the MPC response key is already stored (rerun against a kept caller)");
     return "already-stored";
   }
@@ -232,6 +239,8 @@ export async function ensureMpcResponseKeyStored(
     current = await readKeyState();
   }
   expect(current.initialised, "initialise must flip the sentinel").toBe(1n);
-  expect(current.storedKey, "initialise must store MPC_RESPONSE_KEY verbatim").toEqual(mpcResponseKey);
+  expect(current.storedKey, "initialise must store MPC_RESPONSE_KEY verbatim").toEqual(
+    mpcResponseKey,
+  );
   return "stored";
 }

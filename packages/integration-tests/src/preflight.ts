@@ -14,7 +14,7 @@ const execFileAsync = promisify(execFile);
  *
  * @param name - Human-readable service name for the error message.
  * @param url - The endpoint to probe.
- * @throws If the request cannot reach the service at all, with a hint to
+ * @throws {Error} If the request cannot reach the service at all, with a hint to
  *   start the docker stack.
  */
 export async function assertHttpReachable(name: string, url: string): Promise<void> {
@@ -33,12 +33,12 @@ export async function assertHttpReachable(name: string, url: string): Promise<vo
  *
  * @param command - The executable name (e.g. `compact`).
  * @param args - Arguments for a cheap invocation (e.g. `["--version"]`).
- * @throws If the command is missing or exits non-zero, with install hint.
+ * @throws {Error} If the command is missing or exits non-zero, with install hint.
  */
 export async function assertCommandAvailable(command: string, args: string[]): Promise<void> {
   try {
     const { stdout } = await execFileAsync(command, args, { timeout: 30_000 });
-    console.log(`${command} ${args.join(" ")}: ${stdout.trim().split("\n")[0]}`);
+    console.log(`${command} ${args.join(" ")}: ${String(stdout.trim().split("\n")[0])}`);
   } catch (error) {
     throw new Error(
       `\`${command} ${args.join(" ")}\` failed — is the ${command} toolchain installed and on PATH? (${String(error)})`,

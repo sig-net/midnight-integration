@@ -26,7 +26,11 @@ export interface FakenetResponse {
   observedAt: string;
 }
 
-/** Base URL of the fakenet's helper API (`RESPONSES_API_PORT`, default 3040). */
+/**
+ * Base URL of the fakenet's helper API (`RESPONSES_API_PORT`, default 3040).
+ *
+ * @returns The configured URL, or the local default.
+ */
 export const fakenetResponsesUrl = (): string =>
   process.env.FAKENET_RESPONSES_URL ?? "http://localhost:3040";
 
@@ -41,7 +45,7 @@ export const fakenetResponsesUrl = (): string =>
  * @param requestId - The request id, hex with or without 0x prefix.
  * @param timeoutMs - How long to keep retrying 404s / network errors before failing.
  * @returns The cached response.
- * @throws Error when the API stays unreachable or 404s past the deadline, or
+ * @throws {Error} When the API stays unreachable or 404s past the deadline, or
  *   immediately on any non-404 error status.
  */
 export async function fetchFakenetResponse(
@@ -64,7 +68,7 @@ export async function fetchFakenetResponse(
       }
       if (response.status !== 404) {
         throw new Error(
-          `fakenet response for ${requestId} failed with HTTP ${response.status}: ` +
+          `fakenet response for ${requestId} failed with HTTP ${String(response.status)}: ` +
             `${await response.text()} at ${url}`,
         );
       }
@@ -72,5 +76,7 @@ export async function fetchFakenetResponse(
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   } while (Date.now() < deadline);
-  throw new Error(`no fakenet response for ${requestId} within ${timeoutMs}ms (${lastFailure}) at ${url}`);
+  throw new Error(
+    `no fakenet response for ${requestId} within ${String(timeoutMs)}ms (${lastFailure}) at ${url}`,
+  );
 }

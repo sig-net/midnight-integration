@@ -12,8 +12,7 @@ export type SignetContractPrivateState = Record<string, never>;
  *
  * @returns A fresh, empty private state.
  */
-export const createSignetContractPrivateState =
-  (): SignetContractPrivateState => ({});
+export const createSignetContractPrivateState = (): SignetContractPrivateState => ({});
 
 /**
  * Witness implementations, typed against the generated `Witnesses` shape:

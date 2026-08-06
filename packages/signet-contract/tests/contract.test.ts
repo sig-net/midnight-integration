@@ -9,14 +9,11 @@
 // TS byte-plumbing twins: it runs against REAL emitted events, so an offset
 // or field-order drift on either side fails here.
 
-import { describe, expect, it } from "vitest";
-
 import {
   createCircuitContext,
   createConstructorContext,
   sampleContractAddress,
 } from "@midnight-ntwrk/compact-runtime";
-
 import {
   bytesToHex,
   decodeRespondBidirectionalEventPayload,
@@ -24,28 +21,48 @@ import {
   decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
   decodeSignetLogEvents,
-  SignetEventName,
-  SIGNET_EVENT_PAYLOAD_LENGTH,
   pureCircuits as signetCircuits,
-  type SignatureRespondedEvent,
   type RespondBidirectionalEvent,
+  type SignatureRespondedEvent,
+  SIGNET_EVENT_PAYLOAD_LENGTH,
+  SignetEventName,
   type SignetMiscEvent,
 } from "@sig-net/midnight";
+import { describe, expect, it } from "vitest";
 
 import {
   Contract,
   createSignetContractPrivateState,
-  witnesses,
   type SignetContractPrivateState,
+  witnesses,
 } from "../src/index.ts";
+
+/**
+ * Narrow an indexed read into a decoded-event array. The `toHaveLength`
+ * assertion at each call site proves the element is there; the index
+ * signature does not.
+ *
+ * @param events - The decoded signet events.
+ * @param index - Position to read.
+ * @returns The event at that position.
+ * @throws If no event sits at that index.
+ */
+function eventAt(events: readonly SignetMiscEvent[], index = 0): SignetMiscEvent {
+  const event = events[index];
+  if (event === undefined) {
+    throw new Error(
+      `expected a signet event at index ${String(index)}, got ${String(events.length)} events`,
+    );
+  }
+  return event;
+}
 
 // ---- Fixtures ----
 
 // Dummy coin public key (32-byte hex). Required by the API, unused here.
 const CPK = "0".repeat(64);
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 // Request ids the posts below answer, and signature response records.
 // SYNTHETIC signatures, deliberately not verifiable: the contract must
@@ -55,20 +72,36 @@ const bytes = (length: number, fill: number) =>
 const REQUEST_A = bytes(32, 0xaa);
 const REQUEST_B = bytes(32, 0xbb);
 const SIG_1: SignatureRespondedEvent = {
-  signature: { bigR: { x: bytes(32, 0x01), y: bytes(32, 0x02) }, s: bytes(32, 0x03), recoveryId: 0n },
+  signature: {
+    bigR: { x: bytes(32, 0x01), y: bytes(32, 0x02) },
+    s: bytes(32, 0x03),
+    recoveryId: 0n,
+  },
 };
 const SIG_2: SignatureRespondedEvent = {
-  signature: { bigR: { x: bytes(32, 0x04), y: bytes(32, 0x05) }, s: bytes(32, 0x06), recoveryId: 1n },
+  signature: {
+    bigR: { x: bytes(32, 0x04), y: bytes(32, 0x05) },
+    s: bytes(32, 0x06),
+    recoveryId: 1n,
+  },
 };
 
 // Respond-bidirectional records: SYNTHETIC signatures, deliberately not
 // verifiable. The contract must emit them anyway (verification is the
 // reader's job).
 const RESPOND_1: RespondBidirectionalEvent = {
-  signature: { bigR: { x: bytes(32, 0x07), y: bytes(32, 0x08) }, s: bytes(32, 0x09), recoveryId: 0n },
+  signature: {
+    bigR: { x: bytes(32, 0x07), y: bytes(32, 0x08) },
+    s: bytes(32, 0x09),
+    recoveryId: 0n,
+  },
 };
 const RESPOND_2: RespondBidirectionalEvent = {
-  signature: { bigR: { x: bytes(32, 0x0a), y: bytes(32, 0x0b) }, s: bytes(32, 0x0c), recoveryId: 1n },
+  signature: {
+    bigR: { x: bytes(32, 0x0a), y: bytes(32, 0x0b) },
+    s: bytes(32, 0x0c),
+    recoveryId: 1n,
+  },
 };
 
 // A caller contract address as the packer consumes it (raw 32 bytes). The
@@ -79,10 +112,9 @@ const NOTIFYING_CALLER = { bytes: bytes(32, 0xc1) };
 
 const deployContract = async (circuitId: string) => {
   const contract = new Contract<SignetContractPrivateState>(witnesses);
-  const { currentContractState, currentPrivateState } =
-    await contract.initialState(
-      createConstructorContext(createSignetContractPrivateState(), CPK),
-    );
+  const { currentContractState, currentPrivateState } = await contract.initialState(
+    createConstructorContext(createSignetContractPrivateState(), CPK),
+  );
   const contractAddress = sampleContractAddress();
   const ctx = createCircuitContext(
     circuitId,
@@ -97,9 +129,7 @@ const deployContract = async (circuitId: string) => {
 /** All bytes of `payload` from `offset` on must be the emit literal's zero fill. */
 const expectZeroPadding = (payload: Uint8Array, offset: number) => {
   expect(payload).toHaveLength(SIGNET_EVENT_PAYLOAD_LENGTH);
-  expect(payload.slice(offset)).toEqual(
-    new Uint8Array(SIGNET_EVENT_PAYLOAD_LENGTH - offset),
-  );
+  expect(payload.slice(offset)).toEqual(new Uint8Array(SIGNET_EVENT_PAYLOAD_LENGTH - offset));
 };
 
 // ---- Tests ----
@@ -107,16 +137,15 @@ const expectZeroPadding = (payload: Uint8Array, offset: number) => {
 describe("signBidirectional", () => {
   // These callers are flat, so a field number is a depth-1 path [field].
   const notification = (requestsField: bigint) =>
-    signetCircuits.constructSignBidirectionalEventNotificationV1(
-      NOTIFYING_CALLER,
-      1n,
-      [requestsField, 0n, 0n, 0n],
-    );
+    signetCircuits.constructSignBidirectionalEventNotificationV1(NOTIFYING_CALLER, 1n, [
+      requestsField,
+      0n,
+      0n,
+      0n,
+    ]);
 
   it("emits the notification as a SignBidirectionalEvent event (decode lockstep)", async () => {
-    const { contract, ctx, contractAddress } = await deployContract(
-      "signBidirectional",
-    );
+    const { contract, ctx, contractAddress } = await deployContract("signBidirectional");
 
     const { result, context } = await contract.circuits.signBidirectional(
       ctx,
@@ -128,7 +157,7 @@ describe("signBidirectional", () => {
     // The one emitted event, tagged with THIS contract's address.
     const events = decodeSignetLogEvents(context.events, contractAddress);
     expect(events).toHaveLength(1);
-    const [event] = events;
+    const event = eventAt(events);
     expect(event.name).toBe(SignetEventName.SignBidirectionalEvent);
 
     // Emit literal: version (1) ++ requestId (32) ++ notification
@@ -150,15 +179,9 @@ describe("signBidirectional", () => {
   });
 
   it("emits a repeat notify as its own event, nothing replaced", async () => {
-    const { contract, ctx, contractAddress } = await deployContract(
-      "signBidirectional",
-    );
+    const { contract, ctx, contractAddress } = await deployContract("signBidirectional");
 
-    const first = await contract.circuits.signBidirectional(
-      ctx,
-      REQUEST_A,
-      notification(4n),
-    );
+    const first = await contract.circuits.signBidirectional(ctx, REQUEST_A, notification(4n));
     const second = await contract.circuits.signBidirectional(
       first.context,
       REQUEST_B, // its own id under its own event
@@ -170,10 +193,7 @@ describe("signBidirectional", () => {
     expect(
       events.map((event) => {
         const post = decodeSignBidirectionalEventNotificationPayload(event.payload);
-        return [
-          post.requestId,
-          decodeSignBidirectionalNotification(post.event).requestsPath,
-        ];
+        return [post.requestId, decodeSignBidirectionalNotification(post.event).requestsPath];
       }),
     ).toEqual([
       [REQUEST_A, [4]],
@@ -247,36 +267,31 @@ const POST_CASES: PostCase[] = [
 ];
 
 describe("respond", () => {
-  it.each(POST_CASES)(
-    "emits $name",
-    async ({ posts, expectedPosts }) => {
-      const { contract, ctx, contractAddress } = await deployContract("respond");
+  it.each(POST_CASES)("emits $name", async ({ posts, expectedPosts }) => {
+    const { contract, ctx, contractAddress } = await deployContract("respond");
 
-      let finalCtx = ctx;
-      for (const { requestId, signature } of posts) {
-        finalCtx = (
-          await contract.circuits.respond(finalCtx, requestId, signature)
-        ).context;
-      }
+    let finalCtx = ctx;
+    for (const { requestId, signature } of posts) {
+      finalCtx = (await contract.circuits.respond(finalCtx, requestId, signature)).context;
+    }
 
-      // The event log holds EXACTLY the posts, in order, each decoding back
-      // to the request id and signature it carried (the emit↔decode
-      // lockstep, on REAL emitted events).
-      const events = decodeSignetLogEvents(finalCtx.events, contractAddress);
-      expect(events.map((event) => event.name)).toEqual(
-        expectedPosts.map(() => SignetEventName.SignatureRespondedEvent),
-      );
-      expect(
-        events.map((event) => decodeSignatureRespondedEventPayload(event.payload)),
-      ).toEqual(expectedPosts);
-    },
-  );
+    // The event log holds EXACTLY the posts, in order, each decoding back
+    // to the request id and signature it carried (the emit↔decode
+    // lockstep, on REAL emitted events).
+    const events = decodeSignetLogEvents(finalCtx.events, contractAddress);
+    expect(events.map((event) => event.name)).toEqual(
+      expectedPosts.map(() => SignetEventName.SignatureRespondedEvent),
+    );
+    expect(events.map((event) => decodeSignatureRespondedEventPayload(event.payload))).toEqual(
+      expectedPosts,
+    );
+  });
 
   it("packs the emit literal as requestId ++ bigR.x ++ bigR.y ++ s ++ recoveryId ++ zeros", async () => {
     const { contract, ctx, contractAddress } = await deployContract("respond");
     const { context } = await contract.circuits.respond(ctx, REQUEST_A, SIG_2);
 
-    const [event] = decodeSignetLogEvents(context.events, contractAddress);
+    const event = eventAt(decodeSignetLogEvents(context.events, contractAddress));
     expect(event.payload.slice(0, 32)).toEqual(REQUEST_A);
     expect(event.payload.slice(32, 64)).toEqual(SIG_2.signature.bigR.x);
     expect(event.payload.slice(64, 96)).toEqual(SIG_2.signature.bigR.y);
@@ -288,38 +303,26 @@ describe("respond", () => {
 
 describe("respondBidirectional", () => {
   it("emits a post as a RespondBidirectionalEvent event, UNVERIFIED by design", async () => {
-    const { contract, ctx, contractAddress } = await deployContract(
-      "respondBidirectional",
-    );
+    const { contract, ctx, contractAddress } = await deployContract("respondBidirectional");
 
-    const { context } = await contract.circuits.respondBidirectional(
-      ctx,
-      REQUEST_A,
-      RESPOND_1,
-    );
+    const { context } = await contract.circuits.respondBidirectional(ctx, REQUEST_A, RESPOND_1);
 
     const events = decodeSignetLogEvents(context.events, contractAddress);
     expect(events).toHaveLength(1);
-    expect(events[0].name).toBe(SignetEventName.RespondBidirectionalEvent);
+    expect(eventAt(events).name).toBe(SignetEventName.RespondBidirectionalEvent);
     // The declared request id and the synthetic (unverifiable) signature
     // landed verbatim: the contract emits, the reader verifies.
-    expect(decodeRespondBidirectionalEventPayload(events[0].payload)).toEqual({
+    expect(decodeRespondBidirectionalEventPayload(eventAt(events).payload)).toEqual({
       requestId: REQUEST_A,
       event: RESPOND_1,
     });
-    expectZeroPadding(events[0].payload, 129);
+    expectZeroPadding(eventAt(events).payload, 129);
   });
 
   it("emits a second post for the same request as its own event, nothing replaced", async () => {
-    const { contract, ctx, contractAddress } = await deployContract(
-      "respondBidirectional",
-    );
+    const { contract, ctx, contractAddress } = await deployContract("respondBidirectional");
 
-    const first = await contract.circuits.respondBidirectional(
-      ctx,
-      REQUEST_A,
-      RESPOND_1,
-    );
+    const first = await contract.circuits.respondBidirectional(ctx, REQUEST_A, RESPOND_1);
     const second = await contract.circuits.respondBidirectional(
       first.context,
       REQUEST_A,
@@ -327,9 +330,7 @@ describe("respondBidirectional", () => {
     );
 
     const events = decodeSignetLogEvents(second.context.events, contractAddress);
-    expect(
-      events.map((event) => decodeRespondBidirectionalEventPayload(event.payload)),
-    ).toEqual([
+    expect(events.map((event) => decodeRespondBidirectionalEventPayload(event.payload))).toEqual([
       { requestId: REQUEST_A, event: RESPOND_1 },
       { requestId: REQUEST_A, event: RESPOND_2 },
     ]);
@@ -343,11 +344,12 @@ describe("respondBidirectional", () => {
     const afterNotify = await contract.circuits.signBidirectional(
       afterRespond.context,
       REQUEST_A,
-      signetCircuits.constructSignBidirectionalEventNotificationV1(
-        NOTIFYING_CALLER,
-        1n,
-        [4n, 0n, 0n, 0n],
-      ),
+      signetCircuits.constructSignBidirectionalEventNotificationV1(NOTIFYING_CALLER, 1n, [
+        4n,
+        0n,
+        0n,
+        0n,
+      ]),
     );
     const { context } = await contract.circuits.respondBidirectional(
       afterNotify.context,

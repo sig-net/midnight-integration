@@ -15,12 +15,12 @@ import { isLocalStandaloneNetwork } from "./network-id.ts";
 import {
   deriveAccountKeys,
   deriveAddresses,
+  type FacadeState,
   registerNightForDustGeneration,
   transferNight,
   waitForSpendableDust,
-  withSyncedWalletFacade,
-  type FacadeState,
   type WalletAddresses,
+  withSyncedWalletFacade,
 } from "./wallet.ts";
 
 /** A wallet's synced funding snapshot: its addresses and NIGHT/DUST balances (base units). */
@@ -33,7 +33,12 @@ export interface AccountFunding {
   readonly dust: bigint;
 }
 
-/** Sum a wallet's unshielded NIGHT across its UTXOs, in base units. */
+/**
+ * Sum a wallet's unshielded NIGHT across its UTXOs, in base units.
+ *
+ * @param state - The synced wallet facade state to total.
+ * @returns The wallet's total unshielded NIGHT in base units.
+ */
 function totalNight(state: FacadeState): bigint {
   return Object.values(state.unshielded.balances).reduce((sum, value) => sum + value, 0n);
 }
@@ -57,17 +62,27 @@ export function deriveWalletAddresses(seed: string, config: MidnightNodeConfig):
  * @param seed - The wallet seed (hex or mnemonic).
  * @returns The synced {@link AccountFunding}.
  */
-export async function readAccountFunding(config: MidnightNodeConfig, seed: string): Promise<AccountFunding> {
+export async function readAccountFunding(
+  config: MidnightNodeConfig,
+  seed: string,
+): Promise<AccountFunding> {
   const keys = deriveAccountKeys(seed, config.networkId);
   const addresses = deriveAddresses(keys, config.networkId);
-  return withSyncedWalletFacade(keys, config, async (_facade, state) => ({
-    addresses,
-    night: totalNight(state),
-    dust: state.dust.balance(new Date()),
-  }));
+  return withSyncedWalletFacade(keys, config, (_facade, state) =>
+    Promise.resolve({
+      addresses,
+      night: totalNight(state),
+      dust: state.dust.balance(new Date()),
+    }),
+  );
 }
 
-/** A wallet is fee-ready when it holds NIGHT and that NIGHT has generated spendable dust. */
+/**
+ * A wallet is fee-ready when it holds NIGHT and that NIGHT has generated spendable dust.
+ *
+ * @param funding - The wallet's measured funding.
+ * @returns Whether the wallet can pay fees right now.
+ */
 export function isFeeReady(funding: AccountFunding): boolean {
   return funding.night > 0n && funding.dust > 0n;
 }
@@ -78,6 +93,10 @@ export function isFeeReady(funding: AccountFunding): boolean {
  * setup pipeline can STOP with the exact address and faucet URL to act on.
  */
 export class RootUnfundedError extends Error {
+  /**
+   * @param nightAddress - The NIGHT receive address that needs funding.
+   * @param faucetUrl - The network's faucet, when one is known.
+   */
   constructor(
     readonly nightAddress: string,
     readonly faucetUrl: string | undefined,
@@ -115,7 +134,7 @@ const GENESIS_INDEX_TIMEOUT_MS = 120_000;
  * @param rootSeed - The root wallet seed.
  * @param faucetUrl - The network's faucet URL for the underfunded message.
  * @returns The root's fee-ready funding snapshot.
- * @throws {@link RootUnfundedError} if root holds no NIGHT; or if no dust
+ * @throws {RootUnfundedError} If root holds no NIGHT, or if no dust
  *   appears in time after registration.
  */
 export async function assertRootFunded(
@@ -157,7 +176,7 @@ export async function assertRootFunded(
  * @param childSeed - The child wallet's seed.
  * @param amount - NIGHT to transfer when the child holds none, in base units.
  * @returns The child's post-funding snapshot.
- * @throws If root cannot cover the transfer, or dust never appears in time.
+ * @throws {Error} If root cannot cover the transfer, or dust never appears in time.
  */
 export async function fundChildFromRoot(
   config: MidnightNodeConfig,
@@ -169,11 +188,20 @@ export async function fundChildFromRoot(
   const childKeys = deriveAccountKeys(childSeed, config.networkId);
   const childAddresses = deriveAddresses(childKeys, config.networkId);
 
-  const before = await withSyncedWalletFacade(childKeys, config, async (_f, s) => totalNight(s));
+  const before = await withSyncedWalletFacade(childKeys, config, (_f, s) =>
+    Promise.resolve(totalNight(s)),
+  );
 
   if (before === 0n) {
     await withSyncedWalletFacade(rootKeys, config, async (rootFacade, rootState) => {
-      await transferNight(rootFacade, rootKeys, rootState, childAddresses.unshielded, config.networkId, amount);
+      await transferNight(
+        rootFacade,
+        rootKeys,
+        rootState,
+        childAddresses.unshielded,
+        config.networkId,
+        amount,
+      );
     });
   }
 
@@ -185,7 +213,9 @@ export async function fundChildFromRoot(
       state = await childFacade.waitForSyncedState();
     }
     if (totalNight(state) === 0n) {
-      throw new Error(`child wallet ${childAddresses.unshielded} shows no NIGHT after funding from root`);
+      throw new Error(
+        `child wallet ${childAddresses.unshielded} shows no NIGHT after funding from root`,
+      );
     }
     await registerNightForDustGeneration(childFacade, childKeys, state);
     const dust = await waitForSpendableDust(childFacade);

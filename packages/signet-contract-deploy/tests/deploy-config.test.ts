@@ -92,7 +92,11 @@ const THROW_CASES: ThrowCase[] = [
   },
   {
     name: "an env-provided MIDNIGHT_FAUCET_URL appears in the funding hint",
-    env: { NETWORK_ID: "stagenet", MIDNIGHT_FAUCET_URL: "https://faucet.example", ...STAGENET_ENDPOINTS },
+    env: {
+      NETWORK_ID: "stagenet",
+      MIDNIGHT_FAUCET_URL: "https://faucet.example",
+      ...STAGENET_ENDPOINTS,
+    },
     expectedMessage: /faucet\.example/,
   },
 ];

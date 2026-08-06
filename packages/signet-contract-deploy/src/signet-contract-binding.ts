@@ -11,6 +11,7 @@ import {
   createSignetContractPrivateState,
   type SignetContractPrivateState,
 } from "@sig-net/midnight-contract";
+
 import { makeVacantCompiledContract } from "./plumbing/deploy.ts";
 
 // The contract package's compiler output dir (contract/, keys/, zkir/) — the
@@ -23,6 +24,7 @@ import { makeVacantCompiledContract } from "./plumbing/deploy.ts";
 // needs `yarn compile:zk` output first). createRequire rather than
 // `import.meta.resolve` because vitest's module runner does not implement
 // the latter; the CJS resolver honors the same exports map.
+/** Absolute path of the signet contract's `managed/` zk config root. */
 export const signetContractManagedPath = join(
   dirname(createRequire(import.meta.url).resolve("@sig-net/midnight-contract")),
   "managed",
@@ -37,11 +39,7 @@ export const signetContractManagedPath = join(
 export const signetContractCompiledContract = makeVacantCompiledContract<
   Contract<SignetContractPrivateState>,
   SignetContractPrivateState
->(
-  "signet-contract",
-  Contract,
-  signetContractManagedPath,
-);
+>("signet-contract", Contract, signetContractManagedPath);
 
 // Re-exported so deploy-side callers get the private state builder from the
 // same module as the binding it pairs with.
