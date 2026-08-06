@@ -14,4 +14,4 @@ package-lock.json
 *.prover
 *.DS_Store
 *scratch*
-.env.stagenet
+.env.stagenetcoverage/

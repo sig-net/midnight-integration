@@ -28,6 +28,7 @@
     "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
     "@sig-net/midnight-serde": "*",
     "@types/node": "^26.1.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"

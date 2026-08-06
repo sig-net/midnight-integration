@@ -41,6 +41,7 @@
   "devDependencies": {
     "@sig-net/midnight": "^0.18.0",
     "@types/node": "^26.1.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   }
