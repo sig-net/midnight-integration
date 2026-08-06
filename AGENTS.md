@@ -128,6 +128,21 @@ exception for that specific case.
   `linterOptions.reportUnusedDisableDirectives` is `error`, so a directive that
   stops applying fails the build rather than rotting. Reach for a real type
   from the SDK's `.d.ts` before reaching for a disable.
+- **Two TypeScripts, on purpose: members build on 7, ESLint reads types through
+  a root-only 6.0.3.** Every member pins `typescript@^7.0.2`, the native Go
+  compiler `yarn build` runs and the one that emits every published `dist/`.
+  TypeScript 7 ships no public compiler API (it is scheduled for 7.1), so
+  typescript-eslint declares `peerDependencies.typescript: ">=4.8.4 <6.1.0"` and
+  cannot parse `.ts` at all under 7 — not merely lose its type-aware rules. The
+  root therefore carries `typescript@6.0.3` as a devDependency used ONLY by the
+  lint toolchain, which is Microsoft's own documented transition pattern (they
+  publish `@typescript/typescript6` for the same purpose). yarn resolves the
+  root to 6.0.3 and nests 7.0.2 under each member, so `yarn build` keeps the
+  native compiler. The published emit is unaffected: building the four `@sig-net/*`
+  packages under both compilers yields byte-identical `.js` and `.d.ts` (only
+  `.map` sourcemaps differ). DELETE the root pin once typescript-eslint supports
+  the 7.1 API; until then, do NOT "tidy" the two versions into one, and remember
+  lint's checker is a major behind the one that gates the build.
 - **`noUncheckedIndexedAccess` is on.** `arr[i]` and `record[key]` are typed
   `T | undefined`, so an index read is narrowed at its use site (a guard, `.at()`,
   or iteration over the collection) rather than asserted with `!`. This is what
