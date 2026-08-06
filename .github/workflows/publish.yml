@@ -36,7 +36,7 @@ jobs:
       # Just log the version. Upgrading npm here breaks sigstore (provenance).
       - run: npm --version
       - name: Restore the compact toolchain (keyed on the pinned versions)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.compact
@@ -110,7 +110,7 @@ jobs:
       # generates BOTH contracts' keys, whereas this job generates only
       # signet-contract's, so a save from here would poison the key).
       - name: Restore prebuilt zk proving keys
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             packages/signet-contract/src/managed

@@ -1,6 +1,6 @@
 {
   "name": "@sig-net/midnight",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/sig-net/midnight-integration",
@@ -35,9 +35,9 @@
   },
   "dependencies": {
     "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
-    "@midnight-ntwrk/midnight-js-types": "5.0.0-beta.4",
+    "@midnight-ntwrk/midnight-js-types": "5.0.0-beta.6",
     "@noble/curves": "^2.2.0",
-    "@sig-net/midnight-serde": "^0.18.0",
+    "@sig-net/midnight-serde": "^0.19.0",
     "ethers": "^6.17.0"
   },
   "devDependencies": {
