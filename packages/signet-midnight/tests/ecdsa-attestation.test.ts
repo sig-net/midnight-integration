@@ -337,14 +337,6 @@ describe("ecdsaSignatureToMpcSignature x mpcSignatureToEcdsaSignature", () => {
   });
 });
 
-describe("signetKeyHash (compiled circuit)", () => {
-  it("hashes to 32 bytes, distinct per key", () => {
-    const mpc = signetCircuits.signetKeyHash(MPC_PUBLIC);
-    expect(mpc).toHaveLength(32);
-    expect(mpc).not.toEqual(signetCircuits.signetKeyHash(IMPOSTER_PUBLIC));
-  });
-});
-
 /** One row of the parse table: input → parsed point or rejection. */
 interface ParseCase {
   /** Test name, completing the sentence "parses/rejects <name>". */

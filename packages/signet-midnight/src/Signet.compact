@@ -345,13 +345,6 @@ module Signet {
     );
   }
 
-  // Hash a secp256k1 public key exactly as client contracts pin it at deploy time
-  // (sealed `persistentHash<Secp256k1Point>`), so off-chain code can recompute the
-  // pin without re-deploying.
-  export pure circuit signetKeyHash(pk: Secp256k1Point): Bytes<32> {
-    return persistentHash<Secp256k1Point>(pk);
-  }
-
   // ---- EVM Type2 Transaction Parameters --------------------------------------------------------------
 
   // The EVM transaction to be signed, decomposed into typed fields

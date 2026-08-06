@@ -4,9 +4,9 @@
 // byte-order conversions between noble's bigints and the little-endian
 // scalar bytes Compact's casts read, and the attestation digest's TS twin.
 // Everything provable stays in Compact where possible: in-circuit
-// verification is `verifyRespondBidirectionalEvent`, the deploy-time key pin
-// is `pureCircuits.signetKeyHash`. The digest circuit is size-generic and the
-// compiler cannot export size-generic circuits top-level, so the digest is
+// verification is `verifyRespondBidirectionalEvent`. The digest circuit is
+// size-generic and the compiler cannot export size-generic circuits
+// top-level, so the digest is
 // the ONE sanctioned TS twin here, pinned byte-for-byte against the
 // fixed-width oracle circuits circuits.compact exports (see
 // tests/ecdsa-attestation.test.ts).

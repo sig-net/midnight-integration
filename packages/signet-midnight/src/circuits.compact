@@ -9,7 +9,6 @@ import CompactStandardLibrary;
 import "./Signet";
 
 export {
-  signetKeyHash,
   constructSignBidirectionalEventNotificationV1,
   evmAddressAbiWord,
   numericAbiWord,
