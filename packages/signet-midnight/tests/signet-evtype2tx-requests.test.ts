@@ -24,6 +24,8 @@ import {
   MPCDestination,
   MPCSignatureAlgorithm,
   TxParamType,
+  abiWordToBool,
+  abiWordToUint128,
   asciiPadded,
   assembleCalldata,
   bytesToHex,
@@ -354,5 +356,42 @@ describe("signBidirectionalEventToSignedEvmTransaction", () => {
     expect(() =>
       signBidirectionalEventToSignedEvmTransaction(REQUEST, withRecoveryId(5n)),
     ).toThrow(/recovery id/);
+  });
+});
+
+describe("ABI word helpers: rejection rows", () => {
+  it("evmAddressAbiWord rejects an address that is not 20 bytes", () => {
+    expect(() => evmAddressAbiWord(bytes(19, 0xaa))).toThrow(
+      /EVM address must be 20 bytes/,
+    );
+    expect(() => evmAddressAbiWord(bytes(21, 0xaa))).toThrow(
+      /EVM address must be 20 bytes/,
+    );
+  });
+
+  it("abiWordToUint128 rejects a word that is not 32 bytes", () => {
+    expect(() => abiWordToUint128(bytes(16, 0))).toThrow(
+      /ABI word must be 32 bytes/,
+    );
+  });
+
+  it("abiWordToUint128 rejects a non-zero leading half", () => {
+    const word = new Uint8Array(32);
+    word[15] = 1;
+    expect(() => abiWordToUint128(word)).toThrow(/ABI word exceeds Uint<128>/);
+  });
+
+  it("abiWordToBool rejects a word that is not 32 bytes", () => {
+    expect(() => abiWordToBool(bytes(31, 0))).toThrow(
+      /ABI word must be 32 bytes/,
+    );
+  });
+
+  it("abiWordToBool rejects a non-canonical Boolean", () => {
+    const word = new Uint8Array(32);
+    word[31] = 2;
+    expect(() => abiWordToBool(word)).toThrow(
+      /ABI word is not a canonical Boolean/,
+    );
   });
 });

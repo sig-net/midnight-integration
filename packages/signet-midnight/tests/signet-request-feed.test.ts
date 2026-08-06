@@ -26,7 +26,10 @@ import {
   evmAddressAbiWord,
   numericAbiWord,
   pureCircuits,
+  requestIdBytes,
   requestIdHex,
+  sleepUnlessAborted,
+  type ResolvedSignetRequest,
   type SignetMiscEvent,
   type SignBidirectionalEvent,
 } from "../src/index.ts";
@@ -247,6 +250,30 @@ describe("SignetRequestFeed", () => {
     ]);
   });
 
+  it("yields one caller's requests in ascending id order whatever the notification order", async () => {
+    // Notify in DESCENDING id order so insertion order cannot masquerade as
+    // the sort.
+    const aIdsAscending = [
+      requestIdHex(REQUEST_A_ID),
+      requestIdHex(REQUEST_B_ID),
+    ].sort();
+    const descendingIdBytes = [...aIdsAscending]
+      .reverse()
+      .map((id) => requestIdBytes(id));
+    const feed = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      ...stubSources(
+        descendingIdBytes.map((id) => notification(CALLER_A_BYTES, id)),
+        { [CALLER_A]: callerStateWith(REQUEST_A, REQUEST_B) },
+      ),
+    });
+    const resolved = await feed.poll();
+    expect(resolved.map((r) => [r.callerAddress, r.requestId])).toEqual([
+      [CALLER_A, aIdsAscending[0]],
+      [CALLER_A, aIdsAscending[1]],
+    ]);
+  });
+
   it("queries one caller's state at most once per poll cycle", async () => {
     const sources = stubSources(
       [
@@ -432,5 +459,111 @@ describe("SignetRequestFeed", () => {
     });
     const resolved = await collect(feed.requests(), 2);
     expect(resolved.map((r) => r.callerAddress)).toEqual([CALLER_A, CALLER_B]);
+  });
+});
+
+describe("sleepUnlessAborted", () => {
+  it("resolves immediately when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const start = performance.now();
+    await sleepUnlessAborted(1_000, controller.signal);
+    expect(performance.now() - start).toBeLessThan(100);
+  });
+
+  it("resolves early when the signal aborts mid-sleep", async () => {
+    const controller = new AbortController();
+    const start = performance.now();
+    const sleeping = sleepUnlessAborted(1_000, controller.signal);
+    setTimeout(() => controller.abort(), 5);
+    await sleeping;
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+
+  it("resolves after the delay when nothing aborts", async () => {
+    const start = performance.now();
+    await sleepUnlessAborted(20);
+    expect(performance.now() - start).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe("SignetRequestFeed.requests: abort behaviour", () => {
+  it("yields a discovered request and stops when the signal aborts", async () => {
+    const feed = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      ...stubSources([notification(CALLER_A_BYTES, REQUEST_A_ID)]),
+      pollIntervalMs: 1,
+    });
+    const controller = new AbortController();
+    const resolved: ResolvedSignetRequest[] = [];
+    for await (const request of feed.requests({ signal: controller.signal })) {
+      resolved.push(request);
+      controller.abort();
+    }
+    expect(resolved.map((r) => r.requestId)).toEqual([
+      requestIdHex(REQUEST_A_ID),
+    ]);
+  });
+
+  it("completes immediately when the signal is already aborted", async () => {
+    const feed = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      ...stubSources([notification(CALLER_A_BYTES, REQUEST_A_ID)]),
+      pollIntervalMs: 1,
+    });
+    const controller = new AbortController();
+    controller.abort();
+    const resolved: ResolvedSignetRequest[] = [];
+    for await (const request of feed.requests({ signal: controller.signal })) {
+      resolved.push(request);
+    }
+    expect(resolved).toEqual([]);
+  });
+
+  it("sleeps between polls when a cycle yields nothing", async () => {
+    // The first poll sees no notifications, so the stream must sleep before
+    // polling again and discovering the request.
+    let calls = 0;
+    const feed = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      eventSource: {
+        querySignetEvents: async () => {
+          calls += 1;
+          return calls === 1
+            ? []
+            : [notification(CALLER_A_BYTES, REQUEST_A_ID)];
+        },
+      },
+      source: stubSources([]).source,
+      pollIntervalMs: 1,
+    });
+    const resolved = await collect(feed.requests(), 1);
+    expect(resolved.map((r) => r.requestId)).toEqual([
+      requestIdHex(REQUEST_A_ID),
+    ]);
+  });
+});
+
+describe("SignetRequestFeed.poll: caller state-read failure", () => {
+  it("yields nothing for a caller whose state read throws, and retries next cycle", async () => {
+    const state = callerStateWith(REQUEST_A);
+    let shouldThrow = true;
+    const feed = new SignetRequestFeed({
+      signetContractAddress: SIGNET_ADDRESS,
+      eventSource: {
+        querySignetEvents: async () => [notification(CALLER_A_BYTES, REQUEST_A_ID)],
+      },
+      source: {
+        queryContractState: async () => {
+          if (shouldThrow) throw new Error("indexer unreachable");
+          return { data: state };
+        },
+      },
+    });
+    // The read failure yields nothing AND marks nothing yielded: the retried
+    // poll (read now succeeding) still serves the request.
+    expect(await feed.poll()).toHaveLength(0);
+    shouldThrow = false;
+    expect(await feed.poll()).toHaveLength(1);
   });
 });

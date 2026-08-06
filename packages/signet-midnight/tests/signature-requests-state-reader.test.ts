@@ -8,7 +8,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CompactTypeUnsignedInteger, StateMap, StateValue } from "@midnight-ntwrk/compact-runtime";
+import {
+  CompactTypeUnsignedInteger,
+  StateMap,
+  StateValue,
+  type AlignedValue,
+} from "@midnight-ntwrk/compact-runtime";
 
 import {
   MPCDestination,
@@ -400,5 +405,121 @@ describe("lookupSignetRequestAt", () => {
     expect(lookupSignetRequestAt(raw, [0], requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
       viaReader,
     );
+  });
+});
+
+describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
+  /** A fresh <2,0,0> cell's value/alignment, for tampering per test. */
+  const cellsOf = (): AlignedValue => {
+    const descriptor = signBidirectionalEventDescriptor(2, 0, 0, 34, 34);
+    return { value: descriptor.toValue(SAMPLE_REQUEST), alignment: descriptor.alignment() };
+  };
+
+  /** Root state: a request index holding `cell`, with the nonce at field 1. */
+  const indexStateWithCell = (cell: AlignedValue): StateValue => {
+    const id = bytes(32, 0x42);
+    const map = new StateMap().insert(
+      {
+        value: requestIdType.toValue(id),
+        alignment: requestIdType.alignment(),
+      },
+      StateValue.newCell(cell),
+    );
+    return StateValue.newArray()
+      .arrayPush(StateValue.newMap(map))
+      .arrayPush(counterCell(0n));
+  };
+
+  it("rejects a cell that ends before the txParamType atom", () => {
+    const { value, alignment } = cellsOf();
+    expect(() =>
+      readSignetRequestsLedgerFromState(
+        indexStateWithCell({
+          value: value.slice(0, 7),
+          alignment: alignment.slice(0, 7),
+        }),
+        [0],
+        [1],
+      ),
+    ).toThrow(/ends before txParamType/);
+  });
+
+  it("rejects a txParamType atom wider than one byte", () => {
+    const { value, alignment } = cellsOf();
+    // A 2-byte atom needs a matching 2-byte alignment for the state layer to
+    // accept the cell; the decoder's width check then rejects it.
+    value[7] = Uint8Array.of(0, 1);
+    alignment[7] = { tag: "atom", value: { tag: "bytes", length: 2 } };
+    expect(() =>
+      readSignetRequestsLedgerFromState(
+        indexStateWithCell({ value, alignment }),
+        [0],
+        [1],
+      ),
+    ).toThrow(/txParamType atom holds 2 bytes/);
+  });
+
+  it("rejects the reserved txParamType variant", () => {
+    const { value, alignment } = cellsOf();
+    value[7] = Uint8Array.of(1);
+    expect(() =>
+      readSignetRequestsLedgerFromState(
+        indexStateWithCell({ value, alignment }),
+        [0],
+        [1],
+      ),
+    ).toThrow(/unsupported txParamType 1/);
+  });
+
+  it("rejects a non-Map field as the requests index", () => {
+    // Field 1 is the nonce cell, not a request map.
+    expect(() =>
+      readSignetRequestsLedgerFromState(syntheticContractState(), [1], [1]),
+    ).toThrow(/is not a Map/);
+  });
+
+  it("rejects a non-Cell field as the nonce", () => {
+    // Field 0 is the request index map, not a counter cell.
+    expect(() =>
+      readSignetRequestsLedgerFromState(syntheticContractState(), [0], [0]),
+    ).toThrow(/is not a Cell/);
+  });
+
+  it("lookupSignetRequestAt returns undefined for a stored cell that is not a decodable record", () => {
+    const { value, alignment } = cellsOf();
+    value[7] = Uint8Array.of(1); // the reserved txParamType variant
+    const id = bytes(32, 0x43);
+    const state = StateValue.newArray().arrayPush(
+      StateValue.newMap(
+        new StateMap().insert(
+          {
+            value: requestIdType.toValue(id),
+            alignment: requestIdType.alignment(),
+          },
+          StateValue.newCell({ value, alignment }),
+        ),
+      ),
+    );
+    expect(lookupSignetRequestAt(state, [0], requestIdHex(id))).toBeUndefined();
+  });
+
+  it("skips an index entry whose value is not a cell", () => {
+    const id = bytes(32, 0x44);
+    const state = StateValue.newArray()
+      .arrayPush(
+        StateValue.newMap(
+          new StateMap().insert(
+            {
+              value: requestIdType.toValue(id),
+              alignment: requestIdType.alignment(),
+            },
+            StateValue.newArray(),
+          ),
+        ),
+      )
+      .arrayPush(counterCell(0n));
+    const { requestsIndex, nonce } = readSignetRequestsLedgerFromState(state, [0], [1]);
+    expect(requestsIndex.size).toBe(0);
+    expect(nonce).toBe(0n);
   });
 });
