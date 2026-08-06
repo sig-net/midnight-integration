@@ -15,7 +15,12 @@
 // fixed event-field width is the caller's concern. Schemas are the ABI-style
 // JSON carried on chain (NUL-padded fixed-width bytes). Both functions
 // accept the schema in any form: already-parsed fields, a JSON string, or
-// the raw on-chain bytes.
+// the raw on-chain bytes. An EMPTY output schema (an unset all-NUL field, a
+// blank string, or `[]`) decodes to no values: a plain transfer has no call
+// output. A respond schema must be non-empty, and its declared capacities
+// are bounded ({@link MAX_RESPOND_PACKED_BYTES}): schemas are
+// requester-authored on-chain data, so the responder never honours a schema
+// demanding a giant allocation.
 //
 // Decode-side type grammar is left FULLY to the ABI library (ethers): this
 // module checks only the schema's shape. Respond-side types are restricted
@@ -48,6 +53,7 @@ import { ethers } from "ethers";
 
 import {
   compactSerialize,
+  compactSerializedSize,
   type CompactType,
   type CompactValue,
 } from "@sig-net/midnight-serde";
@@ -64,6 +70,7 @@ export type AbiFixedType =
   | `uint${number}`
   | `bytes${number}`;
 
+/** A fixed-width schema field: its byte size follows entirely from its type. */
 export interface AbiFixedField {
   name: string;
   type: AbiFixedType;
@@ -83,6 +90,7 @@ export interface AbiArrayField {
   maxItems: number;
 }
 
+/** One respond-schema field: fixed-width, dynamic string/bytes, or array. */
 export type AbiSchemaField = AbiFixedField | AbiDynamicField | AbiArrayField;
 
 /** An ABI-style schema exactly as carried on chain (JSON array of fields). */
@@ -123,6 +131,7 @@ export type AbiDecodedValue =
   | Uint8Array
   | AbiDecodedValue[];
 
+/** Decoded output values keyed by schema field name (see {@link AbiDecodedValue}). */
 export type AbiDecodedOutput = { [field: string]: AbiDecodedValue };
 
 // ---------------------------------------------------------------------------
@@ -134,18 +143,23 @@ export type AbiDecodedOutput = { [field: string]: AbiDecodedValue };
  * into named values, driven by the request's outputDeserializationSchema.
  * The decode-side counterpart of {@link serializeRespondOutput}. Type
  * validation is FULLY delegated to ethers: this function checks the schema's
- * shape only. Returns a plain object (never an ethers `Result`), so it
- * survives JSON round-trips and structural comparison.
+ * shape only. An empty schema decodes to an empty object (a plain transfer
+ * has no output), matching the MPC's empty-schema handling. Returns a plain
+ * object (never an ethers `Result`), so it survives JSON round-trips and
+ * structural comparison.
  *
  * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
  * @param callResult - The ABI-encoded return data (hex string or bytes).
- * @returns The decoded values keyed by schema field name.
+ * @returns The decoded values keyed by schema field name, empty for an empty schema.
  */
 export function deserializeEvmOutput(
   schema: EvmSchemaInput,
   callResult: ethers.BytesLike
 ): AbiDecodedOutput {
   const fields = parseSchemaShape(schema);
+  if (fields.length === 0) {
+    return {};
+  }
   const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
     fields.map((field) => field.type),
     callResult
@@ -162,6 +176,15 @@ export function deserializeEvmOutput(
 // ---------------------------------------------------------------------------
 
 /**
+ * Ceiling on a respond schema's total packed byte width. Schemas are
+ * requester-authored on-chain data, so unbounded maxBytes/maxItems would let
+ * a hostile request demand giant allocations from the responder. A real
+ * respond payload must fit its consumer contract's fixed `deserialize<T, N>`
+ * width, orders of magnitude below this.
+ */
+export const MAX_RESPOND_PACKED_BYTES = 65536;
+
+/**
  * Encode decoded output values into the respond payload, driven by the
  * request's respondSerializationSchema: the bytes a consumer contract reads
  * with `deserialize<T, N>` and the MPC attests. The respond-side counterpart
@@ -176,13 +199,24 @@ export function deserializeEvmOutput(
  * @param schema - The respondSerializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
  * @param output - Decoded values keyed by field name (from {@link deserializeEvmOutput} or any source using the same forms).
  * @returns The packed respond bytes.
+ * @throws Error if the schema is empty, packs to more than
+ *   {@link MAX_RESPOND_PACKED_BYTES} bytes, or a value fails its field's checks.
  */
 export function serializeRespondOutput(
   schema: AbiSchemaInput,
   output: AbiDecodedOutput
 ): Uint8Array {
   const fields = normalizeRespondSchema(schema);
+  // Size the descriptor BEFORE any value work: the ceiling check is what
+  // keeps a hostile capacity from ever reaching an allocation.
   const descriptor = respondSchemaToCompactType(fields);
+  const packedWidth = compactSerializedSize(descriptor);
+  if (packedWidth > MAX_RESPOND_PACKED_BYTES) {
+    throw new Error(
+      `respond schema packs to ${packedWidth} bytes, above the ` +
+        `${MAX_RESPOND_PACKED_BYTES}-byte ceiling`,
+    );
+  }
   const value: { [field: string]: CompactValue } = {};
   for (const field of fields) {
     const raw = output[field.name];
@@ -203,11 +237,11 @@ export function serializeRespondOutput(
 // Field-kind guards
 // ---------------------------------------------------------------------------
 
-export function isAbiDynamicField(field: AbiSchemaField): field is AbiDynamicField {
+function isAbiDynamicField(field: AbiSchemaField): field is AbiDynamicField {
   return field.type === "string" || field.type === "bytes";
 }
 
-export function isAbiArrayField(field: AbiSchemaField): field is AbiArrayField {
+function isAbiArrayField(field: AbiSchemaField): field is AbiArrayField {
   return field.type.endsWith("[]");
 }
 
@@ -253,17 +287,34 @@ interface RawSchemaField {
 }
 
 /**
- * Parse a schema in any input form and check its SHAPE only: a non-empty
- * array of fields with non-empty, unique names and non-empty type strings.
- * The respond side runs {@link normalizeRespondSchema} on top.
+ * Parse schema text as JSON with the parse failure named. Blank text (an
+ * unset all-NUL on-chain schema field) is the empty schema.
+ */
+function parseSchemaJson(text: string): unknown {
+  if (text.trim() === "") {
+    return [];
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`schema is not valid JSON (${String(error)})`);
+  }
+}
+
+/**
+ * Parse a schema in any input form and check its SHAPE only: an array of
+ * fields with non-empty, unique names and non-empty type strings. An empty
+ * schema is valid here: emptiness policy belongs to the callers
+ * ({@link deserializeEvmOutput} decodes nothing, {@link serializeRespondOutput}
+ * rejects).
  */
 function parseSchemaShape(schema: EvmSchemaInput | AbiSchemaInput): RawSchemaField[] {
   const parsed: unknown =
     typeof schema === "string" || schema instanceof Uint8Array
-      ? JSON.parse(schemaText(schema))
+      ? parseSchemaJson(schemaText(schema))
       : schema;
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error("schema must be a non-empty JSON array of fields");
+  if (!Array.isArray(parsed)) {
+    throw new Error("schema must be a JSON array of fields");
   }
   const seen = new Set<string>();
   return parsed.map((raw: unknown, i) => {
@@ -292,7 +343,13 @@ function parseSchemaShape(schema: EvmSchemaInput | AbiSchemaInput): RawSchemaFie
  * needs its fixed capacity.
  */
 function normalizeRespondSchema(schema: AbiSchemaInput): AbiSchema {
-  return parseSchemaShape(schema).map(({ name, type, maxBytes, maxItems }) => {
+  const fields = parseSchemaShape(schema);
+  if (fields.length === 0) {
+    throw new Error(
+      "respond schema is empty: a respond serialization schema needs at least one field",
+    );
+  }
+  return fields.map(({ name, type, maxBytes, maxItems }) => {
     if (type === "string" || type === "bytes") {
       assertCapacity(maxBytes, `'${name}' (${type}) maxBytes`);
       return { name, type, maxBytes };
@@ -341,7 +398,7 @@ function classifyFixedType(type: string, fieldName: string): CompactType {
       `schema: '${fieldName}' (${type}) is unsupported: Compact has no signed integers`
     );
   }
-  const uintMatch = type.match(/^uint(\d+)$/);
+  const uintMatch = type.match(/^uint([1-9]\d*)$/);
   if (uintMatch) {
     const bits = Number(uintMatch[1]);
     const wholeByteWidth = bits >= 8 && bits <= MAX_UINT_BITS && bits % 8 === 0;
@@ -353,7 +410,7 @@ function classifyFixedType(type: string, fieldName: string): CompactType {
     }
     return { kind: "uint", bits };
   }
-  const bytesMatch = type.match(/^bytes(\d+)$/);
+  const bytesMatch = type.match(/^bytes([1-9]\d*)$/);
   if (bytesMatch) {
     const n = Number(bytesMatch[1]);
     if (n < 1 || n > 32) {
@@ -502,7 +559,13 @@ function asBigint(value: AbiDecodedValue, label: string): bigint {
 
 function asBytes(value: AbiDecodedValue, label: string): Uint8Array {
   if (value instanceof Uint8Array) return value;
-  if (typeof value === "string") return ethers.getBytes(value);
+  if (typeof value === "string") {
+    try {
+      return ethers.getBytes(value);
+    } catch {
+      throw new Error(`'${label}': not a valid 0x hex byte string: "${value}"`);
+    }
+  }
   throw new Error(`'${label}': expected bytes (Uint8Array or hex string)`);
 }
 
