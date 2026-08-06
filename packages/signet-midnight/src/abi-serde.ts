@@ -1,4 +1,4 @@
-// The two schema-driven conversions every signet participant performs on the
+// The two schema-driven conversions every Signet participant performs on the
 // respond path, named after the protocol fields that drive them:
 //
 //   EVM call result --deserializeEvmOutput--> decoded values
@@ -6,8 +6,8 @@
 //   decoded values --serializeRespondOutput--> RespondBidirectionalEvent bytes
 //                        (respondSerializationSchema)
 //
-// Run by fakenet (and eventually the real MPC), back to back, after the
-// destination-chain transaction confirms, and by signet clients to
+// Run by fakenet and the real MPC, back to back, after the
+// destination-chain transaction confirms, and by Signet clients to
 // independently recompute the respond bytes the MPC attested or to display
 // a decoded result.
 //
