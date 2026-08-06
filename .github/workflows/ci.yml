@@ -42,7 +42,7 @@ jobs:
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
       - name: Restore the compact toolchain (keyed on the pinned versions)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.compact
@@ -87,7 +87,7 @@ jobs:
       - name: Compile (skip-zk)
         run: yarn compile
       - name: Restore prebuilt zk proving keys (read-only, the integration job saves)
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             packages/signet-contract/src/managed
@@ -120,7 +120,7 @@ jobs:
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
       - name: Restore the compact toolchain (keyed on the pinned versions)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.compact
@@ -166,7 +166,7 @@ jobs:
         run: yarn compile
       - name: Restore prebuilt zk proving keys
         id: zk
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             packages/signet-contract/src/managed
@@ -177,7 +177,7 @@ jobs:
         run: yarn compile:zk
       - name: Save zk proving keys (immediately, before a later failure can lose them)
         if: steps.zk.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             packages/signet-contract/src/managed
@@ -208,7 +208,7 @@ jobs:
           docker ps -a > ci-logs/docker-ps.txt 2>&1 || true
       - name: Upload service logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-logs
           path: ci-logs/
