@@ -11,7 +11,7 @@
 
 import type { AlignedValue } from "@midnight-ntwrk/compact-runtime";
 
-import { UINT_64 } from "./compact-descriptors.ts";
+import { decodeExactly, UINT_64 } from "./compact-descriptors.ts";
 import { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";
 import { decodeEvmType2SignBidirectionalEvent } from "./signet-evtype2tx-record-decoding.ts";
 import { calculateRequestId } from "./signet-request-id.ts";
@@ -103,8 +103,7 @@ export function readSignetRequestsLedgerFromState(
   }
   const requestsIndex: SignBidirectionalEventIndex = new Map();
   for (const key of map.keys()) {
-    // fromValue consumes its input, so hand each descriptor a copy.
-    const requestId = requestIdHex(requestIdType.fromValue([...key.value]));
+    const requestId = requestIdHex(decodeExactly(requestIdType, key.value, "request index key"));
     const cell = map.get(key)?.asCell();
     if (cell === undefined) continue;
     requestsIndex.set(requestId, decodeSignBidirectionalEvent(cell));
@@ -114,7 +113,7 @@ export function readSignetRequestsLedgerFromState(
   if (nonceField.type() !== "cell") {
     throw new Error(`Ledger field at path ${JSON.stringify(noncePath)} is not a Cell`);
   }
-  const nonce = UINT_64.fromValue([...nonceField.asCell().value]);
+  const nonce = decodeExactly(UINT_64, nonceField.asCell().value, "request counter");
 
   return { nonce, requestsIndex };
 }

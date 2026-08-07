@@ -366,6 +366,35 @@ describe("lookupSignetRequestAt", () => {
     );
     expect(lookupSignetRequestAt(raw, [0], requestIdHex(SAMPLE_REQUEST_ID))).toEqual(viaReader);
   });
+
+  // requestNonce 32 is mined so the computed id ends in 0x00 (guarded below).
+  const TRAILING_ZERO_REQUEST: SignBidirectionalEvent = {
+    ...SAMPLE_REQUEST,
+    requestNonce: 32n,
+  };
+  const TRAILING_ZERO_REQUEST_ID = calculateRequestId(TRAILING_ZERO_REQUEST);
+
+  it("resolves a member whose id ends in 0x00 (trimmed-key normal form)", () => {
+    // The state layer stores map keys with trailing zeros trimmed, and the
+    // lookup constructs its key through the same toValue. This member id's
+    // stored key is 31 bytes, so a lookup key built at the full 32 bytes
+    // would miss and the resolver would drop a genuine request.
+    expect(TRAILING_ZERO_REQUEST_ID[31]).toBe(0);
+    const state = StateValue.newArray().arrayPush(
+      StateValue.newMap(
+        new StateMap().insert(
+          {
+            value: requestIdType.toValue(TRAILING_ZERO_REQUEST_ID),
+            alignment: requestIdType.alignment(),
+          },
+          requestCell(TRAILING_ZERO_REQUEST, CAPACITIES.sample),
+        ),
+      ),
+    );
+    expect(lookupSignetRequestAt(state, [0], requestIdHex(TRAILING_ZERO_REQUEST_ID))).toEqual(
+      TRAILING_ZERO_REQUEST,
+    );
+  });
 });
 
 describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {

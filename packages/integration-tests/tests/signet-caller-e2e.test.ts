@@ -49,7 +49,7 @@ import {
   ensureMpcResponseKeyStored,
   readCallerRequestIds,
 } from "../src/caller-session.ts";
-import { CALLER_PATH } from "../src/constants.ts";
+import { CALLER_PATH_BYTES, CALLER_PATH_HEX } from "../src/constants.ts";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
 import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
 import { banner, logSkip } from "../src/output.ts";
@@ -178,7 +178,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       expect(record.txParams.calldata.is_some).toBe(true);
       expect(record.txParams.calldata.value.selector).toEqual(EXPECTED_SELECTOR);
       expect(record.txParams.calldata.value.words[0]).toEqual(EXPECTED_WORD);
-      expect(new TextDecoder().decode(record.path).replace(/\0+$/u, "")).toBe(CALLER_PATH);
+      expect(record.path).toEqual(CALLER_PATH_BYTES);
       // The event commits to its own sender: the caller contract's address.
       expect(stripHexPrefix(Buffer.from(record.sender.bytes).toString("hex")).toLowerCase()).toBe(
         stripHexPrefix(requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS")).toLowerCase(),
@@ -242,13 +242,13 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       expect(signatureRequestId).toBeDefined();
 
       // The caller's requests are keyed under its contract-fixed path
-      // ("caller-path"), so the MPC signs with the account epsilon-derived
-      // from the CALLER CONTRACT's address + that path, recomputed here with
-      // the same derivation the MPC uses.
+      // bytes, so the MPC signs with the account epsilon-derived from the
+      // CALLER CONTRACT's address + the hex rendering of those bytes,
+      // recomputed here with the same derivation the MPC uses.
       const expectedSigner = deriveEvmAddress(
         requireEnv("MPC_SECP256K1_PUBKEY"),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
-        CALLER_PATH,
+        CALLER_PATH_HEX,
       );
       console.log(`expected signer (derived caller account): ${expectedSigner}`);
 

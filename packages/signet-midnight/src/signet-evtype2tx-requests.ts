@@ -24,7 +24,7 @@ import {
   UINT_64,
   UINT_128,
 } from "./compact-descriptors.ts";
-import { mpcSignatureToEcdsaSignature } from "./ecdsa-attestation.ts";
+import { ecdsaSignatureToMpcSignature, mpcSignatureToEcdsaSignature } from "./ecdsa-attestation.ts";
 import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 import {
   type SignBidirectionalEvent,
@@ -383,6 +383,29 @@ export function signatureRespondedEventToSignature(response: SignatureRespondedE
     s: toBeHex(s, 32),
     v: recoveryId + 27,
   });
+}
+
+/**
+ * Encode an ethers signature as the {@link SignatureRespondedEvent} record a
+ * responder posts: the inverse of {@link signatureRespondedEventToSignature}.
+ * Responder-side (the fakenet posts through this; clients only verify), so
+ * it is exported through the `./testing` entry point with the other
+ * posting-side helpers.
+ *
+ * @param signature - The signature to encode (`r`/`s` as 0x hex, `yParity` 0 or 1).
+ * @returns The response record, ready to post.
+ * @throws {Error} If `r` is not the x coordinate of a secp256k1 point.
+ */
+export function signatureToSignatureRespondedEvent(
+  signature: Pick<Signature, "r" | "s" | "yParity">,
+): SignatureRespondedEvent {
+  return {
+    signature: ecdsaSignatureToMpcSignature({
+      r: BigInt(signature.r),
+      s: BigInt(signature.s),
+      recoveryId: signature.yParity,
+    }),
+  };
 }
 
 /**

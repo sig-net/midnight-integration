@@ -38,18 +38,35 @@ export const MIDNIGHT_TESTNET_CHAIN_ID = "midnight:testnet";
 export const MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH = "midnight response key";
 
 /**
+ * Normalise a Midnight contract address for use as the requester component
+ * of the derivation string: strip an optional `0x` prefix and lowercase.
+ * Both sides of the protocol (the deploy pinning a key and the MPC signing
+ * with it) derive through this, so the rendering always agrees.
+ *
+ * @param contractAddress - The Midnight contract address, with or without `0x`.
+ * @returns The address as lowercase hex with no prefix.
+ */
+function normaliseRequesterAddress(contractAddress: string): string {
+  return stripHexPrefix(contractAddress).toLowerCase();
+}
+
+/**
  * Derive the EVM address the MPC network signs from for a given Midnight
  * contract and derivation path, using the sig-net v2.0.0 epsilon scheme:
- * `epsilon = keccak256("<prefix>:<chainId>:<contractAddress>:<path>")` and
+ * `epsilon = keccak256("<prefix>:<chainId>:<requester>:<path>")` and
  * `derivedPubKey = mpcRootPubKey + epsilon * G` on secp256k1. The MPC
  * treats `path` as an opaque string.
  *
  * @param mpcSecp256k1PubkeyHex - The MPC root secp256k1 public key as 0x-hex
  *   (compressed or uncompressed, normalised internally).
  * @param contractAddress - The Midnight contract address the request
- *   originates from (the "requester" in the derivation string).
- * @param path - The derivation path string (e.g. `"vault"` or a commitment
- *   hex).
+ *   originates from (`0x` prefix optional, case-insensitive: it enters the
+ *   derivation string through {@link normaliseRequesterAddress}).
+ * @param path - The derivation path string. For an account derived from an
+ *   on-ledger request record, this is the MPC's rendering of the record's
+ *   `path: Bytes<32>`: the lowercase hex of the FULL 32 bytes, no `0x`
+ *   prefix and no trimming ({@link bytesToHex} of the raw bytes), so
+ *   `0xab..00` and `0xab..` derive different accounts.
  * @param chainId - CAIP-2 chain id component of the derivation string.
  * @returns The derived EVM address as a 0x-prefixed EIP-55 checksummed string.
  */
@@ -59,7 +76,12 @@ export function deriveEvmAddress(
   path: string,
   chainId: string = MIDNIGHT_TESTNET_CHAIN_ID,
 ): string {
-  const derivedPoint = deriveChildPoint(mpcSecp256k1PubkeyHex, contractAddress, path, chainId);
+  const derivedPoint = deriveChildPoint(
+    mpcSecp256k1PubkeyHex,
+    normaliseRequesterAddress(contractAddress),
+    path,
+    chainId,
+  );
   return computeAddress(`0x${derivedPoint.toHex(false)}`);
 }
 
@@ -105,19 +127,6 @@ function deriveChildPoint(
   const rootPubKeyHex = SigningKey.computePublicKey(mpcSecp256k1PubkeyHex, false);
   const rootPoint = secp256k1.Point.fromHex(rootPubKeyHex.slice(2));
   return epsilon === 0n ? rootPoint : rootPoint.add(secp256k1.Point.BASE.multiply(epsilon));
-}
-
-/**
- * Normalise a Midnight contract address for use as the requester component
- * of the derivation string: strip an optional `0x` prefix and lowercase.
- * Both sides of the protocol (the deploy pinning a key and the MPC signing
- * with it) derive through this, so the rendering always agrees.
- *
- * @param contractAddress - The Midnight contract address, with or without `0x`.
- * @returns The address as lowercase hex with no prefix.
- */
-function normaliseRequesterAddress(contractAddress: string): string {
-  return stripHexPrefix(contractAddress).toLowerCase();
 }
 
 /**

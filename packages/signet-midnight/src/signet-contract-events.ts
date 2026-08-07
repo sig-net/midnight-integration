@@ -15,6 +15,7 @@
 import { CompactTypeBytes, type LogEvent } from "@midnight-ntwrk/compact-runtime";
 
 import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
+import { decodeExactly } from "./compact-descriptors.ts";
 
 /**
  * The event names the signet contract emits, exactly as the contract's
@@ -124,9 +125,8 @@ export function decodeSignetLogEvents(
     if (event.data.tag !== "cell") {
       throw new Error(`misc event data is a '${event.data.tag}', expected a cell`);
     }
-    // fromValue consumes its input and re-pads the trailing zeros the state
-    // layer trims, so hand it a copy.
-    const bytes = eventBytes.fromValue([...event.data.content.value]);
+    // fromValue re-pads the trailing zeros the state layer trims.
+    const bytes = decodeExactly(eventBytes, event.data.content.value, "misc event data");
     out.push({
       name: decodeSignetEventName(bytes.slice(0, SIGNET_EVENT_NAME_LENGTH)),
       payload: bytes.slice(SIGNET_EVENT_NAME_LENGTH),

@@ -59,7 +59,7 @@ import {
   ensureMpcResponseKeyStored,
   readCallerRequestIds as readRequestIds,
 } from "../src/caller-session.ts";
-import { CALLER_PATH } from "../src/constants.ts";
+import { CALLER_PATH_HEX } from "../src/constants.ts";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
 import { fetchFakenetResponse } from "../src/fakenet-responses.ts";
 import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
@@ -175,12 +175,12 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
   });
 
   // The derived sender is shared by every method (all submit circuits fix
-  // the same "caller-path"), resolved lazily once env is populated.
+  // the same path bytes), resolved lazily once env is populated.
   const derivedSender = (): string =>
     deriveEvmAddress(
       requireEnv("MPC_SECP256K1_PUBKEY"),
       requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
-      CALLER_PATH,
+      CALLER_PATH_HEX,
     );
 
   it(

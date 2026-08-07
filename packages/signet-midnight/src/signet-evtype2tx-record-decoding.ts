@@ -8,6 +8,7 @@
 
 import type { AlignedValue } from "@midnight-ntwrk/compact-runtime";
 
+import { decodeExactly } from "./compact-descriptors.ts";
 import { signBidirectionalEventDescriptor } from "./signet-evtype2tx-requests.ts";
 import type { SignBidirectionalEvent } from "./signet-requests.ts";
 
@@ -154,19 +155,15 @@ export function decodeEvmType2SignBidirectionalEvent(
         `trailing output-deserialization and respond-serialization schemas`,
     );
   }
-  // fromValue consumes its cursor, so hand it a copy.
-  const cursor = [...cell.value];
-  const record = signBidirectionalEventDescriptor(
-    capacities.maxCalldataWords,
-    capacities.maxAccessListEntries,
-    capacities.maxStorageKeysPerEntry,
-    lenOutputDeserialization,
-    lenRespondSerialization,
-  ).fromValue(cursor);
-  if (cursor.length !== 0) {
-    throw new Error(
-      `${what} decode left ${String(cursor.length)} of ${String(cell.value.length)} atoms unconsumed`,
-    );
-  }
-  return record;
+  return decodeExactly(
+    signBidirectionalEventDescriptor(
+      capacities.maxCalldataWords,
+      capacities.maxAccessListEntries,
+      capacities.maxStorageKeysPerEntry,
+      lenOutputDeserialization,
+      lenRespondSerialization,
+    ),
+    cell.value,
+    what,
+  );
 }

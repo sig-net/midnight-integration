@@ -23,3 +23,4 @@ export {
   secp256k1PublicKeyOf,
   signAttestationDigest,
 } from "./ecdsa-attestation.ts";
+export { signatureToSignatureRespondedEvent } from "./signet-evtype2tx-requests.ts";

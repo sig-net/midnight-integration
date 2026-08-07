@@ -121,3 +121,35 @@ export function compactMaybeDescriptor<T>(inner: CompactType<T>): CompactType<Ma
     value: inner,
   });
 }
+
+/**
+ * Decode ONE whole stored value with a descriptor. `fromValue` is a cursor:
+ * it consumes atoms from the front of the array it is handed and ignores
+ * whatever remains, which is right for descriptors chained mid-struct but
+ * wrong for a complete key, cell or payload: called directly it either
+ * mutates live state (no copy) or accepts trailing atoms the descriptor
+ * never read (copy, no length check). This wrapper owns the copy and rejects
+ * leftovers, so a stored shape that has outgrown its descriptor fails loudly
+ * instead of decoding a stale prefix.
+ *
+ * @param type - The descriptor to decode with.
+ * @param atoms - The complete stored value. Never mutated.
+ * @param what - Error-message subject.
+ * @returns The decoded value.
+ * @throws {Error} If the descriptor rejects the atoms, or atoms remain after
+ *   it has consumed its fill.
+ */
+export function decodeExactly<T>(
+  type: CompactType<T>,
+  atoms: readonly Uint8Array[],
+  what: string,
+): T {
+  const cursor = [...atoms];
+  const decoded = type.fromValue(cursor);
+  if (cursor.length !== 0) {
+    throw new Error(
+      `${what} decode left ${String(cursor.length)} of ${String(atoms.length)} atoms unconsumed`,
+    );
+  }
+  return decoded;
+}
