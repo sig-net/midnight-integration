@@ -3,9 +3,8 @@
 // (empty path, the one-field bare-root fallback, non-array and out-of-range
 // steps) and the `{ state }` wrapper unwrap.
 
-import { describe, expect, it } from "vitest";
-
 import { StateValue } from "@midnight-ntwrk/compact-runtime";
+import { describe, expect, it } from "vitest";
 
 import { signetFieldNodeByPath } from "../src/index.ts";
 
@@ -18,9 +17,7 @@ const rootCell = (): StateValue =>
 
 describe("signetFieldNodeByPath", () => {
   it("throws for an empty path", () => {
-    expect(() => signetFieldNodeByPath(StateValue.newArray(), [])).toThrow(
-      /path is empty/,
-    );
+    expect(() => signetFieldNodeByPath(StateValue.newArray(), [])).toThrow(/path is empty/);
   });
 
   it("returns the bare non-array root itself at a final [0]", () => {
@@ -30,9 +27,7 @@ describe("signetFieldNodeByPath", () => {
 
   it("throws when a mid-path step lands on a non-array", () => {
     const root = StateValue.newArray().arrayPush(rootCell());
-    expect(() => signetFieldNodeByPath(root, [0, 5])).toThrow(
-      /steps into a non-array/,
-    );
+    expect(() => signetFieldNodeByPath(root, [0, 5])).toThrow(/steps into a non-array/);
   });
 
   it("throws when an index is out of range", () => {

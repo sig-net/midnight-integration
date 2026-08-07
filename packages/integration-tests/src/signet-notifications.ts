@@ -3,18 +3,20 @@
 // means polling (gotcha #15). This module owns only that plumbing. Every
 // assertion on the decoded notification stays in the test bodies.
 
-import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
+import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import {
   decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
+  isSignetEventNamed,
+  type RequestIdHex,
   requestIdHex,
+  type SignBidirectionalNotification,
+  SignetEventName,
   signetEventSourceFromPublicDataProvider,
   stripHexPrefix,
-  SignetEventName,
-  type RequestIdHex,
-  type SignBidirectionalNotification,
 } from "@sig-net/midnight";
-import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
+import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
+
 import { requireEnv } from "./e2e-env.ts";
 
 /** What to poll the signet contract's notification events for. */
@@ -47,7 +49,7 @@ export interface SignetNotificationPoll {
  * @param options - The env, expected request id and caller pointer, and
  *   patience.
  * @returns The decoded V1 notification.
- * @throws Error when no matching decodable event is indexed in time.
+ * @throws {Error} When no matching decodable event is indexed in time.
  */
 export async function pollSignetNotification(
   options: SignetNotificationPoll,
@@ -68,13 +70,11 @@ export async function pollSignetNotification(
   while (Date.now() < deadline) {
     const events = await eventSource.querySignetEvents(signetAddress);
     for (const event of events) {
-      if (event.name !== SignetEventName.SignBidirectionalEvent) continue;
+      if (!isSignetEventNamed(event, SignetEventName.SignBidirectionalEvent)) continue;
       let declaredId: RequestIdHex;
       let decoded: SignBidirectionalNotification;
       try {
-        const post = decodeSignBidirectionalEventNotificationPayload(
-          event.payload,
-        );
+        const post = decodeSignBidirectionalEventNotificationPayload(event.payload);
         declaredId = requestIdHex(post.requestId);
         decoded = decodeSignBidirectionalNotification(post.event);
       } catch {
@@ -93,6 +93,6 @@ export async function pollSignetNotification(
   }
 
   throw new Error(
-    `no notification event ${options.description} emitted on ${signetAddress} within ${timeoutMs / 1000}s`,
+    `no notification event ${options.description} emitted on ${signetAddress} within ${String(timeoutMs / 1000)}s`,
   );
 }

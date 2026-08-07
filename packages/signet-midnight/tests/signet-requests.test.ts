@@ -6,22 +6,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  MPCDestination,
-  MPCSignatureAlgorithm,
-  TxParamType,
   calculateRequestId,
   evmAddressAbiWord,
+  MPCDestination,
+  MPCSignatureAlgorithm,
   numericAbiWord,
   parseRequestIdHex,
   requestIdBytes,
-  requestIdHex,
-  toSignBidirectionalEventIndex,
   type RequestIdHex,
+  requestIdHex,
   type SignBidirectionalEvent,
+  toSignBidirectionalEventIndex,
+  TxParamType,
 } from "../src/index.ts";
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 /** Known-good request record: the base every test uses. NEVER mutate. */
 const SAMPLE_REQUEST: SignBidirectionalEvent = {
@@ -58,52 +57,25 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
 };
 
 describe("parseRequestIdHex", () => {
-  /** One row: a candidate string and whether it must throw. */
-  interface ParseCase {
-    name: string;
-    input: string;
-    error?: RegExp;
-  }
-
-  const PARSE_CASES: ParseCase[] = [
+  // Every accept row normalises to the same literal id, so the expectation
+  // never mirrors the implementation's own normalisation.
+  it.each([
     { name: "64 lowercase hex chars", input: "ab".repeat(32) },
     { name: "with a 0x prefix", input: `0x${"ab".repeat(32)}` },
     { name: "with a 0X prefix", input: `0X${"ab".repeat(32)}` },
     { name: "uppercase hex is normalised to lowercase", input: "AB".repeat(32) },
-    {
-      name: "a 0x prefix with mixed case hex",
-      input: `0x${"Ab".repeat(32)}`,
-    },
-    {
-      name: "63 chars (too short)",
-      input: `${"ab".repeat(31)}a`,
-      error: /not a 32-byte request id/,
-    },
-    {
-      name: "65 chars (too long)",
-      input: `${"ab".repeat(32)}a`,
-      error: /not a 32-byte request id/,
-    },
-    {
-      name: "non-hex characters",
-      input: `${"ab".repeat(31)}zz`,
-      error: /not a 32-byte request id/,
-    },
-    {
-      name: "empty string",
-      input: "",
-      error: /not a 32-byte request id/,
-    },
-  ];
-
-  // Every accept row normalises to the same literal id, so the expectation
-  // never mirrors the implementation's own normalisation.
-  it.each(PARSE_CASES)("$name", ({ input, error }) => {
-    if (error !== undefined) {
-      expect(() => parseRequestIdHex(input)).toThrow(error);
-      return;
-    }
+    { name: "a 0x prefix with mixed case hex", input: `0x${"Ab".repeat(32)}` },
+  ])("accepts $name", ({ input }) => {
     expect(parseRequestIdHex(input)).toBe("ab".repeat(32));
+  });
+
+  it.each([
+    { name: "63 chars (too short)", input: `${"ab".repeat(31)}a` },
+    { name: "65 chars (too long)", input: `${"ab".repeat(32)}a` },
+    { name: "non-hex characters", input: `${"ab".repeat(31)}zz` },
+    { name: "empty string", input: "" },
+  ])("rejects $name", ({ input }) => {
+    expect(() => parseRequestIdHex(input)).toThrow(/not a 32-byte request id/);
   });
 });
 
@@ -118,9 +90,7 @@ describe("requestIdHex / requestIdBytes", () => {
   });
 
   it("requestIdBytes also accepts a 0x-prefixed hex", () => {
-    expect(requestIdBytes(`0x${"5c".repeat(32)}` as RequestIdHex)).toEqual(
-      bytes(32, 0x5c),
-    );
+    expect(requestIdBytes(`0x${"5c".repeat(32)}` as RequestIdHex)).toEqual(bytes(32, 0x5c));
   });
 });
 

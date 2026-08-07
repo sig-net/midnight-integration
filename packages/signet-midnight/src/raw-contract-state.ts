@@ -17,8 +17,7 @@ export type RawContractState = StateValue | { state: StateValue };
  * @param raw - Bare state value or a `.state`-carrying wrapper.
  * @returns The bare `StateValue`.
  */
-const unwrap = (raw: RawContractState): StateValue =>
-  "state" in raw ? raw.state : raw;
+const unwrap = (raw: RawContractState): StateValue => ("state" in raw ? raw.state : raw);
 
 /**
  * Follow a resolved ledger-tree path to its node in raw state: the
@@ -31,13 +30,10 @@ const unwrap = (raw: RawContractState): StateValue =>
  * @param raw - Raw contract state from the indexer or simulator.
  * @param path - Resolved chunk-tree path in declaration order.
  * @returns The `StateValue` node at the end of the path.
- * @throws Error if `path` is empty, steps into a non-array, or an index is out
+ * @throws {Error} If `path` is empty, steps into a non-array, or an index is out
  *   of range.
  */
-export function signetFieldNodeByPath(
-  raw: RawContractState,
-  path: readonly number[],
-): StateValue {
+export function signetFieldNodeByPath(raw: RawContractState, path: readonly number[]): StateValue {
   if (path.length === 0) {
     throw new Error("Ledger field path is empty");
   }
@@ -49,35 +45,16 @@ export function signetFieldNodeByPath(
       // accessor reads it the same way.
       if (index === 0 && level === path.length - 1) return node;
       throw new Error(
-        `Ledger field path ${JSON.stringify(path)} steps into a non-array at level ${level}`,
+        `Ledger field path ${JSON.stringify(path)} steps into a non-array at level ${String(level)}`,
       );
     }
     const next = (node.asArray() ?? [])[index];
     if (next === undefined) {
       throw new Error(
-        `Ledger field path ${JSON.stringify(path)} index ${index} out of range at level ${level}`,
+        `Ledger field path ${JSON.stringify(path)} index ${String(index)} out of range at level ${String(level)}`,
       );
     }
     node = next;
   }
   return node;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

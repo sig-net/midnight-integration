@@ -16,14 +16,15 @@ import fs from "node:fs";
  * to the newline consumes exactly one line and leaves nothing in flight.
  * Crashes loudly if there is no TTY — this is only ever called when the
  * operator explicitly opts into step-through mode at an interactive terminal.
+ *
+ * @param index - 1-based position of the test about to run.
+ * @param total - How many tests the run has.
+ * @param name - Name of the test about to run.
+ * @returns A promise that settles once the operator has hit enter.
  */
-export async function waitForGo(
-    index: number,
-    total: number,
-    name: string,
-): Promise<void> {
+export function waitForGo(index: number, total: number, name: string): Promise<void> {
   console.log(
-    `\n${"━".repeat(72)}\n⏸️   PAUSED (step through mode active)\n▶️    Hit enter to run next test:\n▶  TEST ${index}/${total} "${name}".`,
+    `\n${"━".repeat(72)}\n⏸️   PAUSED (step through mode active)\n▶️    Hit enter to run next test:\n▶  TEST ${String(index)}/${String(total)} "${name}".`,
   );
 
   const fd = fs.openSync("/dev/tty", "r");
@@ -37,4 +38,7 @@ export async function waitForGo(
   } finally {
     fs.closeSync(fd);
   }
+  // The tty read is synchronous, but the caller awaits this alongside the
+  // async step hooks, so the promise shape is part of the contract.
+  return Promise.resolve();
 }

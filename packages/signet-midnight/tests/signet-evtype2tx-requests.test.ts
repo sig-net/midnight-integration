@@ -10,34 +10,27 @@
 // The tail suites cover the full unsigned rebuild and the signed assembly
 // from a posted response.
 
+import { computeAddress, getAddress, Interface, SigningKey, Transaction } from "ethers";
 import { describe, expect, it } from "vitest";
 
 import {
-  computeAddress,
-  getAddress,
-  Interface,
-  SigningKey,
-  Transaction,
-} from "ethers";
-
-import {
-  MPCDestination,
-  MPCSignatureAlgorithm,
-  TxParamType,
   abiWordToBool,
   abiWordToUint128,
   asciiPadded,
   assembleCalldata,
   bytesToHex,
   evmAddressAbiWord,
-  numericAbiWord,
-  signBidirectionalEventToSignedEvmTransaction,
-  signBidirectionalEventToUnsignedEvmTransaction,
+  type EvmCalldata,
   type EvmType2TxParams,
   type Maybe,
-  type EvmCalldata,
+  MPCDestination,
+  MPCSignatureAlgorithm,
+  numericAbiWord,
   type SignatureRespondedEvent,
   type SignBidirectionalEvent,
+  signBidirectionalEventToSignedEvmTransaction,
+  signBidirectionalEventToUnsignedEvmTransaction,
+  TxParamType,
 } from "../src/index.ts";
 import { ecdsaSignatureToMpcSignature } from "../src/testing.ts";
 
@@ -45,8 +38,7 @@ import { ecdsaSignatureToMpcSignature } from "../src/testing.ts";
 // (the app-level constant lives in the cli).
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 const VAULT_EVM = bytes(20, 0xee);
 const VAULT_ADDRESS = getAddress(`0x${"ee".repeat(20)}`);
@@ -55,7 +47,7 @@ const AMOUNT = 1_000_000n;
 const someCalldata = (
   selector: Uint8Array,
   words: Uint8Array[],
-  noWords: bigint = BigInt(words.length),
+  noWords = BigInt(words.length),
 ): Maybe<EvmCalldata> => ({
   is_some: true,
   value: { selector, noWords, words },
@@ -64,16 +56,10 @@ const someCalldata = (
 describe("assembleCalldata vs ethers encodeFunctionData", () => {
   it("static args: transfer(address,uint256), built exactly as the vault builds it", () => {
     const iface = new Interface(["function transfer(address,uint256)"]);
-    const expected = iface.encodeFunctionData("transfer", [
-      VAULT_ADDRESS,
-      AMOUNT,
-    ]);
+    const expected = iface.encodeFunctionData("transfer", [VAULT_ADDRESS, AMOUNT]);
 
     const assembled = assembleCalldata(
-      someCalldata(ERC20_TRANSFER_SELECTOR, [
-        evmAddressAbiWord(VAULT_EVM),
-        numericAbiWord(AMOUNT),
-      ]),
+      someCalldata(ERC20_TRANSFER_SELECTOR, [evmAddressAbiWord(VAULT_EVM), numericAbiWord(AMOUNT)]),
     );
 
     expect(assembled).toBe(expected);
@@ -81,10 +67,7 @@ describe("assembleCalldata vs ethers encodeFunctionData", () => {
 
   it("drops capacity slots beyond noWords", () => {
     const iface = new Interface(["function transfer(address,uint256)"]);
-    const expected = iface.encodeFunctionData("transfer", [
-      VAULT_ADDRESS,
-      AMOUNT,
-    ]);
+    const expected = iface.encodeFunctionData("transfer", [VAULT_ADDRESS, AMOUNT]);
 
     // Two real words in a 4-word capacity; the trailing zero-fill is excluded.
     const assembled = assembleCalldata(
@@ -288,9 +271,7 @@ const signResponse = (
   key: SigningKey,
   request: SignBidirectionalEvent,
 ): SignatureRespondedEvent => {
-  const signature = key.sign(
-    signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash,
-  );
+  const signature = key.sign(signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash);
   return {
     signature: ecdsaSignatureToMpcSignature({
       r: BigInt(signature.r),
@@ -332,10 +313,7 @@ describe("signBidirectionalEventToUnsignedEvmTransaction", () => {
 
 describe("signBidirectionalEventToSignedEvmTransaction", () => {
   it("attaches the response signature to the request's transaction", () => {
-    const signed = signBidirectionalEventToSignedEvmTransaction(
-      REQUEST,
-      VALID_RESPONSE,
-    );
+    const signed = signBidirectionalEventToSignedEvmTransaction(REQUEST, VALID_RESPONSE);
 
     expect(signed.isSigned()).toBe(true);
     // Signing is non-destructive: the signed tx carries the same body as the
@@ -353,26 +331,20 @@ describe("signBidirectionalEventToSignedEvmTransaction", () => {
   });
 
   it("rejects a response with an out-of-range recovery id", () => {
-    expect(() =>
-      signBidirectionalEventToSignedEvmTransaction(REQUEST, withRecoveryId(5n)),
-    ).toThrow(/recovery id/);
+    expect(() => signBidirectionalEventToSignedEvmTransaction(REQUEST, withRecoveryId(5n))).toThrow(
+      /recovery id/,
+    );
   });
 });
 
 describe("ABI word helpers: rejection rows", () => {
   it("evmAddressAbiWord rejects an address that is not 20 bytes", () => {
-    expect(() => evmAddressAbiWord(bytes(19, 0xaa))).toThrow(
-      /EVM address must be 20 bytes/,
-    );
-    expect(() => evmAddressAbiWord(bytes(21, 0xaa))).toThrow(
-      /EVM address must be 20 bytes/,
-    );
+    expect(() => evmAddressAbiWord(bytes(19, 0xaa))).toThrow(/EVM address must be 20 bytes/);
+    expect(() => evmAddressAbiWord(bytes(21, 0xaa))).toThrow(/EVM address must be 20 bytes/);
   });
 
   it("abiWordToUint128 rejects a word that is not 32 bytes", () => {
-    expect(() => abiWordToUint128(bytes(16, 0))).toThrow(
-      /ABI word must be 32 bytes/,
-    );
+    expect(() => abiWordToUint128(bytes(16, 0))).toThrow(/ABI word must be 32 bytes/);
   });
 
   it("abiWordToUint128 rejects a non-zero leading half", () => {
@@ -382,16 +354,12 @@ describe("ABI word helpers: rejection rows", () => {
   });
 
   it("abiWordToBool rejects a word that is not 32 bytes", () => {
-    expect(() => abiWordToBool(bytes(31, 0))).toThrow(
-      /ABI word must be 32 bytes/,
-    );
+    expect(() => abiWordToBool(bytes(31, 0))).toThrow(/ABI word must be 32 bytes/);
   });
 
   it("abiWordToBool rejects a non-canonical Boolean", () => {
     const word = new Uint8Array(32);
     word[31] = 2;
-    expect(() => abiWordToBool(word)).toThrow(
-      /ABI word is not a canonical Boolean/,
-    );
+    expect(() => abiWordToBool(word)).toThrow(/ABI word is not a canonical Boolean/);
   });
 });

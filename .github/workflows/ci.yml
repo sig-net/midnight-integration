@@ -1,5 +1,5 @@
 # Unit and integration testing.
-#   unit         compile + build + test
+#   unit         format + compile + lint + build + test
 #   integration  compose stack + signet-caller e2e, whose setup deploys the
 #                contracts and starts the fakenet responder
 #
@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   unit:
-    name: compile (skip-zk) → build → unit tests
+    name: format → compile (skip-zk) → lint → build → unit tests
     if: github.event_name != 'schedule' || github.event.schedule == '17 3 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -42,7 +42,7 @@ jobs:
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
       - name: Restore the compact toolchain (keyed on the pinned versions)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.compact
@@ -84,10 +84,12 @@ jobs:
           echo "version=$(printf '%s' "$version" | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
       - name: Install dependencies (frozen, from the committed yarn.lock)
         run: yarn install --immutable
+      - name: Format check (needs nothing compiled, so it fails fast)
+        run: yarn format:check
       - name: Compile (skip-zk)
         run: yarn compile
       - name: Restore prebuilt zk proving keys (read-only, the integration job saves)
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             packages/signet-contract/src/managed
@@ -100,6 +102,10 @@ jobs:
           else
             yarn compile:signet-contract:zk
           fi
+      # Type-aware, so it reads the generated src/managed/ types and must run
+      # after `yarn compile`, exactly like the build below.
+      - name: Lint
+        run: yarn lint
       - name: Build (typecheck, no emit)
         run: yarn build
       - name: Unit tests (simulator-only, the integration suites self-skip without RUN_INTEGRATION_TESTS)
@@ -120,7 +126,7 @@ jobs:
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
       - name: Restore the compact toolchain (keyed on the pinned versions)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.compact
@@ -166,7 +172,7 @@ jobs:
         run: yarn compile
       - name: Restore prebuilt zk proving keys
         id: zk
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             packages/signet-contract/src/managed
@@ -177,7 +183,7 @@ jobs:
         run: yarn compile:zk
       - name: Save zk proving keys (immediately, before a later failure can lose them)
         if: steps.zk.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             packages/signet-contract/src/managed
@@ -208,7 +214,7 @@ jobs:
           docker ps -a > ci-logs/docker-ps.txt 2>&1 || true
       - name: Upload service logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-logs
           path: ci-logs/

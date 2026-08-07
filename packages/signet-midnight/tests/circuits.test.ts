@@ -12,29 +12,29 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  pureCircuits,
-  decodeSignBidirectionalNotification,
+  abiWordToBool,
+  abiWordToUint128,
+  boolAbiWord,
   bytesToHex,
+  decodeSignBidirectionalNotification,
   evmAddressAbiWord,
   numericAbiWord,
-  boolAbiWord,
-  abiWordToUint128,
-  abiWordToBool,
+  pureCircuits,
 } from "../src/index.ts";
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 describe("constructSignBidirectionalEventNotificationV1 (compiled packer)", () => {
   const CALLER = { bytes: bytes(32, 0xc1) };
 
   it("packs the V1 layout: callerAddress (32) ++ depth (1) ++ path (4) ++ zero padding (91)", () => {
     // A flat contract's field 4: path [4] at depth 1.
-    const notification = pureCircuits.constructSignBidirectionalEventNotificationV1(
-      CALLER,
-      1n,
-      [4n, 0n, 0n, 0n],
-    );
+    const notification = pureCircuits.constructSignBidirectionalEventNotificationV1(CALLER, 1n, [
+      4n,
+      0n,
+      0n,
+      0n,
+    ]);
     expect(notification.version).toBe(1n);
     expect(notification.payload).toHaveLength(128);
     expect(notification.payload.slice(0, 32)).toEqual(CALLER.bytes);
@@ -45,24 +45,24 @@ describe("constructSignBidirectionalEventNotificationV1 (compiled packer)", () =
 
   it("packs a chunked contract's depth-2 path and the decoder trims to depth", () => {
     // A contract past 15 fields whose map compactc stored at chunk [1, 14].
-    const notification = pureCircuits.constructSignBidirectionalEventNotificationV1(
-      CALLER,
-      2n,
-      [1n, 14n, 0n, 0n],
-    );
+    const notification = pureCircuits.constructSignBidirectionalEventNotificationV1(CALLER, 2n, [
+      1n,
+      14n,
+      0n,
+      0n,
+    ]);
     expect(notification.payload[32]).toBe(2); // depth
     expect(notification.payload.slice(33, 37)).toEqual(Uint8Array.from([1, 14, 0, 0]));
-    expect(decodeSignBidirectionalNotification(notification).requestsPath).toEqual([
-      1, 14,
-    ]);
+    expect(decodeSignBidirectionalNotification(notification).requestsPath).toEqual([1, 14]);
   });
 
   it("round-trips through the decoder (pack↔decode lockstep)", () => {
-    const notification = pureCircuits.constructSignBidirectionalEventNotificationV1(
-      CALLER,
-      1n,
-      [7n, 0n, 0n, 0n],
-    );
+    const notification = pureCircuits.constructSignBidirectionalEventNotificationV1(CALLER, 1n, [
+      7n,
+      0n,
+      0n,
+      0n,
+    ]);
     expect(decodeSignBidirectionalNotification(notification)).toEqual({
       version: 1,
       callerAddress: bytesToHex(CALLER.bytes),

@@ -12,15 +12,15 @@
 // so these tables transitively pin the wire format a Compact contract reads
 // with deserialize<T, N>.
 
-import { describe, expect, it } from "vitest";
 import { ethers } from "ethers";
+import { describe, expect, it } from "vitest";
 
 import {
-  deserializeEvmOutput,
-  serializeRespondOutput,
   type AbiDecodedOutput,
   type AbiSchemaInput,
+  deserializeEvmOutput,
   type EvmSchemaInput,
+  serializeRespondOutput,
 } from "../src/index.ts";
 
 const coder = ethers.AbiCoder.defaultAbiCoder();
@@ -42,12 +42,12 @@ const ADDRESS = "0x1111111111111111111111111111111111111102";
 // ===========================================================================
 
 describe("deserializeEvmOutput: ethers round-trips", () => {
-  const cases: Array<{
+  const cases: {
     name: string;
     schema: { name: string; type: string }[];
     encoded: unknown[];
     expected: AbiDecodedOutput;
-  }> = [
+  }[] = [
     {
       name: "bool true",
       schema: [{ name: "success", type: "bool" }],
@@ -129,7 +129,7 @@ describe("deserializeEvmOutput: ethers round-trips", () => {
   it.each(cases)("$name", ({ schema, encoded, expected }) => {
     const callResult = coder.encode(
       schema.map((f) => f.type),
-      encoded
+      encoded,
     );
     expect(deserializeEvmOutput(schema, callResult)).toEqual(expected);
   });
@@ -143,7 +143,7 @@ describe("deserializeEvmOutput: schema input forms are equivalent", () => {
   const callResult = coder.encode(["bool", "uint256"], [true, 4242n]);
   const expected = { ok: true, amount: 4242n };
 
-  const forms: Array<{ name: string; input: EvmSchemaInput }> = [
+  const forms: { name: string; input: EvmSchemaInput }[] = [
     { name: "typed array", input: schema },
     { name: "JSON string", input: JSON.stringify(schema) },
     { name: "raw JSON bytes", input: new TextEncoder().encode(JSON.stringify(schema)) },
@@ -157,7 +157,7 @@ describe("deserializeEvmOutput: schema input forms are equivalent", () => {
 
 describe("deserializeEvmOutput: empty schemas decode to no values", () => {
   // A plain transfer has no call output: every empty-schema form yields {}.
-  const forms: Array<{ name: string; input: EvmSchemaInput }> = [
+  const forms: { name: string; input: EvmSchemaInput }[] = [
     { name: "empty typed array", input: [] },
     { name: "empty-array JSON text", input: "[]" },
     { name: "blank text", input: "  " },
@@ -171,12 +171,12 @@ describe("deserializeEvmOutput: empty schemas decode to no values", () => {
 
 describe("deserializeEvmOutput: rejections", () => {
   const good = coder.encode(["bool"], [true]);
-  const cases: Array<{
+  const cases: {
     name: string;
     schema: EvmSchemaInput;
     callResult?: string;
     error?: RegExp;
-  }> = [
+  }[] = [
     {
       name: "unknown type string (rejected by ethers, the grammar authority)",
       schema: [{ name: "x", type: "banana" }],
@@ -228,9 +228,8 @@ describe("deserializeEvmOutput: rejections", () => {
   ];
 
   it.each(cases)("$name", ({ schema, callResult, error }) => {
-    const run = () => deserializeEvmOutput(schema, callResult ?? good);
-    if (error) expect(run).toThrow(error);
-    else expect(run).toThrow();
+    // `/./` for the row whose message comes from ethers and is not pinned here.
+    expect(() => deserializeEvmOutput(schema, callResult ?? good)).toThrow(error ?? /./);
   });
 });
 
@@ -239,12 +238,12 @@ describe("deserializeEvmOutput: rejections", () => {
 // ===========================================================================
 
 describe("serializeRespondOutput: byte-exact layout pins (circuit-verified)", () => {
-  const cases: Array<{
+  const cases: {
     name: string;
     schema: AbiSchemaInput;
     output: AbiDecodedOutput;
     expectedHex: string;
-  }> = [
+  }[] = [
     {
       name: "bool true is one byte (the erc20-vault respond schema)",
       schema: [{ name: "success", type: "bool" }],
@@ -319,10 +318,7 @@ describe("serializeRespondOutput: byte-exact layout pins (circuit-verified)", ()
       schema: [{ name: "xs", type: "uint128[]", maxItems: 3 }],
       output: { xs: [7n, 8n] },
       expectedHex:
-        "02" + "00".repeat(7) +
-        "07" + "00".repeat(15) +
-        "08" + "00".repeat(15) +
-        "00".repeat(16),
+        "02" + "00".repeat(7) + "07" + "00".repeat(15) + "08" + "00".repeat(15) + "00".repeat(16),
     },
     {
       name: "multi-field schema packs in declaration order with no gaps",
@@ -348,7 +344,7 @@ describe("serializeRespondOutput: value-form coercions agree byte for byte", () 
   const schema: AbiSchemaInput = [{ name: "v", type: "uint64" }];
   const expected = "05" + "00".repeat(7);
 
-  const forms: Array<{ name: string; output: AbiDecodedOutput }> = [
+  const forms: { name: string; output: AbiDecodedOutput }[] = [
     { name: "bigint", output: { v: 5n } },
     { name: "number", output: { v: 5 } },
     { name: "decimal string", output: { v: "5" } },
@@ -371,7 +367,7 @@ describe("serializeRespondOutput: schema input forms are equivalent", () => {
   const schema = [{ name: "success", type: "bool" }];
   const output = { success: true };
 
-  const forms: Array<{ name: string; input: AbiSchemaInput }> = [
+  const forms: { name: string; input: AbiSchemaInput }[] = [
     { name: "typed array", input: schema as AbiSchemaInput },
     { name: "JSON string", input: JSON.stringify(schema) },
     { name: "NUL-padded on-chain bytes", input: nulPadded(schema, 64) },
@@ -383,12 +379,12 @@ describe("serializeRespondOutput: schema input forms are equivalent", () => {
 });
 
 describe("serializeRespondOutput: rejections", () => {
-  const cases: Array<{
+  const cases: {
     name: string;
     schema: AbiSchemaInput;
     output: AbiDecodedOutput;
     error: RegExp;
-  }> = [
+  }[] = [
     {
       name: "missing value for a schema field",
       schema: [{ name: "success", type: "bool" }],
@@ -615,10 +611,9 @@ describe("serializeRespondOutput: rejections", () => {
 describe("serializeRespondOutput: packed-width ceiling boundary", () => {
   it("a schema packing to exactly the ceiling is accepted", () => {
     // 8 length-prefix bytes + 65528 capacity = 65536, the ceiling itself.
-    const packed = serializeRespondOutput(
-      [{ name: "blob", type: "bytes", maxBytes: 65_528 }],
-      { blob: new Uint8Array([1]) },
-    );
+    const packed = serializeRespondOutput([{ name: "blob", type: "bytes", maxBytes: 65_528 }], {
+      blob: new Uint8Array([1]),
+    });
     expect(packed.length).toBe(65_536);
   });
 });
@@ -645,10 +640,7 @@ describe("pipeline: EVM output -> deserializeEvmOutput -> serializeRespondOutput
       { name: "delta", type: "int256" },
       { name: "ok", type: "bool" },
     ];
-    const callResult = coder.encode(
-      ["uint256", "int256", "bool"],
-      [4242n, -5n, true]
-    );
+    const callResult = coder.encode(["uint256", "int256", "bool"], [4242n, -5n, true]);
     const decoded = deserializeEvmOutput(decodeSchema, callResult);
     expect(decoded).toEqual({ amount: 4242n, delta: -5n, ok: true });
 

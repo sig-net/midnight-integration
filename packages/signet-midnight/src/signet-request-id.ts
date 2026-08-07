@@ -8,10 +8,10 @@ import { keccak256 } from "@midnight-ntwrk/compact-runtime";
 
 import { evmType2TxParamsDescriptorOf } from "./signet-evtype2tx-requests.ts";
 import {
-  signBidirectionalEventDescriptorWith,
-  TxParamType,
   type RequestId,
   type SignBidirectionalEvent,
+  signBidirectionalEventDescriptorWith,
+  TxParamType,
 } from "./signet-requests.ts";
 
 /**
@@ -22,14 +22,14 @@ import {
  *
  * @param request - The full event record (contract-shaped, all slots).
  * @returns The 32-byte request id, the record's ledger map key.
- * @throws Error if the record's `txParamType` names a decomposition this
+ * @throws {Error} If the record's `txParamType` names a decomposition this
  *   computation has no descriptor for.
  */
 export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
   if (request.txParamType !== TxParamType.evmType2) {
     throw new Error(
-      `unsupported txParamType ${request.txParamType}: this id computation ` +
-        `understands evmType2 (${TxParamType.evmType2})`,
+      `unsupported txParamType ${String(request.txParamType)}: this id computation ` +
+        `understands evmType2 (${String(TxParamType.evmType2)})`,
     );
   }
   return keccak256(

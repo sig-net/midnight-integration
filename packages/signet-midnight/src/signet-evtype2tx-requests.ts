@@ -8,30 +8,27 @@
 // `selector || words` VERBATIM, so the transaction the MPC signs carries the
 // contract-stored bytes untouched.
 
-import {
-  CompactTypeVector,
-  type CompactType,
-} from "@midnight-ntwrk/compact-runtime";
+import { type CompactType, CompactTypeVector } from "@midnight-ntwrk/compact-runtime";
 import { getAddress, Signature, toBeHex, Transaction } from "ethers";
 
-import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 import { bigintToBytes32BE, bytesToHex } from "./byte-codecs.ts";
-import { mpcSignatureToEcdsaSignature } from "./ecdsa-attestation.ts";
 import {
   BYTES_4,
   BYTES_20,
   BYTES_32,
+  compactMaybeDescriptor,
+  compactStructDescriptor,
+  type Maybe,
   UINT_8,
   UINT_16,
   UINT_64,
   UINT_128,
-  compactMaybeDescriptor,
-  compactStructDescriptor,
-  type Maybe,
 } from "./compact-descriptors.ts";
+import { mpcSignatureToEcdsaSignature } from "./ecdsa-attestation.ts";
+import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 import {
-  signBidirectionalEventDescriptorWith,
   type SignBidirectionalEvent,
+  signBidirectionalEventDescriptorWith,
 } from "./signet-requests.ts";
 
 /**
@@ -178,11 +175,10 @@ export function evmType2TxParamsDescriptor(
 export function evmType2TxParamsDescriptorOf(
   txParams: EvmType2TxParams,
 ): CompactType<EvmType2TxParams> {
-  const maxAccessListEntries = txParams.accessList.length;
   return evmType2TxParamsDescriptor(
     txParams.calldata.value.words.length,
-    maxAccessListEntries,
-    maxAccessListEntries === 0 ? 0 : txParams.accessList[0]!.storageKeys.length,
+    txParams.accessList.length,
+    txParams.accessList[0]?.storageKeys.length ?? 0,
   );
 }
 
@@ -207,11 +203,7 @@ export function signBidirectionalEventDescriptor(
   lenRespondSerialization: number,
 ): CompactType<SignBidirectionalEvent> {
   return signBidirectionalEventDescriptorWith(
-    evmType2TxParamsDescriptor(
-      maxCalldataWords,
-      maxAccessListEntries,
-      maxStorageKeysPerEntry,
-    ),
+    evmType2TxParamsDescriptor(maxCalldataWords, maxAccessListEntries, maxStorageKeysPerEntry),
     lenOutputDeserialization,
     lenRespondSerialization,
   );
@@ -225,9 +217,9 @@ export function signBidirectionalEventDescriptor(
  * `numericAbiWord` circuit (lockstep-tested against the compiled circuit).
  * For off-chain word builders (UIs, expected-record builders, tests).
  *
- * @param value - The word's numeric value.
- * @returns The ABI-ready 32-byte word.
- * @throws Error if the value is negative or does not fit 32 bytes.
+ * @param value - The word's numeric value (e.g. an amount).
+ * @returns The ABI-ready 32-byte word to store in an {@link EvmCalldata} word.
+ * @throws {Error} If the value is negative or does not fit 32 bytes.
  */
 export function numericAbiWord(value: bigint): Uint8Array {
   return bigintToBytes32BE(value);
@@ -239,12 +231,12 @@ export function numericAbiWord(value: bigint): Uint8Array {
  * `evmAddressAbiWord` circuit (lockstep-tested against the compiled circuit).
  *
  * @param address - The 20-byte address in display order.
- * @returns The ABI-ready 32-byte word.
- * @throws Error if the address is not exactly 20 bytes.
+ * @returns The ABI-ready 32-byte word to store in an {@link EvmCalldata} word.
+ * @throws {Error} If the address is not exactly 20 bytes.
  */
 export function evmAddressAbiWord(address: Uint8Array): Uint8Array {
   if (address.length !== 20) {
-    throw new Error(`EVM address must be 20 bytes, got ${address.length}`);
+    throw new Error(`EVM address must be 20 bytes, got ${String(address.length)}`);
   }
   const word = new Uint8Array(32);
   word.set(address, 12);
@@ -272,18 +264,18 @@ export function boolAbiWord(value: boolean): Uint8Array {
  *
  * @param word - The ABI-ready 32-byte word.
  * @returns The word's numeric value.
- * @throws Error if the word is not 32 bytes or its leading half is nonzero.
+ * @throws {Error} If the word is not 32 bytes or its leading half is nonzero.
  */
 export function abiWordToUint128(word: Uint8Array): bigint {
   if (word.length !== 32) {
-    throw new Error(`ABI word must be 32 bytes, got ${word.length}`);
+    throw new Error(`ABI word must be 32 bytes, got ${String(word.length)}`);
   }
   if (word.slice(0, 16).some((byte) => byte !== 0)) {
     throw new Error("ABI word exceeds Uint<128>");
   }
   let value = 0n;
-  for (let i = 16; i < 32; i++) {
-    value = value * 256n + BigInt(word[i]!);
+  for (const byte of word.subarray(16, 32)) {
+    value = value * 256n + BigInt(byte);
   }
   return value;
 }
@@ -295,16 +287,17 @@ export function abiWordToUint128(word: Uint8Array): bigint {
  *
  * @param word - The ABI-ready 32-byte word.
  * @returns The word's Boolean value.
- * @throws Error if the word is not 32 bytes or is not a canonical Boolean.
+ * @throws {Error} If the word is not 32 bytes or is not a canonical Boolean.
  */
 export function abiWordToBool(word: Uint8Array): boolean {
   if (word.length !== 32) {
-    throw new Error(`ABI word must be 32 bytes, got ${word.length}`);
+    throw new Error(`ABI word must be 32 bytes, got ${String(word.length)}`);
   }
-  if (word.slice(0, 31).some((byte) => byte !== 0) || word[31]! > 1) {
+  const low = word[31];
+  if (low === undefined || word.slice(0, 31).some((byte) => byte !== 0) || low > 1) {
     throw new Error("ABI word is not a canonical Boolean");
   }
-  return word[31] === 1;
+  return low === 1;
 }
 
 /**
@@ -321,8 +314,8 @@ export function assembleCalldata(calldata: Maybe<EvmCalldata>): string {
   }
   const { selector, noWords, words } = calldata.value;
   let data = `0x${bytesToHex(selector)}`;
-  for (let i = 0; i < Number(noWords); i++) {
-    data += bytesToHex(words[i]!);
+  for (const word of words.slice(0, Number(noWords))) {
+    data += bytesToHex(word);
   }
   return data;
 }
@@ -336,15 +329,13 @@ export function assembleCalldata(calldata: Maybe<EvmCalldata>): string {
  */
 function decodeAccessList(
   txParams: EvmType2TxParams,
-): Array<{ address: string; storageKeys: string[] }> {
-  return txParams.accessList
-    .slice(0, Number(txParams.accessListEntryCount))
-    .map((entry) => ({
-      address: getAddress(`0x${bytesToHex(entry.address)}`),
-      storageKeys: entry.storageKeys
-        .slice(0, Number(entry.storageKeyCount))
-        .map((key) => `0x${bytesToHex(key)}`),
-    }));
+): { address: string; storageKeys: string[] }[] {
+  return txParams.accessList.slice(0, Number(txParams.accessListEntryCount)).map((entry) => ({
+    address: getAddress(`0x${bytesToHex(entry.address)}`),
+    storageKeys: entry.storageKeys
+      .slice(0, Number(entry.storageKeyCount))
+      .map((key) => `0x${bytesToHex(key)}`),
+  }));
 }
 
 /**
@@ -356,7 +347,7 @@ function decodeAccessList(
  * @param request - The on-ledger request record.
  * @returns The unsigned ethers transaction (`unsignedHash` is the digest the
  *   MPC signs).
- * @throws Error if a calldata word carries an unknown kind.
+ * @throws {Error} If a calldata word carries an unknown kind.
  */
 export function signBidirectionalEventToUnsignedEvmTransaction(
   request: SignBidirectionalEvent,
@@ -383,11 +374,9 @@ export function signBidirectionalEventToUnsignedEvmTransaction(
  *
  * @param response - The posted signature record.
  * @returns The ethers signature.
- * @throws Error if the record is malformed (see {@link mpcSignatureToEcdsaSignature}).
+ * @throws {Error} If the record is malformed (see {@link mpcSignatureToEcdsaSignature}).
  */
-export function signatureRespondedEventToSignature(
-  response: SignatureRespondedEvent,
-): Signature {
+export function signatureRespondedEventToSignature(response: SignatureRespondedEvent): Signature {
   const { r, s, recoveryId } = mpcSignatureToEcdsaSignature(response.signature);
   return Signature.from({
     r: toBeHex(r, 32),
@@ -397,19 +386,21 @@ export function signatureRespondedEventToSignature(
 }
 
 /**
- * Assemble the broadcast-ready signed EIP-1559 transaction for a request
- * from its MPC signature response (see
- * {@link signBidirectionalEventToUnsignedEvmTransaction}). Does NOT check
- * that the signature recovers to the requester's derived address: the
- * response events are unauthenticated, so verify first with
- * `verifySignatureRespondedEvent`.
+ * Assemble the broadcast-ready signed EIP-1559 transaction for a request from
+ * its MPC signature response: rebuild the exact unsigned transaction the MPC
+ * signed (see {@link signBidirectionalEventToUnsignedEvmTransaction}) and
+ * attach the signature. Does NOT check that the signature recovers to the
+ * requester's derived address: the response events are unauthenticated, so
+ * verify first with `verifySignatureRespondedEvent`.
  *
  * @param request - The on-ledger request record.
  * @param response - The posted signature record answering it.
- * @returns The signed ethers transaction (`serialized` is the raw payload
- *   for `eth_sendRawTransaction`).
- * @throws Error if the request record is malformed or the response is not a
- *   decodable signature.
+ * @returns The signed ethers transaction: `serialized` is the raw payload for
+ *   `eth_sendRawTransaction`, `hash` its on-chain hash, `from` the recovered
+ *   sender.
+ * @throws {Error} If the request record is malformed (see
+ *   {@link signBidirectionalEventToUnsignedEvmTransaction}) or the response
+ *   is not a decodable signature.
  */
 export function signBidirectionalEventToSignedEvmTransaction(
   request: SignBidirectionalEvent,

@@ -14,4 +14,6 @@ package-lock.json
 *.prover
 *.DS_Store
 *scratch*
-.env.stagenetcoverage/
+.env.stagenet
+.eslintcache
+coverage/

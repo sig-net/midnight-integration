@@ -5,21 +5,18 @@
 // request id): every request served comes from the caller's authenticated
 // ledger.
 
+import { stripHexPrefix } from "./byte-codecs.ts";
+import type { RawContractState } from "./raw-contract-state.ts";
+import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import {
   decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
+  isSignetEventNamed,
   SignetEventName,
   type SignetEventSource,
 } from "./signet-contract-events.ts";
-import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import type { SignetPublicStateSource } from "./signet-request-response-reader.ts";
-import type { RawContractState } from "./raw-contract-state.ts";
-import { stripHexPrefix } from "./byte-codecs.ts";
-import {
-  requestIdHex,
-  type RequestIdHex,
-  type SignBidirectionalEvent,
-} from "./signet-requests.ts";
+import { type RequestIdHex, requestIdHex, type SignBidirectionalEvent } from "./signet-requests.ts";
 
 /** Default gap between poll cycles of {@link SignetRequestFeed.requests}. */
 export const DEFAULT_FEED_POLL_INTERVAL_MS = 3000;
@@ -71,12 +68,12 @@ export interface SignetRequestFeedConfig {
  * @param signal - Abort to resolve early.
  * @returns A promise that settles after the delay or the abort.
  */
-export function sleepUnlessAborted(
-  ms: number,
-  signal?: AbortSignal,
-): Promise<void> {
+export function sleepUnlessAborted(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
-    if (signal?.aborted) return resolve();
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
     const timer = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
       resolve();
@@ -89,7 +86,12 @@ export function sleepUnlessAborted(
   });
 }
 
-/** Canonical form for comparing contract addresses: no `0x`, lowercase. */
+/**
+ * Canonical form for comparing contract addresses: no `0x`, lowercase.
+ *
+ * @param address - The contract address to canonicalise.
+ * @returns The address as lowercase hex with no prefix.
+ */
 function normalizeAddress(address: string): string {
   return stripHexPrefix(address).toLowerCase();
 }
@@ -123,15 +125,18 @@ export class SignetRequestFeed {
     this.allowContracts = config.allowContracts
       ? new Set(Array.from(config.allowContracts, normalizeAddress))
       : undefined;
-    this.pollIntervalMs =
-      config.pollIntervalMs ?? DEFAULT_FEED_POLL_INTERVAL_MS;
+    this.pollIntervalMs = config.pollIntervalMs ?? DEFAULT_FEED_POLL_INTERVAL_MS;
   }
 
-  /** Whether the policy allow-list admits `callerAddress` (always true when unset). */
+  /**
+   * Whether the policy allow-list admits `callerAddress` (always true when unset).
+   *
+   * @param callerAddress - The caller contract address to check.
+   * @returns Whether the feed may yield this caller's requests.
+   */
   private allowed(callerAddress: string): boolean {
     return (
-      this.allowContracts === undefined ||
-      this.allowContracts.has(normalizeAddress(callerAddress))
+      this.allowContracts === undefined || this.allowContracts.has(normalizeAddress(callerAddress))
     );
   }
 
@@ -147,20 +152,16 @@ export class SignetRequestFeed {
   private async notificationPointers(): Promise<
     { callerAddress: string; requestsPath: number[]; requestId: RequestIdHex }[]
   > {
-    const events = await this.eventSource.querySignetEvents(
-      this.signetContractAddress,
-    );
+    const events = await this.eventSource.querySignetEvents(this.signetContractAddress);
     const pointers = new Map<
       string,
       { callerAddress: string; requestsPath: number[]; requestId: RequestIdHex }
     >();
     for (const event of events) {
-      if (event.name !== SignetEventName.SignBidirectionalEvent) continue;
+      if (!isSignetEventNamed(event, SignetEventName.SignBidirectionalEvent)) continue;
       let pointer;
       try {
-        const post = decodeSignBidirectionalEventNotificationPayload(
-          event.payload,
-        );
+        const post = decodeSignBidirectionalEventNotificationPayload(event.payload);
         const notification = decodeSignBidirectionalNotification(post.event);
         pointer = {
           callerAddress: notification.callerAddress,
@@ -181,11 +182,7 @@ export class SignetRequestFeed {
     }
     return [...pointers.values()].sort((a, b) => {
       const byCaller =
-        a.callerAddress < b.callerAddress
-          ? -1
-          : a.callerAddress > b.callerAddress
-            ? 1
-            : 0;
+        a.callerAddress < b.callerAddress ? -1 : a.callerAddress > b.callerAddress ? 1 : 0;
       if (byCaller !== 0) return byCaller;
       return a.requestId < b.requestId ? -1 : a.requestId > b.requestId ? 1 : 0;
     });
@@ -198,7 +195,7 @@ export class SignetRequestFeed {
    * marking anything, so it is retried next cycle.
    *
    * @returns The newly-discovered authenticated requests this cycle.
-   * @throws Error when the event source itself fails (e.g. the indexer is
+   * @throws {Error} When the event source itself fails (e.g. the indexer is
    *   unreachable).
    */
   async poll(): Promise<ResolvedSignetRequest[]> {
@@ -211,9 +208,7 @@ export class SignetRequestFeed {
       let raw = states.get(pointer.callerAddress);
       if (raw === undefined) {
         try {
-          raw =
-            (await this.source.queryContractState(pointer.callerAddress))
-              ?.data ?? null;
+          raw = (await this.source.queryContractState(pointer.callerAddress))?.data ?? null;
         } catch {
           raw = null;
         }
@@ -222,11 +217,7 @@ export class SignetRequestFeed {
       if (raw === null) {
         continue; // no state at the named caller: nothing to serve yet
       }
-      const request = lookupSignetRequestAt(
-        raw,
-        pointer.requestsPath,
-        pointer.requestId,
-      );
+      const request = lookupSignetRequestAt(raw, pointer.requestsPath, pointer.requestId);
       if (request === undefined) {
         continue; // forged pointer, or the ledger write has not indexed yet
       }
@@ -255,12 +246,11 @@ export class SignetRequestFeed {
    * Live stream: poll + sleep, yielding each authenticated request exactly
    * once (subject to {@link forget}), until `opts.signal` aborts.
    *
+   * @param opts - Stream options.
    * @param opts.signal - Abort to stop the stream.
-   * @yields Each authenticated request, in discovery order.
+   * @yields {ResolvedSignetRequest} Each authenticated request, in discovery order.
    */
-  async *requests(opts?: {
-    signal?: AbortSignal;
-  }): AsyncIterableIterator<ResolvedSignetRequest> {
+  async *requests(opts?: { signal?: AbortSignal }): AsyncIterableIterator<ResolvedSignetRequest> {
     while (!opts?.signal?.aborted) {
       const batch = await this.poll();
       for (const resolved of batch) yield resolved;

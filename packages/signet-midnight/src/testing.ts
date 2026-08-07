@@ -18,8 +18,8 @@
 
 export {
   calculateSignetAttestationDigest,
+  type EcdsaSignature,
   ecdsaSignatureToMpcSignature,
   secp256k1PublicKeyOf,
   signAttestationDigest,
-  type EcdsaSignature,
 } from "./ecdsa-attestation.ts";

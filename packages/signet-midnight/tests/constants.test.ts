@@ -2,11 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  asciiPadded,
-  isMpcFailureOutput,
-  MPC_FAILURE_OUTPUT,
-} from "../src/index.ts";
+import { asciiPadded, isMpcFailureOutput, MPC_FAILURE_OUTPUT } from "../src/index.ts";
 
 describe("asciiPadded", () => {
   interface Case {
@@ -17,7 +13,12 @@ describe("asciiPadded", () => {
   }
 
   const CASES: Case[] = [
-    { name: "algo value", text: "ecdsa", length: 32, expectedPrefix: [0x65, 0x63, 0x64, 0x73, 0x61, 0, 0] },
+    {
+      name: "algo value",
+      text: "ecdsa",
+      length: 32,
+      expectedPrefix: [0x65, 0x63, 0x64, 0x73, 0x61, 0, 0],
+    },
     { name: "empty text", text: "", length: 4, expectedPrefix: [0, 0, 0, 0] },
     { name: "exact fit", text: "ab", length: 2, expectedPrefix: [0x61, 0x62] },
   ];
@@ -38,9 +39,7 @@ describe("asciiPadded", () => {
 // client's refund circuit: pin its exact bytes.
 describe("MPC_FAILURE_OUTPUT", () => {
   it("is the 4-byte error marker followed by a single 0x01 byte", () => {
-    expect(MPC_FAILURE_OUTPUT).toEqual(
-      Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01]),
-    );
+    expect(MPC_FAILURE_OUTPUT).toEqual(Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01]));
   });
 });
 

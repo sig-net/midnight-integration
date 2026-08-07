@@ -4,26 +4,21 @@
 // The error messages are the lockstep surface with the MPC's Rust reader
 // (chain-signatures/chain-midnight/src/reader.rs), so each one is pinned.
 
+import type { AlignedValue, AlignmentSegment } from "@midnight-ntwrk/compact-runtime";
 import { describe, expect, it } from "vitest";
 
-import type {
-  AlignedValue,
-  AlignmentSegment,
-} from "@midnight-ntwrk/compact-runtime";
-
 import {
+  evmAddressAbiWord,
   MPCDestination,
   MPCSignatureAlgorithm,
-  TxParamType,
-  evmAddressAbiWord,
   numericAbiWord,
   type SignBidirectionalEvent,
+  TxParamType,
 } from "../src/index.ts";
-import { signBidirectionalEventDescriptor } from "../src/signet-evtype2tx-requests.ts";
 import { decodeEvmType2SignBidirectionalEvent } from "../src/signet-evtype2tx-record-decoding.ts";
+import { signBidirectionalEventDescriptor } from "../src/signet-evtype2tx-requests.ts";
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 /** Known-good request record: the base every test uses. NEVER mutate. */
 const SAMPLE_REQUEST: SignBidirectionalEvent = {
@@ -122,29 +117,20 @@ const withoutAtoms = (cell: AlignedValue, drop: readonly number[]): AlignedValue
 describe("decodeEvmType2SignBidirectionalEvent", () => {
   it("decodes a valid record back to itself", () => {
     expect(
-      decodeEvmType2SignBidirectionalEvent(
-        cellOf(SAMPLE_REQUEST, [2, 0, 0]),
-        "test record",
-      ),
+      decodeEvmType2SignBidirectionalEvent(cellOf(SAMPLE_REQUEST, [2, 0, 0]), "test record"),
     ).toEqual(SAMPLE_REQUEST);
   });
 
   it("recovers the capacity instantiation of a wider record", () => {
     expect(
-      decodeEvmType2SignBidirectionalEvent(
-        cellOf(ACCESS_LIST_REQUEST, [2, 1, 2]),
-        "test record",
-      ),
+      decodeEvmType2SignBidirectionalEvent(cellOf(ACCESS_LIST_REQUEST, [2, 1, 2]), "test record"),
     ).toEqual(ACCESS_LIST_REQUEST);
   });
 
   it("rejects a cell whose alignment count differs from its atom count", () => {
     const { value, alignment } = cellOf(SAMPLE_REQUEST, [2, 0, 0]);
     expect(() =>
-      decodeEvmType2SignBidirectionalEvent(
-        { value: value.slice(0, 20), alignment },
-        "test record",
-      ),
+      decodeEvmType2SignBidirectionalEvent({ value: value.slice(0, 20), alignment }, "test record"),
     ).toThrow(/declares 24 alignment segments for 20 atoms/);
   });
 

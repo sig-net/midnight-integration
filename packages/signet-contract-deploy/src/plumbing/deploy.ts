@@ -6,15 +6,24 @@
 // deploy.ts and arrives here through the type parameters.
 
 import { NodeContext } from "@effect/platform-node";
-import { CompiledContract, Contract, ContractExecutable } from "@midnight-ntwrk/compact-js/effect";
+import {
+  CompiledContract,
+  type Contract,
+  ContractExecutable,
+} from "@midnight-ntwrk/compact-js/effect";
 import { ZKFileConfiguration } from "@midnight-ntwrk/compact-js-node/effect";
-import * as ledger from "@midnightntwrk/ledger-v9";
-import * as Configuration from "@midnight-ntwrk/platform-js/effect/Configuration";
 import * as CoinPublicKey from "@midnight-ntwrk/platform-js/effect/CoinPublicKey";
+import * as Configuration from "@midnight-ntwrk/platform-js/effect/Configuration";
+import * as ledger from "@midnightntwrk/ledger-v9";
 import type { FacadeState } from "@midnightntwrk/wallet-sdk-facade";
 import { Effect, Layer, Option, type Types } from "effect";
 
-import { getFaucetUrl, getMidnightNodeConfig, type MidnightNodeConfig } from "./midnight-node-config.ts";
+import { envOrUndefined } from "./env.ts";
+import {
+  getFaucetUrl,
+  getMidnightNodeConfig,
+  type MidnightNodeConfig,
+} from "./midnight-node-config.ts";
 import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
 
 /** Everything needed to perform a contract deploy: which stack to target, and which wallet pays for it. */
@@ -27,7 +36,9 @@ export interface DeployConfig {
 
 // Pre-funded genesis wallet of the local standalone stack — the default
 // deployer for development, and the ONLY network where it holds funds.
-export const GENESIS_MINT_WALLET_SEED = "0000000000000000000000000000000000000000000000000000000000000001";
+/** Seed of the local standalone stack's pre-funded genesis mint wallet. */
+export const GENESIS_MINT_WALLET_SEED =
+  "0000000000000000000000000000000000000000000000000000000000000001";
 
 // True when `seed` is the genesis mint seed in hex form (0x-optional,
 // case-insensitive). A mnemonic never matches. Used to reject the genesis
@@ -45,17 +56,22 @@ function isGenesisSeed(seed: string): boolean {
  * @param env - The environment to read `DEPLOYER_SEED` from.
  * @param networkId - The network the deploy targets.
  * @returns The seed (hex or mnemonic) that funds & signs deploys.
- * @throws If a deployed network has no `DEPLOYER_SEED`, or it is set to the
+ * @throws {Error} If a deployed network has no `DEPLOYER_SEED`, or it is set to the
  *   (unfunded-here) genesis mint seed.
  */
-function resolveDeployerSeed(env: Record<string, string | undefined>, networkId: NetworkId): string {
-  const provided = env.DEPLOYER_SEED?.trim();
+function resolveDeployerSeed(
+  env: Record<string, string | undefined>,
+  networkId: NetworkId,
+): string {
+  const provided = envOrUndefined(env, "DEPLOYER_SEED");
   if (isLocalStandaloneNetwork(networkId)) {
-    return provided || GENESIS_MINT_WALLET_SEED;
+    return provided ?? GENESIS_MINT_WALLET_SEED;
   }
   const faucet = getFaucetUrl(env, networkId);
-  const fundHint = faucet ? `fund a wallet via ${faucet}` : "fund a wallet via the network's faucet";
-  if (!provided) {
+  const fundHint = faucet
+    ? `fund a wallet via ${faucet}`
+    : "fund a wallet via the network's faucet";
+  if (provided === undefined) {
     throw new Error(
       `DEPLOYER_SEED is required on "${networkId}": the genesis mint seed only holds funds on the local ` +
         `standalone chain. Set DEPLOYER_SEED (hex or mnemonic) to a funded wallet: ${fundHint}.`,
@@ -78,10 +94,12 @@ function resolveDeployerSeed(env: Record<string, string | undefined>, networkId:
  *
  * @param env - The environment to read from; defaults to `process.env`.
  * @returns The resolved deploy configuration.
- * @throws If a deployed network lacks a valid funded `DEPLOYER_SEED` (see
+ * @throws {Error} If a deployed network lacks a valid funded `DEPLOYER_SEED` (see
  *   {@link resolveDeployerSeed}).
  */
-export function getDeployConfig(env: Record<string, string | undefined> = process.env): DeployConfig {
+export function getDeployConfig(
+  env: Record<string, string | undefined> = process.env,
+): DeployConfig {
   const midnightNodeConfig = getMidnightNodeConfig(env);
   return {
     midnightNodeConfig,
@@ -152,7 +170,7 @@ export function makeVacantCompiledContract<C extends Contract.Contract<PS>, PS>(
  *
  * @param contractAddress - The 32-byte contract address in hex.
  * @returns The `{ bytes }` reference.
- * @throws If the address is not 32 bytes of hex.
+ * @throws {Error} If the address is not 32 bytes of hex.
  */
 export function contractAddressToReference(contractAddress: string): { bytes: Uint8Array } {
   const hex = contractAddress.startsWith("0x") ? contractAddress.slice(2) : contractAddress;
@@ -182,7 +200,7 @@ const DEPLOY_TTL_MS = 30 * 60 * 1000;
  * @param initialPrivateState - The private state the constructor (and its witnesses, if any) runs against.
  * @param constructorArgs - The contract's constructor arguments, statically typed per contract.
  * @returns The deterministic contract address plus the serialized unproven transaction.
- * @throws If the constructor traps, or the verifier keys are missing from the
+ * @throws {Error} If the constructor traps, or the verifier keys are missing from the
  * compiled assets (run `compile:zk` — the default `--skip-zk` output has none).
  */
 export async function buildDeployTransaction<C extends Contract.Contract<PS>, PS>(
@@ -206,7 +224,9 @@ export async function buildDeployTransaction<C extends Contract.Contract<PS>, PS
     ContractExecutable.make(compiledContract)
       .initialize(initialPrivateState, ...constructorArgs)
       .pipe(
-        Effect.provide(ZKFileConfiguration.layer(CompiledContract.getCompiledAssetsPath(compiledContract))),
+        Effect.provide(
+          ZKFileConfiguration.layer(CompiledContract.getCompiledAssetsPath(compiledContract)),
+        ),
         Effect.provide(NodeContext.layer),
         Effect.provide(keysLayer),
       ),
@@ -214,11 +234,18 @@ export async function buildDeployTransaction<C extends Contract.Contract<PS>, PS
 
   // `initialize` yields an onchain-runtime ContractState; bridge it to the
   // ledger's ContractState (separate package/type) via its serialized form.
-  const contractState = ledger.ContractState.deserialize(deployResult.public.contractState.serialize());
+  const contractState = ledger.ContractState.deserialize(
+    deployResult.public.contractState.serialize(),
+  );
 
   const deploy = new ledger.ContractDeploy(contractState);
   const intent = ledger.Intent.new(new Date(Date.now() + DEPLOY_TTL_MS)).addDeploy(deploy);
-  const transaction = ledger.Transaction.fromPartsRandomized(networkId, undefined, undefined, intent);
+  const transaction = ledger.Transaction.fromPartsRandomized(
+    networkId,
+    undefined,
+    undefined,
+    intent,
+  );
 
   return {
     contractAddress: deploy.address,
@@ -231,14 +258,14 @@ export async function buildDeployTransaction<C extends Contract.Contract<PS>, PS
  * paid in DUST, which only generates on NIGHT registered for dust generation.
  *
  * @param state - The synced facade state to inspect (see `withSyncedWalletFacade` in wallet.ts).
- * @throws If the deployer's spendable DUST balance is zero.
+ * @throws {Error} If the deployer's spendable DUST balance is zero.
  */
 export function assertDeployerFunded(state: FacadeState): void {
   const dust = state.dust.balance(new Date());
   if (dust > 0n) return;
   const night = Object.values(state.unshielded.balances).reduce((sum, value) => sum + value, 0n);
   throw new Error(
-    `deployer wallet has no DUST to pay fees (NIGHT balance: ${night}). ` +
+    `deployer wallet has no DUST to pay fees (NIGHT balance: ${String(night)}). ` +
       "Fund the wallet with NIGHT and register it for dust generation, then retry.",
   );
 }

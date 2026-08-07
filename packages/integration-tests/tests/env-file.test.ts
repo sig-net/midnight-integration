@@ -5,7 +5,9 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
+
 import { appendRepoDotEnv } from "../src/env-file.ts";
 
 const scratchEnvFile = (): string => join(mkdtempSync(join(tmpdir(), "env-file-test-")), ".env");
@@ -16,7 +18,11 @@ describe("appendRepoDotEnv", () => {
     const existing = "# operator notes stay untouched\nKEEP_ME=1\n\n  WEIRD_SPACING = kept \n";
     writeFileSync(file, existing, "utf8");
 
-    appendRepoDotEnv({ MPC_ROOT_KEY: "0xabc", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "0200aa" }, "test provenance", file);
+    appendRepoDotEnv(
+      { MPC_ROOT_KEY: "0xabc", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "0200aa" },
+      "test provenance",
+      file,
+    );
 
     const written = readFileSync(file, "utf8");
     expect(written.startsWith(existing)).toBe(true);

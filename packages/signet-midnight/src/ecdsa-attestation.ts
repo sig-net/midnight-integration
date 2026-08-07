@@ -13,20 +13,13 @@
 // This belongs in github.com/sig-net/signet.js as its Midnight adapter,
 // kept here until upstreamed.
 
-import { ethers } from "ethers";
-import { secp256k1 } from "@noble/curves/secp256k1.js";
 import type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
-import type { RequestId } from "./signet-requests.ts";
+import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { ethers } from "ethers";
 
-import {
-  bigintToBytes32BE,
-  bytesToBigintBE,
-  stripHexPrefix,
-} from "./byte-codecs.ts";
-import type {
-  MpcSignature,
-  RespondBidirectionalEvent,
-} from "./signet-contract-events.ts";
+import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codecs.ts";
+import type { MpcSignature, RespondBidirectionalEvent } from "./signet-contract-events.ts";
+import type { RequestId } from "./signet-requests.ts";
 
 // Re-exported because it appears throughout this module's public signatures:
 // SDK consumers shouldn't have to depend on compact-runtime just for the type.
@@ -58,21 +51,16 @@ export interface EcdsaSignature {
  *   {@link calculateSignetAttestationDigest} output).
  * @param secretKey - The 32-byte secp256k1 secret key.
  * @returns The signature with its recovery id.
+ * @throws {Error} If no recovery id reproduces the signer's own public key.
  */
-export function signAttestationDigest(
-  digest: Uint8Array,
-  secretKey: Uint8Array,
-): EcdsaSignature {
+export function signAttestationDigest(digest: Uint8Array, secretKey: Uint8Array): EcdsaSignature {
   const sigBytes = secp256k1.sign(digest, secretKey, { prehash: false });
   const sig = secp256k1.Signature.fromBytes(sigBytes, "compact");
   // Recover the id by trying both parities against the actual public key.
   const pk = secp256k1.getPublicKey(secretKey, false);
   const pkHex = Buffer.from(pk).toString("hex");
   for (const recoveryId of [0, 1]) {
-    const recovered = sig
-      .addRecoveryBit(recoveryId)
-      .recoverPublicKey(digest)
-      .toHex(false);
+    const recovered = sig.addRecoveryBit(recoveryId).recoverPublicKey(digest).toHex(false);
     if (recovered === pkHex) {
       return { r: sig.r, s: sig.s, recoveryId };
     }
@@ -87,12 +75,12 @@ export function signAttestationDigest(
  *
  * @param signature - The scalar-form signature (the signer's output shape).
  * @returns The stored-form signature: R as a full point, big-endian bytes.
- * @throws Error if the recovery id is not 0 or 1, or `r` is not the x
+ * @throws {Error} If the recovery id is not 0 or 1, or `r` is not the x
  *   coordinate of a secp256k1 point.
  */
 export function ecdsaSignatureToMpcSignature(signature: EcdsaSignature): MpcSignature {
   if (signature.recoveryId !== 0 && signature.recoveryId !== 1) {
-    throw new Error(`expected a recovery id of 0 or 1, got ${signature.recoveryId}`);
+    throw new Error(`expected a recovery id of 0 or 1, got ${String(signature.recoveryId)}`);
   }
   // SEC1 compressed form: parity prefix (02 even, 03 odd) || x big-endian.
   const parityPrefix = signature.recoveryId === 0 ? "02" : "03";
@@ -101,7 +89,9 @@ export function ecdsaSignatureToMpcSignature(signature: EcdsaSignature): MpcSign
   try {
     point = secp256k1.Point.fromHex(`${parityPrefix}${xHex}`);
   } catch (error) {
-    throw new Error(`signature r is not the x coordinate of a secp256k1 point (${String(error)})`);
+    throw new Error(`signature r is not the x coordinate of a secp256k1 point (${String(error)})`, {
+      cause: error,
+    });
   }
   const uncompressed = point.toBytes(false); // 0x04 || x || y
   return {
@@ -119,7 +109,7 @@ export function ecdsaSignatureToMpcSignature(signature: EcdsaSignature): MpcSign
  *
  * @param signature - The stored-form signature as posted.
  * @returns The scalar-form signature.
- * @throws Error if a component has the wrong byte length or the recovery id
+ * @throws {Error} If a component has the wrong byte length or the recovery id
  *   is not 0 or 1.
  */
 export function mpcSignatureToEcdsaSignature(signature: MpcSignature): EcdsaSignature {
@@ -128,7 +118,7 @@ export function mpcSignatureToEcdsaSignature(signature: MpcSignature): EcdsaSign
     throw new Error("expected 32-byte bigR.x/bigR.y/s in a stored signature");
   }
   if (recoveryId !== 0n && recoveryId !== 1n) {
-    throw new Error(`expected a recovery id of 0 or 1, got ${recoveryId}`);
+    throw new Error(`expected a recovery id of 0 or 1, got ${String(recoveryId)}`);
   }
   return {
     r: bytesToBigintBE(bigR.x) % SECP256K1_ORDER,
@@ -144,7 +134,7 @@ export function mpcSignatureToEcdsaSignature(signature: MpcSignature): EcdsaSign
  *
  * @param value - The SEC1 hex public key.
  * @returns The parsed point.
- * @throws Error if the value is not a valid secp256k1 public key.
+ * @throws {Error} If the value is not a valid secp256k1 public key.
  */
 export function parseSecp256k1PublicKey(value: string): Secp256k1Point {
   const hex = stripHexPrefix(value);
@@ -152,7 +142,9 @@ export function parseSecp256k1PublicKey(value: string): Secp256k1Point {
   try {
     point = secp256k1.Point.fromHex(hex);
   } catch (error) {
-    throw new Error(`not a secp256k1 public key in SEC1 hex: "${value}" (${String(error)})`);
+    throw new Error(`not a secp256k1 public key in SEC1 hex: "${value}" (${String(error)})`, {
+      cause: error,
+    });
   }
   const uncompressed = point.toBytes(false); // 0x04 || x || y
   return {
@@ -207,9 +199,7 @@ export function calculateSignetAttestationDigest(
   requestId: RequestId,
   serializedOutput: Uint8Array,
 ): Uint8Array {
-  return ethers.getBytes(
-    ethers.keccak256(ethers.concat([requestId, serializedOutput])),
-  );
+  return ethers.getBytes(ethers.keccak256(ethers.concat([requestId, serializedOutput])));
 }
 
 /**

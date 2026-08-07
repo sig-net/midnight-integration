@@ -8,31 +8,29 @@
 import type { PublicDataProvider } from "@midnight-ntwrk/midnight-js-types";
 import type { Transaction } from "ethers";
 
+import { type Secp256k1Point, verifyRespondBidirectionalSignature } from "./ecdsa-attestation.ts";
+import type { RawContractState } from "./raw-contract-state.ts";
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
+import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
 import {
   decodeRespondBidirectionalEventPayload,
   decodeSignatureRespondedEventPayload,
-  SignetEventName,
-  type SignetEventSource,
-  type SignetEventPost,
-  type SignatureRespondedEvent,
+  isSignetEventNamed,
   type RespondBidirectionalEvent,
+  type SignatureRespondedEvent,
+  SignetEventName,
+  type SignetEventPost,
+  type SignetEventSource,
 } from "./signet-contract-events.ts";
-import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
-import {
-  verifyRespondBidirectionalSignature,
-  type Secp256k1Point,
-} from "./ecdsa-attestation.ts";
-import type { RawContractState } from "./raw-contract-state.ts";
 import {
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
 } from "./signet-evtype2tx-requests.ts";
 import {
   requestIdBytes,
+  type RequestIdHex,
   requestIdHex,
   type SignBidirectionalEvent,
-  type RequestIdHex,
 } from "./signet-requests.ts";
 
 /**
@@ -107,10 +105,7 @@ export class SignetRequestResponseReader {
   private readonly config: SignetRequestResponseReaderConfig;
 
   // Request records never change once stored, so cache them across calls.
-  private readonly requestCache = new Map<
-    RequestIdHex,
-    SignBidirectionalEvent
-  >();
+  private readonly requestCache = new Map<RequestIdHex, SignBidirectionalEvent>();
 
   /**
    * @param config - The contract pair, state source and event source to read
@@ -126,12 +121,10 @@ export class SignetRequestResponseReader {
    *
    * @param requestId - The request id to look up.
    * @returns The stored request record.
-   * @throws Error when the requester contract has no state or holds no
-   *   request under `requestId`.
+   * @throws {Error} When the requester contract has no state or holds no
+   *   request under `requestId` at the configured index path.
    */
-  async getSignatureRequest(
-    requestId: RequestIdHex,
-  ): Promise<SignBidirectionalEvent> {
+  async getSignatureRequest(requestId: RequestIdHex): Promise<SignBidirectionalEvent> {
     const cached = this.requestCache.get(requestId);
     if (cached !== undefined) {
       return cached;
@@ -144,11 +137,7 @@ export class SignetRequestResponseReader {
         `no state data found for requester contract '${this.config.requesterContractAddress}' (is it deployed?)`,
       );
     }
-    const request = lookupSignetRequestAt(
-      state.data,
-      this.config.requesterRequestsPath,
-      requestId,
-    );
+    const request = lookupSignetRequestAt(state.data, this.config.requesterRequestsPath, requestId);
     if (request === undefined) {
       throw new Error(
         `request ${requestId} is not on the requester contract's ledger ` +
@@ -177,7 +166,7 @@ export class SignetRequestResponseReader {
       this.config.signetContractAddress,
     );
     return events
-      .filter((event) => event.name === name)
+      .filter((event) => isSignetEventNamed(event, name))
       .map((event) => decode(event.payload))
       .filter((post) => requestIdHex(post.requestId) === requestId)
       .map((post) => post.event);
@@ -191,9 +180,7 @@ export class SignetRequestResponseReader {
    * @param requestId - The request id the posts must declare.
    * @returns The request's posted records, oldest first, empty when none yet.
    */
-  async getSignatureRespondedEvents(
-    requestId: RequestIdHex,
-  ): Promise<SignatureRespondedEvent[]> {
+  async getSignatureRespondedEvents(requestId: RequestIdHex): Promise<SignatureRespondedEvent[]> {
     return this.getRespondPostsNamed(
       SignetEventName.SignatureRespondedEvent,
       decodeSignatureRespondedEventPayload,
@@ -212,7 +199,7 @@ export class SignetRequestResponseReader {
    * @param expectedSigner - The EVM address (0x hex, any case) the genuine
    *   response must be signed by: the requester's MPC-derived address.
    * @returns The first valid response (if any) plus per-post verdicts.
-   * @throws Error when the requester contract has no state or the request is
+   * @throws {Error} When the requester contract has no state or the request is
    *   not on its ledger.
    */
   async getVerifiedSignatureRespondedEvent(
@@ -221,30 +208,28 @@ export class SignetRequestResponseReader {
   ): Promise<VerifiedSignatureResponseResult> {
     const request = await this.getSignatureRequest(requestId);
     const responses = await this.getSignatureRespondedEvents(requestId);
-    const verdicts = responses.map(
-      (response, position): SignatureResponseVerdict => {
-        const index = BigInt(position);
-        let signer: string;
-        try {
-          signer = recoverSignatureResponseSigner(request, response);
-        } catch (error) {
-          return {
-            index,
-            response,
-            rejectedReason: `not a decodable signature (${String(error)})`,
-          };
-        }
-        if (signer.toLowerCase() !== expectedSigner.toLowerCase()) {
-          return {
-            index,
-            response,
-            signer,
-            rejectedReason: `signed by ${signer}, expected ${expectedSigner}`,
-          };
-        }
-        return { index, response, signer };
-      },
-    );
+    const verdicts = responses.map((response, position): SignatureResponseVerdict => {
+      const index = BigInt(position);
+      let signer: string;
+      try {
+        signer = recoverSignatureResponseSigner(request, response);
+      } catch (error) {
+        return {
+          index,
+          response,
+          rejectedReason: `not a decodable signature (${String(error)})`,
+        };
+      }
+      if (signer.toLowerCase() !== expectedSigner.toLowerCase()) {
+        return {
+          index,
+          response,
+          signer,
+          rejectedReason: `signed by ${signer}, expected ${expectedSigner}`,
+        };
+      }
+      return { index, response, signer };
+    });
     return {
       verified: verdicts.find((v) => v.rejectedReason === undefined)?.response,
       verdicts,
@@ -259,12 +244,10 @@ export class SignetRequestResponseReader {
    * @param requestId - The request id whose transaction to rebuild.
    * @returns The unsigned ethers transaction (`unsignedHash` is the MPC's
    *   signing digest).
-   * @throws Error when the requester contract has no state or holds no
+   * @throws {Error} When the requester contract has no state or holds no
    *   request under `requestId`.
    */
-  async getUnsignedEvmTransaction(
-    requestId: RequestIdHex,
-  ): Promise<Transaction> {
+  async getUnsignedEvmTransaction(requestId: RequestIdHex): Promise<Transaction> {
     return signBidirectionalEventToUnsignedEvmTransaction(
       await this.getSignatureRequest(requestId),
     );
@@ -282,17 +265,14 @@ export class SignetRequestResponseReader {
    * @returns The signed ethers transaction (`serialized` is the payload for
    *   `eth_sendRawTransaction`), or `undefined` when no valid response has
    *   been posted yet: poll again.
-   * @throws Error when the requester contract has no state or the request is
+   * @throws {Error} When the requester contract has no state or the request is
    *   not on its ledger.
    */
   async getSignedEvmTransaction(
     requestId: RequestIdHex,
     expectedSigner: string,
   ): Promise<Transaction | undefined> {
-    const { verified } = await this.getVerifiedSignatureRespondedEvent(
-      requestId,
-      expectedSigner,
-    );
+    const { verified } = await this.getVerifiedSignatureRespondedEvent(requestId, expectedSigner);
     if (verified === undefined) {
       return undefined;
     }

@@ -10,6 +10,8 @@
 // built), so it is pinned afterwards via the contract's one-shot
 // `initialise` circuit — see the integration-tests flow.
 
+import { hexToBytes, stripHexPrefix } from "@sig-net/midnight";
+import { envOrUndefined } from "@sig-net/midnight-contract-deploy";
 import {
   assertDeployerFunded,
   buildDeployTransaction,
@@ -17,8 +19,8 @@ import {
   deriveAccountKeys,
   getDeployConfig,
   submitUnprovenTransaction,
-  withSyncedWalletFacade,
   type TransactionIdentifier,
+  withSyncedWalletFacade,
 } from "@sig-net/midnight-contract-deploy";
 
 import { pureCircuits } from "./managed/test-caller-contract/contract/index.js";
@@ -33,17 +35,19 @@ import { createCallerPrivateState } from "./witnesses.ts";
  * @param env - The environment to read from.
  * @param fallbackSeed - The deployer wallet seed (32-byte hex).
  * @returns The 32-byte secret key.
- * @throws If the resolved value is not exactly 32 bytes of hex.
+ * @throws {Error} If the resolved value is not exactly 32 bytes of hex.
  */
 export function resolveCallerDeployerSecretKey(
   env: Record<string, string | undefined>,
   fallbackSeed: string,
 ): Uint8Array {
-  const raw = (env.CALLER_DEPLOYER_SECRET_KEY?.trim() || fallbackSeed).replace(/^0x/i, "");
+  const raw = stripHexPrefix(envOrUndefined(env, "CALLER_DEPLOYER_SECRET_KEY") ?? fallbackSeed);
   if (!/^[0-9a-fA-F]{64}$/.test(raw)) {
-    throw new Error("the caller deployer identity secret must be exactly 32 bytes of hex (set CALLER_DEPLOYER_SECRET_KEY)");
+    throw new Error(
+      "the caller deployer identity secret must be exactly 32 bytes of hex (set CALLER_DEPLOYER_SECRET_KEY)",
+    );
   }
-  return Uint8Array.from(raw.match(/.{2}/g)!.map((byte) => parseInt(byte, 16)));
+  return hexToBytes(raw);
 }
 
 /** The outcome of a successful caller deployment. */
@@ -70,11 +74,13 @@ export interface CallerDeployment {
  *   deployer seed) and the shared Midnight node configuration (see
  *   `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
- * @throws If `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` is missing/malformed, the
+ * @throws {Error} If `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` is missing/malformed, the
  *   identity secret is malformed, the deployer wallet holds no funds, or
  *   submission fails.
  */
-export async function deployCaller(env: Record<string, string | undefined> = process.env): Promise<CallerDeployment> {
+export async function deployCaller(
+  env: Record<string, string | undefined> = process.env,
+): Promise<CallerDeployment> {
   const deployConfig = getDeployConfig(env);
   const { networkId } = deployConfig.midnightNodeConfig;
 
@@ -89,13 +95,17 @@ export async function deployCaller(env: Record<string, string | undefined> = pro
   // reference, so it must be deployed first.
   const signetContractAddress = env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS?.trim();
   if (!signetContractAddress) {
-    throw new Error("MIDNIGHT_SIGNET_CONTRACT_ADDRESS is required (deploy the signet contract first)");
+    throw new Error(
+      "MIDNIGHT_SIGNET_CONTRACT_ADDRESS is required (deploy the signet contract first)",
+    );
   }
   const signetSigner = contractAddressToReference(signetContractAddress);
 
   const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
 
-  console.log(`deploying test-caller-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`);
+  console.log(
+    `deploying test-caller-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`,
+  );
 
   const { contractAddress, txId } = await withSyncedWalletFacade(
     accountKeys,

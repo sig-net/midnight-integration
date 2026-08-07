@@ -13,6 +13,7 @@ export { MidnightNetwork };
 export type NetworkId = MidnightSDKNetworkId | MidnightNetwork;
 
 // All known network ids, for runtime validation and iteration.
+/** Every known network id, for runtime validation and iteration. */
 export const NETWORK_IDS: readonly NetworkId[] = Object.values(MidnightNetwork);
 
 /**
@@ -27,5 +28,6 @@ export const NETWORK_IDS: readonly NetworkId[] = Object.values(MidnightNetwork);
  * @returns Whether the genesis mint wallet holds spendable funds here.
  */
 export function isLocalStandaloneNetwork(networkId: NetworkId): boolean {
-    return networkId === MidnightNetwork.Undeployed;
+  const undeployed: NetworkId = MidnightNetwork.Undeployed;
+  return networkId === undeployed;
 }

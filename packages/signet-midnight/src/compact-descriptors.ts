@@ -24,21 +24,30 @@
 // on top, never these directly.
 
 import {
+  type CompactType,
   CompactTypeBoolean,
   CompactTypeBytes,
   CompactTypeUnsignedInteger,
-  type CompactType,
 } from "@midnight-ntwrk/compact-runtime";
 
 // Runtime descriptors of the Compact base types, at the same literals the
 // compiler emits.
+
+/** Descriptor of a Compact `Bytes<4>`. */
 export const BYTES_4 = new CompactTypeBytes(4);
+/** Descriptor of a Compact `Bytes<20>`. */
 export const BYTES_20 = new CompactTypeBytes(20);
+/** Descriptor of a Compact `Bytes<32>`. */
 export const BYTES_32 = new CompactTypeBytes(32);
+/** Descriptor of a Compact `Bytes<64>`. */
 export const BYTES_64 = new CompactTypeBytes(64);
+/** Descriptor of a Compact `Uint<8>`. */
 export const UINT_8 = new CompactTypeUnsignedInteger(2n ** 8n - 1n, 1);
+/** Descriptor of a Compact `Uint<16>`. */
 export const UINT_16 = new CompactTypeUnsignedInteger(2n ** 16n - 1n, 2);
+/** Descriptor of a Compact `Uint<64>`. */
 export const UINT_64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
+/** Descriptor of a Compact `Uint<128>`. */
 export const UINT_128 = new CompactTypeUnsignedInteger(2n ** 128n - 1n, 16);
 
 /**
@@ -82,14 +91,13 @@ export interface Maybe<T> {
 export function compactStructDescriptor<T extends object>(fields: {
   readonly [K in keyof T]-?: CompactType<T[K]>;
 }): CompactType<T> {
-  const entries = Object.entries(fields) as unknown as ReadonlyArray<
-    [keyof T & string, CompactType<T[keyof T & string]>]
-  >;
+  const entries = Object.entries(fields) as unknown as readonly [
+    keyof T & string,
+    CompactType<T[keyof T & string]>,
+  ][];
   return {
-    alignment: () =>
-      entries.flatMap(([, type]) => type.alignment()),
-    toValue: (value) =>
-      entries.flatMap(([key, type]) => type.toValue(value[key])),
+    alignment: () => entries.flatMap(([, type]) => type.alignment()),
+    toValue: (value) => entries.flatMap(([key, type]) => type.toValue(value[key])),
     fromValue: (value) => {
       const result = {} as Record<keyof T & string, unknown>;
       for (const [key, type] of entries) {

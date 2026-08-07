@@ -1,14 +1,13 @@
 // Unit tests for the byte codecs: hex strings and the little-endian and
 // big-endian fixed-width integer encodings.
 
+import { maxField } from "@midnight-ntwrk/compact-runtime";
 import { describe, expect, it } from "vitest";
 
-import { maxField } from "@midnight-ntwrk/compact-runtime";
-
 import {
-  BLS_ORDER,
   bigintToBytes32,
   bigintToBytes32BE,
+  BLS_ORDER,
   bytesToBigint,
   bytesToBigintBE,
   bytesToHex,
@@ -24,31 +23,32 @@ describe("BLS_ORDER", () => {
 });
 
 describe("bytesToHex / hexToBytes", () => {
-  /** One row: hex input, and the bytes it decodes to (absent: must throw). */
-  interface HexCase {
+  /** One accept row: hex input and the bytes it decodes to. */
+  interface HexAcceptCase {
     name: string;
     hex: string;
-    bytes?: number[];
+    bytes: number[];
   }
 
-  const HEX_CASES: HexCase[] = [
+  const ACCEPT_CASES: HexAcceptCase[] = [
     { name: "lowercase digits", hex: "ab01ff", bytes: [0xab, 0x01, 0xff] },
     { name: "uppercase digits", hex: "AB01FF", bytes: [0xab, 0x01, 0xff] },
     { name: "a 0x prefix", hex: "0xab01", bytes: [0xab, 0x01] },
     { name: "a 0X prefix", hex: "0Xab01", bytes: [0xab, 0x01] },
     { name: "the empty string", hex: "", bytes: [] },
+  ];
+
+  it.each(ACCEPT_CASES)("decodes $name", ({ hex, bytes }) => {
+    expect([...hexToBytes(hex)]).toEqual(bytes);
+  });
+
+  it.each([
     { name: "an odd number of digits", hex: "abc" },
     { name: "non-hex characters", hex: "zz" },
     { name: "a partial hex pair", hex: "1g" },
     { name: "a bare 0x prefix on odd digits", hex: "0xabc" },
-  ];
-
-  it.each(HEX_CASES)("decodes $name", ({ hex, bytes }) => {
-    if (bytes === undefined) {
-      expect(() => hexToBytes(hex)).toThrow(/not a hex byte string/);
-      return;
-    }
-    expect([...hexToBytes(hex)]).toEqual(bytes);
+  ])("rejects $name", ({ hex }) => {
+    expect(() => hexToBytes(hex)).toThrow(/not a hex byte string/);
   });
 
   it("bytesToHex renders lowercase unprefixed pairs", () => {
@@ -102,18 +102,14 @@ describe("bigintToBytes32 / bytesToBigint", () => {
   });
 
   it("encodes the full raw 32-byte range above the field order", () => {
-    expect(bytesToBigint(bigintToBytes32((1n << 256n) - 1n))).toBe(
-      (1n << 256n) - 1n,
-    );
+    expect(bytesToBigint(bigintToBytes32((1n << 256n) - 1n))).toBe((1n << 256n) - 1n);
   });
 
   it.each([
     { name: "2^256, one past the width", value: 1n << 256n },
     { name: "a value below -BLS_ORDER", value: -BLS_ORDER - 1n },
   ])("rejects $name", ({ value }) => {
-    expect(() => bigintToBytes32(value)).toThrow(
-      /does not fit 32 little-endian bytes/,
-    );
+    expect(() => bigintToBytes32(value)).toThrow(/does not fit 32 little-endian bytes/);
   });
 });
 
@@ -146,8 +142,6 @@ describe("bigintToBytes32BE / bytesToBigintBE", () => {
     { name: "a negative value", value: -1n },
     { name: "2^256, one past the width", value: 1n << 256n },
   ])("rejects $name", ({ value }) => {
-    expect(() => bigintToBytes32BE(value)).toThrow(
-      /does not fit 32 big-endian bytes/,
-    );
+    expect(() => bigintToBytes32BE(value)).toThrow(/does not fit 32 big-endian bytes/);
   });
 });

@@ -8,9 +8,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
-
 import { buildDeployTransaction } from "@sig-net/midnight-contract-deploy";
+import { describe, expect, it } from "vitest";
 
 import { callerCompiledContract, createCallerPrivateState, pureCircuits } from "../src/index.ts";
 

@@ -28,7 +28,7 @@ export function stripHexPrefix(hex: string): string {
  *
  * @param hex - An even number of hex digits, with or without a `0x` prefix.
  * @returns The decoded bytes.
- * @throws Error if the digits are odd-length or not all hex: lenient parsing
+ * @throws {Error} If the digits are odd-length or not all hex: lenient parsing
  *   would return plausible-looking wrong bytes.
  */
 export function hexToBytes(hex: string): Uint8Array {
@@ -44,7 +44,8 @@ export function hexToBytes(hex: string): Uint8Array {
 }
 
 /** BLS12-381 scalar field order (the Compact `Field` type modulus). */
-export const BLS_ORDER = 52435875175126190479447740508185965837690552500527637822603658699938581184513n;
+export const BLS_ORDER =
+  52435875175126190479447740508185965837690552500527637822603658699938581184513n;
 
 /**
  * Little-endian bytes to a bigint: the byte order Compact's
@@ -55,10 +56,10 @@ export const BLS_ORDER = 5243587517512619047944774050818596583769055250052763782
  */
 export function bytesToBigint(bytes: Uint8Array): bigint {
   let result = 0n;
-  for (let i = bytes.length - 1; i >= 0; i--) {
-    // The index is in range by construction: the assertion satisfies
-    // consumers compiling with noUncheckedIndexedAccess.
-    result = (result << 8n) | BigInt(bytes[i]!);
+  let shift = 0n;
+  for (const byte of bytes) {
+    result |= BigInt(byte) << shift;
+    shift += 8n;
   }
   return result;
 }
@@ -72,11 +73,11 @@ export function bytesToBigint(bytes: Uint8Array): bigint {
  *
  * @param n - The integer to encode.
  * @returns The 32-byte little-endian encoding.
- * @throws Error if the value is below `-BLS_ORDER` or does not fit 32 bytes.
+ * @throws {Error} If the value is below `-BLS_ORDER` or does not fit 32 bytes.
  */
 export function bigintToBytes32(n: bigint): Uint8Array {
   if (n < -BLS_ORDER || n >= 1n << 256n) {
-    throw new Error(`value does not fit 32 little-endian bytes: ${n}`);
+    throw new Error(`value does not fit 32 little-endian bytes: ${String(n)}`);
   }
   const buf = new Uint8Array(32);
   let v = n < 0n ? n + BLS_ORDER : n;
@@ -107,11 +108,11 @@ export function bytesToBigintBE(bytes: Uint8Array): bigint {
  *
  * @param value - The non-negative integer to encode.
  * @returns The 32-byte big-endian encoding.
- * @throws Error if the value is negative or does not fit 32 bytes.
+ * @throws {Error} If the value is negative or does not fit 32 bytes.
  */
 export function bigintToBytes32BE(value: bigint): Uint8Array {
   if (value < 0n || value >= 1n << 256n) {
-    throw new Error(`value does not fit 32 big-endian bytes: ${value}`);
+    throw new Error(`value does not fit 32 big-endian bytes: ${String(value)}`);
   }
   const out = new Uint8Array(32);
   let v = value;

@@ -1,0 +1,25 @@
+{
+  // Prettier formats, ESLint fixes. Never both formatting the same file:
+  // eslint-config-prettier turns off every rule that would fight Prettier.
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "[typescript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[javascript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[json]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[jsonc]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+
+  // The type-aware pass builds a TypeScript program, so lint on save rather
+  // than on every keystroke.
+  "eslint.run": "onSave",
+
+  // The repo's own pinned Prettier, never whatever the extension bundles.
+  "prettier.prettierPath": "./node_modules/prettier",
+
+  "search.exclude": {
+    "**/src/managed": true,
+    "**/dist": true,
+    "**/.yarn": true
+  }
+}

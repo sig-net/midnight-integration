@@ -16,10 +16,10 @@
     "deploy": "tsx deploy.ts"
   },
   "dependencies": {
-    "@midnight-ntwrk/midnight-js": "5.0.0-beta.4",
-    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.4",
-    "@midnight-ntwrk/midnight-js-level-private-state-provider": "5.0.0-beta.4",
-    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "5.0.0-beta.4",
+    "@midnight-ntwrk/midnight-js": "5.0.0-beta.6",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.6",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "5.0.0-beta.6",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "5.0.0-beta.6",
     "@midnight-protocol/lib": "*",
     "@sig-net/midnight": "*",
     "@sig-net/midnight-contract-deploy": "*"
@@ -30,7 +30,7 @@
     "@types/node": "^26.1.0",
     "@vitest/coverage-v8": "^4.1.10",
     "tsx": "^4.23.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.9"
   }
 }

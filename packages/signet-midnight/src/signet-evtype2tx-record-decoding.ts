@@ -27,25 +27,25 @@ const EVM_TYPE2_TAIL_ATOMS = 3;
  * @param cell - The record cell as stored.
  * @param what - Error-message subject.
  * @returns One declared byte width per atom.
- * @throws Error if the alignment and value lengths disagree or a segment is
+ * @throws {Error} If the alignment and value lengths disagree or a segment is
  *   not a `Bytes` atom.
  */
 function declaredWidths(cell: AlignedValue, what: string): number[] {
   if (cell.alignment.length !== cell.value.length) {
     throw new Error(
-      `${what} declares ${cell.alignment.length} alignment segments for ` +
-        `${cell.value.length} atoms`,
+      `${what} declares ${String(cell.alignment.length)} alignment segments for ` +
+        `${String(cell.value.length)} atoms`,
     );
   }
   return cell.alignment.map((segment, index) => {
     if (segment.tag !== "atom") {
       throw new Error(
-        `${what} atom ${index} is an alignment option, which no signet type declares`,
+        `${what} atom ${String(index)} is an alignment option, which no signet type declares`,
       );
     }
     if (segment.value.tag !== "bytes") {
       throw new Error(
-        `${what} atom ${index} is aligned '${segment.value.tag}', which carries no byte width`,
+        `${what} atom ${String(index)} is aligned '${segment.value.tag}', which carries no byte width`,
       );
     }
     return segment.value.length;
@@ -69,16 +69,13 @@ interface EvmType2Capacities {
  * @param widths - The record's declared atom widths.
  * @param what - Error-message subject.
  * @returns The capacity instantiation.
- * @throws Error if the widths are not an evmType2 record's.
+ * @throws {Error} If the widths are not an evmType2 record's.
  */
-function evmType2Capacities(
-  widths: readonly number[],
-  what: string,
-): EvmType2Capacities {
+function evmType2Capacities(widths: readonly number[], what: string): EvmType2Capacities {
   if (widths.length < EVM_TYPE2_FIXED_ATOMS) {
     throw new Error(
-      `${what} has ${widths.length} value atoms, fewer than the ` +
-        `${EVM_TYPE2_FIXED_ATOMS} its fixed fields need`,
+      `${what} has ${String(widths.length)} value atoms, fewer than the ` +
+        `${String(EVM_TYPE2_FIXED_ATOMS)} its fixed fields need`,
     );
   }
   const tail = widths.length - EVM_TYPE2_TAIL_ATOMS;
@@ -89,10 +86,11 @@ function evmType2Capacities(
   }
   const maxCalldataWords = index - EVM_TYPE2_HEAD_ATOMS;
 
-  if (!(index < tail && widths[index] === 1)) {
-    const found = index < tail ? `Bytes<${widths[index]}>` : "the record's tail";
+  const boundary = index < tail ? widths[index] : undefined;
+  if (boundary !== 1) {
+    const found = boundary === undefined ? "the record's tail" : `Bytes<${String(boundary)}>`;
     throw new Error(
-      `expected the Bytes<1> access-list entry count after ${maxCalldataWords} ` +
+      `expected the Bytes<1> access-list entry count after ${String(maxCalldataWords)} ` +
         `calldata words, found ${found}`,
     );
   }
@@ -104,7 +102,7 @@ function evmType2Capacities(
   if (maxAccessListEntries === 0) {
     if (region.length !== 0) {
       throw new Error(
-        `the access-list region holds ${region.length} atoms but declares no ` +
+        `the access-list region holds ${String(region.length)} atoms but declares no ` +
           `Bytes<20> entry address`,
       );
     }
@@ -112,15 +110,15 @@ function evmType2Capacities(
   } else {
     if (region.length % maxAccessListEntries !== 0) {
       throw new Error(
-        `the access-list region's ${region.length} atoms do not divide evenly ` +
-          `across ${maxAccessListEntries} entries`,
+        `the access-list region's ${String(region.length)} atoms do not divide evenly ` +
+          `across ${String(maxAccessListEntries)} entries`,
       );
     }
     const perEntry = region.length / maxAccessListEntries;
     if (perEntry < 2) {
       throw new Error(
         `each access-list entry needs at least an address and a key count, ` +
-          `got ${perEntry} atoms`,
+          `got ${String(perEntry)} atoms`,
       );
     }
     maxStorageKeysPerEntry = perEntry - 2;
@@ -140,7 +138,7 @@ function evmType2Capacities(
  * @param cell - The record cell as stored (value atoms plus alignment).
  * @param what - Error-message subject.
  * @returns The decoded record.
- * @throws Error if the cell is not a decodable evmType2 request record.
+ * @throws {Error} If the cell is not a decodable evmType2 request record.
  */
 export function decodeEvmType2SignBidirectionalEvent(
   cell: AlignedValue,
@@ -148,9 +146,14 @@ export function decodeEvmType2SignBidirectionalEvent(
 ): SignBidirectionalEvent {
   const widths = declaredWidths(cell, what);
   const capacities = evmType2Capacities(widths, what);
-  // Indices in range: evmType2Capacities requires >= EVM_TYPE2_FIXED_ATOMS.
-  const lenOutputDeserialization = widths[widths.length - 2]!;
-  const lenRespondSerialization = widths[widths.length - 1]!;
+  const lenOutputDeserialization = widths.at(-2);
+  const lenRespondSerialization = widths.at(-1);
+  if (lenOutputDeserialization === undefined || lenRespondSerialization === undefined) {
+    throw new Error(
+      `${what} has ${String(widths.length)} value atoms: too few to hold the ` +
+        `trailing output-deserialization and respond-serialization schemas`,
+    );
+  }
   // fromValue consumes its cursor, so hand it a copy.
   const cursor = [...cell.value];
   const record = signBidirectionalEventDescriptor(
@@ -162,7 +165,7 @@ export function decodeEvmType2SignBidirectionalEvent(
   ).fromValue(cursor);
   if (cursor.length !== 0) {
     throw new Error(
-      `${what} decode left ${cursor.length} of ${cell.value.length} atoms unconsumed`,
+      `${what} decode left ${String(cursor.length)} of ${String(cell.value.length)} atoms unconsumed`,
     );
   }
   return record;

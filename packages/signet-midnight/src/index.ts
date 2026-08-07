@@ -4,9 +4,9 @@
 
 export * from "./abi-serde.ts";
 export {
-  BLS_ORDER,
   bigintToBytes32,
   bigintToBytes32BE,
+  BLS_ORDER,
   bytesToBigint,
   bytesToBigintBE,
   bytesToHex,
@@ -16,58 +16,55 @@ export {
 // Explicit lists for the request/state modules: the runtime descriptor
 // toolkit (compact-descriptors.ts and the per-module record descriptors) is
 // package-internal, consumed only through the reader and request functions.
-export {
-  MPCDestination,
-  MPCSignatureAlgorithm,
-  PATH_BYTES,
-  TxParamType,
-  parseRequestIdHex,
-  requestIdBytes,
-  requestIdHex,
-  toSignBidirectionalEventIndex,
-  type ContractAddress,
-  type Maybe,
-  type RequestId,
-  type RequestIdHex,
-  type SignBidirectionalEvent,
-  type SignBidirectionalEventIndex,
-  type SignBidirectionalEventLedgerMap,
-} from "./signet-requests.ts";
-export { calculateRequestId } from "./signet-request-id.ts";
+export * from "./constants.ts";
+export * from "./epsilon-derivation.ts";
+export { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";
+export * from "./signature-requests-state-reader.ts";
+export * from "./signature-response-verification.ts";
+export * from "./signet-contract-events.ts";
 export {
   abiWordToBool,
   abiWordToUint128,
   assembleCalldata,
   boolAbiWord,
+  type EvmAccessListEntry,
   evmAddressAbiWord,
+  type EvmCalldata,
+  type EvmType2TxParams,
   numericAbiWord,
   signatureRespondedEventToSignature,
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
-  type EvmAccessListEntry,
-  type EvmCalldata,
-  type EvmType2TxParams,
 } from "./signet-evtype2tx-requests.ts";
-export {
-  signetFieldNodeByPath,
-  type RawContractState,
-} from "./raw-contract-state.ts";
-export * from "./signature-requests-state-reader.ts";
-export * from "./signet-contract-events.ts";
-export * from "./signature-response-verification.ts";
-export * from "./signet-request-response-reader.ts";
 export * from "./signet-request-feed.ts";
-export * from "./constants.ts";
-export * from "./epsilon-derivation.ts";
+export { calculateRequestId } from "./signet-request-id.ts";
+export * from "./signet-request-response-reader.ts";
+export {
+  type ContractAddress,
+  type Maybe,
+  MPCDestination,
+  MPCSignatureAlgorithm,
+  parseRequestIdHex,
+  PATH_BYTES,
+  type RequestId,
+  requestIdBytes,
+  type RequestIdHex,
+  requestIdHex,
+  type SignBidirectionalEvent,
+  type SignBidirectionalEventIndex,
+  type SignBidirectionalEventLedgerMap,
+  toSignBidirectionalEventIndex,
+  TxParamType,
+} from "./signet-requests.ts";
 // Explicit list: ecdsa-attestation.ts also backs the ./testing entry point
 // (the attestation-minting helpers that take a secret key live THERE), and
 // its record decoder (mpcSignatureToEcdsaSignature) is package-internal.
 export {
-  SECP256K1_ORDER,
   formatSecp256k1PublicKey,
   parseSecp256k1PublicKey,
-  verifyRespondBidirectionalSignature,
+  SECP256K1_ORDER,
   type Secp256k1Point,
+  verifyRespondBidirectionalSignature,
 } from "./ecdsa-attestation.ts";
 
 /**
@@ -75,4 +72,4 @@ export {
  * Off-chain code MUST use these instead of re-porting the algorithms:
  * they are the same compiled logic the contracts prove.
  */
-export { pureCircuits, type PureCircuits } from "./managed/contract/index.js";
+export { type PureCircuits, pureCircuits } from "./managed/contract/index.js";

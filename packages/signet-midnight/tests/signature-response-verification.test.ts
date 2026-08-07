@@ -3,22 +3,21 @@
 // and the posted signature record must recover to the expected signer over
 // its signing hash.
 
+import { computeAddress, SigningKey } from "ethers";
 import { describe, expect, it } from "vitest";
 
-import { computeAddress, SigningKey } from "ethers";
-
 import {
-  MPCDestination,
-  MPCSignatureAlgorithm,
-  TxParamType,
   asciiPadded,
   evmAddressAbiWord,
+  MPCDestination,
+  MPCSignatureAlgorithm,
   numericAbiWord,
-  signBidirectionalEventToUnsignedEvmTransaction,
   recoverSignatureResponseSigner,
-  verifySignatureRespondedEvent,
-  type SignBidirectionalEvent,
   type SignatureRespondedEvent,
+  type SignBidirectionalEvent,
+  signBidirectionalEventToUnsignedEvmTransaction,
+  TxParamType,
+  verifySignatureRespondedEvent,
 } from "../src/index.ts";
 import { ecdsaSignatureToMpcSignature } from "../src/testing.ts";
 
@@ -28,8 +27,7 @@ const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
 // ---- Fixtures ----
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 const ERC20 = bytes(20, 0xaa);
 const VAULT_EVM = bytes(20, 0xee);
@@ -84,9 +82,7 @@ const signResponse = (
   key: SigningKey,
   request: SignBidirectionalEvent,
 ): SignatureRespondedEvent => {
-  const signature = key.sign(
-    signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash,
-  );
+  const signature = key.sign(signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash);
   return {
     signature: ecdsaSignatureToMpcSignature({
       r: BigInt(signature.r),
@@ -104,10 +100,7 @@ const withRecoveryId = (value: bigint): SignatureRespondedEvent => ({
 });
 
 /** REQUEST with one calldata word swapped out. */
-const withWord = (
-  index: number,
-  word: Uint8Array,
-): SignBidirectionalEvent => ({
+const withWord = (index: number, word: Uint8Array): SignBidirectionalEvent => ({
   ...REQUEST,
   txParams: {
     ...REQUEST.txParams,
@@ -115,9 +108,7 @@ const withWord = (
       is_some: true,
       value: {
         ...REQUEST.txParams.calldata.value,
-        words: REQUEST.txParams.calldata.value.words.map((w, i) =>
-          i === index ? word : w,
-        ),
+        words: REQUEST.txParams.calldata.value.words.map((w, i) => (i === index ? word : w)),
       },
     },
   },
@@ -127,15 +118,13 @@ const withWord = (
 
 describe("recoverSignatureResponseSigner", () => {
   it("recovers the signing address from a genuine response", () => {
-    expect(recoverSignatureResponseSigner(REQUEST, VALID_RESPONSE)).toBe(
-      MPC_ADDRESS,
-    );
+    expect(recoverSignatureResponseSigner(REQUEST, VALID_RESPONSE)).toBe(MPC_ADDRESS);
   });
 
   it("rejects a response with an out-of-range recovery id", () => {
-    expect(() =>
-      recoverSignatureResponseSigner(REQUEST, withRecoveryId(5n)),
-    ).toThrow(/recovery id/);
+    expect(() => recoverSignatureResponseSigner(REQUEST, withRecoveryId(5n))).toThrow(
+      /recovery id/,
+    );
   });
 });
 
@@ -186,7 +175,11 @@ const VERIFY_CASES: VerifyCase[] = [
     name: "garbage scalars (a well-formed record that is no signature)",
     request: REQUEST,
     response: {
-      signature: { bigR: { x: bytes(32, 0x5a), y: bytes(32, 0x5a) }, s: bytes(32, 0x5a), recoveryId: 0n },
+      signature: {
+        bigR: { x: bytes(32, 0x5a), y: bytes(32, 0x5a) },
+        s: bytes(32, 0x5a),
+        recoveryId: 0n,
+      },
     },
     expectedSigner: MPC_ADDRESS,
     valid: false,
@@ -204,9 +197,7 @@ describe("verifySignatureRespondedEvent", () => {
   it.each(VERIFY_CASES)(
     "verdict on $name is $valid",
     ({ request, response, expectedSigner, valid }) => {
-      expect(
-        verifySignatureRespondedEvent(request, response, expectedSigner),
-      ).toBe(valid);
+      expect(verifySignatureRespondedEvent(request, response, expectedSigner)).toBe(valid);
     },
   );
 });

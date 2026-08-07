@@ -5,12 +5,12 @@
 
 import { getAddress, recoverAddress } from "ethers";
 
+import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 import {
-  signBidirectionalEventToUnsignedEvmTransaction,
   signatureRespondedEventToSignature,
+  signBidirectionalEventToUnsignedEvmTransaction,
 } from "./signet-evtype2tx-requests.ts";
 import type { SignBidirectionalEvent } from "./signet-requests.ts";
-import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 
 /**
  * Recover the EVM address that produced a response signature, over the
@@ -19,7 +19,7 @@ import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
  * @param request - The on-ledger request record the response answers.
  * @param response - The posted signature record answering it.
  * @returns The checksummed recovered signer address.
- * @throws Error if the response is not a decodable signature or the request
+ * @throws {Error} If the response is not a decodable signature or the request
  *   record is malformed (see
  *   {@link signBidirectionalEventToUnsignedEvmTransaction}).
  */
@@ -49,10 +49,7 @@ export function verifySignatureRespondedEvent(
   expectedSigner: string,
 ): boolean {
   try {
-    return (
-      recoverSignatureResponseSigner(request, response) ===
-      getAddress(expectedSigner)
-    );
+    return recoverSignatureResponseSigner(request, response) === getAddress(expectedSigner);
   } catch {
     return false;
   }

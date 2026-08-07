@@ -12,22 +12,18 @@
 import type { AlignedValue } from "@midnight-ntwrk/compact-runtime";
 
 import { UINT_64 } from "./compact-descriptors.ts";
-import { calculateRequestId } from "./signet-request-id.ts";
+import { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";
 import { decodeEvmType2SignBidirectionalEvent } from "./signet-evtype2tx-record-decoding.ts";
+import { calculateRequestId } from "./signet-request-id.ts";
 import {
   requestIdBytes,
+  type RequestIdHex,
   requestIdHex,
   requestIdType,
-  TxParamType,
-  type RequestIdHex,
   type SignBidirectionalEvent,
   type SignBidirectionalEventIndex,
+  TxParamType,
 } from "./signet-requests.ts";
-
-import {
-  signetFieldNodeByPath,
-  type RawContractState,
-} from "./raw-contract-state.ts";
 
 // Atom position of `txParamType` in a stored record: the chain-agnostic head
 // of SignBidirectionalEvent (sender through txParamType) occupies the first
@@ -43,7 +39,7 @@ const TX_PARAM_TYPE_ATOM = 7;
  *
  * @param cell - The record cell as stored (value atoms plus alignment).
  * @returns The decoded record.
- * @throws Error if the cell is not a decodable request record of a known
+ * @throws {Error} If the cell is not a decodable request record of a known
  *   decomposition.
  */
 function decodeSignBidirectionalEvent(cell: AlignedValue): SignBidirectionalEvent {
@@ -53,14 +49,16 @@ function decodeSignBidirectionalEvent(cell: AlignedValue): SignBidirectionalEven
     throw new Error(`${what} ends before txParamType`);
   }
   if (atom.length > 1) {
-    throw new Error(`${what} txParamType atom holds ${atom.length} bytes, expected at most 1`);
+    throw new Error(
+      `${what} txParamType atom holds ${String(atom.length)} bytes, expected at most 1`,
+    );
   }
   // The state layer trims trailing zeros, so evmType2 (0) arrives empty.
-  const paramType = atom.length === 0 ? 0 : atom[0]!;
+  const paramType = atom[0] ?? 0;
   if (paramType !== (TxParamType.evmType2 as number)) {
     throw new Error(
-      `unsupported txParamType ${paramType}: this decoder understands evmType2 ` +
-        `(${TxParamType.evmType2})`,
+      `unsupported txParamType ${String(paramType)}: this decoder understands evmType2 ` +
+        `(${String(TxParamType.evmType2)})`,
     );
   }
   return decodeEvmType2SignBidirectionalEvent(cell, what);
@@ -91,7 +89,7 @@ export interface SignetRequestsLedger {
  * @param requestsIndexPath - Resolved ledger-tree path of the request index.
  * @param noncePath - Resolved ledger-tree path of the request counter.
  * @returns The decoded {@link SignetRequestsLedger}.
- * @throws Error if a field is missing, has the wrong state-value shape, or a
+ * @throws {Error} If a field is missing, has the wrong state-value shape, or a
  *   record is not a decodable evmType2 request record.
  */
 export function readSignetRequestsLedgerFromState(
@@ -112,11 +110,11 @@ export function readSignetRequestsLedgerFromState(
     requestsIndex.set(requestId, decodeSignBidirectionalEvent(cell));
   }
 
-  const nonceCell = signetFieldNodeByPath(raw, noncePath).asCell();
-  if (nonceCell === undefined) {
+  const nonceField = signetFieldNodeByPath(raw, noncePath);
+  if (nonceField.type() !== "cell") {
     throw new Error(`Ledger field at path ${JSON.stringify(noncePath)} is not a Cell`);
   }
-  const nonce = UINT_64.fromValue([...nonceCell.value]);
+  const nonce = UINT_64.fromValue([...nonceField.asCell().value]);
 
   return { nonce, requestsIndex };
 }

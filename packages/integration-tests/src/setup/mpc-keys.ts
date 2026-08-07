@@ -23,7 +23,7 @@ export interface MpcPublicKeys {
  *
  * @param rootKeyHex - The 32-byte MPC root key as hex (0x prefix optional).
  * @returns The derived {@link MpcPublicKeys}.
- * @throws If `rootKeyHex` is not exactly 32 bytes of hex.
+ * @throws {Error} If `rootKeyHex` is not exactly 32 bytes of hex.
  */
 export function deriveMpcKeys(rootKeyHex: string): MpcPublicKeys {
   const root = rootKeyHex.startsWith("0x") ? rootKeyHex.slice(2) : rootKeyHex;

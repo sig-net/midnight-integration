@@ -8,11 +8,7 @@
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { computeAddress, keccak256, SigningKey, toUtf8Bytes } from "ethers";
 
-import {
-  bigintToBytes32BE,
-  bytesToBigintBE,
-  stripHexPrefix,
-} from "./byte-codecs.ts";
+import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codecs.ts";
 import { SECP256K1_ORDER, type Secp256k1Point } from "./ecdsa-attestation.ts";
 
 /**
@@ -90,7 +86,15 @@ export function deriveEpsilon(
   return BigInt(keccak256(toUtf8Bytes(fullPath))) % SECP256K1_ORDER;
 }
 
-/** Derive the child public key as a noble curve point (internal shape). */
+/**
+ * Derive the child public key as a noble curve point (internal shape).
+ *
+ * @param mpcSecp256k1PubkeyHex - The MPC root public key in SEC1 hex.
+ * @param requester - The normalised requester address.
+ * @param path - The derivation path component.
+ * @param chainId - The chain id component.
+ * @returns The derived child point on secp256k1.
+ */
 function deriveChildPoint(
   mpcSecp256k1PubkeyHex: string,
   requester: string,
@@ -106,7 +110,11 @@ function deriveChildPoint(
 /**
  * Normalise a Midnight contract address for use as the requester component
  * of the derivation string: strip an optional `0x` prefix and lowercase.
- * Both sides of the protocol must derive through this exact rendering.
+ * Both sides of the protocol (the deploy pinning a key and the MPC signing
+ * with it) derive through this, so the rendering always agrees.
+ *
+ * @param contractAddress - The Midnight contract address, with or without `0x`.
+ * @returns The address as lowercase hex with no prefix.
  */
 function normaliseRequesterAddress(contractAddress: string): string {
   return stripHexPrefix(contractAddress).toLowerCase();
@@ -147,14 +155,14 @@ export function deriveMidnightResponseKey(
  * @param clientContractAddress - The client contract's Midnight address
  *   (`0x` prefix optional, case-insensitive).
  * @returns The 32-byte response secret key (big-endian).
- * @throws Error if the root key is not 32 bytes or the derived scalar is 0.
+ * @throws {Error} If the root key is not 32 bytes or the derived scalar is 0.
  */
 export function deriveMidnightResponseSecretKey(
   mpcRootSecretKey: Uint8Array,
   clientContractAddress: string,
 ): Uint8Array {
   if (mpcRootSecretKey.length !== 32) {
-    throw new Error(`MPC root secret key must be 32 bytes, got ${mpcRootSecretKey.length}`);
+    throw new Error(`MPC root secret key must be 32 bytes, got ${String(mpcRootSecretKey.length)}`);
   }
   const root = bytesToBigintBE(mpcRootSecretKey);
   const epsilon = deriveEpsilon(

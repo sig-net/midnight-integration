@@ -14,19 +14,19 @@
 // No `vitest` imports here — this runs in vitest's main process (globalSetup).
 
 import {
+  type AccountFunding,
   assertRootFunded,
   deriveWalletAddresses,
   fundChildFromRoot,
-  getFaucetUrl,
-  GENESIS_MINT_WALLET_SEED,
   generateHexSeed,
+  GENESIS_MINT_WALLET_SEED,
+  getFaucetUrl,
   getMidnightNodeConfig,
   isFeeReady,
   isLocalStandaloneNetwork,
+  type MidnightNodeConfig,
   readAccountFunding,
   RootUnfundedError,
-  type AccountFunding,
-  type MidnightNodeConfig,
   type WalletAddresses,
 } from "@sig-net/midnight-contract-deploy";
 
@@ -55,7 +55,13 @@ const CHILDREN: readonly RoleWallet[] = [
   { label: "mpc responder", envVar: "MPC_RESPONDER_SEED" },
 ];
 
-/** Format a wallet's three addresses as banner lines. */
+/**
+ * Format a wallet's three addresses as banner lines.
+ *
+ * @param label - The wallet's role name.
+ * @param addresses - The wallet's unshielded, shielded and dust addresses.
+ * @returns The banner lines, ready to print.
+ */
 function walletAddressLines(label: string, addresses: WalletAddresses): string[] {
   return [
     `${label} wallet addresses:`,
@@ -97,14 +103,22 @@ export function ensureWalletSeeds(env: NodeJS.ProcessEnv): void {
   }
 
   if (Object.keys(generated).length > 0) {
-    appendRepoDotEnv(generated, "integration-tests setup: generated wallet seeds (root/deployer/invoker/mpc responder)");
+    appendRepoDotEnv(
+      generated,
+      "integration-tests setup: generated wallet seeds (root/deployer/invoker/mpc responder)",
+    );
   }
 }
 
-/** Log a funded wallet's pass line with its balances and NIGHT address. */
+/**
+ * Log a funded wallet's pass line with its balances and NIGHT address.
+ *
+ * @param label - The wallet's role name.
+ * @param funding - The wallet's measured NIGHT and DUST balances.
+ */
 function logFundedPass(label: string, funding: AccountFunding): void {
   console.log(
-    `${label} funding OK — NIGHT ${funding.night}, DUST ${funding.dust} (${funding.addresses.unshielded})`,
+    `${label} funding OK — NIGHT ${String(funding.night)}, DUST ${String(funding.dust)} (${funding.addresses.unshielded})`,
   );
 }
 
@@ -113,12 +127,20 @@ function logFundedPass(label: string, funding: AccountFunding): void {
  * otherwise root's balance is split evenly across the children that need
  * funding, keeping one share in root (for its own transfer fees), so the split
  * adapts to however much the faucet delivered.
+ *
+ * @param env - The environment to read `FUND_CHILD_NIGHT` from.
+ * @param rootNight - Root's NIGHT balance in base units.
+ * @param unfundedCount - How many children still need funding.
+ * @returns The NIGHT to send each child, in base units.
+ * @throws {Error} If `FUND_CHILD_NIGHT` is set but is not a non-negative integer.
  */
 function perChildAmount(env: NodeJS.ProcessEnv, rootNight: bigint, unfundedCount: number): bigint {
   const override = env.FUND_CHILD_NIGHT?.trim();
   if (override) {
     if (!/^\d+$/.test(override)) {
-      throw new Error(`FUND_CHILD_NIGHT must be a non-negative integer in NIGHT base units; got "${env.FUND_CHILD_NIGHT}".`);
+      throw new Error(
+        `FUND_CHILD_NIGHT must be a non-negative integer in NIGHT base units; got "${override}".`,
+      );
     }
     return BigInt(override);
   }
@@ -134,7 +156,7 @@ function perChildAmount(env: NodeJS.ProcessEnv, rootNight: bigint, unfundedCount
  * wallets are only checked.
  *
  * @param env - The suite's env accumulator (seeds already resolved).
- * @throws {@link RootUnfundedError} to halt the run when root needs faucet funding.
+ * @throws {RootUnfundedError} To halt the run when root needs faucet funding.
  */
 export async function ensureWalletsFunded(env: NodeJS.ProcessEnv): Promise<void> {
   const config = getMidnightNodeConfig(env);
@@ -147,7 +169,10 @@ export async function ensureWalletsFunded(env: NodeJS.ProcessEnv): Promise<void>
 
   const checked = [];
   for (const child of CHILDREN) {
-    checked.push({ child, funding: await readAccountFunding(config, requireEnv(env, child.envVar)) });
+    checked.push({
+      child,
+      funding: await readAccountFunding(config, requireEnv(env, child.envVar)),
+    });
   }
   const unfundedCount = checked.filter((entry) => !isFeeReady(entry.funding)).length;
   const amount = perChildAmount(env, root.night, unfundedCount);
@@ -157,17 +182,32 @@ export async function ensureWalletsFunded(env: NodeJS.ProcessEnv): Promise<void>
       logFundedPass(child.label, funding);
       continue;
     }
-    console.log(`${child.label} not fee-ready (NIGHT ${funding.night}, DUST ${funding.dust}) — funding ${amount} from root`);
+    console.log(
+      `${child.label} not fee-ready (NIGHT ${String(funding.night)}, DUST ${String(funding.dust)}) — funding ${String(amount)} from root`,
+    );
     // Retry-safe: fundChildFromRoot re-reads the child's balance each attempt
     // and skips the transfer once the NIGHT has landed.
     const funded = await retryWhileDustGenerates(`fund ${child.label}`, () =>
-      fundChildFromRoot(config, requireEnv(env, ROOT.envVar), requireEnv(env, child.envVar), amount),
+      fundChildFromRoot(
+        config,
+        requireEnv(env, ROOT.envVar),
+        requireEnv(env, child.envVar),
+        amount,
+      ),
     );
     logFundedPass(child.label, funded);
   }
 }
 
-/** Root preflight, surfacing {@link RootUnfundedError}'s stop message before rethrowing. */
+/**
+ * Root preflight, surfacing {@link RootUnfundedError}'s stop message before rethrowing.
+ *
+ * @param config - The endpoints to measure root's funding against.
+ * @param rootSeed - The root wallet's seed.
+ * @param faucetUrl - The network's faucet, included in the stop message.
+ * @returns Root's measured funding, once it passes.
+ * @throws {RootUnfundedError} When root holds no spendable funds.
+ */
 async function preflightRoot(
   config: MidnightNodeConfig,
   rootSeed: string,

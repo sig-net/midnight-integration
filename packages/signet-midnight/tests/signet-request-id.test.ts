@@ -6,17 +6,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  MPCDestination,
-  MPCSignatureAlgorithm,
-  TxParamType,
   calculateRequestId,
   evmAddressAbiWord,
+  MPCDestination,
+  MPCSignatureAlgorithm,
   numericAbiWord,
   type SignBidirectionalEvent,
+  TxParamType,
 } from "../src/index.ts";
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 /** Known-good request record: the base every test uses. NEVER mutate. */
 const SAMPLE_REQUEST: SignBidirectionalEvent = {
@@ -54,9 +53,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
 
 describe("calculateRequestId", () => {
   it("is deterministic: the same record hashes to the same id", () => {
-    expect(calculateRequestId(SAMPLE_REQUEST)).toEqual(
-      calculateRequestId(SAMPLE_REQUEST),
-    );
+    expect(calculateRequestId(SAMPLE_REQUEST)).toEqual(calculateRequestId(SAMPLE_REQUEST));
   });
 
   it("changes when any field of the record changes", () => {
@@ -64,9 +61,7 @@ describe("calculateRequestId", () => {
       ...SAMPLE_REQUEST,
       requestNonce: 8n,
     };
-    expect(calculateRequestId(changed)).not.toEqual(
-      calculateRequestId(SAMPLE_REQUEST),
-    );
+    expect(calculateRequestId(changed)).not.toEqual(calculateRequestId(SAMPLE_REQUEST));
   });
 
   it("rejects a decomposition it has no descriptor for", () => {

@@ -6,37 +6,35 @@
 // storage keys per entry) from the cell's declared alignment widths, so
 // records with and without access lists are both exercised.
 
-import { describe, expect, it } from "vitest";
-
 import {
+  type AlignedValue,
   CompactTypeUnsignedInteger,
   StateMap,
   StateValue,
-  type AlignedValue,
 } from "@midnight-ntwrk/compact-runtime";
+import { describe, expect, it } from "vitest";
 
 import {
-  MPCDestination,
-  MPCSignatureAlgorithm,
-  TxParamType,
   calculateRequestId,
   evmAddressAbiWord,
   lookupSignetRequestAt,
+  MPCDestination,
+  MPCSignatureAlgorithm,
   numericAbiWord,
   readSignetRequestsLedgerFromState,
   requestIdHex,
   type SignBidirectionalEvent,
+  TxParamType,
 } from "../src/index.ts";
+import { signBidirectionalEventDescriptor } from "../src/signet-evtype2tx-requests.ts";
 // Package-internal descriptors, imported from their defining modules.
 import { requestIdType } from "../src/signet-requests.ts";
-import { signBidirectionalEventDescriptor } from "../src/signet-evtype2tx-requests.ts";
 
 // The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
 // (the app-level constant lives in the cli).
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 // Shared across tests: NEVER mutate. Build a variation as an explicit spread.
 // The vault's shape: <2 calldata words, 0 access-list entries, 0 keys> with
@@ -156,9 +154,7 @@ const syntheticContractState = () => {
       },
       requestCell(ACCESS_LIST_REQUEST, CAPACITIES.accessList),
     );
-  return StateValue.newArray()
-    .arrayPush(StateValue.newMap(map))
-    .arrayPush(counterCell(NONCE));
+  return StateValue.newArray().arrayPush(StateValue.newMap(map)).arrayPush(counterCell(NONCE));
 };
 
 describe("state-reader (MPC-style raw decode)", () => {
@@ -171,12 +167,8 @@ describe("state-reader (MPC-style raw decode)", () => {
 
     expect(nonce).toBe(NONCE);
     expect(requestsIndex.size).toBe(2);
-    expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
-      SAMPLE_REQUEST,
-    );
-    expect(requestsIndex.get(requestIdHex(ACCESS_LIST_REQUEST_ID))).toEqual(
-      ACCESS_LIST_REQUEST,
-    );
+    expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(SAMPLE_REQUEST);
+    expect(requestsIndex.get(requestIdHex(ACCESS_LIST_REQUEST_ID))).toEqual(ACCESS_LIST_REQUEST);
   });
 
   it("decodes a schema ending in a zero byte at its declared width", () => {
@@ -225,9 +217,7 @@ describe("state-reader (MPC-style raw decode)", () => {
     );
     expect(nonce).toBe(NONCE);
     expect(requestsIndex.size).toBe(1);
-    expect(requestsIndex.get(requestIdHex(FIELD2_REQUEST_ID))).toEqual(
-      FIELD2_REQUEST,
-    );
+    expect(requestsIndex.get(requestIdHex(FIELD2_REQUEST_ID))).toEqual(FIELD2_REQUEST);
   });
 
   it("resolves the index behind a List-typed field (array node, like a chunk)", () => {
@@ -247,9 +237,7 @@ describe("state-reader (MPC-style raw decode)", () => {
 
     const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(state, [2], [1]);
     expect(nonce).toBe(NONCE);
-    expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
-      SAMPLE_REQUEST,
-    );
+    expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(SAMPLE_REQUEST);
   });
 
   it("follows a resolved path into a compiler-chunked root (16 fields -> chunks of 1 + 15)", () => {
@@ -257,9 +245,7 @@ describe("state-reader (MPC-style raw decode)", () => {
     // depth-uniform tree: 16 fields -> [chunk(1), chunk(15)]. A notification
     // carries the resolved path compactc records in contract-info.json, so the
     // reader follows it node for node with no chunk detection.
-    const chunk0 = StateValue.newArray().arrayPush(
-      StateValue.newMap(sampleIndexMap()),
-    );
+    const chunk0 = StateValue.newArray().arrayPush(StateValue.newMap(sampleIndexMap()));
     let chunk1 = StateValue.newArray().arrayPush(counterCell(NONCE));
     for (let i = 0; i < 14; i += 1) {
       chunk1 = chunk1.arrayPush(StateValue.newNull());
@@ -268,15 +254,9 @@ describe("state-reader (MPC-style raw decode)", () => {
 
     // Resolved paths: index = field 0 at chunk [0, 0], nonce = field 1 at
     // chunk [1, 0].
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
-      state,
-      [0, 0],
-      [1, 0],
-    );
+    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(state, [0, 0], [1, 0]);
     expect(nonce).toBe(NONCE);
-    expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
-      SAMPLE_REQUEST,
-    );
+    expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(SAMPLE_REQUEST);
   });
 });
 
@@ -351,49 +331,31 @@ describe("lookupSignetRequestAt", () => {
         ),
       ),
     );
-    expect(
-      lookupSignetRequestAt(state, [0], requestIdHex(spoofedId)),
-    ).toBeUndefined();
+    expect(lookupSignetRequestAt(state, [0], requestIdHex(spoofedId))).toBeUndefined();
   });
 
   it("returns undefined for a non-member id", () => {
     expect(
-      lookupSignetRequestAt(
-        stateWithSecondIndex(),
-        [0],
-        requestIdHex(bytes(32, 0x99)),
-      ),
+      lookupSignetRequestAt(stateWithSecondIndex(), [0], requestIdHex(bytes(32, 0x99))),
     ).toBeUndefined();
   });
 
   it("returns undefined for a member looked up at the wrong field", () => {
     // SAMPLE_REQUEST_ID lives at field 0, not field 2.
     expect(
-      lookupSignetRequestAt(
-        stateWithSecondIndex(),
-        [2],
-        requestIdHex(SAMPLE_REQUEST_ID),
-      ),
+      lookupSignetRequestAt(stateWithSecondIndex(), [2], requestIdHex(SAMPLE_REQUEST_ID)),
     ).toBeUndefined();
   });
 
   it("returns undefined when the field is not a Map (e.g. the nonce cell)", () => {
     expect(
-      lookupSignetRequestAt(
-        stateWithSecondIndex(),
-        [1],
-        requestIdHex(SAMPLE_REQUEST_ID),
-      ),
+      lookupSignetRequestAt(stateWithSecondIndex(), [1], requestIdHex(SAMPLE_REQUEST_ID)),
     ).toBeUndefined();
   });
 
   it("returns undefined when the path is out of range", () => {
     expect(
-      lookupSignetRequestAt(
-        stateWithSecondIndex(),
-        [9],
-        requestIdHex(SAMPLE_REQUEST_ID),
-      ),
+      lookupSignetRequestAt(stateWithSecondIndex(), [9], requestIdHex(SAMPLE_REQUEST_ID)),
     ).toBeUndefined();
   });
 
@@ -402,9 +364,7 @@ describe("lookupSignetRequestAt", () => {
     const viaReader = readSignetRequestsLedgerFromState(raw, [0], [1]).requestsIndex.get(
       requestIdHex(SAMPLE_REQUEST_ID),
     );
-    expect(lookupSignetRequestAt(raw, [0], requestIdHex(SAMPLE_REQUEST_ID))).toEqual(
-      viaReader,
-    );
+    expect(lookupSignetRequestAt(raw, [0], requestIdHex(SAMPLE_REQUEST_ID))).toEqual(viaReader);
   });
 });
 
@@ -425,9 +385,7 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
       },
       StateValue.newCell(cell),
     );
-    return StateValue.newArray()
-      .arrayPush(StateValue.newMap(map))
-      .arrayPush(counterCell(0n));
+    return StateValue.newArray().arrayPush(StateValue.newMap(map)).arrayPush(counterCell(0n));
   };
 
   it("rejects a cell that ends before the txParamType atom", () => {
@@ -451,11 +409,7 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
     value[7] = Uint8Array.of(0, 1);
     alignment[7] = { tag: "atom", value: { tag: "bytes", length: 2 } };
     expect(() =>
-      readSignetRequestsLedgerFromState(
-        indexStateWithCell({ value, alignment }),
-        [0],
-        [1],
-      ),
+      readSignetRequestsLedgerFromState(indexStateWithCell({ value, alignment }), [0], [1]),
     ).toThrow(/txParamType atom holds 2 bytes/);
   });
 
@@ -463,26 +417,22 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
     const { value, alignment } = cellsOf();
     value[7] = Uint8Array.of(1);
     expect(() =>
-      readSignetRequestsLedgerFromState(
-        indexStateWithCell({ value, alignment }),
-        [0],
-        [1],
-      ),
+      readSignetRequestsLedgerFromState(indexStateWithCell({ value, alignment }), [0], [1]),
     ).toThrow(/unsupported txParamType 1/);
   });
 
   it("rejects a non-Map field as the requests index", () => {
     // Field 1 is the nonce cell, not a request map.
-    expect(() =>
-      readSignetRequestsLedgerFromState(syntheticContractState(), [1], [1]),
-    ).toThrow(/is not a Map/);
+    expect(() => readSignetRequestsLedgerFromState(syntheticContractState(), [1], [1])).toThrow(
+      /is not a Map/,
+    );
   });
 
   it("rejects a non-Cell field as the nonce", () => {
     // Field 0 is the request index map, not a counter cell.
-    expect(() =>
-      readSignetRequestsLedgerFromState(syntheticContractState(), [0], [0]),
-    ).toThrow(/is not a Cell/);
+    expect(() => readSignetRequestsLedgerFromState(syntheticContractState(), [0], [0])).toThrow(
+      /is not a Cell/,
+    );
   });
 
   it("lookupSignetRequestAt returns undefined for a stored cell that is not a decodable record", () => {

@@ -10,20 +10,20 @@
 // packages/test-caller-contract/tests/contract.test.ts).
 
 import {
+  type CompactType,
   CompactTypeBytes,
   CompactTypeEnum,
-  type CompactType,
 } from "@midnight-ntwrk/compact-runtime";
 
 import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
 import {
   BYTES_32,
   BYTES_64,
+  compactStructDescriptor,
   CONTRACT_ADDRESS,
+  type ContractAddress,
   UINT_8,
   UINT_64,
-  compactStructDescriptor,
-  type ContractAddress,
 } from "./compact-descriptors.ts";
 import type { EvmType2TxParams } from "./signet-evtype2tx-requests.ts";
 
@@ -141,6 +141,7 @@ const MPC_SIGNATURE_ALGORITHM = new CompactTypeEnum(1, 1);
 const MPC_DESTINATION = new CompactTypeEnum(1, 1);
 
 /**
+ 
  * Descriptor of {@link SignBidirectionalEvent} over ANY tx-params
  * decomposition: the TS analogue of Compact's generic
  * `SignBidirectionalEvent`. Each decomposition wraps this with its own
@@ -181,8 +182,9 @@ export function signBidirectionalEventDescriptorWith<TxParams>(
  * what a contract's `ledger(state).signetRequestsIndex` provides. Structural,
  * so any contract exposing the index satisfies it.
  */
-export interface SignBidirectionalEventLedgerMap
-  extends Iterable<[RequestId, SignBidirectionalEvent]> {
+export interface SignBidirectionalEventLedgerMap extends Iterable<
+  [RequestId, SignBidirectionalEvent]
+> {
   /** @returns `true` when the index holds no requests. */
   isEmpty(): boolean;
   /** @returns Number of requests in the index. */
@@ -215,10 +217,7 @@ export type RequestIdHex = string & {
 };
 
 /** Plain-JS index parsed out of the ledger, keyed by hex request id. */
-export type SignBidirectionalEventIndex = Map<
-  RequestIdHex,
-  SignBidirectionalEvent
->;
+export type SignBidirectionalEventIndex = Map<RequestIdHex, SignBidirectionalEvent>;
 
 /**
  * Render a request id in its canonical TS form (see {@link RequestIdHex}).
@@ -237,7 +236,7 @@ export function requestIdHex(requestId: RequestId): RequestIdHex {
  *
  * @param value - The candidate request id string.
  * @returns The branded, normalised request id hex.
- * @throws Error if the value is not 64 hex chars after normalisation.
+ * @throws {Error} If the value is not 64 hex chars after normalisation.
  */
 export function parseRequestIdHex(value: string): RequestIdHex {
   const hex = value.replace(/^0x/i, "").toLowerCase();

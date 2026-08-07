@@ -4,6 +4,6 @@
 // bindings (zk-config source, state store, wallet adapter) deliberately
 // live with each consumer, not here.
 
+export * from "./contract-surface.ts";
 export * from "./managed/contract/index.js";
 export * from "./witnesses.ts";
-export * from "./contract-surface.ts";
