@@ -14,8 +14,8 @@ import {
 import {
   deriveAccountKeys,
   submitUnprovenTransaction,
-  withSyncedWalletFacade,
   type TransactionIdentifier,
+  withSyncedWalletFacade,
 } from "./plumbing/wallet.ts";
 import {
   createSignetContractPrivateState,
@@ -39,7 +39,7 @@ export interface SignetContractDeployment {
  * @param env - Environment map providing `DEPLOYER_SEED` and the shared
  *   Midnight node configuration (see `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
- * @throws If the deployer wallet holds no funds or submission fails.
+ * @throws {Error} If the deployer wallet holds no funds or submission fails.
  */
 export async function deploySignetContract(
   env: Record<string, string | undefined> = process.env,
@@ -49,7 +49,9 @@ export async function deploySignetContract(
 
   const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
 
-  console.log(`deploying signet-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`);
+  console.log(
+    `deploying signet-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`,
+  );
 
   const { contractAddress, txId } = await withSyncedWalletFacade(
     accountKeys,

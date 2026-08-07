@@ -10,13 +10,13 @@
 
 import {
   ContractFactory,
+  type InterfaceAbi,
   JsonRpcProvider,
   NonceManager,
-  Wallet,
   parseEther,
-  type InterfaceAbi,
   type Transaction,
   type TransactionReceipt,
+  Wallet,
 } from "ethers";
 
 /** The local dev chain id (the hardhat/anvil convention). */
@@ -47,7 +47,7 @@ export function evmRpcUrl(env: NodeJS.ProcessEnv): string {
  * dev-funder-signed action in this module.
  *
  * @param rpcUrl - The JSON-RPC endpoint to probe.
- * @throws If the endpoint is unreachable or reports another chain id.
+ * @throws {Error} If the endpoint is unreachable or reports another chain id.
  */
 export async function assertLocalDevChain(rpcUrl: string): Promise<void> {
   const provider = new JsonRpcProvider(rpcUrl);
@@ -55,8 +55,8 @@ export async function assertLocalDevChain(rpcUrl: string): Promise<void> {
     const { chainId } = await provider.getNetwork();
     if (chainId !== LOCAL_DEV_CHAIN_ID) {
       throw new Error(
-        `EVM endpoint ${rpcUrl} reports chain id ${chainId}: the e2e's dev-funder ` +
-          `actions (deploy, funding) only run against the local anvil (${LOCAL_DEV_CHAIN_ID})`,
+        `EVM endpoint ${rpcUrl} reports chain id ${String(chainId)}: the e2e's dev-funder ` +
+          `actions (deploy, funding) only run against the local anvil (${String(LOCAL_DEV_CHAIN_ID)})`,
       );
     }
   } finally {
@@ -167,15 +167,32 @@ export async function getEvmNonce(rpcUrl: string, address: string): Promise<bigi
 }
 
 /**
+ * Read a string property off an unknown thrown value. A cast would assert a
+ * shape the runtime has not checked, and the optional chain that guards it
+ * then reads as dead code.
+ *
+ * @param err - The caught value, of unknown shape.
+ * @param key - The property to read.
+ * @returns The property when present and a string, otherwise undefined.
+ */
+function errorField(err: unknown, key: "code" | "message"): string | undefined {
+  if (typeof err !== "object" || err === null || !(key in err)) return undefined;
+  const value = (err as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
  * The "this exact tx was already submitted" family of node errors. Re-POSTing
  * a signed tx the node has already seen is a no-op on-chain (same
  * nonce+signature means the same hash, one transaction), so these are safe to
  * swallow and fall through to waiting on the hash.
+ *
+ * @param err - The error the submit attempt rejected with.
+ * @returns Whether the node is reporting an already-seen transaction.
  */
 function isAlreadySubmitted(err: unknown): boolean {
-  const code = (err as { code?: string })?.code;
-  if (code === "NONCE_EXPIRED") return true;
-  const message = ((err as { message?: string })?.message ?? "").toLowerCase();
+  if (errorField(err, "code") === "NONCE_EXPIRED") return true;
+  const message = (errorField(err, "message") ?? "").toLowerCase();
   return (
     message.includes("already known") ||
     message.includes("already imported") ||
@@ -195,7 +212,7 @@ function isAlreadySubmitted(err: unknown): boolean {
  * @param transaction - The signed transaction (e.g. from
  *   `signBidirectionalEventToSignedEvmTransaction`).
  * @returns The mined receipt (status 1).
- * @throws Error when the transaction reverted on-chain (status 0), or its
+ * @throws {Error} When the transaction reverted on-chain (status 0), or its
  *   nonce was consumed by a different transaction.
  */
 export async function broadcastSignedTx(
@@ -211,13 +228,13 @@ export async function broadcastSignedTx(
 
     const mined = await provider.getTransactionReceipt(hash);
     if (mined !== null) {
-      console.log(`already mined at block ${mined.blockNumber}`);
+      console.log(`already mined at block ${String(mined.blockNumber)}`);
       return assertMinedOk(mined, hash);
     }
 
     try {
       await provider.broadcastTransaction(transaction.serialized);
-      console.log(`broadcast: ${hash} (nonce ${nonce}), waiting for 1 confirmation…`);
+      console.log(`broadcast: ${hash} (nonce ${String(nonce)}), waiting for 1 confirmation…`);
     } catch (err) {
       if (!isAlreadySubmitted(err)) throw err;
       console.log(`already submitted, waiting for 1 confirmation…`);
@@ -230,7 +247,7 @@ export async function broadcastSignedTx(
       } catch (err) {
         // ethers v6 REJECTS with TIMEOUT at the window edge (it does not
         // resolve null): treat as "not yet" and re-check the nonce below.
-        if ((err as { code?: string })?.code !== "TIMEOUT") throw err;
+        if (errorField(err, "code") !== "TIMEOUT") throw err;
         receipt = null;
       }
       if (receipt !== null) {
@@ -246,11 +263,11 @@ export async function broadcastSignedTx(
           return assertMinedOk(latestReceipt, hash);
         }
         throw new Error(
-          `nonce ${nonce} for ${from} was consumed by a different transaction, ` +
+          `nonce ${String(nonce)} for ${from} was consumed by a different transaction, ` +
             `so this signed tx (${hash}) can never mine`,
         );
       }
-      console.log(`still pending (account nonce ${latestNonce}), waiting…`);
+      console.log(`still pending (account nonce ${String(latestNonce)}), waiting…`);
     }
   } finally {
     provider.destroy();
@@ -260,11 +277,16 @@ export async function broadcastSignedTx(
 /**
  * A mined receipt with `status: 0` means the tx was included but reverted
  * (nonce consumed, gas burned, state rolled back): a failure, not a result.
+ *
+ * @param receipt - The mined receipt to check.
+ * @param hash - The transaction hash, used in the error message.
+ * @returns The receipt unchanged, once proven successful.
+ * @throws {Error} If the transaction reverted on-chain.
  */
 function assertMinedOk(receipt: TransactionReceipt, hash: string): TransactionReceipt {
   if (receipt.status === 0) {
     throw new Error(
-      `transaction ${hash} reverted on-chain (mined in block ${receipt.blockNumber}, status 0)`,
+      `transaction ${hash} reverted on-chain (mined in block ${String(receipt.blockNumber)}, status 0)`,
     );
   }
   return receipt;

@@ -9,6 +9,10 @@
     "packages/*"
   ],
   "scripts": {
+    "lint": "eslint . --max-warnings=0 --concurrency=auto",
+    "lint:fix": "eslint . --fix --concurrency=auto",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "compile": "yarn workspaces foreach --all --exclude midnight-protocol --topological run compile",
     "compile:zk": "yarn workspaces foreach --all --exclude midnight-protocol --topological run compile:zk",
     "compile:test-caller-contract": "yarn workspace @midnight-protocol/test-caller-contract run compile",
@@ -30,7 +34,17 @@
     "deploy:signet-contract": "yarn workspace @sig-net/midnight-contract-deploy run deploy"
   },
   "devDependencies": {
-    "tsx": "^4.23.0"
+    "@eslint/js": "^10.0.1",
+    "@vitest/eslint-plugin": "^1.6.26",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import-x": "^4.17.1",
+    "eslint-plugin-jsdoc": "^63.3.3",
+    "eslint-plugin-simple-import-sort": "^14.0.0",
+    "prettier": "3.9.6",
+    "tsx": "^4.23.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.66.0"
   },
   "resolutions": {
     "@midnightntwrk/ledger-v9": "1.0.0-rc.3",

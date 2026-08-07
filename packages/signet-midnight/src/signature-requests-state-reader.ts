@@ -18,8 +18,8 @@ import {
   signBidirectionalEventDescriptor,
 } from "./signet-evtype2tx-requests.ts";
 import {
-  requestIdHex,
   type RequestIdHex,
+  requestIdHex,
   type SignBidirectionalEvent,
   type SignBidirectionalEventIndex,
 } from "./signet-requests.ts";
@@ -28,10 +28,10 @@ import {
 type AlignedValue = Parameters<CompactType<unknown>["fromValue"]>[0];
 
 import {
+  type RawContractState,
   requestIdType,
   signetFieldNodeByPath,
   u64,
-  type RawContractState,
 } from "./signature-state-reading.ts";
 
 /**
@@ -72,7 +72,7 @@ export const REQUEST_FIXED_VALUE_ATOMS = 22;
  * @param expectedRequestId - The id the record is stored under, used to pick
  *   between splits when more than one decodes cleanly.
  * @returns The decoded record.
- * @throws Error if no capacity split decodes the value cleanly.
+ * @throws {Error} If no capacity split decodes the value cleanly.
  */
 function decodeSignBidirectionalEvent(
   atoms: AlignedValue,
@@ -81,12 +81,20 @@ function decodeSignBidirectionalEvent(
   const variable = atoms.length - REQUEST_FIXED_VALUE_ATOMS;
   if (variable < 0) {
     throw new Error(
-      `request record has ${atoms.length} value entries: fewer than the ` +
-        `${REQUEST_FIXED_VALUE_ATOMS} its fixed fields need`,
+      `request record has ${String(atoms.length)} value entries: fewer than the ` +
+        `${String(REQUEST_FIXED_VALUE_ATOMS)} its fixed fields need`,
     );
   }
-  const lenOutputDeserialization = (atoms[atoms.length - 2] as Uint8Array).length;
-  const lenRespondSerialization = (atoms[atoms.length - 1] as Uint8Array).length;
+  const outputDeserialization = atoms.at(-2);
+  const respondSerialization = atoms.at(-1);
+  if (outputDeserialization === undefined || respondSerialization === undefined) {
+    throw new Error(
+      `request record has ${String(atoms.length)} value entries: too few to hold the ` +
+        `trailing output-deserialization and respond-serialization schemas`,
+    );
+  }
+  const lenOutputDeserialization = outputDeserialization.length;
+  const lenRespondSerialization = respondSerialization.length;
   const attempt = (
     maxWords: number,
     maxEntries: number,
@@ -115,25 +123,24 @@ function decodeSignBidirectionalEvent(
   // First match wins, so the common access-list-free case stays at one decode.
   // `fallback` preserves the pre-recompute behaviour when no split matches the id.
   let fallback: SignBidirectionalEvent | undefined;
-  const take = (record: SignBidirectionalEvent | undefined): boolean => {
-    if (record === undefined) return false;
+  const take = (record: SignBidirectionalEvent): boolean => {
     fallback ??= record;
     return requestIdHex(calculateRequestId(record)) === expectedRequestId;
   };
   // No access list: variable atoms are calldata words alone (one atom each).
   const accessListFree = attempt(variable, 0, 0);
-  if (take(accessListFree)) return accessListFree!;
+  if (accessListFree !== undefined && take(accessListFree)) return accessListFree;
   // With an access list: E entries of (2 + K) atoms, the rest words.
   for (let entries = 1; entries * 2 <= variable; entries++) {
     for (let keys = 0; entries * (2 + keys) <= variable; keys++) {
       const words = variable - entries * (2 + keys);
       const record = attempt(words, entries, keys);
-      if (take(record)) return record!;
+      if (record !== undefined && take(record)) return record;
     }
   }
   if (fallback === undefined) {
     throw new Error(
-      `request record with ${atoms.length} value entries matches no ` +
+      `request record with ${String(atoms.length)} value entries matches no ` +
         `(calldata words, access-list entries, storage keys) capacity split`,
     );
   }
@@ -168,7 +175,7 @@ export interface SignetRequestsLedger {
  * @param requestsIndexPath - Resolved ledger-tree path of the request index.
  * @param noncePath - Resolved ledger-tree path of the request counter.
  * @returns The decoded {@link SignetRequestsLedger}.
- * @throws Error if a field is missing, has the wrong state-value shape, or a
+ * @throws {Error} If a field is missing, has the wrong state-value shape, or a
  *   record matches no capacity split.
  */
 export function readSignetRequestsLedgerFromState(
@@ -190,9 +197,6 @@ export function readSignetRequestsLedgerFromState(
   }
 
   const nonceCell = signetFieldNodeByPath(raw, noncePath).asCell();
-  if (nonceCell === undefined) {
-    throw new Error(`Ledger field at path ${JSON.stringify(noncePath)} is not a Cell`);
-  }
   const nonce = u64.fromValue([...nonceCell.value]);
 
   return { nonce, requestsIndex };

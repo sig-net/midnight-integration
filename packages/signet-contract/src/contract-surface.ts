@@ -9,11 +9,11 @@
 
 import type { MidnightProviders } from "@midnight-ntwrk/midnight-js/types";
 
-import { Contract } from "./managed/contract/index.js";
-import { type SignetContractPrivateState } from "./witnesses.ts";
+import type { Contract } from "./managed/contract/index.js";
+import type { SignetContractPrivateState } from "./witnesses.ts";
 
 /** The contract's provable circuit ids, straight from the generated contract. */
-export type SignetContractCircuitId = keyof InstanceType<typeof Contract>["provableCircuits"] & string;
+export type SignetContractCircuitId = keyof InstanceType<typeof Contract>["provableCircuits"];
 
 /**
  * Literal of the private-state storage key. Just a string, but a single-value

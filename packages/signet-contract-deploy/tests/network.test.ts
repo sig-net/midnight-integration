@@ -27,9 +27,12 @@ describe("network ids", () => {
     { networkId: "stagenet", expected: false },
     { networkId: "mainnet", expected: false },
   ];
-  it.each(STANDALONE_CASES)("isLocalStandaloneNetwork($networkId) === $expected", ({ networkId, expected }) => {
-    expect(isLocalStandaloneNetwork(networkId)).toBe(expected);
-  });
+  it.each(STANDALONE_CASES)(
+    "isLocalStandaloneNetwork($networkId) === $expected",
+    ({ networkId, expected }) => {
+      expect(isLocalStandaloneNetwork(networkId)).toBe(expected);
+    },
+  );
 });
 
 // Stagenet's endpoints are deliberately not published in this repo: the

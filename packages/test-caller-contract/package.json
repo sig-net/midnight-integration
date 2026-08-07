@@ -29,7 +29,7 @@
     "@sig-net/midnight-serde": "*",
     "@types/node": "^26.1.0",
     "tsx": "^4.23.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.9"
   }
 }

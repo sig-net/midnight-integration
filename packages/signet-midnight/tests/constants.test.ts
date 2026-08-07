@@ -13,7 +13,12 @@ describe("asciiPadded", () => {
   }
 
   const CASES: Case[] = [
-    { name: "algo value", text: "ecdsa", length: 32, expectedPrefix: [0x65, 0x63, 0x64, 0x73, 0x61, 0, 0] },
+    {
+      name: "algo value",
+      text: "ecdsa",
+      length: 32,
+      expectedPrefix: [0x65, 0x63, 0x64, 0x73, 0x61, 0, 0],
+    },
     { name: "empty text", text: "", length: 4, expectedPrefix: [0, 0, 0, 0] },
     { name: "exact fit", text: "ab", length: 2, expectedPrefix: [0x61, 0x62] },
   ];

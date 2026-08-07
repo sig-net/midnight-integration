@@ -7,31 +7,29 @@
 // concatenation and the no-translation suite below proves the signed
 // transaction's data IS the stored bytes, unreordered and unreinterpreted.
 
+import { getAddress, Interface, Transaction } from "ethers";
 import { describe, expect, it } from "vitest";
 
-import { getAddress, Interface, Transaction } from "ethers";
-
 import {
-  MPCDestination,
-  MPCSignatureAlgorithm,
-  TxParamType,
   assembleCalldata,
   bytesToHex,
   evmAddressAbiWord,
-  numericAbiWord,
-  signBidirectionalEventToUnsignedEvmTransaction,
+  type EvmCalldata,
   type EvmType2TxParams,
   type Maybe,
-  type EvmCalldata,
+  MPCDestination,
+  MPCSignatureAlgorithm,
+  numericAbiWord,
   type SignBidirectionalEvent,
+  signBidirectionalEventToUnsignedEvmTransaction,
+  TxParamType,
 } from "../src/index.ts";
 
 // The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
 // (the app-level constant lives in the cli).
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 const VAULT_EVM = bytes(20, 0xee);
 const VAULT_ADDRESS = getAddress(`0x${"ee".repeat(20)}`);
@@ -40,7 +38,7 @@ const AMOUNT = 1_000_000n;
 const someCalldata = (
   selector: Uint8Array,
   words: Uint8Array[],
-  noWords: bigint = BigInt(words.length),
+  noWords = BigInt(words.length),
 ): Maybe<EvmCalldata> => ({
   is_some: true,
   value: { selector, noWords, words },
@@ -49,16 +47,10 @@ const someCalldata = (
 describe("assembleCalldata vs ethers encodeFunctionData", () => {
   it("static args: transfer(address,uint256), built exactly as the vault builds it", () => {
     const iface = new Interface(["function transfer(address,uint256)"]);
-    const expected = iface.encodeFunctionData("transfer", [
-      VAULT_ADDRESS,
-      AMOUNT,
-    ]);
+    const expected = iface.encodeFunctionData("transfer", [VAULT_ADDRESS, AMOUNT]);
 
     const assembled = assembleCalldata(
-      someCalldata(ERC20_TRANSFER_SELECTOR, [
-        evmAddressAbiWord(VAULT_EVM),
-        numericAbiWord(AMOUNT),
-      ]),
+      someCalldata(ERC20_TRANSFER_SELECTOR, [evmAddressAbiWord(VAULT_EVM), numericAbiWord(AMOUNT)]),
     );
 
     expect(assembled).toBe(expected);
@@ -66,10 +58,7 @@ describe("assembleCalldata vs ethers encodeFunctionData", () => {
 
   it("drops capacity slots beyond noWords", () => {
     const iface = new Interface(["function transfer(address,uint256)"]);
-    const expected = iface.encodeFunctionData("transfer", [
-      VAULT_ADDRESS,
-      AMOUNT,
-    ]);
+    const expected = iface.encodeFunctionData("transfer", [VAULT_ADDRESS, AMOUNT]);
 
     // Two real words in a 4-word capacity; the trailing zero-fill is excluded.
     const assembled = assembleCalldata(

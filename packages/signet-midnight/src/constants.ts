@@ -74,12 +74,14 @@ export const SIGNET_DEFAULT_KEY_VERSION = 1n;
  * @param text - The ASCII text to encode.
  * @param length - The fixed field width in bytes.
  * @returns `text`'s bytes followed by zero padding to exactly `length`.
- * @throws If the encoded text does not fit in `length` bytes.
+ * @throws {Error} If the encoded text does not fit in `length` bytes.
  */
 export function asciiPadded(text: string, length: number): Uint8Array {
   const encoded = new TextEncoder().encode(text);
   if (encoded.length > length) {
-    throw new Error(`"${text}" is ${encoded.length} bytes: does not fit the ${length}-byte field`);
+    throw new Error(
+      `"${text}" is ${String(encoded.length)} bytes: does not fit the ${String(length)}-byte field`,
+    );
   }
   const out = new Uint8Array(length);
   out.set(encoded);
@@ -135,7 +137,7 @@ const mpcRootPublicKeys: Record<DeployedNetwork, string> = {
  *
  * @param networkId - The deployed network to look up.
  * @returns The network's MPC root public key.
- * @throws Error when the network's key is not yet published in this package.
+ * @throws {Error} When the network's key is not yet published in this package.
  */
 export function getMpcRootPublicKey(networkId: DeployedNetwork): string {
   const publicKey = mpcRootPublicKeys[networkId];
@@ -166,7 +168,7 @@ const signetContractAddresses: Record<DeployedNetwork, string> = {
  *
  * @param networkId - The deployed network to look up.
  * @returns The network's signet contract address.
- * @throws Error when the singleton's address is not yet published in this
+ * @throws {Error} When the singleton's address is not yet published in this
  *   package.
  */
 export function getSignetContractAddress(networkId: DeployedNetwork): string {

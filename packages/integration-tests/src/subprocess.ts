@@ -18,7 +18,7 @@ export const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
  *   accumulator, not `process.env`).
  * @param timeoutMs - Kill the child and fail after this many milliseconds.
  * @returns The captured stdout.
- * @throws If the script exits non-zero, is killed by a signal, or times out;
+ * @throws {Error} If the script exits non-zero, is killed by a signal, or times out;
  *   the error message includes the tail of the combined output.
  */
 export async function runRootScript(
@@ -40,7 +40,7 @@ export async function runRootScript(
  *   accumulator, not `process.env`).
  * @param timeoutMs - Kill the child and fail after this many milliseconds.
  * @returns The captured stdout.
- * @throws If the command exits non-zero, is killed by a signal, or times
+ * @throws {Error} If the command exits non-zero, is killed by a signal, or times
  *   out; the error message includes the tail of the combined output.
  */
 export async function runCommand(
@@ -52,7 +52,7 @@ export async function runCommand(
   return await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: REPO_ROOT,
-      env: env as NodeJS.ProcessEnv,
+      env: env,
       stdio: ["ignore", "pipe", "pipe"],
       timeout: timeoutMs,
     });
@@ -80,7 +80,7 @@ export async function runCommand(
       const tail = combined.split("\n").slice(-20).join("\n");
       reject(
         new Error(
-          `${command} ${args.join(" ")} ${signal ? `killed by ${signal} (timeout ${timeoutMs}ms?)` : `exited with code ${code}`}\n--- output tail ---\n${tail}`,
+          `${command} ${args.join(" ")} ${signal ? `killed by ${signal} (timeout ${String(timeoutMs)}ms?)` : `exited with code ${String(code)}`}\n--- output tail ---\n${tail}`,
         ),
       );
     });

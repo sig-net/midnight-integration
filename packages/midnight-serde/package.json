@@ -35,7 +35,7 @@
   "devDependencies": {
     "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
     "@types/node": "^26.1.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.9"
   }
 }

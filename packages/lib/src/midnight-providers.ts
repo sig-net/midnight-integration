@@ -10,18 +10,17 @@
 
 import {
   createProofProvider,
-  ZKConfigRegistry,
-  zkConfigToProvingKeyMaterial,
   type MidnightProvider,
   type ProofProvider,
   type UnboundTransaction,
   type WalletProvider,
   type ZKConfigProvider,
+  ZKConfigRegistry,
+  zkConfigToProvingKeyMaterial,
 } from "@midnight-ntwrk/midnight-js/types";
 import { httpClientProvingProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import type { ProvingKeyMaterial, ProvingProvider } from "@midnightntwrk/ledger-v9";
 import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
-
 import type { AccountKeys } from "@sig-net/midnight-contract-deploy";
 
 // Balancing recipes expire 30 min out (same TTL as submitUnprovenTransaction).
@@ -51,14 +50,14 @@ export function createWalletAndMidnightProvider(
     getEncryptionPublicKey: () => keys.shieldedSecretKeys.encryptionPublicKey,
     async balanceTx(tx: UnboundTransaction, ttl?: Date) {
       const recipe = await facade.balanceUnboundTransaction(
-        tx as never,
+        tx,
         { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
         { ttl: ttl ?? new Date(Date.now() + BALANCE_TTL_MS) },
       );
       const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
-      return (await facade.finalizeRecipe(signed)) as never;
+      return await facade.finalizeRecipe(signed);
     },
-    submitTx: (tx) => facade.submitTransaction(tx as never) as never,
+    submitTx: (tx) => facade.submitTransaction(tx),
   };
 }
 
@@ -93,14 +92,16 @@ export function createWalletAndMidnightProvider(
  * @param proofServerUrl - The proof server's HTTP endpoint.
  * @param zkConfigProviders - One provider per compiled contract in the call tree; must be non-empty.
  * @returns The proof provider to place in a contract's midnight-js provider set.
- * @throws If `zkConfigProviders` is empty.
+ * @throws {Error} If `zkConfigProviders` is empty.
  */
 export function createCrossContractProofServerProvider(
   proofServerUrl: string,
   zkConfigProviders: readonly ZKConfigProvider<string>[],
 ): ProofProvider {
   if (zkConfigProviders.length === 0) {
-    throw new Error("createCrossContractProofServerProvider: at least one zkConfigProvider is required");
+    throw new Error(
+      "createCrossContractProofServerProvider: at least one zkConfigProvider is required",
+    );
   }
 
   const registry = new ZKConfigRegistry([...zkConfigProviders]);
@@ -122,9 +123,7 @@ export function createCrossContractProofServerProvider(
   // join; otherwise try the location as a bare circuit name against each flat
   // provider in turn; protocol builtins ("midnight/...") resolve to undefined
   // and are supplied by the proof server itself.
-  const lookupKey = async (
-    keyLocation: string,
-  ): Promise<ProvingKeyMaterial | undefined> => {
+  const lookupKey = async (keyLocation: string): Promise<ProvingKeyMaterial | undefined> => {
     const resolved = await registry.resolveKeyLocation(keyLocation);
     if (resolved !== undefined) {
       return zkConfigToProvingKeyMaterial(resolved);

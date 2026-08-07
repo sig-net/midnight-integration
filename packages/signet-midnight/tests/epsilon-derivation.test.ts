@@ -104,8 +104,8 @@ describe("deriveMidnightResponseKey / deriveMidnightResponseSecretKey", () => {
   });
 
   it("rejects a root secret key that is not 32 bytes", () => {
-    expect(() =>
-      deriveMidnightResponseSecretKey(new Uint8Array(31), CLIENT_ADDRESS),
-    ).toThrow(/32 bytes/);
+    expect(() => deriveMidnightResponseSecretKey(new Uint8Array(31), CLIENT_ADDRESS)).toThrow(
+      /32 bytes/,
+    );
   });
 });

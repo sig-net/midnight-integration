@@ -15,7 +15,8 @@ describe("signetContractManagedPath", () => {
   it("is the managed/ sibling of the contract package's entry module", () => {
     expect(basename(signetContractManagedPath)).toBe("managed");
     const entryDir = dirname(signetContractManagedPath);
-    const hasEntrySibling = existsSync(join(entryDir, "index.ts")) || existsSync(join(entryDir, "index.js"));
+    const hasEntrySibling =
+      existsSync(join(entryDir, "index.ts")) || existsSync(join(entryDir, "index.js"));
     expect(hasEntrySibling).toBe(true);
   });
 
