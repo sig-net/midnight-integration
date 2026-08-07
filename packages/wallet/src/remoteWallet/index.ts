@@ -5,6 +5,10 @@
 // handle method to a transport; the codecs stay internal to the stubs.
 
 export {
+  createHttpRemoteWalletTransport,
+  type HttpRemoteWalletTransportOptions,
+} from "./httpTransport.ts";
+export {
   type BalanceTransactionRequest,
   REMOTE_WALLET_PROTOCOL_VERSION,
   type RemoteWalletHandshake,

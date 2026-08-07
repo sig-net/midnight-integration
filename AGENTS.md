@@ -22,8 +22,9 @@ node-modules`). Its members live under `packages/`:
   over the wallet-sdk facade (a seed goes in, a wallet comes out; key
   material and the facade stay internal), the remote-wallet protocol
   (`RemoteWallet` client plus transport-agnostic client/server stubs over
-  shared wire codecs, in `src/remoteWallet/`), seed parsing and the
-  network/endpoint config to connect one.
+  shared wire codecs and a fetch-based HTTP transport, in
+  `src/remoteWallet/`), seed parsing and the network/endpoint config to
+  connect one.
 - **`packages/signet-contract-deploy`** — the published, self-contained deploy
   tooling: the signet-contract deploy flow plus the generic deploy plumbing
   (`src/plumbing/`: deploy config, unproven-tx build, funding primitives)
