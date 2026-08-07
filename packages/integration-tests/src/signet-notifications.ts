@@ -15,7 +15,7 @@ import {
   signetEventSourceFromPublicDataProvider,
   stripHexPrefix,
 } from "@sig-net/midnight";
-import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
+import { getMidnightNodeConfig } from "@sig-net/midnight-wallet";
 
 import { requireEnv } from "./e2e-env.ts";
 

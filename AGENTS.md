@@ -16,9 +16,17 @@ node-modules`). Its members live under `packages/`:
   fields compactc stores ledger fields in a chunk tree; its simulator tests
   pin `@sig-net/midnight`'s field resolver against real compiler output).
   No deploy flow, no notifier, compile is skip-zk only.
+- **`packages/wallet`** — the published `@sig-net/midnight-wallet`: the
+  `Wallet` interface (midnight-js's WalletProvider + MidnightProvider roles
+  plus addresses, balances and data signing), the in-process `LocalWallet`
+  over the wallet-sdk facade (a seed goes in, a wallet comes out; key
+  material and the facade stay internal), seed parsing and the
+  network/endpoint config to connect one.
 - **`packages/signet-contract-deploy`** — the published, self-contained deploy
-  tooling: the signet-contract deploy flow plus the generic deploy/wallet/config
-  plumbing (`src/plumbing/`) every contract package's deploy script composes.
+  tooling: the signet-contract deploy flow plus the generic deploy plumbing
+  (`src/plumbing/`: deploy config, unproven-tx build, funding primitives)
+  every contract package's deploy script composes, on top of
+  `@sig-net/midnight-wallet`.
 - **`packages/integration-tests`** — everything that needs a running stack:
   the generic signet-caller e2e and its setup pipeline.
 Example applications built on these packages (e.g. the ERC20 vault) live in
@@ -154,13 +162,14 @@ exception for that specific case.
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
   compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run
   `compile:zk` only when proving keys are actually needed (real deploys).
-- **Shared plumbing lives ONCE.** Generic deploy/wallet/config plumbing lives in
-  `packages/signet-contract-deploy/src/plumbing/` (published, so external
-  consumers get it too); repo-private shared helpers (the midnight-js provider
-  adapters) live in `packages/lib`. The moment a second package needs a helper,
-  it moves to the right one of those homes and both import it. Never copy
-  config/wallet/provider/logging code between packages — per-package copies drift
-  apart and are a defect, not a shortcut.
+- **Shared plumbing lives ONCE.** Wallet, seed and network/endpoint-config
+  plumbing lives in `packages/wallet` (`@sig-net/midnight-wallet`); generic
+  deploy plumbing lives in `packages/signet-contract-deploy/src/plumbing/`
+  (both published, so external consumers get them too); repo-private shared
+  helpers (the midnight-js proof provider) live in `packages/lib`. The moment
+  a second package needs a helper, it moves to the right one of those homes
+  and both import it. Never copy config/wallet/provider/logging code between
+  packages — per-package copies drift apart and are a defect, not a shortcut.
 - **Unit tests are simulator-only.** A contract package's `tests/` run entirely
   in-process via `@midnight-ntwrk/compact-runtime` — no network, no docker, no
   proof server. Anything that needs a running stack belongs in
@@ -267,11 +276,12 @@ both (and to any additional contract package):
   `ledger(ctx.callContext.currentQueryContext.state)`. Circuit failures reject the
   promise (`await expect(...).rejects.toThrow(...)`). Pure circuits are synchronous,
   called directly via `pureCircuits.<name>(...)`.
-- **The deploy split: generic plumbing in `@sig-net/midnight-contract-deploy`,
-  everything contract-specific in this package's `deploy.ts`.** The deploy
-  package's deploy/wallet helpers
-  (`buildDeployTransaction`, `makeCompiledContract`, `submitUnprovenTransaction`,
-  …) know no contract; the deploy script owns the constructor args, witnesses,
+- **The deploy split: generic plumbing in `@sig-net/midnight-contract-deploy`
+  (on top of `@sig-net/midnight-wallet`), everything contract-specific in
+  this package's `deploy.ts`.** The deploy package's helpers
+  (`buildDeployTransaction`, `makeCompiledContract`, `assertDeployerFunded`,
+  …) and the wallet's `Wallet` interface (`balanceUnprovenTx`, `submitTx`)
+  know no contract; the deploy script owns the constructor args, witnesses,
   private state and post-deploy circuit calls, statically importing its own
   generated module so all of it stays fully typed. There is NO generic deployer
   package: a generic deployer forces dynamic module loading and witness stubs, which

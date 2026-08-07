@@ -2,9 +2,10 @@
 // talking to a deployed instance: the compiled-contract binding (generated
 // module + witnesses + this package's managed assets), the zk-config path the
 // proof provider reads keys from, the circuit-id union, and the private-state
-// store id. The generic wallet comes from @sig-net/midnight-contract-deploy,
-// the provider adapters from @midnight-protocol/lib; clients compose the
-// pieces and call `findDeployedContract(providers, ...)`.
+// store id. The wallet comes from @sig-net/midnight-wallet (it fills the
+// walletProvider/midnightProvider roles directly), the proof provider from
+// @midnight-protocol/lib; clients compose the pieces and call
+// `findDeployedContract(providers, ...)`.
 
 import { fileURLToPath } from "node:url";
 
@@ -12,16 +13,9 @@ import type { MidnightProviders } from "@midnight-ntwrk/midnight-js/types";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
-import {
-  createCrossContractProofServerProvider,
-  createWalletAndMidnightProvider,
-} from "@midnight-protocol/lib";
-import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
-import {
-  type AccountKeys,
-  makeCompiledContract,
-  type MidnightNodeConfig,
-} from "@sig-net/midnight-contract-deploy";
+import { createCrossContractProofServerProvider } from "@midnight-protocol/lib";
+import { makeCompiledContract } from "@sig-net/midnight-contract-deploy";
+import type { MidnightNodeConfig, Wallet } from "@sig-net/midnight-wallet";
 
 import { Contract } from "./managed/test-caller-contract/contract/index.js";
 import { type CallerPrivateState, witnesses } from "./witnesses.ts";
@@ -76,16 +70,11 @@ export const callerCompiledContract = makeCompiledContract<
 /**
  * Build the midnight-js provider set for the caller.
  *
- * @param facade - A started (and synced) wallet facade — see `withSyncedWalletFacade`.
- * @param keys - The key material of the same wallet, for balancing and signing.
+ * @param wallet - A connected wallet; fills the walletProvider and midnightProvider roles.
  * @param config - The Midnight network endpoints to run against.
  * @returns The provider set to hand to `findDeployedContract` / `deployContract`.
  */
-export function buildCallerProviders(
-  facade: WalletFacade,
-  keys: AccountKeys,
-  config: MidnightNodeConfig,
-): CallerProviders {
+export function buildCallerProviders(wallet: Wallet, config: MidnightNodeConfig): CallerProviders {
   // Retrieves the ZK artifacts of a contract needed to create proofs.
   const zkConfigProvider = new NodeZkConfigProvider<CallerCircuitId>(managedPath);
 
@@ -93,10 +82,7 @@ export function buildCallerProviders(
   // proof provider so submitSignatureRequest's whole call tree proves.
   const signetZkConfigProvider = new NodeZkConfigProvider<string>(signetManagedPath);
 
-  // The wallet, adapted to midnight-js's balancer + submitter interfaces
-  // (the facade itself does not implement WalletProvider/MidnightProvider).
-  const walletAndMidnightProvider = createWalletAndMidnightProvider(facade, keys);
-  const accountId = walletAndMidnightProvider.getCoinPublicKey();
+  const accountId = wallet.getCoinPublicKey();
 
   return {
     // Manages the private state of a contract, plus contract-maintenance
@@ -129,9 +115,9 @@ export function buildCallerProviders(
     ]),
 
     // Creates proven, balanced transactions.
-    walletProvider: walletAndMidnightProvider,
+    walletProvider: wallet,
 
     // Submits proven, balanced transactions to the network.
-    midnightProvider: walletAndMidnightProvider,
+    midnightProvider: wallet,
   };
 }

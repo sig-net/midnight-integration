@@ -6,7 +6,7 @@
 // steps.ts.
 
 import { deployCaller } from "@midnight-protocol/test-caller-contract";
-import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
+import { getMidnightNodeConfig } from "@sig-net/midnight-wallet";
 
 import { requireEnv } from "../e2e-env.ts";
 import { logSkip } from "../output.ts";

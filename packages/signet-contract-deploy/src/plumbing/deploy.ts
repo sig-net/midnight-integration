@@ -1,6 +1,5 @@
-// Contract-deploy plumbing shared by every contract package's deploy script
-// (ported from midday app/ui/lib/actions/buildDeployTransaction.ts): the
-// deploy config, the compiled-contract binding, and building the unproven
+// Contract-deploy plumbing shared by every contract package's deploy script:
+// the deploy config, the compiled-contract binding, and building the unproven
 // deploy transaction. Everything contract-SPECIFIC — constructor args, witness
 // implementations, initial private state — stays in the contract package's own
 // deploy.ts and arrives here through the type parameters.
@@ -15,16 +14,16 @@ import { ZKFileConfiguration } from "@midnight-ntwrk/compact-js-node/effect";
 import * as CoinPublicKey from "@midnight-ntwrk/platform-js/effect/CoinPublicKey";
 import * as Configuration from "@midnight-ntwrk/platform-js/effect/Configuration";
 import * as ledger from "@midnightntwrk/ledger-v9";
-import type { FacadeState } from "@midnightntwrk/wallet-sdk-facade";
-import { Effect, Layer, Option, type Types } from "effect";
-
-import { envOrUndefined } from "./env.ts";
 import {
+  envOrUndefined,
   getFaucetUrl,
   getMidnightNodeConfig,
+  isLocalStandaloneNetwork,
   type MidnightNodeConfig,
-} from "./midnight-node-config.ts";
-import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
+  type NetworkId,
+  type Wallet,
+} from "@sig-net/midnight-wallet";
+import { Effect, Layer, Option, type Types } from "effect";
 
 /** Everything needed to perform a contract deploy: which stack to target, and which wallet pays for it. */
 export interface DeployConfig {
@@ -111,8 +110,8 @@ export function getDeployConfig(
 export interface DeployTransaction {
   /** The contract address this deployment will create, known before submission. */
   readonly contractAddress: string;
-  /** The serialized unproven transaction — see `submitUnprovenTransaction` in wallet.ts. */
-  readonly serializedTransaction: Uint8Array;
+  /** The unproven transaction — hand it to `Wallet.balanceUnprovenTx`, then `Wallet.submitTx`. */
+  readonly transaction: ledger.UnprovenTransaction;
 }
 
 /**
@@ -199,7 +198,7 @@ const DEPLOY_TTL_MS = 30 * 60 * 1000;
  * @param coinPublicKeyHex - The deploying wallet's Zswap coin public key (hex).
  * @param initialPrivateState - The private state the constructor (and its witnesses, if any) runs against.
  * @param constructorArgs - The contract's constructor arguments, statically typed per contract.
- * @returns The deterministic contract address plus the serialized unproven transaction.
+ * @returns The deterministic contract address plus the unproven transaction.
  * @throws {Error} If the constructor traps, or the verifier keys are missing from the
  * compiled assets (run `compile:zk` — the default `--skip-zk` output has none).
  */
@@ -249,7 +248,7 @@ export async function buildDeployTransaction<C extends Contract.Contract<PS>, PS
 
   return {
     contractAddress: deploy.address,
-    serializedTransaction: transaction.serialize(),
+    transaction,
   };
 }
 
@@ -257,13 +256,14 @@ export async function buildDeployTransaction<C extends Contract.Contract<PS>, PS
  * Fail fast when the deployer wallet cannot pay for a transaction: fees are
  * paid in DUST, which only generates on NIGHT registered for dust generation.
  *
- * @param state - The synced facade state to inspect (see `withSyncedWalletFacade` in wallet.ts).
+ * @param wallet - The synced deployer wallet to inspect.
  * @throws {Error} If the deployer's spendable DUST balance is zero.
  */
-export function assertDeployerFunded(state: FacadeState): void {
-  const dust = state.dust.balance(new Date());
+export async function assertDeployerFunded(wallet: Wallet): Promise<void> {
+  const dust = await wallet.getDustBalance();
   if (dust > 0n) return;
-  const night = Object.values(state.unshielded.balances).reduce((sum, value) => sum + value, 0n);
+  const balances = await wallet.getUnshieldedBalances();
+  const night = Object.values(balances).reduce((sum, value) => sum + value, 0n);
   throw new Error(
     `deployer wallet has no DUST to pay fees (NIGHT balance: ${String(night)}). ` +
       "Fund the wallet with NIGHT and register it for dust generation, then retry.",

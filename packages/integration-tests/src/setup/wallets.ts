@@ -18,17 +18,19 @@ import {
   assertRootFunded,
   deriveWalletAddresses,
   fundChildFromRoot,
-  generateHexSeed,
   GENESIS_MINT_WALLET_SEED,
-  getFaucetUrl,
-  getMidnightNodeConfig,
   isFeeReady,
-  isLocalStandaloneNetwork,
-  type MidnightNodeConfig,
   readAccountFunding,
   RootUnfundedError,
-  type WalletAddresses,
 } from "@sig-net/midnight-contract-deploy";
+import {
+  generateHexSeed,
+  getFaucetUrl,
+  getMidnightNodeConfig,
+  isLocalStandaloneNetwork,
+  type MidnightNodeConfig,
+  type WalletAddresses,
+} from "@sig-net/midnight-wallet";
 
 import { requireEnv } from "../e2e-env.ts";
 import { appendRepoDotEnv } from "../env-file.ts";

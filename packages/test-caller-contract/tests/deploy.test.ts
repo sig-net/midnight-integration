@@ -41,8 +41,8 @@ describe.skipIf(!HAS_VERIFIER_KEYS)(
       );
 
       expect(deployTransaction.contractAddress).not.toHaveLength(0);
-      expect(deployTransaction.serializedTransaction).toBeInstanceOf(Uint8Array);
-      expect(deployTransaction.serializedTransaction.length).toBeGreaterThan(0);
+      expect(deployTransaction.transaction.serialize()).toBeInstanceOf(Uint8Array);
+      expect(deployTransaction.transaction.serialize().length).toBeGreaterThan(0);
     });
 
     it("feeds constructorArgs to the Compact constructor (a malformed signet reference is rejected)", async () => {

@@ -11,17 +11,13 @@
 // `initialise` circuit — see the integration-tests flow.
 
 import { hexToBytes, stripHexPrefix } from "@sig-net/midnight";
-import { envOrUndefined } from "@sig-net/midnight-contract-deploy";
 import {
   assertDeployerFunded,
   buildDeployTransaction,
   contractAddressToReference,
-  deriveAccountKeys,
   getDeployConfig,
-  submitUnprovenTransaction,
-  type TransactionIdentifier,
-  withSyncedWalletFacade,
 } from "@sig-net/midnight-contract-deploy";
+import { envOrUndefined, type TransactionId, withLocalWallet } from "@sig-net/midnight-wallet";
 
 import { pureCircuits } from "./managed/test-caller-contract/contract/index.js";
 import { callerCompiledContract } from "./providers.ts";
@@ -55,7 +51,7 @@ export interface CallerDeployment {
   /** Address of the deployed caller contract on Midnight. */
   contractAddress: string;
   /** Identifier of the submitted deploy transaction. */
-  txId: TransactionIdentifier;
+  txId: TransactionId;
 }
 
 /**
@@ -101,33 +97,28 @@ export async function deployCaller(
   }
   const signetSigner = contractAddressToReference(signetContractAddress);
 
-  const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
-
   console.log(
     `deploying test-caller-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`,
   );
 
-  const { contractAddress, txId } = await withSyncedWalletFacade(
-    accountKeys,
+  const { contractAddress, txId } = await withLocalWallet(
+    deployConfig.deployerSeed,
     deployConfig.midnightNodeConfig,
-    async (facade, state) => {
-      assertDeployerFunded(state);
+    async (wallet) => {
+      await assertDeployerFunded(wallet);
 
       const deployTransaction = await buildDeployTransaction(
         callerCompiledContract,
         networkId,
-        accountKeys.shieldedSecretKeys.coinPublicKey,
+        wallet.getCoinPublicKey(),
         createCallerPrivateState(deployerSecretKey),
         deployerCommitment,
         signetSigner,
       );
       console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
 
-      const submittedTxId = await submitUnprovenTransaction(
-        facade,
-        accountKeys,
-        deployTransaction.serializedTransaction,
-      );
+      const finalized = await wallet.balanceUnprovenTx(deployTransaction.transaction);
+      const submittedTxId = await wallet.submitTx(finalized);
       return { contractAddress: deployTransaction.contractAddress, txId: submittedTxId };
     },
   );

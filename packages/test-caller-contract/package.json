@@ -22,7 +22,8 @@
     "@midnight-ntwrk/midnight-js-node-zk-config-provider": "5.0.0-beta.6",
     "@midnight-protocol/lib": "*",
     "@sig-net/midnight": "*",
-    "@sig-net/midnight-contract-deploy": "*"
+    "@sig-net/midnight-contract-deploy": "*",
+    "@sig-net/midnight-wallet": "*"
   },
   "devDependencies": {
     "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",

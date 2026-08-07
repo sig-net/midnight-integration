@@ -28,12 +28,7 @@ import {
   stripHexPrefix,
   toSignBidirectionalEventIndex,
 } from "@sig-net/midnight";
-import {
-  deriveAccountKeys,
-  getMidnightNodeConfig,
-  initialiseWalletFacade,
-  type WalletFacade,
-} from "@sig-net/midnight-contract-deploy";
+import { getMidnightNodeConfig, LocalWallet } from "@sig-net/midnight-wallet";
 import { expect } from "vitest";
 
 import { requireEnv } from "./e2e-env.ts";
@@ -88,7 +83,7 @@ export interface CallerE2eSession {
  * @returns The session.
  */
 export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession {
-  let sharedWallet: { facade: WalletFacade; context: CallerContext } | undefined;
+  let sharedWallet: { wallet: LocalWallet; context: CallerContext } | undefined;
 
   // MPC-style readers over the caller (requester) / signet contract pair,
   // built lazily on first use and keyed by the request map's ledger field
@@ -103,13 +98,11 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
       if (!sharedWallet) {
         const nodeConfig = getMidnightNodeConfig(env);
         setNetworkId(nodeConfig.networkId);
-        const keys = deriveAccountKeys(requireEnv(env, "INVOKER_SEED"), nodeConfig.networkId);
-        const facade = await initialiseWalletFacade(keys, nodeConfig);
-        await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
-        await facade.waitForSyncedState();
+        const wallet = new LocalWallet(requireEnv(env, "INVOKER_SEED"), nodeConfig);
+        await wallet.connect();
 
         const contractAddress = requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS");
-        const providers = buildCallerProviders(facade, keys, nodeConfig);
+        const providers = buildCallerProviders(wallet, nodeConfig);
         // The private state carries the deployer identity secret feeding the
         // deployerSecretKey witness: initialise is deployer-gated. The store
         // is contract-address-scoped, so a fresh deploy always takes this
@@ -123,9 +116,9 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
           privateStateId: CALLER_PRIVATE_STATE_ID,
           initialPrivateState: privateState,
         });
-        sharedWallet = { facade, context: { providers, caller, contractAddress } };
+        sharedWallet = { wallet, context: { providers, caller, contractAddress } };
       }
-      await sharedWallet.facade.waitForSyncedState();
+      await sharedWallet.wallet.awaitSynced();
       return sharedWallet.context;
     },
 
@@ -155,7 +148,7 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
     },
 
     async stop(): Promise<void> {
-      await sharedWallet?.facade.stop().catch(() => undefined);
+      await sharedWallet?.wallet.disconnect().catch(() => undefined);
     },
   };
 }

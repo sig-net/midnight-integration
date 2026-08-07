@@ -18,6 +18,7 @@
     "@midnight-protocol/test-caller-contract": "*",
     "@sig-net/midnight": "*",
     "@sig-net/midnight-contract-deploy": "*",
+    "@sig-net/midnight-wallet": "*",
     "ethers": "^6.17.0"
   },
   "devDependencies": {

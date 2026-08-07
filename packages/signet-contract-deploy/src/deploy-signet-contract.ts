@@ -1,22 +1,18 @@
 // Signet-contract deploy flow: builds, balances, proves and submits the
-// contract's deploy transaction using the generic plumbing in ./plumbing.
-// Everything contract-specific lives HERE: the (empty) private state. The
-// contract has no constructor arguments (it only emits unauthenticated
-// events: verification is the reader's job). Requires the contract
-// package's compiled assets to carry keys (its published dist/managed
-// always does; an in-repo checkout needs `yarn compile:zk`).
+// contract's deploy transaction through a connected wallet. Everything
+// contract-specific lives HERE: the (empty) private state. The contract has
+// no constructor arguments (it only emits unauthenticated events:
+// verification is the reader's job). Requires the contract package's
+// compiled assets to carry keys (its published dist/managed always does; an
+// in-repo checkout needs `yarn compile:zk`).
+
+import { type TransactionId, withLocalWallet } from "@sig-net/midnight-wallet";
 
 import {
   assertDeployerFunded,
   buildDeployTransaction,
   getDeployConfig,
 } from "./plumbing/deploy.ts";
-import {
-  deriveAccountKeys,
-  submitUnprovenTransaction,
-  type TransactionIdentifier,
-  withSyncedWalletFacade,
-} from "./plumbing/wallet.ts";
 import {
   createSignetContractPrivateState,
   signetContractCompiledContract,
@@ -27,14 +23,15 @@ export interface SignetContractDeployment {
   /** Address of the deployed signet contract on Midnight. */
   contractAddress: string;
   /** Identifier of the submitted deploy transaction. */
-  txId: TransactionIdentifier;
+  txId: TransactionId;
 }
 
 /**
- * Deploy the signet contract: read config from `env`, build and prove the
- * deploy transaction and submit it through a synced wallet. Progress is
- * logged to the console. The contract takes no constructor arguments. Any
- * funded wallet can deploy; nothing about the deployer is sealed.
+ * Deploy the signet contract: read config from `env`, build the deploy
+ * transaction, then balance, prove and submit it through a connected local
+ * wallet. Progress is logged to the console. The contract takes no
+ * constructor arguments. Any funded wallet can deploy; nothing about the
+ * deployer is sealed.
  *
  * @param env - Environment map providing `DEPLOYER_SEED` and the shared
  *   Midnight node configuration (see `getMidnightNodeConfig`).
@@ -47,31 +44,26 @@ export async function deploySignetContract(
   const deployConfig = getDeployConfig(env);
   const { networkId } = deployConfig.midnightNodeConfig;
 
-  const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
-
   console.log(
     `deploying signet-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`,
   );
 
-  const { contractAddress, txId } = await withSyncedWalletFacade(
-    accountKeys,
+  const { contractAddress, txId } = await withLocalWallet(
+    deployConfig.deployerSeed,
     deployConfig.midnightNodeConfig,
-    async (facade, state) => {
-      assertDeployerFunded(state);
+    async (wallet) => {
+      await assertDeployerFunded(wallet);
 
       const deployTransaction = await buildDeployTransaction(
         signetContractCompiledContract,
         networkId,
-        accountKeys.shieldedSecretKeys.coinPublicKey,
+        wallet.getCoinPublicKey(),
         createSignetContractPrivateState(),
       );
       console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
 
-      const submittedTxId = await submitUnprovenTransaction(
-        facade,
-        accountKeys,
-        deployTransaction.serializedTransaction,
-      );
+      const finalized = await wallet.balanceUnprovenTx(deployTransaction.transaction);
+      const submittedTxId = await wallet.submitTx(finalized);
       return { contractAddress: deployTransaction.contractAddress, txId: submittedTxId };
     },
   );

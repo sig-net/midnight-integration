@@ -92,8 +92,8 @@ export function asciiPadded(text: string, length: number): Uint8Array {
  * A named Midnight network: the single source of the network names shared
  * across the `@sig-net/midnight*` packages. midnight-js types a network id
  * as a bare `string` with no companion enum, so the names live here, and
- * `@sig-net/midnight-contract-deploy`'s network-id plumbing widens this
- * enum back to the SDK's string type for its deploy config.
+ * `@sig-net/midnight-wallet`'s network-id plumbing widens this
+ * enum back to the SDK's string type for its node config.
  */
 export enum MidnightNetwork {
   /** Local standalone stack (Docker node, indexer and proof server on localhost). */

@@ -10,18 +10,14 @@
 // fund one child). The pipeline that resolves/persists seeds, decides the
 // per-child amount, and prints addresses lives in the integration-tests setup.
 
-import type { MidnightNodeConfig } from "./midnight-node-config.ts";
-import { isLocalStandaloneNetwork } from "./network-id.ts";
 import {
-  deriveAccountKeys,
-  deriveAddresses,
-  type FacadeState,
-  registerNightForDustGeneration,
-  transferNight,
-  waitForSpendableDust,
+  isLocalStandaloneNetwork,
+  LocalWallet,
+  type MidnightNodeConfig,
+  type Wallet,
   type WalletAddresses,
-  withSyncedWalletFacade,
-} from "./wallet.ts";
+  withLocalWallet,
+} from "@sig-net/midnight-wallet";
 
 /** A wallet's synced funding snapshot: its addresses and NIGHT/DUST balances (base units). */
 export interface AccountFunding {
@@ -36,23 +32,25 @@ export interface AccountFunding {
 /**
  * Sum a wallet's unshielded NIGHT across its UTXOs, in base units.
  *
- * @param state - The synced wallet facade state to total.
+ * @param wallet - The synced wallet to total.
  * @returns The wallet's total unshielded NIGHT in base units.
  */
-function totalNight(state: FacadeState): bigint {
-  return Object.values(state.unshielded.balances).reduce((sum, value) => sum + value, 0n);
+async function totalNight(wallet: Wallet): Promise<bigint> {
+  const balances = await wallet.getUnshieldedBalances();
+  return Object.values(balances).reduce((sum, value) => sum + value, 0n);
 }
 
 /**
- * Derive a seed's three addresses without any network I/O. Convenience for
- * printing a wallet's addresses before (or without) syncing it.
+ * Derive a seed's three addresses without any network I/O, via an
+ * unconnected {@link LocalWallet}. Convenience for printing a wallet's
+ * addresses before (or without) syncing it.
  *
  * @param seed - The wallet seed (hex or mnemonic).
  * @param config - The stack whose network id prefixes the addresses.
  * @returns The wallet's unshielded / shielded / dust addresses.
  */
 export function deriveWalletAddresses(seed: string, config: MidnightNodeConfig): WalletAddresses {
-  return deriveAddresses(deriveAccountKeys(seed, config.networkId), config.networkId);
+  return new LocalWallet(seed, config).getAddresses();
 }
 
 /**
@@ -66,15 +64,11 @@ export async function readAccountFunding(
   config: MidnightNodeConfig,
   seed: string,
 ): Promise<AccountFunding> {
-  const keys = deriveAccountKeys(seed, config.networkId);
-  const addresses = deriveAddresses(keys, config.networkId);
-  return withSyncedWalletFacade(keys, config, (_facade, state) =>
-    Promise.resolve({
-      addresses,
-      night: totalNight(state),
-      dust: state.dust.balance(new Date()),
-    }),
-  );
+  return withLocalWallet(seed, config, async (wallet) => ({
+    addresses: wallet.getAddresses(),
+    night: await totalNight(wallet),
+    dust: await wallet.getDustBalance(),
+  }));
 }
 
 /**
@@ -142,25 +136,22 @@ export async function assertRootFunded(
   rootSeed: string,
   faucetUrl: string | undefined,
 ): Promise<AccountFunding> {
-  const keys = deriveAccountKeys(rootSeed, config.networkId);
-  const addresses = deriveAddresses(keys, config.networkId);
-  return withSyncedWalletFacade(keys, config, async (facade, state) => {
-    let night = totalNight(state);
+  return withLocalWallet(rootSeed, config, async (wallet) => {
+    let night = await totalNight(wallet);
     if (night === 0n && isLocalStandaloneNetwork(config.networkId)) {
       const deadline = Date.now() + GENESIS_INDEX_TIMEOUT_MS;
       while (night === 0n && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, GENESIS_INDEX_POLL_INTERVAL_MS));
-        state = await facade.waitForSyncedState();
-        night = totalNight(state);
+        night = await totalNight(wallet);
       }
     }
     if (night === 0n) {
-      throw new RootUnfundedError(addresses.unshielded, faucetUrl);
+      throw new RootUnfundedError(wallet.getAddresses().unshielded, faucetUrl);
     }
-    await registerNightForDustGeneration(facade, keys, state);
-    const dustNow = state.dust.balance(new Date());
-    const dust = dustNow > 0n ? dustNow : await waitForSpendableDust(facade);
-    return { addresses, night, dust };
+    await wallet.registerNightForDustGeneration();
+    const dustNow = await wallet.getDustBalance();
+    const dust = dustNow > 0n ? dustNow : await wallet.waitForSpendableDust();
+    return { addresses: wallet.getAddresses(), night, dust };
   });
 }
 
@@ -184,41 +175,30 @@ export async function fundChildFromRoot(
   childSeed: string,
   amount: bigint,
 ): Promise<AccountFunding> {
-  const rootKeys = deriveAccountKeys(rootSeed, config.networkId);
-  const childKeys = deriveAccountKeys(childSeed, config.networkId);
-  const childAddresses = deriveAddresses(childKeys, config.networkId);
+  const childAddresses = deriveWalletAddresses(childSeed, config);
 
-  const before = await withSyncedWalletFacade(childKeys, config, (_f, s) =>
-    Promise.resolve(totalNight(s)),
-  );
+  const before = await withLocalWallet(childSeed, config, (wallet) => totalNight(wallet));
 
   if (before === 0n) {
-    await withSyncedWalletFacade(rootKeys, config, async (rootFacade, rootState) => {
-      await transferNight(
-        rootFacade,
-        rootKeys,
-        rootState,
-        childAddresses.unshielded,
-        config.networkId,
-        amount,
-      );
+    await withLocalWallet(rootSeed, config, async (rootWallet) => {
+      await rootWallet.transferNight(childAddresses.unshielded, amount);
     });
   }
 
-  return withSyncedWalletFacade(childKeys, config, async (childFacade, childState) => {
+  return withLocalWallet(childSeed, config, async (childWallet) => {
     // Wait for the transferred NIGHT UTXO to land in the child's synced view.
-    let state = childState;
-    for (let i = 0; i < 40 && totalNight(state) === 0n; i++) {
+    let night = await totalNight(childWallet);
+    for (let i = 0; i < 40 && night === 0n; i++) {
       await new Promise((resolve) => setTimeout(resolve, 3_000));
-      state = await childFacade.waitForSyncedState();
+      night = await totalNight(childWallet);
     }
-    if (totalNight(state) === 0n) {
+    if (night === 0n) {
       throw new Error(
         `child wallet ${childAddresses.unshielded} shows no NIGHT after funding from root`,
       );
     }
-    await registerNightForDustGeneration(childFacade, childKeys, state);
-    const dust = await waitForSpendableDust(childFacade);
-    return { addresses: childAddresses, night: totalNight(state), dust };
+    await childWallet.registerNightForDustGeneration();
+    const dust = await childWallet.waitForSpendableDust();
+    return { addresses: childAddresses, night, dust };
   });
 }

@@ -4,7 +4,7 @@ Deploy tooling for the central [Sig Network](https://sig.network) signet contrac
 
 - **The operator deploy flow** (`deploySignetContract`): builds, balances, proves and submits the signet contract's deploy transaction through a synced wallet, using the compiled assets shipped in [`@sig-net/midnight-contract`](https://www.npmjs.com/package/@sig-net/midnight-contract).
 - **The Node binding** of `@sig-net/midnight-contract` to its compiled assets (zk config, private state).
-- **Generic deploy/wallet plumbing** any Compact contract's deploy script composes: network config, seed parsing and key derivation, the wallet facade lifecycle, funding primitives (a root wallet funds role wallets and registers NIGHT for dust generation), and unproven-transaction build/submit.
+- **Generic deploy plumbing** any Compact contract's deploy script composes: the deploy config, unproven-transaction build, and funding primitives (a root wallet funds role wallets and registers NIGHT for dust generation). The wallet itself (interface, in-process implementation, seed parsing, key derivation, network config) comes from [`@sig-net/midnight-wallet`](https://www.npmjs.com/package/@sig-net/midnight-wallet) and is re-exported from this package's root.
 
 ## Install
 
@@ -30,11 +30,12 @@ import { deploySignetContract } from "@sig-net/midnight-contract-deploy";
 const { contractAddress, txId } = await deploySignetContract(process.env);
 ```
 
-The generic plumbing (network config, wallets, funding, transaction submission) is exported from the package root as well, for deploy scripts of other Compact contracts.
+The generic plumbing (deploy config, unproven-tx build, funding, and the whole of `@sig-net/midnight-wallet`) is exported from the package root as well, for deploy scripts of other Compact contracts.
 
 ## Related packages
 
 - [`@sig-net/midnight-contract`](https://www.npmjs.com/package/@sig-net/midnight-contract): the contract this package deploys.
+- [`@sig-net/midnight-wallet`](https://www.npmjs.com/package/@sig-net/midnight-wallet): the wallet the deploy flow runs through.
 - [`@sig-net/midnight`](https://www.npmjs.com/package/@sig-net/midnight): the client-agnostic protocol library.
 
 Developed in [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration). Example applications live in [sig-net/midnight-examples](https://github.com/sig-net/midnight-examples).
