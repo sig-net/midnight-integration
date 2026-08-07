@@ -13,6 +13,6 @@ export {
 export * from "./LocalWallet.ts";
 export * from "./midnight-node-config.ts";
 export * from "./network-id.ts";
-export * from "./RemoteWallet.ts";
+export * from "./remoteWallet/index.ts";
 export * from "./seed.ts";
 export * from "./Wallet.ts";

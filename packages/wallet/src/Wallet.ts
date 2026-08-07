@@ -42,7 +42,7 @@ export interface WalletAddresses {
  *
  * Implementations: {@link import("./LocalWallet.ts").LocalWallet}
  * (in-process, over the wallet-sdk facade) and
- * {@link import("./RemoteWallet.ts").RemoteWallet} (a hosted wallet, same
+ * {@link import("./remoteWallet/RemoteWallet.ts").RemoteWallet} (a hosted wallet, same
  * contract).
  */
 export interface Wallet extends WalletProvider, MidnightProvider {

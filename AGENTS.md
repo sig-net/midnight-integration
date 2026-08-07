@@ -20,7 +20,9 @@ node-modules`). Its members live under `packages/`:
   `Wallet` interface (midnight-js's WalletProvider + MidnightProvider roles
   plus addresses, balances and data signing), the in-process `LocalWallet`
   over the wallet-sdk facade (a seed goes in, a wallet comes out; key
-  material and the facade stay internal), seed parsing and the
+  material and the facade stay internal), the remote-wallet protocol
+  (`RemoteWallet` client plus transport-agnostic client/server stubs over
+  shared wire codecs, in `src/remoteWallet/`), seed parsing and the
   network/endpoint config to connect one.
 - **`packages/signet-contract-deploy`** — the published, self-contained deploy
   tooling: the signet-contract deploy flow plus the generic deploy plumbing
