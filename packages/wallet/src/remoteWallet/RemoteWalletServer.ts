@@ -58,10 +58,15 @@ export class RemoteWalletServer {
         const { response } = remoteWalletCodecs[RemoteWalletMethod.Handshake];
         return response.encode({
           protocolVersion: REMOTE_WALLET_PROTOCOL_VERSION,
+          networkId: this.#wallet.getNetworkId(),
           addresses: this.#wallet.getAddresses(),
           coinPublicKey: this.#wallet.getCoinPublicKey(),
           encryptionPublicKey: this.#wallet.getEncryptionPublicKey(),
         });
+      }
+      case RemoteWalletMethod.Synced: {
+        const { response } = remoteWalletCodecs[RemoteWalletMethod.Synced];
+        return response.encode(await this.#wallet.synced());
       }
       case RemoteWalletMethod.GetShieldedBalances: {
         const { response } = remoteWalletCodecs[RemoteWalletMethod.GetShieldedBalances];

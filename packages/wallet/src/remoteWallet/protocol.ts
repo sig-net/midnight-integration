@@ -24,6 +24,7 @@ import type {
 import { Transaction } from "@midnightntwrk/ledger-v9";
 import { bytesToHex, hexToBytes } from "@sig-net/midnight";
 
+import { NETWORK_IDS, type NetworkId } from "../network-id.ts";
 import type { WalletAddresses } from "../Wallet.ts";
 
 /**
@@ -41,6 +42,7 @@ export const REMOTE_WALLET_PROTOCOL_VERSION = 1;
  */
 export enum RemoteWalletMethod {
   Handshake = "handshake",
+  Synced = "synced",
   GetShieldedBalances = "getShieldedBalances",
   GetUnshieldedBalances = "getUnshieldedBalances",
   GetDustBalance = "getDustBalance",
@@ -156,6 +158,8 @@ const voidCodec: Codec<void> = {
 export interface RemoteWalletHandshake {
   /** The server's {@link REMOTE_WALLET_PROTOCOL_VERSION}. */
   protocolVersion: number;
+  /** The network the hosted wallet lives on. */
+  networkId: NetworkId;
   /** The hosted wallet's three addresses. */
   addresses: WalletAddresses;
   /** The hosted wallet's coin public key, hex-encoded. */
@@ -168,6 +172,7 @@ const handshakeCodec: Codec<RemoteWalletHandshake> = {
   encode: (handshake) =>
     encodeJson({
       protocolVersion: handshake.protocolVersion,
+      networkId: handshake.networkId,
       addresses: { ...handshake.addresses },
       coinPublicKey: handshake.coinPublicKey,
       encryptionPublicKey: handshake.encryptionPublicKey,
@@ -179,9 +184,16 @@ const handshakeCodec: Codec<RemoteWalletHandshake> = {
     if (typeof version !== "number") {
       throw new Error(`${context}: expected a numeric protocolVersion`);
     }
+    const networkId = parseString(record.networkId, `${context} (networkId)`);
+    if (!NETWORK_IDS.includes(networkId)) {
+      throw new Error(
+        `${context} (networkId): unknown network "${networkId}", expected one of: ${NETWORK_IDS.join(", ")}`,
+      );
+    }
     const addresses = parseRecord(record.addresses, `${context} (addresses)`);
     return {
       protocolVersion: version,
+      networkId,
       addresses: {
         unshielded: parseString(addresses.unshielded, `${context} (addresses.unshielded)`),
         shielded: parseString(addresses.shielded, `${context} (addresses.shielded)`),
@@ -193,6 +205,17 @@ const handshakeCodec: Codec<RemoteWalletHandshake> = {
         `${context} (encryptionPublicKey)`,
       ),
     };
+  },
+};
+
+const syncedCodec: Codec<boolean> = {
+  encode: (value) => encodeJson(value),
+  decode: (bytes) => {
+    const value = decodeJson(bytes, "synced response");
+    if (typeof value !== "boolean") {
+      throw new Error("synced response: expected a boolean");
+    }
+    return value;
   },
 };
 
@@ -333,6 +356,8 @@ const transactionIdCodec: Codec<TransactionId> = {
 export interface RemoteWalletCodecs {
   /** Handshake: empty request, version + hosted-wallet identity back. */
   [RemoteWalletMethod.Handshake]: MethodCodecs<void, RemoteWalletHandshake>;
+  /** Sync probe: empty request, whether the hosted view is synced back. */
+  [RemoteWalletMethod.Synced]: MethodCodecs<void, boolean>;
   /** Shielded balances: empty request, token-to-amount map back. */
   [RemoteWalletMethod.GetShieldedBalances]: MethodCodecs<void, Record<RawTokenType, bigint>>;
   /** Unshielded balances: empty request, token-to-amount map back. */
@@ -358,6 +383,7 @@ export interface RemoteWalletCodecs {
 /** The one {@link RemoteWalletCodecs} instance both stubs share. */
 export const remoteWalletCodecs: RemoteWalletCodecs = {
   [RemoteWalletMethod.Handshake]: { request: voidCodec, response: handshakeCodec },
+  [RemoteWalletMethod.Synced]: { request: voidCodec, response: syncedCodec },
   [RemoteWalletMethod.GetShieldedBalances]: {
     request: voidCodec,
     response: balancesCodec("getShieldedBalances response"),

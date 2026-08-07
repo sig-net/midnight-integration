@@ -3,10 +3,11 @@
 // provider roles a wallet fills for the contract SDK (WalletProvider
 // balances, signs and proves; MidnightProvider submits), so one instance
 // plugs into a MidnightProviders set directly as its `walletProvider` and
-// `midnightProvider`. On top of those roles: address and balance reads, raw
-// data signing, and the unproven-transaction counterpart of `balanceTx`
-// that a contract deploy needs (a deploy transaction starts unproven, while
-// `balanceTx` starts from an already-proven call transcript).
+// `midnightProvider`. On top of those roles: identity reads (addresses,
+// public keys, network id), balance and sync-state reads, raw data signing,
+// and the unproven-transaction counterpart of `balanceTx` that a contract
+// deploy needs (a deploy transaction starts unproven, while `balanceTx`
+// starts from an already-proven call transcript).
 
 import type { MidnightProvider, WalletProvider } from "@midnight-ntwrk/midnight-js/types";
 import type {
@@ -15,6 +16,8 @@ import type {
   Signature,
   UnprovenTransaction,
 } from "@midnightntwrk/ledger-v9";
+
+import type { NetworkId } from "./network-id.ts";
 
 // The identifier type `submitTx` resolves to, and the encryption-key string
 // type of `getEncryptionPublicKey` — re-exported so wallet consumers can
@@ -29,14 +32,23 @@ export interface WalletAddresses {
 }
 
 /**
+ * Default give-up deadline of {@link Wallet.waitForSync}, in milliseconds.
+ */
+export const DEFAULT_SYNC_TIMEOUT_MS = 300_000;
+
+/**
  * A Midnight wallet: identity (addresses, public keys), balance reads, raw
  * data signing, and the transaction pipeline the contract SDK's provider
  * roles define. `balanceTx`, `getCoinPublicKey`, `getEncryptionPublicKey`
  * and `submitTx` are inherited from {@link WalletProvider} and
  * {@link MidnightProvider} and documented there.
  *
- * A `Wallet` received across an API boundary is READY: connected, synced,
- * and every method valid. Lifecycle (connecting, disconnecting) is the
+ * A `Wallet` received across an API boundary is READY: connected, and every
+ * method valid. Sync is continuous (the chain moves, the wallet's view
+ * follows): chain reads barrier on sync internally, so they return a fresh
+ * view, possibly after a wait. {@link Wallet.synced} and
+ * {@link Wallet.waitForSync} expose that barrier, so a borrower can pace
+ * itself or bound the wait. Lifecycle (connecting, disconnecting) is the
  * owner's job and lives on the concrete implementation, so a borrower can
  * never end a session it does not own.
  *
@@ -54,6 +66,37 @@ export interface Wallet extends WalletProvider, MidnightProvider {
    * @returns The wallet's addresses.
    */
   getAddresses(): WalletAddresses;
+
+  /**
+   * The network this wallet lives on. Fixed for the wallet's lifetime, so
+   * available synchronously. Compare it with your own configuration before
+   * transacting: a wallet reached over the network may live on a different
+   * chain than the app talking to it.
+   *
+   * @returns The wallet's network id.
+   */
+  getNetworkId(): NetworkId;
+
+  /**
+   * Whether the wallet's chain view is caught up right now. A non-blocking
+   * snapshot of a moving target: chain reads on an unsynced wallet still
+   * succeed, they just wait for the view to catch up first. Use this to
+   * pace work or report health without incurring that wait.
+   *
+   * @returns Whether the view is currently synced.
+   */
+  synced(): Promise<boolean>;
+
+  /**
+   * Barrier on the sync the chain reads apply internally: resolves once
+   * the wallet's view is caught up, so the next read is instant.
+   *
+   * @param timeoutMs - Give-up deadline in milliseconds; defaults to
+   *   {@link DEFAULT_SYNC_TIMEOUT_MS}.
+   * @returns Settled once the view is synced.
+   * @throws {Error} If the view is not synced within `timeoutMs`.
+   */
+  waitForSync(timeoutMs?: number): Promise<void>;
 
   /**
    * The wallet's shielded token balances, keyed by raw token type, in base

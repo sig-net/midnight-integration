@@ -18,7 +18,8 @@ node-modules`). Its members live under `packages/`:
   No deploy flow, no notifier, compile is skip-zk only.
 - **`packages/wallet`** — the published `@sig-net/midnight-wallet`: the
   `Wallet` interface (midnight-js's WalletProvider + MidnightProvider roles
-  plus addresses, balances and data signing), the in-process `LocalWallet`
+  plus addresses, network id, balance and sync-state reads and data
+  signing), the in-process `LocalWallet`
   over the wallet-sdk facade (a seed goes in, a wallet comes out; key
   material and the facade stay internal), the remote-wallet protocol
   (`RemoteWallet` client plus transport-agnostic client/server stubs over

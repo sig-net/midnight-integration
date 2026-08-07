@@ -118,7 +118,7 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
         });
         sharedWallet = { wallet, context: { providers, caller, contractAddress } };
       }
-      await sharedWallet.wallet.awaitSynced();
+      await sharedWallet.wallet.waitForSync();
       return sharedWallet.context;
     },
 

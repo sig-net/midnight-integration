@@ -16,7 +16,8 @@ import type { BalancingRecipe, WalletFacade } from "@midnightntwrk/wallet-sdk-fa
 import { initialiseWalletFacade, RECIPE_TTL_MS, type WalletFacadeOptions } from "./facade.ts";
 import { type AccountKeys, deriveAccountKeys, deriveAddresses } from "./keys.ts";
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
-import type { Wallet, WalletAddresses } from "./Wallet.ts";
+import type { NetworkId } from "./network-id.ts";
+import { DEFAULT_SYNC_TIMEOUT_MS, type Wallet, type WalletAddresses } from "./Wallet.ts";
 
 // Dust generates continuously once NIGHT is registered, but a fresh
 // registration takes a few blocks before a spendable balance appears.
@@ -51,6 +52,11 @@ export class LocalWallet implements Wallet {
   #facade: WalletFacade | undefined;
   #connection: Promise<void> | undefined;
   #closed = false;
+  // Latest sync flag, fed by one state subscription made at connect. Held
+  // here so `synced()` never depends on the facade observable's replay
+  // semantics: the probe reads this field, nothing else.
+  #synced = false;
+  #stateSubscription: { unsubscribe(): void } | undefined;
 
   /**
    * Derive the account's keys and addresses from a seed. Offline — no
@@ -90,7 +96,11 @@ export class LocalWallet implements Wallet {
     const facade = await initialiseWalletFacade(this.#keys, this.#config, this.#options);
     this.#facade = facade;
     await facade.start(this.#keys.shieldedSecretKeys, this.#keys.dustSecretKey);
+    this.#stateSubscription = facade.state().subscribe((state) => {
+      this.#synced = state.isSynced;
+    });
     await facade.waitForSyncedState();
+    this.#synced = true;
   }
 
   /**
@@ -102,19 +112,8 @@ export class LocalWallet implements Wallet {
    */
   async disconnect(): Promise<void> {
     this.#closed = true;
+    this.#stateSubscription?.unsubscribe();
     await this.#facade?.stop();
-  }
-
-  /**
-   * Wait until the wallet's view of the chain is synced. The re-sync
-   * barrier for long-lived wallets: call before handing the wallet out
-   * again after a pause, so no consumer acts on a stale view.
-   *
-   * @returns Settled once the state is synced.
-   * @throws {Error} If the wallet is not connected.
-   */
-  async awaitSynced(): Promise<void> {
-    await this.#requireFacade().waitForSyncedState();
   }
 
   /**
@@ -124,6 +123,54 @@ export class LocalWallet implements Wallet {
    */
   getAddresses(): WalletAddresses {
     return this.#addresses;
+  }
+
+  /**
+   * The network this wallet was constructed for. Available offline.
+   *
+   * @returns The wallet's network id.
+   */
+  getNetworkId(): NetworkId {
+    return this.#config.networkId;
+  }
+
+  /**
+   * The latest sync flag from the facade's state stream. Non-blocking.
+   *
+   * @returns Whether the view is currently synced.
+   * @throws {Error} If the wallet is not connected.
+   */
+  synced(): Promise<boolean> {
+    this.#requireFacade();
+    return Promise.resolve(this.#synced);
+  }
+
+  /**
+   * Barrier on the facade's synced state, with a give-up deadline. The
+   * re-sync barrier for long-lived wallets: call before handing the wallet
+   * out again after a pause, so no consumer incurs the catch-up wait
+   * mid-read.
+   *
+   * @param timeoutMs - Give-up deadline in milliseconds; defaults to
+   *   {@link DEFAULT_SYNC_TIMEOUT_MS}.
+   * @returns Settled once the state is synced.
+   * @throws {Error} If the wallet is not connected, or not synced within `timeoutMs`.
+   */
+  async waitForSync(timeoutMs: number = DEFAULT_SYNC_TIMEOUT_MS): Promise<void> {
+    const facade = this.#requireFacade();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        facade.waitForSyncedState(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`wallet not synced after ${String(timeoutMs)} ms`));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**

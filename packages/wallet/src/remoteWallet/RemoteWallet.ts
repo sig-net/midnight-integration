@@ -9,9 +9,16 @@ import type {
   UnprovenTransaction,
 } from "@midnightntwrk/ledger-v9";
 
-import type { Wallet, WalletAddresses } from "../Wallet.ts";
+import type { NetworkId } from "../network-id.ts";
+import { DEFAULT_SYNC_TIMEOUT_MS, type Wallet, type WalletAddresses } from "../Wallet.ts";
 import { REMOTE_WALLET_PROTOCOL_VERSION, type RemoteWalletHandshake } from "./protocol.ts";
 import { RemoteWalletClient, type RemoteWalletTransport } from "./RemoteWalletClient.ts";
+
+// How often waitForSync re-probes the host. The barrier is a client-side
+// poll over the `synced` method on purpose: a server-side wait would fight
+// HTTP timeouts and proxies and pin host connections, while the poll keeps
+// the host stateless per request.
+const SYNC_POLL_INTERVAL_MS = 1_000;
 
 /**
  * {@link Wallet} fulfilled by a wallet hosted elsewhere, through a
@@ -111,6 +118,51 @@ export class RemoteWallet implements Wallet {
    */
   getEncryptionPublicKey(): EncPublicKey {
     return this.#requireHandshake().encryptionPublicKey;
+  }
+
+  /**
+   * The network the hosted wallet lives on, from the handshake. Compare it
+   * with your own configuration before transacting: the host may live on a
+   * different chain than this app.
+   *
+   * @returns The hosted wallet's network id.
+   * @throws {Error} If the wallet is not connected.
+   */
+  getNetworkId(): NetworkId {
+    return this.#requireHandshake().networkId;
+  }
+
+  /**
+   * Whether the hosted wallet's chain view is synced right now, probed
+   * over the wire.
+   *
+   * @returns Whether the hosted view is currently synced.
+   * @throws {Error} If the wallet is not connected, or the host call fails.
+   */
+  async synced(): Promise<boolean> {
+    this.#requireHandshake();
+    return this.#client.synced();
+  }
+
+  /**
+   * Poll the host until its view is synced, so the next read is instant.
+   *
+   * @param timeoutMs - Give-up deadline in milliseconds; defaults to
+   *   {@link DEFAULT_SYNC_TIMEOUT_MS}.
+   * @returns Settled once the hosted view is synced.
+   * @throws {Error} If the wallet is not connected, a probe fails, or the
+   *   view is not synced within `timeoutMs`.
+   */
+  async waitForSync(timeoutMs: number = DEFAULT_SYNC_TIMEOUT_MS): Promise<void> {
+    this.#requireHandshake();
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if (await this.#client.synced()) return;
+      if (Date.now() >= deadline) {
+        throw new Error(`hosted wallet not synced after ${String(timeoutMs)} ms`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, SYNC_POLL_INTERVAL_MS));
+    }
   }
 
   /**

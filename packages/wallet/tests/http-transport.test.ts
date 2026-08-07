@@ -30,6 +30,9 @@ const notExercised = <Value>(): Promise<Value> =>
   Promise.reject(new Error("not exercised by the transport tests"));
 const hostWallet: Wallet = {
   getAddresses: () => HOST_ADDRESSES,
+  getNetworkId: () => "undeployed",
+  synced: notExercised,
+  waitForSync: notExercised,
   getCoinPublicKey: () => "c1".repeat(32),
   getEncryptionPublicKey: () => "e1".repeat(32),
   getShieldedBalances: notExercised,

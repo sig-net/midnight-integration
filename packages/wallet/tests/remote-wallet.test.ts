@@ -39,10 +39,16 @@ const DUST_BALANCE = 42_000_000_000n;
 // The canned wallet behind the server: fixed identity and balances, real
 // ledger signing, mock proving for balancing, and the transaction's own
 // hash as the submit id. `lastBalanceTtl` captures what the server-side
-// decode handed the wallet, so the ttl wire fidelity is observable.
+// decode handed the wallet, so the ttl wire fidelity is observable;
+// `hostSynced` is mutable so the sync probe and barrier are testable in
+// both states.
 let lastBalanceTtl: Date | undefined;
+let hostSynced = true;
 const hostWallet: Wallet = {
   getAddresses: () => HOST_ADDRESSES,
+  getNetworkId: () => "undeployed",
+  synced: () => Promise.resolve(hostSynced),
+  waitForSync: () => Promise.resolve(),
   getCoinPublicKey: () => HOST_COIN_PUBLIC_KEY,
   getEncryptionPublicKey: () => HOST_ENCRYPTION_PUBLIC_KEY,
   getShieldedBalances: () => Promise.resolve(SHIELDED_BALANCES),
@@ -69,8 +75,40 @@ describe("RemoteWallet over a loopback transport", () => {
   it("answers the synchronous identity reads from the handshake", async () => {
     const wallet = await connectedRemoteWallet();
     expect(wallet.getAddresses()).toEqual(HOST_ADDRESSES);
+    expect(wallet.getNetworkId()).toBe("undeployed");
     expect(wallet.getCoinPublicKey()).toBe(HOST_COIN_PUBLIC_KEY);
     expect(wallet.getEncryptionPublicKey()).toBe(HOST_ENCRYPTION_PUBLIC_KEY);
+  });
+
+  it("probes the host's sync state over the wire", async () => {
+    const wallet = await connectedRemoteWallet();
+    hostSynced = true;
+    await expect(wallet.synced()).resolves.toBe(true);
+    hostSynced = false;
+    await expect(wallet.synced()).resolves.toBe(false);
+    hostSynced = true;
+  });
+
+  it("waitForSync returns once the host reports synced", async () => {
+    const wallet = await connectedRemoteWallet();
+    hostSynced = true;
+    await expect(wallet.waitForSync(5_000)).resolves.toBeUndefined();
+  });
+
+  it("waitForSync polls until the host becomes synced", async () => {
+    const wallet = await connectedRemoteWallet();
+    hostSynced = false;
+    setTimeout(() => {
+      hostSynced = true;
+    }, 1_200);
+    await expect(wallet.waitForSync(10_000)).resolves.toBeUndefined();
+  });
+
+  it("waitForSync throws once the deadline passes unsynced", async () => {
+    const wallet = await connectedRemoteWallet();
+    hostSynced = false;
+    await expect(wallet.waitForSync(0)).rejects.toThrow("not synced after 0 ms");
+    hostSynced = true;
   });
 
   it("round-trips balances with bigint fidelity", async () => {
@@ -120,6 +158,20 @@ describe("RemoteWallet over a loopback transport", () => {
     wallet.disconnect();
     expect(() => wallet.getAddresses()).toThrow("disconnected");
     expect(() => wallet.connect()).toThrow("disconnected");
+  });
+
+  it("refuses a handshake naming an unknown network", async () => {
+    const server = new RemoteWalletServer(hostWallet);
+    const tamperedNetwork: RemoteWalletTransport = async (method, request) => {
+      const response = await server.handle(method, request);
+      if (method !== RemoteWalletMethod.Handshake) return response;
+      const handshake = JSON.parse(new TextDecoder().decode(response)) as Record<string, unknown>;
+      const tampered = { ...handshake, networkId: "mars" };
+      return new TextEncoder().encode(JSON.stringify(tampered));
+    };
+    await expect(new RemoteWallet(tamperedNetwork).connect()).rejects.toThrow(
+      'unknown network "mars"',
+    );
   });
 
   it("refuses a host speaking a different protocol version", async () => {

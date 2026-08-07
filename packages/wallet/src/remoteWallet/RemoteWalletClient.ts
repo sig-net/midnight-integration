@@ -67,6 +67,19 @@ export class RemoteWalletClient {
   }
 
   /**
+   * Whether the hosted wallet's chain view is synced right now.
+   *
+   * @returns Whether the hosted view is currently synced.
+   */
+  synced(): Promise<boolean> {
+    return this.#call(
+      RemoteWalletMethod.Synced,
+      remoteWalletCodecs[RemoteWalletMethod.Synced],
+      undefined,
+    );
+  }
+
+  /**
    * The hosted wallet's shielded balances.
    *
    * @returns The balances, keyed by raw token type, in base units.

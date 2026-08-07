@@ -7,7 +7,7 @@
     "directory": "packages/wallet"
   },
   "type": "module",
-  "description": "A Midnight wallet abstraction: the Wallet interface (midnight-js's WalletProvider + MidnightProvider roles plus addresses, balances and data signing), the in-process LocalWallet over the wallet-sdk facade (a seed goes in, a wallet comes out; key material stays internal), the remote-wallet protocol (RemoteWallet client plus transport-agnostic client/server stubs over shared wire codecs, with a fetch-based HTTP transport included), seed parsing, and the network/endpoint config needed to connect one.",
+  "description": "A Midnight wallet abstraction: the Wallet interface (midnight-js's WalletProvider + MidnightProvider roles plus addresses, network id, balance and sync-state reads, and data signing), the in-process LocalWallet over the wallet-sdk facade (a seed goes in, a wallet comes out; key material stays internal), the remote-wallet protocol (RemoteWallet client plus transport-agnostic client/server stubs over shared wire codecs, with a fetch-based HTTP transport included), seed parsing, and the network/endpoint config needed to connect one.",
   "//exports": "Local dev consumes raw TS source. `publishConfig.exports` below swaps this to the emitted ./dist at publish time, so npm consumers get JS + .d.ts while the monorepo keeps resolving to src.",
   "exports": {
     ".": "./src/index.ts"
