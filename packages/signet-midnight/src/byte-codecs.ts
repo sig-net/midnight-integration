@@ -26,11 +26,16 @@ export function stripHexPrefix(hex: string): string {
 /**
  * Decode a hex string into bytes: the inverse of {@link bytesToHex}.
  *
- * @param hex - Hex digits, with or without a `0x` prefix.
+ * @param hex - An even number of hex digits, with or without a `0x` prefix.
  * @returns The decoded bytes.
+ * @throws Error if the digits are odd-length or not all hex: lenient parsing
+ *   would return plausible-looking wrong bytes.
  */
 export function hexToBytes(hex: string): Uint8Array {
   const digits = stripHexPrefix(hex);
+  if (digits.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(digits)) {
+    throw new Error(`not a hex byte string: "${hex}"`);
+  }
   const out = new Uint8Array(digits.length >> 1);
   for (let i = 0; i < out.length; i++) {
     out[i] = Number.parseInt(digits.slice(2 * i, 2 * i + 2), 16);
@@ -60,13 +65,19 @@ export function bytesToBigint(bytes: Uint8Array): bigint {
 
 /**
  * A bigint to exactly 32 little-endian bytes: the inverse of
- * {@link bytesToBigint}. Negative inputs are interpreted in the BLS scalar
- * field.
+ * {@link bytesToBigint}. Non-negative values encode raw (the full 32-byte
+ * range, so secp256k1 scalars above {@link BLS_ORDER} fit). Negative values
+ * are interpreted in the BLS scalar field, so their domain is
+ * `[-BLS_ORDER, 0)`.
  *
  * @param n - The integer to encode.
  * @returns The 32-byte little-endian encoding.
+ * @throws Error if the value is below `-BLS_ORDER` or does not fit 32 bytes.
  */
 export function bigintToBytes32(n: bigint): Uint8Array {
+  if (n < -BLS_ORDER || n >= 1n << 256n) {
+    throw new Error(`value does not fit 32 little-endian bytes: ${n}`);
+  }
   const buf = new Uint8Array(32);
   let v = n < 0n ? n + BLS_ORDER : n;
   for (let i = 0; i < 32; i++) {

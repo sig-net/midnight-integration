@@ -145,17 +145,6 @@ export interface SignetContractEventQuerySource {
 }
 
 /**
- * Decode an indexer-served hex field, with or without a `0x` prefix, into
- * bytes.
- *
- * @param hex - The hex string.
- * @returns The decoded bytes.
- */
-function eventFieldBytes(hex: string): Uint8Array {
-  return hexToBytes(hex.startsWith("0x") ? hex.slice(2) : hex);
-}
-
-/**
  * Adapt a midnight-js `PublicDataProvider` (or anything exposing its
  * `queryContractEvents`) into a {@link SignetEventSource}. Each event's name
  * is NUL-trimmed and its payload re-padded to the full
@@ -177,11 +166,11 @@ export function signetEventSourceFromPublicDataProvider(
       for (const event of events) {
         if (event.eventType !== "Misc") continue;
         if (event.name === undefined || event.payload === undefined) continue;
-        const payload = eventFieldBytes(event.payload);
+        const payload = hexToBytes(event.payload);
         const padded = new Uint8Array(SIGNET_EVENT_PAYLOAD_LENGTH);
         padded.set(payload.slice(0, SIGNET_EVENT_PAYLOAD_LENGTH), 0);
         out.push({
-          name: decodeSignetEventName(eventFieldBytes(event.name)),
+          name: decodeSignetEventName(hexToBytes(event.name)),
           payload: padded,
         });
       }

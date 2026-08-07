@@ -8,7 +8,11 @@
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { computeAddress, keccak256, SigningKey, toUtf8Bytes } from "ethers";
 
-import { bigintToBytes32BE, bytesToBigintBE } from "./byte-codecs.ts";
+import {
+  bigintToBytes32BE,
+  bytesToBigintBE,
+  stripHexPrefix,
+} from "./byte-codecs.ts";
 import { SECP256K1_ORDER, type Secp256k1Point } from "./ecdsa-attestation.ts";
 
 /**
@@ -105,11 +109,7 @@ function deriveChildPoint(
  * Both sides of the protocol must derive through this exact rendering.
  */
 function normaliseRequesterAddress(contractAddress: string): string {
-  const hex =
-    contractAddress.startsWith("0x") || contractAddress.startsWith("0X")
-      ? contractAddress.slice(2)
-      : contractAddress;
-  return hex.toLowerCase();
+  return stripHexPrefix(contractAddress).toLowerCase();
 }
 
 /**

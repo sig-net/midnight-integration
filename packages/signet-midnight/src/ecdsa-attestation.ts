@@ -18,7 +18,11 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
 import type { RequestId } from "./signet-requests.ts";
 
-import { bigintToBytes32BE, bytesToBigintBE } from "./byte-codecs.ts";
+import {
+  bigintToBytes32BE,
+  bytesToBigintBE,
+  stripHexPrefix,
+} from "./byte-codecs.ts";
 import type {
   MpcSignature,
   RespondBidirectionalEvent,
@@ -143,7 +147,7 @@ export function mpcSignatureToEcdsaSignature(signature: MpcSignature): EcdsaSign
  * @throws Error if the value is not a valid secp256k1 public key.
  */
 export function parseSecp256k1PublicKey(value: string): Secp256k1Point {
-  const hex = value.startsWith("0x") || value.startsWith("0X") ? value.slice(2) : value;
+  const hex = stripHexPrefix(value);
   let point;
   try {
     point = secp256k1.Point.fromHex(hex);

@@ -1,6 +1,9 @@
-// Unit tests for the little-endian and big-endian fixed-width byte codecs.
+// Unit tests for the byte codecs: hex strings and the little-endian and
+// big-endian fixed-width integer encodings.
 
 import { describe, expect, it } from "vitest";
+
+import { maxField } from "@midnight-ntwrk/compact-runtime";
 
 import {
   BLS_ORDER,
@@ -8,7 +11,66 @@ import {
   bigintToBytes32BE,
   bytesToBigint,
   bytesToBigintBE,
+  bytesToHex,
+  hexToBytes,
+  stripHexPrefix,
 } from "../src/index.ts";
+
+// Pin the hardcoded field order to the runtime's own authority.
+describe("BLS_ORDER", () => {
+  it("is compact-runtime's maxField() + 1", () => {
+    expect(BLS_ORDER).toBe(maxField() + 1n);
+  });
+});
+
+describe("bytesToHex / hexToBytes", () => {
+  /** One row: hex input, and the bytes it decodes to (absent: must throw). */
+  interface HexCase {
+    name: string;
+    hex: string;
+    bytes?: number[];
+  }
+
+  const HEX_CASES: HexCase[] = [
+    { name: "lowercase digits", hex: "ab01ff", bytes: [0xab, 0x01, 0xff] },
+    { name: "uppercase digits", hex: "AB01FF", bytes: [0xab, 0x01, 0xff] },
+    { name: "a 0x prefix", hex: "0xab01", bytes: [0xab, 0x01] },
+    { name: "a 0X prefix", hex: "0Xab01", bytes: [0xab, 0x01] },
+    { name: "the empty string", hex: "", bytes: [] },
+    { name: "an odd number of digits", hex: "abc" },
+    { name: "non-hex characters", hex: "zz" },
+    { name: "a partial hex pair", hex: "1g" },
+    { name: "a bare 0x prefix on odd digits", hex: "0xabc" },
+  ];
+
+  it.each(HEX_CASES)("decodes $name", ({ hex, bytes }) => {
+    if (bytes === undefined) {
+      expect(() => hexToBytes(hex)).toThrow(/not a hex byte string/);
+      return;
+    }
+    expect([...hexToBytes(hex)]).toEqual(bytes);
+  });
+
+  it("bytesToHex renders lowercase unprefixed pairs", () => {
+    expect(bytesToHex(Uint8Array.from([0x00, 0xab, 0xff]))).toBe("00abff");
+  });
+
+  it("round-trips bytes -> hex -> bytes as identity", () => {
+    const raw = Uint8Array.from({ length: 40 }, (_, i) => (i * 37) % 256);
+    expect(hexToBytes(bytesToHex(raw))).toEqual(raw);
+  });
+});
+
+describe("stripHexPrefix", () => {
+  it.each([
+    { name: "a 0x prefix", input: "0xabc1", expected: "abc1" },
+    { name: "a 0X prefix", input: "0Xabc1", expected: "abc1" },
+    { name: "no prefix", input: "abc1", expected: "abc1" },
+    { name: "the empty string", input: "", expected: "" },
+  ])("strips $name", ({ input, expected }) => {
+    expect(stripHexPrefix(input)).toBe(expected);
+  });
+});
 
 describe("bigintToBytes32 / bytesToBigint", () => {
   interface Case {
@@ -36,6 +98,22 @@ describe("bigintToBytes32 / bytesToBigint", () => {
 
   it("interprets negative values in the BLS scalar field", () => {
     expect(bytesToBigint(bigintToBytes32(-1n))).toBe(BLS_ORDER - 1n);
+    expect(bytesToBigint(bigintToBytes32(-BLS_ORDER))).toBe(0n);
+  });
+
+  it("encodes the full raw 32-byte range above the field order", () => {
+    expect(bytesToBigint(bigintToBytes32((1n << 256n) - 1n))).toBe(
+      (1n << 256n) - 1n,
+    );
+  });
+
+  it.each([
+    { name: "2^256, one past the width", value: 1n << 256n },
+    { name: "a value below -BLS_ORDER", value: -BLS_ORDER - 1n },
+  ])("rejects $name", ({ value }) => {
+    expect(() => bigintToBytes32(value)).toThrow(
+      /does not fit 32 little-endian bytes/,
+    );
   });
 });
 
