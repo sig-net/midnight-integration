@@ -17,6 +17,7 @@ import {
 
 import type { AccountKeys } from "./keys.ts";
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
+import type { WalletStateSnapshot } from "./walletStateStore.ts";
 
 /**
  * Default `additionalFeeOverhead` the facade balances transactions with: it
@@ -57,17 +58,23 @@ export interface WalletFacadeOptions {
 
 /**
  * Wire up the WalletFacade for the given keys + connection config. This only
- * constructs the three sub-wallets — it does NOT start syncing.
+ * constructs the three sub-wallets — it does NOT start syncing. With a
+ * snapshot, each sub-wallet restores from its serialized state and the later
+ * sync resumes from the snapshot's recorded position; without one, each
+ * starts empty and syncs from genesis.
  *
  * @param keys - The derived role keys the facade drives.
  * @param config - The endpoints the facade connects to.
  * @param options - Facade tuning; see {@link WalletFacadeOptions}.
+ * @param snapshot - Serialized sub-wallet states to restore from.
  * @returns The constructed facade, not yet syncing.
+ * @throws {Error} If a snapshot is given and any of its states fail to deserialize.
  */
 export function initialiseWalletFacade(
   keys: AccountKeys,
   config: MidnightNodeConfig,
   options: WalletFacadeOptions = {},
+  snapshot?: WalletStateSnapshot,
 ): Promise<WalletFacade> {
   return WalletFacade.init({
     configuration: {
@@ -88,15 +95,22 @@ export function initialiseWalletFacade(
         mergeWalletEntries,
       ),
     },
-    shielded: (cfg) => ShieldedWallet(cfg).startWithSecretKeys(keys.shieldedSecretKeys),
+    shielded: (cfg) =>
+      snapshot
+        ? ShieldedWallet(cfg).restore(snapshot.shielded)
+        : ShieldedWallet(cfg).startWithSecretKeys(keys.shieldedSecretKeys),
     unshielded: (cfg) =>
-      UnshieldedWallet(cfg).startWithPublicKey(
-        UnshieldedPublicKey.fromKeyStore(keys.unshieldedKeystore),
-      ),
+      snapshot
+        ? UnshieldedWallet(cfg).restore(snapshot.unshielded)
+        : UnshieldedWallet(cfg).startWithPublicKey(
+            UnshieldedPublicKey.fromKeyStore(keys.unshieldedKeystore),
+          ),
     dust: (cfg) =>
-      DustWallet(cfg).startWithSecretKey(
-        keys.dustSecretKey,
-        ledger.LedgerParameters.initialParameters().dust,
-      ),
+      snapshot
+        ? DustWallet(cfg).restore(snapshot.dust)
+        : DustWallet(cfg).startWithSecretKey(
+            keys.dustSecretKey,
+            ledger.LedgerParameters.initialParameters().dust,
+          ),
   });
 }

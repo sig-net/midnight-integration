@@ -16,3 +16,4 @@ export * from "./network-id.ts";
 export * from "./remoteWallet/index.ts";
 export * from "./seed.ts";
 export * from "./Wallet.ts";
+export type { WalletStateStore } from "./walletStateStore.ts";

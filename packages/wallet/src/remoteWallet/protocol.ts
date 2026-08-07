@@ -25,6 +25,7 @@ import { Transaction } from "@midnightntwrk/ledger-v9";
 import { bytesToHex, hexToBytes } from "@sig-net/midnight";
 
 import { NETWORK_IDS, type NetworkId } from "../network-id.ts";
+import { parseRecord, parseString } from "../untrusted-json.ts";
 import type { WalletAddresses } from "../Wallet.ts";
 
 /**
@@ -110,20 +111,6 @@ function decodeJson(bytes: Uint8Array, context: string): unknown {
   } catch {
     throw new Error(`${context}: not valid JSON`);
   }
-}
-
-function parseRecord(value: unknown, context: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${context}: expected a JSON object`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function parseString(value: unknown, context: string): string {
-  if (typeof value !== "string") {
-    throw new Error(`${context}: expected a string`);
-  }
-  return value;
 }
 
 function parseBigInt(value: unknown, context: string): bigint {

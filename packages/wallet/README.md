@@ -5,6 +5,7 @@ A wallet for the [Midnight blockchain](https://midnight.network), as used by the
 - **The `Wallet` interface**: midnight-js's `WalletProvider` + `MidnightProvider` roles (so one instance plugs into a `MidnightProviders` set as its `walletProvider` and `midnightProvider`), plus identity reads (addresses, public keys, network id), balance and sync-state reads (`synced`, `waitForSync`), raw data signing, and `balanceUnprovenTx` (the unproven-transaction counterpart of `balanceTx` a contract deploy needs). A `Wallet` received across an API boundary is ready to use: lifecycle lives on the implementations, so a borrower can never end a session it does not own. Chain reads barrier on sync internally, so they return a fresh view, possibly after a wait: `synced()` and `waitForSync(timeoutMs)` expose that barrier for pacing and health checks, and `getNetworkId()` lets a client verify it is on the same chain as the wallet before transacting.
 - **`LocalWallet`**: the in-process implementation over the Midnight wallet-sdk facade. A seed goes in, a wallet comes out — key derivation and the facade stay internal. Construction is synchronous and offline (identity reads work unconnected); `connect()` / `disconnect()` bracket everything that touches the chain, and `withLocalWallet` wraps that lifecycle for scoped work. It also carries the funding operations only an in-process wallet can perform (NIGHT transfer, dust registration).
 - **`RemoteWallet`**: the same interface fulfilled by a wallet hosted elsewhere. The package carries all the pieces of the remote protocol: `RemoteWallet` (the `Wallet`-shaped client, with `connect`/`disconnect` lifecycle on the class), the transport-agnostic stubs (`RemoteWalletClient`, `RemoteWalletServer`), the wire codecs both stubs share, and a fetch-based HTTP transport (`createHttpRemoteWalletTransport`). Sync stays entirely on the host: the client holds only the identity from the handshake. A host implements the server side by wrapping any ready `Wallet` (typically a connected `LocalWallet`) in `RemoteWalletServer` and binding its `handle` method to whatever transport it prefers.
+- **Persistent sync state**: `LocalWallet` optionally persists its sync state through a caller-supplied `WalletStateStore`, so a later wallet on the same seed resumes syncing from where it left off instead of replaying the chain from genesis.
 - **Seed plumbing**: BIP-39/hex seed parsing and generation.
 - **Network config**: the named networks, per-network default endpoints, and `getMidnightNodeConfig` to resolve endpoints from the environment.
 
@@ -78,6 +79,36 @@ createServer((request, response) => {
     }
   })();
 }).listen(8790);
+```
+
+## Persistent sync state
+
+Syncing from genesis is slow on long chains. Pass a `WalletStateStore` at construction and `LocalWallet` persists its sync state: `connect()` restores the stored state (when one exists) and resumes syncing from there, `disconnect()` saves automatically before stopping, and `saveState()` checkpoints on demand for long-lived wallets. Without a store, nothing changes: every `connect()` syncs from scratch.
+
+Both store methods receive the wallet's full network-prefixed unshielded NIGHT address as the key, so one store can segregate many wallets across many networks. The stored value is an opaque versioned string; it is validated on load, and a snapshot recorded for a different network or seed (or a corrupt one) makes `connect()` fail loudly rather than silently resyncing or restoring the wrong wallet. Deleting the stored entry and resyncing recovers from every such failure.
+
+The package ships the interface only; the backend belongs to the caller's infrastructure (a file, a GCS bucket, a database). A file-backed store is a few lines of host-side code:
+
+```ts
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { LocalWallet, type WalletStateStore } from "@sig-net/midnight-wallet";
+
+const directory = "/var/lib/my-app/wallet-state";
+const fileStore: WalletStateStore = {
+  load: (unshieldedAddress) =>
+    readFile(join(directory, `${unshieldedAddress}.json`), "utf8").catch(() => undefined),
+  save: async (unshieldedAddress, state) => {
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, `${unshieldedAddress}.json`), state, "utf8");
+  },
+};
+
+const wallet = new LocalWallet(seed, config, { stateStore: fileStore });
+await wallet.connect(); // resumes from the last save when one exists
+// ... long-lived work, checkpointing when it suits:
+await wallet.saveState();
+await wallet.disconnect(); // saves automatically before stopping
 ```
 
 ## Related packages

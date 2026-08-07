@@ -18,10 +18,32 @@ import { type AccountKeys, deriveAccountKeys, deriveAddresses } from "./keys.ts"
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
 import type { NetworkId } from "./network-id.ts";
 import { DEFAULT_SYNC_TIMEOUT_MS, type Wallet, type WalletAddresses } from "./Wallet.ts";
+import {
+  decodeWalletState,
+  encodeWalletState,
+  type WalletStateSnapshot,
+  type WalletStateStore,
+} from "./walletStateStore.ts";
 
 // Dust generates continuously once NIGHT is registered, but a fresh
 // registration takes a few blocks before a spendable balance appears.
 const DUST_POLL_INTERVAL_MS = 5_000;
+
+/**
+ * Construction options of {@link LocalWallet}: the facade tuning knobs plus
+ * the optional sync-state persistence hook.
+ */
+export interface LocalWalletOptions extends WalletFacadeOptions {
+  /**
+   * Where this wallet persists its sync state. Without one, every
+   * {@link LocalWallet.connect} syncs from genesis. With one,
+   * {@link LocalWallet.connect} restores the stored state (when present)
+   * and resumes syncing from where it left off, and the wallet saves back
+   * on {@link LocalWallet.disconnect} and on {@link LocalWallet.saveState}.
+   * A stored state from a different network or seed makes connect throw.
+   */
+  stateStore?: WalletStateStore;
+}
 
 /**
  * {@link Wallet} backed by an in-process wallet-sdk facade and the key
@@ -37,7 +59,9 @@ const DUST_POLL_INTERVAL_MS = 5_000;
  * {@link Wallet} interface: {@link LocalWallet.connect} /
  * {@link LocalWallet.disconnect} (a disconnected wallet is dead; construct a
  * new one to reconnect), with {@link withLocalWallet} wrapping the whole
- * cycle for scoped work.
+ * cycle for scoped work. With a {@link LocalWalletOptions.stateStore},
+ * connect resumes syncing from the persisted state instead of genesis, and
+ * disconnect (and {@link LocalWallet.saveState}) persist it back.
  *
  * Beyond the {@link Wallet} contract it carries the funding operations only
  * an in-process wallet can perform ({@link LocalWallet.transferNight},
@@ -47,7 +71,7 @@ const DUST_POLL_INTERVAL_MS = 5_000;
 export class LocalWallet implements Wallet {
   readonly #keys: AccountKeys;
   readonly #config: MidnightNodeConfig;
-  readonly #options: WalletFacadeOptions;
+  readonly #options: LocalWalletOptions;
   readonly #addresses: WalletAddresses;
   #facade: WalletFacade | undefined;
   #connection: Promise<void> | undefined;
@@ -65,11 +89,12 @@ export class LocalWallet implements Wallet {
    * @param seed - The wallet seed, as hex or a BIP-39 mnemonic.
    * @param config - The stack the wallet connects to (its network id also
    *   encodes the addresses).
-   * @param options - Optional facade tuning knobs (see {@link WalletFacadeOptions}).
+   * @param options - Optional tuning knobs and the sync-state store (see
+   *   {@link LocalWalletOptions}).
    * @throws {Error} If the seed parses to neither hex nor a mnemonic, or key
    *   derivation fails.
    */
-  constructor(seed: string, config: MidnightNodeConfig, options: WalletFacadeOptions = {}) {
+  constructor(seed: string, config: MidnightNodeConfig, options: LocalWalletOptions = {}) {
     this.#keys = deriveAccountKeys(seed, config.networkId);
     this.#config = config;
     this.#options = options;
@@ -93,7 +118,12 @@ export class LocalWallet implements Wallet {
   }
 
   async #open(): Promise<void> {
-    const facade = await initialiseWalletFacade(this.#keys, this.#config, this.#options);
+    const facade = await initialiseWalletFacade(
+      this.#keys,
+      this.#config,
+      this.#options,
+      await this.#loadStoredSnapshot(),
+    );
     this.#facade = facade;
     await facade.start(this.#keys.shieldedSecretKeys, this.#keys.dustSecretKey);
     this.#stateSubscription = facade.state().subscribe((state) => {
@@ -103,17 +133,75 @@ export class LocalWallet implements Wallet {
     this.#synced = true;
   }
 
+  // The stored snapshot to restore from, or undefined for a fresh sync
+  // (no store configured, or nothing stored yet for this wallet).
+  async #loadStoredSnapshot(): Promise<WalletStateSnapshot | undefined> {
+    const store = this.#options.stateStore;
+    if (!store) return undefined;
+    const stored = await store.load(this.#addresses.unshielded);
+    if (stored === undefined) return undefined;
+    return decodeWalletState(stored, {
+      networkId: this.#config.networkId,
+      unshieldedAddress: this.#addresses.unshielded,
+    });
+  }
+
   /**
-   * Close the wallet: stops the facade's node, indexer and prover
-   * connections. The wallet is dead afterwards — construct a new one to
-   * reconnect. Safe to call on a never-connected wallet.
+   * Close the wallet: when a state store is configured (and the wallet
+   * connected), save the sync state first, then stop the facade's node,
+   * indexer and prover connections. The wallet is dead afterwards —
+   * construct a new one to reconnect. Safe to call on a never-connected
+   * wallet. The facade is stopped even when the save fails; the save error
+   * then propagates.
    *
    * @returns Settled once the facade has stopped.
+   * @throws {Error} If saving the sync state fails.
    */
   async disconnect(): Promise<void> {
     this.#closed = true;
     this.#stateSubscription?.unsubscribe();
-    await this.#facade?.stop();
+    const facade = this.#facade;
+    const store = this.#options.stateStore;
+    try {
+      if (facade && store) {
+        await store.save(this.#addresses.unshielded, await this.#encodeState(facade));
+      }
+    } finally {
+      await facade?.stop();
+    }
+  }
+
+  /**
+   * Checkpoint the wallet's sync state to the configured store, so a later
+   * wallet on the same seed resumes from here instead of syncing from
+   * genesis. {@link LocalWallet.disconnect} does this automatically;
+   * long-lived wallets call this at their own cadence to bound what a
+   * crash can lose.
+   *
+   * @returns Settled once the state is saved.
+   * @throws {Error} If no store was configured, the wallet is not
+   *   connected, or the save fails.
+   */
+  async saveState(): Promise<void> {
+    const store = this.#options.stateStore;
+    if (!store) {
+      throw new Error("LocalWallet has no state store: pass one at construction.");
+    }
+    const facade = this.#requireFacade();
+    await store.save(this.#addresses.unshielded, await this.#encodeState(facade));
+  }
+
+  // The three sub-wallet serializations, wrapped in the stored envelope.
+  async #encodeState(facade: WalletFacade): Promise<string> {
+    const [shielded, unshielded, dust] = await Promise.all([
+      facade.shielded.serializeState(),
+      facade.unshielded.serializeState(),
+      facade.dust.serializeState(),
+    ]);
+    return encodeWalletState(
+      { shielded, unshielded, dust },
+      { networkId: this.#config.networkId, unshieldedAddress: this.#addresses.unshielded },
+    );
   }
 
   /**
@@ -406,7 +494,8 @@ export class LocalWallet implements Wallet {
  * @param seed - The wallet seed, as hex or a BIP-39 mnemonic.
  * @param config - The stack the wallet connects to.
  * @param fn - Work to run with the connected wallet.
- * @param options - Optional facade tuning knobs (see {@link WalletFacadeOptions}).
+ * @param options - Optional tuning knobs and the sync-state store (see
+ *   {@link LocalWalletOptions}).
  * @returns Whatever `fn` returns.
  * @throws {Error} Whatever construction, {@link LocalWallet.connect}, or `fn` throws.
  */
@@ -414,7 +503,7 @@ export async function withLocalWallet<T>(
   seed: string,
   config: MidnightNodeConfig,
   fn: (wallet: LocalWallet) => Promise<T>,
-  options: WalletFacadeOptions = {},
+  options: LocalWalletOptions = {},
 ): Promise<T> {
   const wallet = new LocalWallet(seed, config, options);
   try {

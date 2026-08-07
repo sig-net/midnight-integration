@@ -21,7 +21,9 @@ node-modules`). Its members live under `packages/`:
   plus addresses, network id, balance and sync-state reads and data
   signing), the in-process `LocalWallet`
   over the wallet-sdk facade (a seed goes in, a wallet comes out; key
-  material and the facade stay internal), the remote-wallet protocol
+  material and the facade stay internal; an optional `WalletStateStore`
+  persists sync state so reconnects resume instead of replaying from
+  genesis), the remote-wallet protocol
   (`RemoteWallet` client plus transport-agnostic client/server stubs over
   shared wire codecs and a fetch-based HTTP transport, in
   `src/remoteWallet/`), seed parsing and the network/endpoint config to
