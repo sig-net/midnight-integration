@@ -31,7 +31,9 @@
     "compile:signet-contract:zk": "yarn workspace @sig-net/midnight-contract run compile:zk",
     "test:signet-contract": "yarn workspace @sig-net/midnight-contract run test",
     "build:signet-contract": "yarn workspace @sig-net/midnight-contract run build",
-    "deploy:signet-contract": "yarn workspace @sig-net/midnight-contract-deploy run deploy"
+    "deploy:signet-contract": "yarn workspace @sig-net/midnight-contract-deploy run deploy",
+    "build:wallet": "yarn workspace @sig-net/midnight-wallet run build",
+    "test:wallet": "yarn workspace @sig-net/midnight-wallet run test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
