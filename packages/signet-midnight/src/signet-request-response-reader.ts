@@ -31,6 +31,7 @@ import {
   type RequestIdHex,
   requestIdHex,
   type SignBidirectionalEvent,
+  TxParamType,
 } from "./signet-requests.ts";
 
 /**
@@ -94,6 +95,19 @@ export interface VerifiedSignatureResponseResult {
   verified?: SignatureRespondedEvent;
   /** One verdict per post, emission order. */
   verdicts: SignatureResponseVerdict[];
+}
+
+/**
+ * Assert a fetched request carries the evmType2 decomposition, the only one
+ * the EVM-transaction methods may read `txParams` from.
+ *
+ * @param request - The fetched request record.
+ * @throws {Error} If the record carries any other decomposition.
+ */
+function assertEvmType2Request(request: SignBidirectionalEvent): void {
+  if (request.txParamType !== TxParamType.evmType2) {
+    throw new Error(`unsupported txParamType ${String(request.txParamType)}`);
+  }
 }
 
 /**
@@ -244,13 +258,13 @@ export class SignetRequestResponseReader {
    * @param requestId - The request id whose transaction to rebuild.
    * @returns The unsigned ethers transaction (`unsignedHash` is the MPC's
    *   signing digest).
-   * @throws {Error} When the requester contract has no state or holds no
-   *   request under `requestId`.
+   * @throws {Error} When the requester contract has no state, holds no
+   *   request under `requestId`, or the request is not an evmType2 record.
    */
   async getUnsignedEvmTransaction(requestId: RequestIdHex): Promise<Transaction> {
-    return signBidirectionalEventToUnsignedEvmTransaction(
-      await this.getSignatureRequest(requestId),
-    );
+    const request = await this.getSignatureRequest(requestId);
+    assertEvmType2Request(request);
+    return signBidirectionalEventToUnsignedEvmTransaction(request);
   }
 
   /**
@@ -265,20 +279,19 @@ export class SignetRequestResponseReader {
    * @returns The signed ethers transaction (`serialized` is the payload for
    *   `eth_sendRawTransaction`), or `undefined` when no valid response has
    *   been posted yet: poll again.
-   * @throws {Error} When the requester contract has no state or the request is
-   *   not on its ledger.
+   * @throws {Error} When the requester contract has no state, the request is
+   *   not on its ledger, or the request is not an evmType2 record.
    */
   async getSignedEvmTransaction(
     requestId: RequestIdHex,
     expectedSigner: string,
   ): Promise<Transaction | undefined> {
+    const request = await this.getSignatureRequest(requestId);
+    assertEvmType2Request(request);
     const { verified } = await this.getVerifiedSignatureRespondedEvent(requestId, expectedSigner);
     if (verified === undefined) {
       return undefined;
     }
-    // getSignatureRequest is cached: getVerifiedSignatureRespondedEvent already
-    // fetched it, so this is a free lookup.
-    const request = await this.getSignatureRequest(requestId);
     return signBidirectionalEventToSignedEvmTransaction(request, verified);
   }
 

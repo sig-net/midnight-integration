@@ -22,5 +22,5 @@ export {
   ecdsaSignatureToMpcSignature,
   secp256k1PublicKeyOf,
   signAttestationDigest,
+  signatureToSignatureRespondedEvent,
 } from "./ecdsa-attestation.ts";
-export { signatureToSignatureRespondedEvent } from "./signet-evtype2tx-requests.ts";

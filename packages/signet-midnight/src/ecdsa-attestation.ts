@@ -1,7 +1,7 @@
-// secp256k1 ECDSA helpers: the TS side of the respond-bidirectional
-// attestation flow in Signet.compact: SIGNING (which needs the secret
-// scalar, so it cannot be a circuit), key parsing/formatting, and the
-// attestation digest's TS twin.
+// secp256k1 ECDSA helpers: the TS side of Signet.compact's respond flows:
+// SIGNING (which needs the secret scalar, so it cannot be a circuit), key
+// parsing/formatting, the signature-record codecs both respond events
+// share, and the attestation digest's TS twin.
 // Everything provable stays in Compact where possible: in-circuit
 // verification is `verifyRespondBidirectionalEvent`. The digest circuit is
 // size-generic and the compiler cannot export size-generic circuits
@@ -15,10 +15,14 @@
 
 import type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
-import { ethers } from "ethers";
+import { ethers, Signature, toBeHex } from "ethers";
 
 import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codecs.ts";
-import type { MpcSignature, RespondBidirectionalEvent } from "./signet-contract-events.ts";
+import type {
+  MpcSignature,
+  RespondBidirectionalEvent,
+  SignatureRespondedEvent,
+} from "./signet-contract-events.ts";
 import type { RequestId } from "./signet-requests.ts";
 
 // Re-exported because it appears throughout this module's public signatures:
@@ -124,6 +128,47 @@ export function mpcSignatureToEcdsaSignature(signature: MpcSignature): EcdsaSign
     r: bytesToBigintBE(bigR.x) % SECP256K1_ORDER,
     s: bytesToBigintBE(s),
     recoveryId: Number(recoveryId),
+  };
+}
+
+/**
+ * Decode a posted response signature record into an ethers
+ * {@link Signature}. Ethers' `r` is the ECDSA scalar (`bigR.x` reduced mod
+ * the curve order), not the raw coordinate.
+ *
+ * @param response - The posted signature record.
+ * @returns The ethers signature.
+ * @throws {Error} If the record is malformed (see {@link mpcSignatureToEcdsaSignature}).
+ */
+export function signatureRespondedEventToSignature(response: SignatureRespondedEvent): Signature {
+  const { r, s, recoveryId } = mpcSignatureToEcdsaSignature(response.signature);
+  return Signature.from({
+    r: toBeHex(r, 32),
+    s: toBeHex(s, 32),
+    v: recoveryId + 27,
+  });
+}
+
+/**
+ * Encode an ethers signature as the {@link SignatureRespondedEvent} record a
+ * responder posts: the inverse of {@link signatureRespondedEventToSignature}.
+ * Responder-side (the fakenet posts through this; clients only verify), so
+ * it is exported through the `./testing` entry point with the other
+ * posting-side helpers.
+ *
+ * @param signature - The signature to encode (`r`/`s` as 0x hex, `yParity` 0 or 1).
+ * @returns The response record, ready to post.
+ * @throws {Error} If `r` is not the x coordinate of a secp256k1 point.
+ */
+export function signatureToSignatureRespondedEvent(
+  signature: Pick<Signature, "r" | "s" | "yParity">,
+): SignatureRespondedEvent {
+  return {
+    signature: ecdsaSignatureToMpcSignature({
+      r: BigInt(signature.r),
+      s: BigInt(signature.s),
+      recoveryId: signature.yParity,
+    }),
   };
 }
 

@@ -32,7 +32,6 @@ export {
   type EvmCalldata,
   type EvmType2TxParams,
   numericAbiWord,
-  signatureRespondedEventToSignature,
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
 } from "./signet-evtype2tx-requests.ts";
@@ -64,6 +63,7 @@ export {
   parseSecp256k1PublicKey,
   SECP256K1_ORDER,
   type Secp256k1Point,
+  signatureRespondedEventToSignature,
   verifyRespondBidirectionalSignature,
 } from "./ecdsa-attestation.ts";
 

@@ -9,7 +9,7 @@
 // contract-stored bytes untouched.
 
 import { type CompactType, CompactTypeVector } from "@midnight-ntwrk/compact-runtime";
-import { getAddress, Signature, toBeHex, Transaction } from "ethers";
+import { getAddress, Transaction } from "ethers";
 
 import { bigintToBytes32BE, bytesToHex } from "./byte-codecs.ts";
 import {
@@ -24,7 +24,7 @@ import {
   UINT_64,
   UINT_128,
 } from "./compact-descriptors.ts";
-import { ecdsaSignatureToMpcSignature, mpcSignatureToEcdsaSignature } from "./ecdsa-attestation.ts";
+import { signatureRespondedEventToSignature } from "./ecdsa-attestation.ts";
 import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 import {
   type SignBidirectionalEvent,
@@ -365,47 +365,6 @@ export function signBidirectionalEventToUnsignedEvmTransaction(
     accessList: decodeAccessList(txParams),
     data: assembleCalldata(txParams.calldata),
   });
-}
-
-/**
- * Decode a posted response signature record into an ethers
- * {@link Signature}. Ethers' `r` is the ECDSA scalar (`bigR.x` reduced mod
- * the curve order), not the raw coordinate.
- *
- * @param response - The posted signature record.
- * @returns The ethers signature.
- * @throws {Error} If the record is malformed (see {@link mpcSignatureToEcdsaSignature}).
- */
-export function signatureRespondedEventToSignature(response: SignatureRespondedEvent): Signature {
-  const { r, s, recoveryId } = mpcSignatureToEcdsaSignature(response.signature);
-  return Signature.from({
-    r: toBeHex(r, 32),
-    s: toBeHex(s, 32),
-    v: recoveryId + 27,
-  });
-}
-
-/**
- * Encode an ethers signature as the {@link SignatureRespondedEvent} record a
- * responder posts: the inverse of {@link signatureRespondedEventToSignature}.
- * Responder-side (the fakenet posts through this; clients only verify), so
- * it is exported through the `./testing` entry point with the other
- * posting-side helpers.
- *
- * @param signature - The signature to encode (`r`/`s` as 0x hex, `yParity` 0 or 1).
- * @returns The response record, ready to post.
- * @throws {Error} If `r` is not the x coordinate of a secp256k1 point.
- */
-export function signatureToSignatureRespondedEvent(
-  signature: Pick<Signature, "r" | "s" | "yParity">,
-): SignatureRespondedEvent {
-  return {
-    signature: ecdsaSignatureToMpcSignature({
-      r: BigInt(signature.r),
-      s: BigInt(signature.s),
-      recoveryId: signature.yParity,
-    }),
-  };
 }
 
 /**

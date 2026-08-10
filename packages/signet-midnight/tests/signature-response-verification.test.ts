@@ -126,6 +126,15 @@ describe("recoverSignatureResponseSigner", () => {
       /recovery id/,
     );
   });
+
+  it("rejects a request of an unsupported txParamType", () => {
+    expect(() =>
+      recoverSignatureResponseSigner(
+        { ...REQUEST, txParamType: TxParamType.reserved },
+        VALID_RESPONSE,
+      ),
+    ).toThrow(/unsupported txParamType 1/);
+  });
 });
 
 /** One row of the verify table: request + response + claimed signer → verdict. */
