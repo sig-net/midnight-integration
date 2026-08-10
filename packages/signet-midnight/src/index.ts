@@ -17,7 +17,16 @@ export {
 // toolkit (compact-descriptors.ts and the per-module record descriptors) is
 // package-internal, consumed only through the reader and request functions.
 export * from "./constants.ts";
-export * from "./epsilon-derivation.ts";
+// Selective: deriveMidnightResponseSecretKey takes the MPC root secret, so
+// it is exported through ./testing with the other secret-taking helpers.
+export {
+  deriveEpsilon,
+  deriveEvmAddress,
+  deriveMidnightResponseKey,
+  EPSILON_DERIVATION_PREFIX,
+  MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
+  MIDNIGHT_TESTNET_CHAIN_ID,
+} from "./epsilon-derivation.ts";
 export { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";
 export * from "./signature-requests-state-reader.ts";
 export * from "./signature-response-verification.ts";

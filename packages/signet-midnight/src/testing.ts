@@ -24,3 +24,4 @@ export {
   signAttestationDigest,
   signatureToSignatureRespondedEvent,
 } from "./ecdsa-attestation.ts";
+export { deriveMidnightResponseSecretKey } from "./epsilon-derivation.ts";

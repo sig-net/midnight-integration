@@ -24,7 +24,6 @@ import {
   asciiPadded,
   calculateRequestId,
   deriveEvmAddress,
-  deriveMidnightResponseSecretKey,
   hexToBytes,
   parseSecp256k1PublicKey,
   requestIdBytes,
@@ -36,6 +35,7 @@ import {
 import { signBidirectionalEventToSignedEvmTransaction } from "@sig-net/midnight";
 import {
   calculateSignetAttestationDigest,
+  deriveMidnightResponseSecretKey,
   ecdsaSignatureToMpcSignature,
   signAttestationDigest,
 } from "@sig-net/midnight/testing";
