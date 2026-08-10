@@ -35,6 +35,18 @@ describe("signetFieldNodeByPath", () => {
     expect(() => signetFieldNodeByPath(root, [0, 0])).toThrow(/out of range/);
   });
 
+  it("names the binding violation when type() claims array but asArray() yields nothing", () => {
+    // A real StateValue cannot misreport, so the guard is only reachable
+    // through a stub that breaks the binding's type()/asArray() agreement.
+    const misreportingNode = {
+      type: () => "array",
+      asArray: () => undefined,
+    } as unknown as StateValue;
+    expect(() => signetFieldNodeByPath(misreportingNode, [0])).toThrow(
+      /binding contract violation/,
+    );
+  });
+
   it("unwraps a { state } wrapper like a bare state value", () => {
     const root = StateValue.newArray().arrayPush(rootCell());
     const bare = signetFieldNodeByPath(root, [0]);

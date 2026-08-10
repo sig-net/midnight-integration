@@ -55,13 +55,12 @@ function decodeSignBidirectionalEvent(cell: AlignedValue): SignBidirectionalEven
   }
   // The state layer trims trailing zeros, so evmType2 (0) arrives empty.
   const paramType = atom[0] ?? 0;
-  if (paramType !== (TxParamType.evmType2 as number)) {
-    throw new Error(
-      `unsupported txParamType ${String(paramType)}: this decoder understands evmType2 ` +
-        `(${String(TxParamType.evmType2)})`,
-    );
+  switch (paramType) {
+    case TxParamType.evmType2:
+      return decodeEvmType2SignBidirectionalEvent(cell, what);
+    default:
+      throw new Error(`unsupported txParamType ${String(paramType)}`);
   }
-  return decodeEvmType2SignBidirectionalEvent(cell, what);
 }
 
 /**

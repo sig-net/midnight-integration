@@ -24,6 +24,7 @@
 // on top, never these directly.
 
 import {
+  type AlignedValue,
   type CompactType,
   CompactTypeBoolean,
   CompactTypeBytes,
@@ -152,4 +153,36 @@ export function decodeExactly<T>(
     );
   }
   return decoded;
+}
+
+/**
+ * The declared width of each atom. Signet declares only `Bytes` atoms, so a
+ * widthless or nested segment is refused rather than assigned a width.
+ *
+ * @param cell - The record cell as stored.
+ * @param what - Error-message subject.
+ * @returns One declared byte width per atom.
+ * @throws {Error} If the alignment and value lengths disagree or a segment is
+ *   not a `Bytes` atom.
+ */
+export function declaredWidths(cell: AlignedValue, what: string): number[] {
+  if (cell.alignment.length !== cell.value.length) {
+    throw new Error(
+      `${what} declares ${String(cell.alignment.length)} alignment segments for ` +
+        `${String(cell.value.length)} atoms`,
+    );
+  }
+  return cell.alignment.map((segment, index) => {
+    if (segment.tag !== "atom") {
+      throw new Error(
+        `${what} atom ${String(index)} is an alignment option, which no signet type declares`,
+      );
+    }
+    if (segment.value.tag !== "bytes") {
+      throw new Error(
+        `${what} atom ${String(index)} is aligned '${segment.value.tag}', which carries no byte width`,
+      );
+    }
+    return segment.value.length;
+  });
 }

@@ -30,8 +30,8 @@ const unwrap = (raw: RawContractState): StateValue => ("state" in raw ? raw.stat
  * @param raw - Raw contract state from the indexer or simulator.
  * @param path - Resolved chunk-tree path in declaration order.
  * @returns The `StateValue` node at the end of the path.
- * @throws {Error} If `path` is empty, steps into a non-array, or an index is out
- *   of range.
+ * @throws {Error} If `path` is empty, steps into a non-array, an index is out
+ *   of range, or the runtime binding misreports a node as an array.
  */
 export function signetFieldNodeByPath(raw: RawContractState, path: readonly number[]): StateValue {
   if (path.length === 0) {
@@ -48,7 +48,14 @@ export function signetFieldNodeByPath(raw: RawContractState, path: readonly numb
         `Ledger field path ${JSON.stringify(path)} steps into a non-array at level ${String(level)}`,
       );
     }
-    const next = (node.asArray() ?? [])[index];
+    const entries = node.asArray();
+    if (entries === undefined) {
+      throw new Error(
+        `Ledger state node at level ${String(level)} of path ${JSON.stringify(path)} reports ` +
+          `type "array" but asArray() returned undefined: runtime binding contract violation`,
+      );
+    }
+    const next = entries[index];
     if (next === undefined) {
       throw new Error(
         `Ledger field path ${JSON.stringify(path)} index ${String(index)} out of range at level ${String(level)}`,

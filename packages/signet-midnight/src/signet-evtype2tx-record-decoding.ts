@@ -8,7 +8,7 @@
 
 import type { AlignedValue } from "@midnight-ntwrk/compact-runtime";
 
-import { decodeExactly } from "./compact-descriptors.ts";
+import { declaredWidths, decodeExactly } from "./compact-descriptors.ts";
 import { signBidirectionalEventDescriptor } from "./signet-evtype2tx-requests.ts";
 import type { SignBidirectionalEvent } from "./signet-requests.ts";
 
@@ -20,38 +20,6 @@ import type { SignBidirectionalEvent } from "./signet-requests.ts";
 const EVM_TYPE2_FIXED_ATOMS = 22;
 const EVM_TYPE2_HEAD_ATOMS = 18;
 const EVM_TYPE2_TAIL_ATOMS = 3;
-
-/**
- * The declared width of each atom. Signet declares only `Bytes` atoms, so a
- * widthless or nested segment is refused rather than assigned a width.
- *
- * @param cell - The record cell as stored.
- * @param what - Error-message subject.
- * @returns One declared byte width per atom.
- * @throws {Error} If the alignment and value lengths disagree or a segment is
- *   not a `Bytes` atom.
- */
-function declaredWidths(cell: AlignedValue, what: string): number[] {
-  if (cell.alignment.length !== cell.value.length) {
-    throw new Error(
-      `${what} declares ${String(cell.alignment.length)} alignment segments for ` +
-        `${String(cell.value.length)} atoms`,
-    );
-  }
-  return cell.alignment.map((segment, index) => {
-    if (segment.tag !== "atom") {
-      throw new Error(
-        `${what} atom ${String(index)} is an alignment option, which no signet type declares`,
-      );
-    }
-    if (segment.value.tag !== "bytes") {
-      throw new Error(
-        `${what} atom ${String(index)} is aligned '${segment.value.tag}', which carries no byte width`,
-      );
-    }
-    return segment.value.length;
-  });
-}
 
 /** A record's capacity instantiation, recovered from declared widths. */
 interface EvmType2Capacities {
