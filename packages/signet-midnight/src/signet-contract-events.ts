@@ -407,8 +407,9 @@ const SUPPORTED_NOTIFICATION_VERSION = 1n;
 
 /**
  * A decoded V1 notification: the flat pointer a client emitted to tell the
- * MPC a request was stored, and WHERE to read the authenticated copy (see
- * signet-request-feed.ts). The fields themselves confer no authority.
+ * MPC a request was stored, and WHERE to read the authenticated copy
+ * (resolve with `lookupSignetRequestAt`). The fields themselves confer no
+ * authority.
  */
 export interface SignBidirectionalNotification {
   /** Payload layout tag: this decoder only produces version 1. */

@@ -376,7 +376,7 @@ What clients import from `@sig-net/midnight`:
 | Recognise a failed remote execution | `MPC_FAILURE_OUTPUT` and `isMpcFailureOutput`: the MPC's fixed 5-byte failure payload for reverted or replaced transactions. |
 | Verify attestations without the reader | `verifyRespondBidirectionalSignature`: the check the reader runs internally, exposed for custom pipelines. |
 | Mint attestations in your contract's unit tests | The `@sig-net/midnight/testing` entry point, see [Testing entry point](#testing-entry-point). |
-| Discover requests MPC-side (responders, background workers) | `SignetRequestFeed`: polls the signet contract's emitted notification events, looks each declared request id up in the named caller's own request map (the authenticated read), and dedupes by request id. |
+| Discover requests MPC-side (responders, background workers) | The discovery primitives: decode the signet contract's emitted notification events with `decodeSignBidirectionalEventNotificationPayload` and `decodeSignBidirectionalNotification`, then resolve each pointer against the named caller's own request map with `lookupSignetRequestAt` (the authenticated read). The polling loop belongs to the responder. |
 | Call the compiled protocol circuits | `pureCircuits`: the compiled circuits of `Signet.compact`, for example the notification packer. Off-chain code calls these compiled artefacts, so it always agrees with what the contracts prove. |
 
 ### Testing entry point

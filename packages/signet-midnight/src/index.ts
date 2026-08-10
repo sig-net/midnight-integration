@@ -35,7 +35,6 @@ export {
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
 } from "./signet-evtype2tx-requests.ts";
-export * from "./signet-request-feed.ts";
 export { calculateRequestId } from "./signet-request-id.ts";
 export * from "./signet-request-response-reader.ts";
 export {

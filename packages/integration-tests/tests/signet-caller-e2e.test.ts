@@ -31,7 +31,6 @@ import {
   type RequestIdHex,
   requestIdHex,
   SIGNET_DEFAULT_KEY_VERSION,
-  sleepUnlessAborted,
   stripHexPrefix,
 } from "@sig-net/midnight";
 import { signBidirectionalEventToSignedEvmTransaction } from "@sig-net/midnight";
@@ -56,6 +55,32 @@ import { banner, logSkip } from "../src/output.ts";
 import { pollSignetNotification } from "../src/signet-notifications.ts";
 
 const MINUTE = 60_000;
+
+/**
+ * Resolve after `ms`, or immediately once `signal` aborts. Spaces out the
+ * polling loops below.
+ *
+ * @param ms - Milliseconds to wait.
+ * @param signal - Abort to resolve early.
+ * @returns A promise that settles after the delay or the abort.
+ */
+function sleepUnlessAborted(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 /**
  * The setup-populated env accumulator: repo-root `.env` overlaid with the
