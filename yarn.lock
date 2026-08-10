@@ -826,8 +826,8 @@ __metadata:
     "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "npm:5.0.0-beta.6"
     "@midnight-protocol/test-caller-contract": "npm:*"
-    "@sig-net/midnight": "npm:*"
-    "@sig-net/midnight-contract-deploy": "npm:*"
+    "@sig-net/midnight": "workspace:*"
+    "@sig-net/midnight-contract-deploy": "workspace:*"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
     ethers: "npm:^6.17.0"
@@ -845,7 +845,7 @@ __metadata:
     "@midnight-ntwrk/midnight-js-http-client-proof-provider": "npm:5.0.0-beta.6"
     "@midnightntwrk/ledger-v9": "npm:1.0.0-rc.3"
     "@midnightntwrk/wallet-sdk-facade": "npm:5.0.0-beta.2"
-    "@sig-net/midnight-contract-deploy": "npm:*"
+    "@sig-net/midnight-contract-deploy": "workspace:*"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
     typescript: "npm:^7.0.2"
@@ -858,7 +858,7 @@ __metadata:
   resolution: "@midnight-protocol/test-caller-contract-20-field@workspace:packages/test-caller-contract-20-field"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
-    "@sig-net/midnight": "npm:*"
+    "@sig-net/midnight": "workspace:*"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
     typescript: "npm:^7.0.2"
@@ -876,9 +876,9 @@ __metadata:
     "@midnight-ntwrk/midnight-js-level-private-state-provider": "npm:5.0.0-beta.6"
     "@midnight-ntwrk/midnight-js-node-zk-config-provider": "npm:5.0.0-beta.6"
     "@midnight-protocol/lib": "npm:*"
-    "@sig-net/midnight": "npm:*"
-    "@sig-net/midnight-contract-deploy": "npm:*"
-    "@sig-net/midnight-serde": "npm:*"
+    "@sig-net/midnight": "workspace:*"
+    "@sig-net/midnight-contract-deploy": "workspace:*"
+    "@sig-net/midnight-serde": "workspace:*"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
     tsx: "npm:^4.23.0"
@@ -2262,7 +2262,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@sig-net/midnight-contract-deploy@npm:*, @sig-net/midnight-contract-deploy@workspace:packages/signet-contract-deploy":
+"@sig-net/midnight-contract-deploy@workspace:*, @sig-net/midnight-contract-deploy@workspace:packages/signet-contract-deploy":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight-contract-deploy@workspace:packages/signet-contract-deploy"
   dependencies:
@@ -2280,8 +2280,8 @@ __metadata:
     "@midnightntwrk/wallet-sdk-shielded": "npm:4.0.0-beta.2"
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "npm:4.0.0-beta.2"
     "@scure/bip39": "npm:^2.2.0"
-    "@sig-net/midnight": "npm:^0.19.0"
-    "@sig-net/midnight-contract": "npm:^0.19.0"
+    "@sig-net/midnight": "npm:^0.20.0-rc.1"
+    "@sig-net/midnight-contract": "npm:^0.20.0-rc.1"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
     effect: "npm:^3.21.4"
@@ -2291,13 +2291,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight-contract@npm:^0.19.0, @sig-net/midnight-contract@workspace:packages/signet-contract":
+"@sig-net/midnight-contract@npm:^0.20.0-rc.1, @sig-net/midnight-contract@workspace:packages/signet-contract":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight-contract@workspace:packages/signet-contract"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
-    "@sig-net/midnight": "npm:^0.19.0"
+    "@sig-net/midnight": "npm:^0.20.0-rc.1"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
     typescript: "npm:^7.0.2"
@@ -2305,7 +2305,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight-serde@npm:*, @sig-net/midnight-serde@npm:^0.19.0, @sig-net/midnight-serde@workspace:packages/midnight-serde":
+"@sig-net/midnight-serde@npm:^0.20.0-rc.1, @sig-net/midnight-serde@workspace:*, @sig-net/midnight-serde@workspace:packages/midnight-serde":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight-serde@workspace:packages/midnight-serde"
   dependencies:
@@ -2317,14 +2317,14 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight@npm:*, @sig-net/midnight@npm:^0.19.0, @sig-net/midnight@workspace:packages/signet-midnight":
+"@sig-net/midnight@npm:^0.20.0-rc.1, @sig-net/midnight@workspace:*, @sig-net/midnight@workspace:packages/signet-midnight":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight@workspace:packages/signet-midnight"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@midnight-ntwrk/midnight-js-types": "npm:5.0.0-beta.6"
     "@noble/curves": "npm:^2.2.0"
-    "@sig-net/midnight-serde": "npm:^0.19.0"
+    "@sig-net/midnight-serde": "npm:^0.20.0-rc.1"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
     ethers: "npm:^6.17.0"

@@ -159,7 +159,7 @@ jobs:
             fi
             echo "publishing $name@$version"
             if [ "${version#*-}" != "$version" ]; then
-              yarn workspace "$name" npm publish --provenance --tag beta
+              yarn workspace "$name" npm publish --provenance --tag rc
             else
               yarn workspace "$name" npm publish --provenance
             fi
