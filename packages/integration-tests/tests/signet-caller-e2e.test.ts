@@ -23,21 +23,22 @@
 import {
   asciiPadded,
   calculateRequestId,
-  calculateSignetAttestationDigest,
   deriveEvmAddress,
-  deriveMidnightResponseSecretKey,
-  ecdsaSignatureToMpcSignature,
   hexToBytes,
   parseSecp256k1PublicKey,
   requestIdBytes,
   type RequestIdHex,
   requestIdHex,
-  signAttestationDigest,
   SIGNET_DEFAULT_KEY_VERSION,
-  sleepUnlessAborted,
   stripHexPrefix,
 } from "@sig-net/midnight";
 import { signBidirectionalEventToSignedEvmTransaction } from "@sig-net/midnight";
+import {
+  calculateSignetAttestationDigest,
+  deriveMidnightResponseSecretKey,
+  ecdsaSignatureToMpcSignature,
+  signAttestationDigest,
+} from "@sig-net/midnight/testing";
 import { getAddress, type Transaction } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -47,13 +48,39 @@ import {
   ensureMpcResponseKeyStored,
   readCallerRequestIds,
 } from "../src/caller-session.ts";
-import { CALLER_PATH } from "../src/constants.ts";
+import { CALLER_PATH_BYTES, CALLER_PATH_HEX } from "../src/constants.ts";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
 import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
 import { banner, logSkip } from "../src/output.ts";
 import { pollSignetNotification } from "../src/signet-notifications.ts";
 
 const MINUTE = 60_000;
+
+/**
+ * Resolve after `ms`, or immediately once `signal` aborts. Spaces out the
+ * polling loops below.
+ *
+ * @param ms - Milliseconds to wait.
+ * @param signal - Abort to resolve early.
+ * @returns A promise that settles after the delay or the abort.
+ */
+function sleepUnlessAborted(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 /**
  * The setup-populated env accumulator: repo-root `.env` overlaid with the
@@ -176,7 +203,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       expect(record.txParams.calldata.is_some).toBe(true);
       expect(record.txParams.calldata.value.selector).toEqual(EXPECTED_SELECTOR);
       expect(record.txParams.calldata.value.words[0]).toEqual(EXPECTED_WORD);
-      expect(new TextDecoder().decode(record.path).replace(/\0+$/u, "")).toBe(CALLER_PATH);
+      expect(record.path).toEqual(CALLER_PATH_BYTES);
       // The event commits to its own sender: the caller contract's address.
       expect(stripHexPrefix(Buffer.from(record.sender.bytes).toString("hex")).toLowerCase()).toBe(
         stripHexPrefix(requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS")).toLowerCase(),
@@ -240,13 +267,13 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       expect(signatureRequestId).toBeDefined();
 
       // The caller's requests are keyed under its contract-fixed path
-      // ("caller-path"), so the MPC signs with the account epsilon-derived
-      // from the CALLER CONTRACT's address + that path, recomputed here with
-      // the same derivation the MPC uses.
+      // bytes, so the MPC signs with the account epsilon-derived from the
+      // CALLER CONTRACT's address + the hex rendering of those bytes,
+      // recomputed here with the same derivation the MPC uses.
       const expectedSigner = deriveEvmAddress(
         requireEnv("MPC_SECP256K1_PUBKEY"),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
-        CALLER_PATH,
+        CALLER_PATH_HEX,
       );
       console.log(`expected signer (derived caller account): ${expectedSigner}`);
 

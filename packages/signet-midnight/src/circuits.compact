@@ -1,18 +1,14 @@
 pragma language_version >= 0.25;
 
-// Compiled export surface of the Signet module. Signet.compact is
-// module-only and compiles to nothing on its own, so this contract-less
-// program re-exports its pure circuits: the compiler emits them as
-// pureCircuits for unit tests and off-chain code to reuse instead of
-// re-porting the algorithms. Only non-generic circuits can be exported
-// (the compiler cannot export type-parameterised circuits top-level).
-// Compile with --skip-zk and --feature-zkir-v3.
+// Compiled export surface of the Signet module: a contract-less program
+// re-exporting its pure circuits as pureCircuits for unit tests and
+// off-chain code. Only non-generic circuits can be exported. Compile with
+// --skip-zk and --feature-zkir-v3.
 
 import CompactStandardLibrary;
 import "./Signet";
 
 export {
-  signetKeyHash,
   constructSignBidirectionalEventNotificationV1,
   evmAddressAbiWord,
   numericAbiWord,
@@ -22,14 +18,11 @@ export {
 };
 
 // ---- Fixed-width attestation oracles (tests only) --------------------------
-// calculateSignetAttestationDigest and verifyRespondBidirectionalEvent are
-// size-generic, so they cannot appear in the export list above. These
-// fixed-width instantiations exist SOLELY to pin the off-chain TS twin
-// (calculateSignetAttestationDigest in ecdsa-attestation.ts) byte-for-byte
-// against the compiled circuits: 1 is the smallest packed output (a lone
-// bool), 32 one ABI word, 100 a deliberately non-word-aligned width.
-// Off-chain code must use the TS twin; client contracts instantiate the
-// generic circuits at the width their own respond schema implies.
+// The size-generic digest and verify circuits cannot appear in the export
+// list above. These fixed-width instantiations exist solely to pin the TS
+// twin in ecdsa-attestation.ts against the compiled circuits (widths 1, 32
+// and 100). Client contracts instantiate the generic circuits at their own
+// width.
 
 export pure circuit calculateSignetAttestationDigest1(
   requestId: RequestId,
