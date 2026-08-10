@@ -103,7 +103,7 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
   algo: number;
   /** An {@link MPCDestination} value. */
   dest: number;
-  /** Extra MPC parameters, reserved, 64 bytes. */
+  /** Extra MPC parameters: 64 opaque bytes, reserved, zero-filled. */
   params: Uint8Array;
   /** A {@link TxParamType} value tagging the txParams decomposition. */
   txParamType: number;
