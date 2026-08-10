@@ -15,9 +15,11 @@ import {
   assertDeployerFunded,
   buildDeployTransaction,
   contractAddressToReference,
+  DeployerWalletKind,
   getDeployConfig,
+  withDeployerWallet,
 } from "@sig-net/midnight-contract-deploy";
-import { envOrUndefined, type TransactionId, withLocalWallet } from "@sig-net/midnight-wallet";
+import { envOrUndefined, type TransactionId } from "@sig-net/midnight-wallet";
 
 import { pureCircuits } from "./managed/test-caller-contract/contract/index.js";
 import { callerCompiledContract } from "./providers.ts";
@@ -26,18 +28,29 @@ import { createCallerPrivateState } from "./witnesses.ts";
 /**
  * Resolve the deployer's 32-byte identity secret: `CALLER_DEPLOYER_SECRET_KEY`
  * when set, else the deployer wallet seed (same convention as the erc20-vault
- * example). Its commitment gates the contract's initialise circuit.
+ * example). Its commitment gates the contract's initialise circuit. A remote
+ * deployer wallet has no local seed to fall back to, so
+ * `CALLER_DEPLOYER_SECRET_KEY` is mandatory there.
  *
  * @param env - The environment to read from.
- * @param fallbackSeed - The deployer wallet seed (32-byte hex).
+ * @param fallbackSeed - The deployer wallet seed (32-byte hex), when the
+ *   deployer is a local seed wallet.
  * @returns The 32-byte secret key.
- * @throws {Error} If the resolved value is not exactly 32 bytes of hex.
+ * @throws {Error} If neither source is set, or the resolved value is not
+ *   exactly 32 bytes of hex.
  */
 export function resolveCallerDeployerSecretKey(
   env: Record<string, string | undefined>,
-  fallbackSeed: string,
+  fallbackSeed: string | undefined,
 ): Uint8Array {
-  const raw = stripHexPrefix(envOrUndefined(env, "CALLER_DEPLOYER_SECRET_KEY") ?? fallbackSeed);
+  const provided = envOrUndefined(env, "CALLER_DEPLOYER_SECRET_KEY") ?? fallbackSeed;
+  if (provided === undefined) {
+    throw new Error(
+      "CALLER_DEPLOYER_SECRET_KEY is required when the deployer is a remote wallet: " +
+        "a remote deployer has no local seed to default the identity secret to.",
+    );
+  }
+  const raw = stripHexPrefix(provided);
   if (!/^[0-9a-fA-F]{64}$/.test(raw)) {
     throw new Error(
       "the caller deployer identity secret must be exactly 32 bytes of hex (set CALLER_DEPLOYER_SECRET_KEY)",
@@ -63,11 +76,12 @@ export interface CallerDeployment {
  * separate `initialise` call (derive it from the MPC root public key + the
  * NEW contract address + the fixed path "midnight response key").
  *
- * @param env - Environment map providing `DEPLOYER_SEED`,
- *   `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` (the signet contract to seal as the
- *   cross-contract emitter), optionally `CALLER_DEPLOYER_SECRET_KEY` (the
- *   identity secret whose commitment gates initialise; defaults to the
- *   deployer seed) and the shared Midnight node configuration (see
+ * @param env - Environment map providing exactly one of `DEPLOYER_SEED` and
+ *   `DEPLOYER_REMOTE_WALLET_URL`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` (the
+ *   signet contract to seal as the cross-contract emitter), optionally
+ *   `CALLER_DEPLOYER_SECRET_KEY` (the identity secret whose commitment gates
+ *   initialise; defaults to the deployer seed, so it is mandatory with a
+ *   remote deployer wallet) and the shared Midnight node configuration (see
  *   `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
  * @throws {Error} If `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` is missing/malformed, the
@@ -83,7 +97,12 @@ export async function deployCaller(
   // The deployer's identity commitment, sealed by the constructor: only the
   // holder of the secret may later call initialise (front-run protection for
   // the response-key pin).
-  const deployerSecretKey = resolveCallerDeployerSecretKey(env, deployConfig.deployerSeed);
+  const deployerSecretKey = resolveCallerDeployerSecretKey(
+    env,
+    deployConfig.deployerWallet.kind === DeployerWalletKind.Seed
+      ? deployConfig.deployerWallet.seed
+      : undefined,
+  );
   const deployerCommitment = pureCircuits.deployerCommitment(deployerSecretKey);
 
   // The signet contract the caller cross-contract-calls to register signature
@@ -101,27 +120,23 @@ export async function deployCaller(
     `deploying test-caller-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`,
   );
 
-  const { contractAddress, txId } = await withLocalWallet(
-    deployConfig.deployerSeed,
-    deployConfig.midnightNodeConfig,
-    async (wallet) => {
-      await assertDeployerFunded(wallet);
+  const { contractAddress, txId } = await withDeployerWallet(deployConfig, async (wallet) => {
+    await assertDeployerFunded(wallet);
 
-      const deployTransaction = await buildDeployTransaction(
-        callerCompiledContract,
-        networkId,
-        wallet.getCoinPublicKey(),
-        createCallerPrivateState(deployerSecretKey),
-        deployerCommitment,
-        signetSigner,
-      );
-      console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
+    const deployTransaction = await buildDeployTransaction(
+      callerCompiledContract,
+      networkId,
+      wallet.getCoinPublicKey(),
+      createCallerPrivateState(deployerSecretKey),
+      deployerCommitment,
+      signetSigner,
+    );
+    console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
 
-      const finalized = await wallet.balanceUnprovenTx(deployTransaction.transaction);
-      const submittedTxId = await wallet.submitTx(finalized);
-      return { contractAddress: deployTransaction.contractAddress, txId: submittedTxId };
-    },
-  );
+    const finalized = await wallet.balanceUnprovenTx(deployTransaction.transaction);
+    const submittedTxId = await wallet.submitTx(finalized);
+    return { contractAddress: deployTransaction.contractAddress, txId: submittedTxId };
+  });
 
   console.log(`submitted deploy tx ${txId}`);
   console.log(`deployed test-caller-contract at ${contractAddress}`);

@@ -2,7 +2,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { getDeployConfig, type NetworkId } from "../src/index.ts";
+import {
+  type DeployerWalletConfig,
+  DeployerWalletKind,
+  getDeployConfig,
+  type NetworkId,
+} from "../src/index.ts";
 
 // The pre-funded genesis mint wallet of the local standalone stack — the
 // documented default when DEPLOYER_SEED is unset.
@@ -18,10 +23,12 @@ const STAGENET_ENDPOINTS = {
   MIDNIGHT_NODE_INDEXER_URL: "https://indexer.example/api/v4/graphql",
 };
 
+const REMOTE_WALLET_URL = "https://wallet-host.example/wallet/v1/";
+
 interface Case {
   name: string;
   env: Record<string, string | undefined>;
-  expectedSeed: string;
+  expectedDeployerWallet: DeployerWalletConfig;
   expectedNetworkId: NetworkId;
 }
 
@@ -29,45 +36,68 @@ const CASES: Case[] = [
   {
     name: "empty env → genesis mint seed on undeployed",
     env: {},
-    expectedSeed: GENESIS_MINT_WALLET_SEED,
+    expectedDeployerWallet: { kind: DeployerWalletKind.Seed, seed: GENESIS_MINT_WALLET_SEED },
     expectedNetworkId: "undeployed",
   },
   {
     name: "DEPLOYER_SEED is used and trimmed",
     env: { DEPLOYER_SEED: `  ${CUSTOM_SEED}  ` },
-    expectedSeed: CUSTOM_SEED,
+    expectedDeployerWallet: { kind: DeployerWalletKind.Seed, seed: CUSTOM_SEED },
     expectedNetworkId: "undeployed",
   },
   {
     name: "whitespace-only DEPLOYER_SEED falls back to the genesis mint seed",
     env: { DEPLOYER_SEED: "   " },
-    expectedSeed: GENESIS_MINT_WALLET_SEED,
+    expectedDeployerWallet: { kind: DeployerWalletKind.Seed, seed: GENESIS_MINT_WALLET_SEED },
     expectedNetworkId: "undeployed",
   },
   {
     name: "NETWORK_ID flows through to the node config",
     env: { NETWORK_ID: "preview", DEPLOYER_SEED: CUSTOM_SEED },
-    expectedSeed: CUSTOM_SEED,
+    expectedDeployerWallet: { kind: DeployerWalletKind.Seed, seed: CUSTOM_SEED },
     expectedNetworkId: "preview",
   },
   {
     name: "a deployed network uses the provided DEPLOYER_SEED",
     env: { NETWORK_ID: "stagenet", DEPLOYER_SEED: CUSTOM_SEED, ...STAGENET_ENDPOINTS },
-    expectedSeed: CUSTOM_SEED,
+    expectedDeployerWallet: { kind: DeployerWalletKind.Seed, seed: CUSTOM_SEED },
     expectedNetworkId: "stagenet",
+  },
+  {
+    name: "DEPLOYER_REMOTE_WALLET_URL selects a remote deployer wallet",
+    env: { DEPLOYER_REMOTE_WALLET_URL: REMOTE_WALLET_URL },
+    expectedDeployerWallet: { kind: DeployerWalletKind.Remote, url: new URL(REMOTE_WALLET_URL) },
+    expectedNetworkId: "undeployed",
+  },
+  {
+    name: "a deployed network accepts a remote deployer wallet with no seed",
+    env: {
+      NETWORK_ID: "stagenet",
+      DEPLOYER_REMOTE_WALLET_URL: REMOTE_WALLET_URL,
+      ...STAGENET_ENDPOINTS,
+    },
+    expectedDeployerWallet: { kind: DeployerWalletKind.Remote, url: new URL(REMOTE_WALLET_URL) },
+    expectedNetworkId: "stagenet",
+  },
+  {
+    name: "a whitespace-only DEPLOYER_REMOTE_WALLET_URL counts as unset",
+    env: { DEPLOYER_REMOTE_WALLET_URL: "   ", DEPLOYER_SEED: CUSTOM_SEED },
+    expectedDeployerWallet: { kind: DeployerWalletKind.Seed, seed: CUSTOM_SEED },
+    expectedNetworkId: "undeployed",
   },
 ];
 
 describe("getDeployConfig", () => {
-  it.each(CASES)("$name", ({ env, expectedSeed, expectedNetworkId }) => {
+  it.each(CASES)("$name", ({ env, expectedDeployerWallet, expectedNetworkId }) => {
     const config = getDeployConfig(env);
-    expect(config.deployerSeed).toBe(expectedSeed);
+    expect(config.deployerWallet).toEqual(expectedDeployerWallet);
     expect(config.midnightNodeConfig.networkId).toBe(expectedNetworkId);
   });
 });
 
-// On a deployed network the genesis mint wallet is unfunded, so getDeployConfig
-// refuses to fall back to it: a funded DEPLOYER_SEED is mandatory there.
+// Rejections: the deployer wallet source must be exactly one of the two
+// variables, and on a deployed network the genesis mint wallet is unfunded,
+// so a funded DEPLOYER_SEED (or a remote wallet) is mandatory there.
 interface ThrowCase {
   name: string;
   env: Record<string, string | undefined>;
@@ -75,6 +105,16 @@ interface ThrowCase {
 }
 
 const THROW_CASES: ThrowCase[] = [
+  {
+    name: "both DEPLOYER_SEED and DEPLOYER_REMOTE_WALLET_URL is refused",
+    env: { DEPLOYER_SEED: CUSTOM_SEED, DEPLOYER_REMOTE_WALLET_URL: REMOTE_WALLET_URL },
+    expectedMessage: /exactly one of DEPLOYER_SEED and DEPLOYER_REMOTE_WALLET_URL/,
+  },
+  {
+    name: "a malformed DEPLOYER_REMOTE_WALLET_URL is refused",
+    env: { DEPLOYER_REMOTE_WALLET_URL: "not a url" },
+    expectedMessage: /DEPLOYER_REMOTE_WALLET_URL is not a valid URL/,
+  },
   {
     name: "deployed network without DEPLOYER_SEED demands one",
     env: { NETWORK_ID: "stagenet", ...STAGENET_ENDPOINTS },

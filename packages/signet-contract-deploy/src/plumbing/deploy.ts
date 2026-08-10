@@ -15,22 +15,53 @@ import * as CoinPublicKey from "@midnight-ntwrk/platform-js/effect/CoinPublicKey
 import * as Configuration from "@midnight-ntwrk/platform-js/effect/Configuration";
 import * as ledger from "@midnightntwrk/ledger-v9";
 import {
+  createHttpRemoteWalletTransport,
   envOrUndefined,
   getFaucetUrl,
   getMidnightNodeConfig,
   isLocalStandaloneNetwork,
   type MidnightNodeConfig,
   type NetworkId,
+  RemoteWallet,
   type Wallet,
+  withLocalWallet,
 } from "@sig-net/midnight-wallet";
 import { Effect, Layer, Option, type Types } from "effect";
+
+/** How the deploy reaches its deployer wallet: the two arms of {@link DeployerWalletConfig}. */
+export enum DeployerWalletKind {
+  /** An in-process `LocalWallet` built from a seed (`DEPLOYER_SEED`). */
+  Seed = "seed",
+  /** A hosted wallet reached over HTTP (`DEPLOYER_REMOTE_WALLET_URL`). */
+  Remote = "remote",
+}
+
+/**
+ * The deployer wallet source: exactly one of a seed (an in-process
+ * `LocalWallet`) or the base URL of a hosted wallet speaking the
+ * remote-wallet protocol. Resolved from the environment by
+ * {@link getDeployConfig}; consumed by {@link withDeployerWallet}.
+ */
+export type DeployerWalletConfig =
+  | {
+      /** Discriminator: the deployer is an in-process seed wallet. */
+      readonly kind: DeployerWalletKind.Seed;
+      /** Seed (hex or mnemonic) of the wallet that funds & signs the deploy. */
+      readonly seed: string;
+    }
+  | {
+      /** Discriminator: the deployer is a hosted remote wallet. */
+      readonly kind: DeployerWalletKind.Remote;
+      /** Base URL of the hosted wallet's remote-wallet HTTP API. */
+      readonly url: URL;
+    };
 
 /** Everything needed to perform a contract deploy: which stack to target, and which wallet pays for it. */
 export interface DeployConfig {
   /** The stack (node/indexer/proof-server endpoints + network id) to deploy to. */
   readonly midnightNodeConfig: MidnightNodeConfig;
-  /** Seed (hex or mnemonic) of the wallet that funds & signs the deploy. */
-  readonly deployerSeed: string;
+  /** The wallet that funds & signs the deploy: a local seed or a remote host. */
+  readonly deployerWallet: DeployerWalletConfig;
 }
 
 // Pre-funded genesis wallet of the local standalone stack — the default
@@ -47,54 +78,76 @@ function isGenesisSeed(seed: string): boolean {
 }
 
 /**
- * Resolve the deployer seed for `networkId`. On the local standalone chain
- * the genesis mint wallet is the default; on every deployed network the
- * genesis wallet is unfunded, so a `DEPLOYER_SEED` funded via that network's
- * faucet is required. The single consumer is {@link getDeployConfig}.
+ * Resolve the deployer wallet source for `networkId`: exactly one of
+ * `DEPLOYER_SEED` and `DEPLOYER_REMOTE_WALLET_URL`. With the remote URL, the
+ * hosted wallet is the deployer and no seed is involved. With a seed, the
+ * local standalone chain defaults to the genesis mint wallet, while every
+ * deployed network requires a `DEPLOYER_SEED` funded via that network's
+ * faucet (the genesis wallet is unfunded there). The single consumer is
+ * {@link getDeployConfig}.
  *
- * @param env - The environment to read `DEPLOYER_SEED` from.
+ * @param env - The environment to read the two variables from.
  * @param networkId - The network the deploy targets.
- * @returns The seed (hex or mnemonic) that funds & signs deploys.
- * @throws {Error} If a deployed network has no `DEPLOYER_SEED`, or it is set to the
- *   (unfunded-here) genesis mint seed.
+ * @returns The resolved deployer wallet source.
+ * @throws {Error} If both variables are set, the remote URL is malformed, a
+ *   deployed network has neither variable, or the seed is the
+ *   (unfunded-here) genesis mint seed on a deployed network.
  */
-function resolveDeployerSeed(
+function resolveDeployerWallet(
   env: Record<string, string | undefined>,
   networkId: NetworkId,
-): string {
-  const provided = envOrUndefined(env, "DEPLOYER_SEED");
+): DeployerWalletConfig {
+  const providedSeed = envOrUndefined(env, "DEPLOYER_SEED");
+  const providedRemoteUrl = envOrUndefined(env, "DEPLOYER_REMOTE_WALLET_URL");
+  if (providedSeed !== undefined && providedRemoteUrl !== undefined) {
+    throw new Error(
+      "Set exactly one of DEPLOYER_SEED and DEPLOYER_REMOTE_WALLET_URL, not both: " +
+        "the deployer is either an in-process seed wallet or a hosted remote wallet.",
+    );
+  }
+  if (providedRemoteUrl !== undefined) {
+    let url: URL;
+    try {
+      url = new URL(providedRemoteUrl);
+    } catch {
+      throw new Error(`DEPLOYER_REMOTE_WALLET_URL is not a valid URL: "${providedRemoteUrl}"`);
+    }
+    return { kind: DeployerWalletKind.Remote, url };
+  }
   if (isLocalStandaloneNetwork(networkId)) {
-    return provided ?? GENESIS_MINT_WALLET_SEED;
+    return { kind: DeployerWalletKind.Seed, seed: providedSeed ?? GENESIS_MINT_WALLET_SEED };
   }
   const faucet = getFaucetUrl(env, networkId);
   const fundHint = faucet
     ? `fund a wallet via ${faucet}`
     : "fund a wallet via the network's faucet";
-  if (provided === undefined) {
+  if (providedSeed === undefined) {
     throw new Error(
       `DEPLOYER_SEED is required on "${networkId}": the genesis mint seed only holds funds on the local ` +
-        `standalone chain. Set DEPLOYER_SEED (hex or mnemonic) to a funded wallet: ${fundHint}.`,
+        `standalone chain. Set DEPLOYER_SEED (hex or mnemonic) to a funded wallet (${fundHint}), ` +
+        `or point DEPLOYER_REMOTE_WALLET_URL at a hosted deployer wallet.`,
     );
   }
-  if (isGenesisSeed(provided)) {
+  if (isGenesisSeed(providedSeed)) {
     throw new Error(
       `DEPLOYER_SEED is the local genesis mint seed, which holds no funds on "${networkId}". ` +
         `${fundHint} and set DEPLOYER_SEED to it.`,
     );
   }
-  return provided;
+  return { kind: DeployerWalletKind.Seed, seed: providedSeed };
 }
 
 /**
  * Read a {@link DeployConfig} from the environment. Node config comes from
- * {@link getMidnightNodeConfig}; the deployer seed from {@link resolveDeployerSeed}
- * (genesis mint wallet on the local chain, a required funded `DEPLOYER_SEED`
- * on every deployed network).
+ * {@link getMidnightNodeConfig}; the deployer wallet from
+ * {@link resolveDeployerWallet} (exactly one of `DEPLOYER_SEED` and
+ * `DEPLOYER_REMOTE_WALLET_URL`, with the genesis mint wallet as the seed
+ * default on the local chain).
  *
  * @param env - The environment to read from; defaults to `process.env`.
  * @returns The resolved deploy configuration.
- * @throws {Error} If a deployed network lacks a valid funded `DEPLOYER_SEED` (see
- *   {@link resolveDeployerSeed}).
+ * @throws {Error} If the deployer wallet source is missing, doubled, or
+ *   invalid (see {@link resolveDeployerWallet}).
  */
 export function getDeployConfig(
   env: Record<string, string | undefined> = process.env,
@@ -102,8 +155,49 @@ export function getDeployConfig(
   const midnightNodeConfig = getMidnightNodeConfig(env);
   return {
     midnightNodeConfig,
-    deployerSeed: resolveDeployerSeed(env, midnightNodeConfig.networkId),
+    deployerWallet: resolveDeployerWallet(env, midnightNodeConfig.networkId),
   };
+}
+
+/**
+ * Run `fn` against the configured deployer wallet, however it is reached:
+ * a seed becomes a connected in-process `LocalWallet` (disconnected
+ * afterwards), a remote URL becomes a connected `RemoteWallet` over the
+ * HTTP transport (its session dropped afterwards, the hosted wallet
+ * untouched). A remote host must be on the deploy's target network:
+ * connecting checks the handshake's network id and refuses a mismatch.
+ *
+ * @param deployConfig - The resolved deploy configuration.
+ * @param fn - Work to run with the ready deployer wallet.
+ * @returns Whatever `fn` returns.
+ * @throws {Error} Whatever connecting or `fn` throws, or a network-id
+ *   mismatch between a remote host and the deploy target.
+ */
+export async function withDeployerWallet<T>(
+  deployConfig: DeployConfig,
+  fn: (wallet: Wallet) => Promise<T>,
+): Promise<T> {
+  const { deployerWallet, midnightNodeConfig } = deployConfig;
+  switch (deployerWallet.kind) {
+    case DeployerWalletKind.Seed:
+      return withLocalWallet(deployerWallet.seed, midnightNodeConfig, fn);
+    case DeployerWalletKind.Remote: {
+      const wallet = new RemoteWallet(createHttpRemoteWalletTransport(deployerWallet.url));
+      try {
+        await wallet.connect();
+        const hostNetworkId = wallet.getNetworkId();
+        if (hostNetworkId !== midnightNodeConfig.networkId) {
+          throw new Error(
+            `the remote deployer wallet at ${deployerWallet.url.href} is on "${hostNetworkId}" ` +
+              `but this deploy targets "${midnightNodeConfig.networkId}"`,
+          );
+        }
+        return await fn(wallet);
+      } finally {
+        wallet.disconnect();
+      }
+    }
+  }
 }
 
 /** An unproven contract-deploy transaction, ready to balance/sign/prove/submit via a wallet. */
