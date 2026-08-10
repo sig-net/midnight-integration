@@ -51,7 +51,7 @@ export interface SignetMiscEvent {
 
 /**
  * Source of the signet contract's emitted events, the event-side sibling of
- * {@link SignetPublicStateSource}. Structural, so tests can stub it. Adapt a
+ * `SignetPublicStateSource`. Structural, so tests can stub it. Adapt a
  * full midnight-js `PublicDataProvider` with
  * {@link signetEventSourceFromPublicDataProvider}.
  */
@@ -224,7 +224,7 @@ export interface MpcSignature {
  * The MPC's signature over the requested EVM transaction (Compact
  * `SignatureRespondedEvent`), carried beside the request id it answers (see
  * {@link SignetEventPost}). Emitted UNVERIFIED: authenticity comes from
- * {@link SignetRequestResponseReader.getVerifiedSignatureRespondedEvent}.
+ * `SignetRequestResponseReader.getVerifiedSignatureRespondedEvent`.
  */
 export interface SignatureRespondedEvent {
   /** The requested signature over the transaction the request describes. */
@@ -237,7 +237,7 @@ export interface SignatureRespondedEvent {
  * the attestation digest (`calculateSignetAttestationDigest`), carried
  * beside the request id it answers (see {@link SignetEventPost}). Emitted
  * UNVERIFIED: verify in-circuit via `verifyRespondBidirectionalEvent` or off
- * chain via {@link verifyRespondBidirectionalSignature}.
+ * chain via `verifyRespondBidirectionalSignature`.
  */
 export interface RespondBidirectionalEvent {
   /** ECDSA signature over the attestation digest. */
@@ -264,6 +264,12 @@ const SIGNATURE_BIG_R_Y_OFFSET = 64;
 const SIGNATURE_S_OFFSET = 96;
 const SIGNATURE_RECOVERY_ID_OFFSET = 128;
 
+/** The packed leaves of a respond payload: declared request id plus signature. */
+interface RespondPayloadLeaves {
+  requestId: Uint8Array;
+  signature: MpcSignature;
+}
+
 /**
  * Unpack the leaves both respond payloads lead with:
  * requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1).
@@ -273,10 +279,7 @@ const SIGNATURE_RECOVERY_ID_OFFSET = 128;
  * @returns The declared request id and the decoded signature.
  * @throws {Error} When the payload is too short to hold the packed leaves.
  */
-function decodeRespondPayload(payload: Uint8Array): {
-  requestId: Uint8Array;
-  signature: MpcSignature;
-} {
+function decodeRespondPayload(payload: Uint8Array): RespondPayloadLeaves {
   const recoveryId = payload[SIGNATURE_RECOVERY_ID_OFFSET];
   if (recoveryId === undefined) {
     throw new Error(
