@@ -25,6 +25,21 @@ jobs:
       id-token: write # OIDC trusted publishing
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Full history: the stable-tag guard below asks whether the tagged
+          # commit is an ancestor of main.
+          fetch-depth: 0
+      # Tag rulesets gate WHO may create a stable tag; this guards WHERE it
+      # points. A hyphen in the tag marks a prerelease (same test the publish
+      # step uses to pick the npm dist-tag), and prereleases may come from any
+      # branch.
+      - name: Stable tags must point at a commit on main
+        if: github.ref_type == 'tag' && !contains(github.ref_name, '-')
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::stable tag $GITHUB_REF_NAME is not on main; only prerelease (-rc) tags may come from other branches"
+            exit 1
+          }
       - uses: actions/setup-node@v5
         with:
           node-version: 24
