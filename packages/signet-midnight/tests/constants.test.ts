@@ -1,8 +1,8 @@
-// Unit tests for the padded-ASCII codec and the byte conversion helpers.
+// Unit tests for the padded-ASCII codec and the MPC failure sentinel.
 
 import { describe, expect, it } from "vitest";
 
-import { asciiPadded, bigintToBytes32, bytesToBigint } from "../src/index.ts";
+import { asciiPadded, isMpcFailureOutput, MPC_FAILURE_OUTPUT } from "../src/index.ts";
 
 describe("asciiPadded", () => {
   interface Case {
@@ -13,7 +13,12 @@ describe("asciiPadded", () => {
   }
 
   const CASES: Case[] = [
-    { name: "algo value", text: "ecdsa", length: 32, expectedPrefix: [0x65, 0x63, 0x64, 0x73, 0x61, 0, 0] },
+    {
+      name: "algo value",
+      text: "ecdsa",
+      length: 32,
+      expectedPrefix: [0x65, 0x63, 0x64, 0x73, 0x61, 0, 0],
+    },
     { name: "empty text", text: "", length: 4, expectedPrefix: [0, 0, 0, 0] },
     { name: "exact fit", text: "ab", length: 2, expectedPrefix: [0x61, 0x62] },
   ];
@@ -30,27 +35,62 @@ describe("asciiPadded", () => {
   });
 });
 
-describe("bigintToBytes32 / bytesToBigint", () => {
-  interface Case {
-    name: string;
-    value: bigint;
-  }
-
-  const CASES: Case[] = [
-    { name: "zero", value: 0n },
-    { name: "one (little-endian: first byte)", value: 1n },
-    { name: "usdc amount", value: 100000n },
-    { name: "large value", value: 2n ** 200n + 12345n },
-  ];
-
-  it.each(CASES)("$name round-trips", ({ value }) => {
-    const bytes = bigintToBytes32(value);
-    expect(bytes.length).toBe(32);
-    expect(bytesToBigint(bytes)).toBe(value);
+// The failure output is a wire constant shared by the responder and every
+// client's refund circuit: pin its exact bytes.
+describe("MPC_FAILURE_OUTPUT", () => {
+  it("is the 4-byte error marker followed by a single 0x01 byte", () => {
+    expect(MPC_FAILURE_OUTPUT).toEqual(Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01]));
   });
+});
 
-  it("is little-endian (Compact Field as Bytes<32>)", () => {
-    expect(bigintToBytes32(1n)[0]).toBe(1);
-    expect(bigintToBytes32(256n)[1]).toBe(1);
+/** One row of the serializedOutput decode table: bytes → expected verdict. */
+interface DecodeCase {
+  /** Test name, completing the sentence "decodes <name>". */
+  name: string;
+  /** The response's serialized output. */
+  serializedOutput: Uint8Array;
+  /** Expected {@link isMpcFailureOutput} verdict. */
+  failure: boolean;
+}
+
+// Outputs are the exact unpadded respond payloads (a packed bool is one
+// byte). Only exact byte equality with the 5-byte failure payload counts as
+// the MPC failure: prefixes and extensions are legitimate packed outputs.
+const DECODE_CASES: DecodeCase[] = [
+  {
+    name: "a one-byte packed bool (0x01)",
+    serializedOutput: Uint8Array.from([1]),
+    failure: false,
+  },
+  {
+    name: "a one-byte packed bool (0x00)",
+    serializedOutput: Uint8Array.from([0]),
+    failure: false,
+  },
+  {
+    name: "the exact 5-byte failure payload",
+    serializedOutput: MPC_FAILURE_OUTPUT,
+    failure: true,
+  },
+  {
+    name: "a 4-byte deadbeef prefix with a different fifth byte",
+    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x02]),
+    failure: false,
+  },
+  {
+    name: "the bare 4-byte deadbeef marker without the 0x01 byte",
+    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef]),
+    failure: false,
+  },
+  {
+    name: "a 6-byte output that merely starts with the failure payload",
+    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01, 0x02]),
+    failure: false,
+  },
+];
+
+describe("isMpcFailureOutput", () => {
+  it.each(DECODE_CASES)("decodes $name", ({ serializedOutput, failure }) => {
+    expect(isMpcFailureOutput(serializedOutput)).toBe(failure);
   });
 });

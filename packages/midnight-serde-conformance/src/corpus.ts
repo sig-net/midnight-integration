@@ -11,21 +11,21 @@
 // variants as numbers, booleans as JSON booleans, vectors/tuples as arrays,
 // structs as objects keyed by field name in declaration order.
 
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
-import { respondSchemaDescriptor, serializeRespondOutput } from '@sig-net/midnight';
+import { respondSchemaDescriptor, serializeRespondOutput } from "@sig-net/midnight";
 import {
   compactDeserialize,
   compactSerialize,
   compactSerializedSize,
-  FIELD_MODULUS,
   type CompactType,
   type CompactValue,
-} from '@sig-net/midnight-serde';
+  FIELD_MODULUS,
+} from "@sig-net/midnight-serde";
 
-import { SCHEMA_CASES } from './abi-schemas.ts';
-
+import { pureCircuits } from "../managed/contract/index.js";
+import { SCHEMA_CASES } from "./abi-schemas.ts";
 import {
   BIG,
   BOUNDED,
@@ -52,51 +52,67 @@ import {
   tupleValue,
   U12,
   VECTORS_DEEP,
-  vectorsDeepValue,
   VECTORS_PLAIN,
+  vectorsDeepValue,
   vectorsPlainValue,
   WIDE,
   WITH_STDLIB,
   ZERO_SIZES,
   zeroSizesValue,
-} from './descriptors.ts';
-import { hex, oracleSerialize } from './oracle.ts';
-import { mulberry32, randType, randValue, SWEEP_CASES, SWEEP_SEED } from './random.ts';
-import { pureCircuits } from '../managed/contract/index.js';
+} from "./descriptors.ts";
+import { hex, oracleSerialize } from "./oracle.ts";
+import { mulberry32, randType, randValue, SWEEP_CASES, SWEEP_SEED } from "./random.ts";
+
+/**
+ * A tuple element or struct field that the descriptor promises but the value
+ * lacks. Shared by {@link valueToJson} and {@link jsonToValue}: a descriptor
+ * mismatch is a caller bug, never data to encode.
+ *
+ * @param v - The possibly missing member.
+ * @param member - The tuple index or field name, for the error message.
+ * @returns The member, proven present.
+ * @throws {Error} If the member is missing.
+ */
+function present<T>(v: T | undefined, member: number | string): T {
+  if (v === undefined) {
+    throw new Error(`value is missing member ${String(member)} its descriptor promises`);
+  }
+  return v;
+}
 
 /** The compactc release the fixture circuits are compiled with (the repo's pinned toolchain, NOT the CLI's self-reported version, which drops the -rc suffix). */
-export const COMPACTC_VERSION = '0.33.0-rc.2';
+export const COMPACTC_VERSION = "0.33.0-rc.2";
 
 /** Corpus schema version: bump only with a coordinated change to every consumer. */
 export const CORPUS_SCHEMA = 1;
 
 /** Rejection categories shared by every implementation's error model. */
 export enum RejectCategory {
-  UintRange = 'uint-range',
-  EnumRange = 'enum-range',
-  FieldRange = 'field-range',
-  BooleanStrict = 'boolean-strict',
-  PaddingNonZero = 'padding-nonzero',
-  ShortBuffer = 'short-buffer',
+  UintRange = "uint-range",
+  EnumRange = "enum-range",
+  FieldRange = "field-range",
+  BooleanStrict = "boolean-strict",
+  PaddingNonZero = "padding-nonzero",
+  ShortBuffer = "short-buffer",
 }
 
 /** JSON form of a descriptor: like CompactType but with `bound` as a decimal string. */
 export type JsonType =
-  | { kind: 'boolean' | 'field' }
-  | { kind: 'uint'; bits: number }
-  | { kind: 'uint'; bound: string }
-  | { kind: 'bytes'; length: number }
-  | { kind: 'enum'; variants: number }
-  | { kind: 'vector'; length: number; element: JsonType }
-  | { kind: 'tuple'; elements: JsonType[] }
-  | { kind: 'struct'; fields: { name: string; type: JsonType }[] };
+  | { kind: "boolean" | "field" }
+  | { kind: "uint"; bits: number }
+  | { kind: "uint"; bound: string }
+  | { kind: "bytes"; length: number }
+  | { kind: "enum"; variants: number }
+  | { kind: "vector"; length: number; element: JsonType }
+  | { kind: "tuple"; elements: JsonType[] }
+  | { kind: "struct"; fields: { name: string; type: JsonType }[] };
 
 /** JSON form of a value under the header's encoding conventions. */
 export type JsonValue = boolean | number | string | JsonValue[] | { [field: string]: JsonValue };
 
 /** The first corpus line: provenance and encoding conventions. */
 export interface HeaderRecord {
-  record: 'header';
+  record: "header";
   schema: number;
   compactc: string;
   fixture: string;
@@ -106,24 +122,24 @@ export interface HeaderRecord {
 
 /** A serialize expectation: value encodes to `packed`, right zero-padded to `n`. */
 export interface SerializeRecord {
-  record: 'serialize';
+  record: "serialize";
   name: string;
   type: JsonType;
   value: JsonValue;
   packed: string;
   n: number;
-  provenance: 'circuit' | 'oracle';
+  provenance: "circuit" | "oracle";
 }
 
 /** A deserialize expectation: bytes decode to a value or reject with a category. */
 export interface DeserializeRecord {
-  record: 'deserialize';
+  record: "deserialize";
   name: string;
   type: JsonType;
   bytes: string;
   options?: { ignorePadding?: boolean; lenientBooleans?: boolean };
   expect: { value: JsonValue } | { reject: RejectCategory };
-  provenance: 'circuit' | 'twin';
+  provenance: "circuit" | "twin";
 }
 
 /**
@@ -137,31 +153,30 @@ export interface DeserializeRecord {
  * map the respond vocabulary) and may cross-check it against `type`.
  */
 export interface SchemaRecord {
-  record: 'schema';
+  record: "schema";
   name: string;
   schema: string;
   type: JsonType;
   value: JsonValue;
   packed: string;
-  provenance: 'production';
+  provenance: "production";
 }
 
 /** A seeded random roundtrip case (twin == oracle asserted at generation). */
 export interface SweepRecord {
-  record: 'sweep';
+  record: "sweep";
   name: string;
   type: JsonType;
   value: JsonValue;
   packed: string;
-  provenance: 'oracle';
+  provenance: "oracle";
 }
 
+/**
+ *
+ */
 export type CorpusRecord =
-  | HeaderRecord
-  | SerializeRecord
-  | DeserializeRecord
-  | SchemaRecord
-  | SweepRecord;
+  HeaderRecord | SerializeRecord | DeserializeRecord | SchemaRecord | SweepRecord;
 
 /**
  * Encode a descriptor to its corpus JSON form (`bound` always a decimal
@@ -172,24 +187,24 @@ export type CorpusRecord =
  */
 export function typeToJson(type: CompactType): JsonType {
   switch (type.kind) {
-    case 'boolean':
-    case 'field':
+    case "boolean":
+    case "field":
       return { kind: type.kind };
-    case 'uint':
-      return 'bits' in type && type.bits !== undefined
-        ? { kind: 'uint', bits: type.bits }
-        : { kind: 'uint', bound: String((type as { bound: number | bigint }).bound) };
-    case 'bytes':
-      return { kind: 'bytes', length: type.length };
-    case 'enum':
-      return { kind: 'enum', variants: type.variants };
-    case 'vector':
-      return { kind: 'vector', length: type.length, element: typeToJson(type.element) };
-    case 'tuple':
-      return { kind: 'tuple', elements: type.elements.map(typeToJson) };
-    case 'struct':
+    case "uint":
+      return "bits" in type
+        ? { kind: "uint", bits: type.bits }
+        : { kind: "uint", bound: String((type as { bound: number | bigint }).bound) };
+    case "bytes":
+      return { kind: "bytes", length: type.length };
+    case "enum":
+      return { kind: "enum", variants: type.variants };
+    case "vector":
+      return { kind: "vector", length: type.length, element: typeToJson(type.element) };
+    case "tuple":
+      return { kind: "tuple", elements: type.elements.map(typeToJson) };
+    case "struct":
       return {
-        kind: 'struct',
+        kind: "struct",
         fields: type.fields.map((f) => ({ name: f.name, type: typeToJson(f.type) })),
       };
   }
@@ -204,22 +219,24 @@ export function typeToJson(type: CompactType): JsonType {
  */
 export function jsonToType(json: JsonType): CompactType {
   switch (json.kind) {
-    case 'boolean':
-    case 'field':
+    case "boolean":
+    case "field":
       return { kind: json.kind };
-    case 'uint':
-      return 'bits' in json ? { kind: 'uint', bits: json.bits } : { kind: 'uint', bound: BigInt(json.bound) };
-    case 'bytes':
-      return { kind: 'bytes', length: json.length };
-    case 'enum':
-      return { kind: 'enum', variants: json.variants };
-    case 'vector':
-      return { kind: 'vector', length: json.length, element: jsonToType(json.element) };
-    case 'tuple':
-      return { kind: 'tuple', elements: json.elements.map(jsonToType) };
-    case 'struct':
+    case "uint":
+      return "bits" in json
+        ? { kind: "uint", bits: json.bits }
+        : { kind: "uint", bound: BigInt(json.bound) };
+    case "bytes":
+      return { kind: "bytes", length: json.length };
+    case "enum":
+      return { kind: "enum", variants: json.variants };
+    case "vector":
+      return { kind: "vector", length: json.length, element: jsonToType(json.element) };
+    case "tuple":
+      return { kind: "tuple", elements: json.elements.map(jsonToType) };
+    case "struct":
       return {
-        kind: 'struct',
+        kind: "struct",
         fields: json.fields.map((f) => ({ name: f.name, type: jsonToType(f.type) })),
       };
   }
@@ -234,28 +251,28 @@ export function jsonToType(json: JsonType): CompactType {
  */
 export function valueToJson(type: CompactType, value: CompactValue): JsonValue {
   switch (type.kind) {
-    case 'boolean':
+    case "boolean":
       return value as boolean;
-    case 'uint':
-    case 'field':
+    case "uint":
+    case "field":
       return (value as bigint).toString();
-    case 'bytes':
+    case "bytes":
       return hex(value as Uint8Array);
-    case 'enum':
+    case "enum":
       return Number(value);
-    case 'vector': {
+    case "vector": {
       const elements = value as CompactValue[];
       return elements.map((e) => valueToJson(type.element, e));
     }
-    case 'tuple': {
+    case "tuple": {
       const elements = value as CompactValue[];
-      return elements.map((e, i) => valueToJson(type.elements[i]!, e));
+      return type.elements.map((element, i) => valueToJson(element, present(elements[i], i)));
     }
-    case 'struct': {
-      const record = value as { [field: string]: CompactValue };
-      const out: { [field: string]: JsonValue } = {};
+    case "struct": {
+      const record = value as Record<string, CompactValue>;
+      const out: Record<string, JsonValue> = {};
       for (const field of type.fields) {
-        out[field.name] = valueToJson(field.type, record[field.name]!);
+        out[field.name] = valueToJson(field.type, present(record[field.name], field.name));
       }
       return out;
     }
@@ -272,12 +289,12 @@ export function valueToJson(type: CompactType, value: CompactValue): JsonValue {
  */
 export function jsonToValue(type: CompactType, json: JsonValue): CompactValue {
   switch (type.kind) {
-    case 'boolean':
+    case "boolean":
       return json as boolean;
-    case 'uint':
-    case 'field':
+    case "uint":
+    case "field":
       return BigInt(json as string);
-    case 'bytes': {
+    case "bytes": {
       const text = json as string;
       const out = new Uint8Array(text.length / 2);
       for (let i = 0; i < out.length; i++) {
@@ -285,33 +302,48 @@ export function jsonToValue(type: CompactType, json: JsonValue): CompactValue {
       }
       return out;
     }
-    case 'enum':
+    case "enum":
       return json as number;
-    case 'vector':
+    case "vector":
       return (json as JsonValue[]).map((e) => jsonToValue(type.element, e));
-    case 'tuple':
-      return (json as JsonValue[]).map((e, i) => jsonToValue(type.elements[i]!, e));
-    case 'struct': {
-      const record = json as { [field: string]: JsonValue };
-      const out: { [field: string]: CompactValue } = {};
+    case "tuple": {
+      const elements = json as JsonValue[];
+      return type.elements.map((element, i) => jsonToValue(element, present(elements[i], i)));
+    }
+    case "struct": {
+      const record = json as Record<string, JsonValue>;
+      const out: Record<string, CompactValue> = {};
       for (const field of type.fields) {
-        out[field.name] = jsonToValue(field.type, record[field.name]!);
+        out[field.name] = jsonToValue(field.type, present(record[field.name], field.name));
       }
       return out;
     }
   }
 }
 
-const FIXTURE_URL = new URL('../serde-fixtures.compact', import.meta.url);
+const FIXTURE_URL = new URL("../serde-fixtures.compact", import.meta.url);
 
-/** Right-zero-pad packed bytes to the fixture circuit's Bytes<N>. */
+/**
+ * Right-zero-pad packed bytes to the fixture circuit's Bytes<N>.
+ *
+ * @param packed - The packed bytes to pad.
+ * @param n - The target width.
+ * @returns The bytes in a zero-filled buffer of `n` bytes.
+ */
 function padTo(packed: Uint8Array, n: number): Uint8Array {
   const out = new Uint8Array(n);
   out.set(packed);
   return out;
 }
 
-/** Deep value equality via the canonical JSON encoding. */
+/**
+ * Deep value equality via the canonical JSON encoding.
+ *
+ * @param type - The descriptor both values conform to.
+ * @param a - One value.
+ * @param b - The other value.
+ * @returns Whether the two encode to identical JSON.
+ */
 function sameValue(type: CompactType, a: CompactValue, b: CompactValue): boolean {
   return JSON.stringify(valueToJson(type, a)) === JSON.stringify(valueToJson(type, b));
 }
@@ -332,28 +364,158 @@ const pc = pureCircuits;
 
 // One case per fixture circuit family. Names are the stable corpus slugs.
 const SERIALIZE_CASES: SerializeCase[] = [
-  { name: 'primitives', type: PRIMITIVES, value: primitivesValue, n: 89, ser: () => pc.serPrimitives(primitivesValue), de: (b) => pc.dePrimitives(b) },
-  { name: 'buffers', type: BUFFERS, value: buffersValue, n: 64, ser: () => pc.serBuffers(buffersValue), de: (b) => pc.deBuffers(b) },
-  { name: 'vectors-plain', type: VECTORS_PLAIN, value: vectorsPlainValue, n: 56, ser: () => pc.serVectorsPlain(vectorsPlainValue), de: (b) => pc.deVectorsPlain(b) },
-  { name: 'vectors-deep', type: VECTORS_DEEP, value: vectorsDeepValue, n: 52, de: (b) => pc.deVectorsDeep(b) },
-  { name: 'inner', type: INNER, value: innerValue, n: 25, ser: () => pc.serInner(innerValue), de: (b) => pc.deInner(b) },
-  { name: 'inner-false', type: INNER, value: innerFalseValue, n: 25, ser: () => pc.serInner(innerFalseValue), de: (b) => pc.deInner(b) },
-  { name: 'nested', type: NESTED, value: nestedValue, n: 128, de: (b) => pc.deNested(b) },
-  { name: 'with-stdlib', type: WITH_STDLIB, value: stdlibValue, n: 41, ser: () => pc.serStdlib(stdlibValue), de: (b) => pc.deStdlib(b) },
-  { name: 'bounded', type: BOUNDED, value: boundedValue, n: 8, ser: () => pc.serBounded(boundedValue), de: (b) => pc.deBounded(b) },
-  { name: 'zero-sizes', type: ZERO_SIZES, value: zeroSizesValue, n: 1, ser: () => pc.serZeroSizes(zeroSizesValue), de: (b) => pc.deZeroSizes(b) },
-  { name: 'tuple', type: TUPLE, value: tupleValue, n: 7, ser: () => pc.serTuple(tupleValue), de: (b) => pc.deTuple(b) },
-  { name: 'tuple-pair', type: TUPLE_PAIR, value: tuplePairValue, n: 25, ser: () => pc.serTuplePair(tuplePairValue), de: (b) => pc.deTuplePair(b) },
-  { name: 'u12', type: U12, value: 4095n, n: 2, ser: () => pc.serU12(4095n), de: (b) => pc.deU12(b) },
-  { name: 'wide', type: WIDE, value: 69999n, n: 3, ser: () => pc.serWide(69999n), de: (b) => pc.deWide(b) },
-  { name: 'solo', type: SOLO, value: 0, n: 1, ser: () => pc.serSolo(0), de: (b) => pc.deSolo(b) },
-  { name: 'empty-tuple', type: EMPTY_TUPLE, value: [], n: 1, ser: () => pc.serEmptyTuple([]), de: (b) => pc.deEmptyTuple(b) },
-  { name: 'big', type: BIG, value: 299, n: 2, ser: () => pc.serBig(299), de: (b) => pc.deBig(b) },
-  { name: 'either-both-arms', type: EITHER, value: eitherBothArms, n: 41, ser: () => pc.serEither(eitherBothArms), de: (b) => pc.deEither(b) },
-  { name: 'either-left', type: EITHER, value: { is_left: true, left: 4242n, right: new Uint8Array(32) }, n: 41, ser: () => pc.serLeft(4242n), de: (b) => pc.deEither(b) },
-  { name: 'either-right', type: EITHER, value: { is_left: false, left: 0n, right: new Uint8Array(32).fill(0xcd) }, n: 41, ser: () => pc.serRight(new Uint8Array(32).fill(0xcd)), de: (b) => pc.deEither(b) },
-  { name: 'maybe-some', type: MAYBE_U64, value: { is_some: true, value: 4242n }, n: 9, ser: () => pc.serSomeU64(4242n) },
-  { name: 'maybe-none', type: MAYBE_U64, value: { is_some: false, value: 0n }, n: 9, ser: () => pc.serNoneU64() },
+  {
+    name: "primitives",
+    type: PRIMITIVES,
+    value: primitivesValue,
+    n: 89,
+    ser: () => pc.serPrimitives(primitivesValue),
+    de: (b) => pc.dePrimitives(b),
+  },
+  {
+    name: "buffers",
+    type: BUFFERS,
+    value: buffersValue,
+    n: 64,
+    ser: () => pc.serBuffers(buffersValue),
+    de: (b) => pc.deBuffers(b),
+  },
+  {
+    name: "vectors-plain",
+    type: VECTORS_PLAIN,
+    value: vectorsPlainValue,
+    n: 56,
+    ser: () => pc.serVectorsPlain(vectorsPlainValue),
+    de: (b) => pc.deVectorsPlain(b),
+  },
+  {
+    name: "vectors-deep",
+    type: VECTORS_DEEP,
+    value: vectorsDeepValue,
+    n: 52,
+    de: (b) => pc.deVectorsDeep(b),
+  },
+  {
+    name: "inner",
+    type: INNER,
+    value: innerValue,
+    n: 25,
+    ser: () => pc.serInner(innerValue),
+    de: (b) => pc.deInner(b),
+  },
+  {
+    name: "inner-false",
+    type: INNER,
+    value: innerFalseValue,
+    n: 25,
+    ser: () => pc.serInner(innerFalseValue),
+    de: (b) => pc.deInner(b),
+  },
+  { name: "nested", type: NESTED, value: nestedValue, n: 128, de: (b) => pc.deNested(b) },
+  {
+    name: "with-stdlib",
+    type: WITH_STDLIB,
+    value: stdlibValue,
+    n: 41,
+    ser: () => pc.serStdlib(stdlibValue),
+    de: (b) => pc.deStdlib(b),
+  },
+  {
+    name: "bounded",
+    type: BOUNDED,
+    value: boundedValue,
+    n: 8,
+    ser: () => pc.serBounded(boundedValue),
+    de: (b) => pc.deBounded(b),
+  },
+  {
+    name: "zero-sizes",
+    type: ZERO_SIZES,
+    value: zeroSizesValue,
+    n: 1,
+    ser: () => pc.serZeroSizes(zeroSizesValue),
+    de: (b) => pc.deZeroSizes(b),
+  },
+  {
+    name: "tuple",
+    type: TUPLE,
+    value: tupleValue,
+    n: 7,
+    ser: () => pc.serTuple(tupleValue),
+    de: (b) => pc.deTuple(b),
+  },
+  {
+    name: "tuple-pair",
+    type: TUPLE_PAIR,
+    value: tuplePairValue,
+    n: 25,
+    ser: () => pc.serTuplePair(tuplePairValue),
+    de: (b) => pc.deTuplePair(b),
+  },
+  {
+    name: "u12",
+    type: U12,
+    value: 4095n,
+    n: 2,
+    ser: () => pc.serU12(4095n),
+    de: (b) => pc.deU12(b),
+  },
+  {
+    name: "wide",
+    type: WIDE,
+    value: 69999n,
+    n: 3,
+    ser: () => pc.serWide(69999n),
+    de: (b) => pc.deWide(b),
+  },
+  { name: "solo", type: SOLO, value: 0, n: 1, ser: () => pc.serSolo(0), de: (b) => pc.deSolo(b) },
+  {
+    name: "empty-tuple",
+    type: EMPTY_TUPLE,
+    value: [],
+    n: 1,
+    ser: () => pc.serEmptyTuple([]),
+    de: (b) => pc.deEmptyTuple(b),
+  },
+  { name: "big", type: BIG, value: 299, n: 2, ser: () => pc.serBig(299), de: (b) => pc.deBig(b) },
+  {
+    name: "either-both-arms",
+    type: EITHER,
+    value: eitherBothArms,
+    n: 41,
+    ser: () => pc.serEither(eitherBothArms),
+    de: (b) => pc.deEither(b),
+  },
+  {
+    name: "either-left",
+    type: EITHER,
+    value: { is_left: true, left: 4242n, right: new Uint8Array(32) },
+    n: 41,
+    ser: () => pc.serLeft(4242n),
+    de: (b) => pc.deEither(b),
+  },
+  {
+    name: "either-right",
+    type: EITHER,
+    value: { is_left: false, left: 0n, right: new Uint8Array(32).fill(0xcd) },
+    n: 41,
+    ser: () => pc.serRight(new Uint8Array(32).fill(0xcd)),
+    de: (b) => pc.deEither(b),
+  },
+  {
+    name: "maybe-some",
+    type: MAYBE_U64,
+    value: { is_some: true, value: 4242n },
+    n: 9,
+    ser: () => pc.serSomeU64(4242n),
+  },
+  {
+    name: "maybe-none",
+    type: MAYBE_U64,
+    value: { is_some: false, value: 0n },
+    n: 9,
+    ser: () => pc.serNoneU64(),
+  },
 ];
 
 interface RejectionCase {
@@ -365,7 +527,13 @@ interface RejectionCase {
   de?: ((bytes: Uint8Array) => CompactValue) | undefined;
 }
 
-/** Little-endian bytes of a value at a width (corpus construction only). */
+/**
+ * Little-endian bytes of a value at a width (corpus construction only).
+ *
+ * @param value - The value to encode.
+ * @param width - The number of bytes to emit.
+ * @returns The value's low `width` bytes, least significant first.
+ */
 function le(value: bigint, width: number): number[] {
   const out: number[] = [];
   let v = value;
@@ -378,14 +546,55 @@ function le(value: bigint, width: number): number[] {
 
 const REJECTION_CASES: RejectionCase[] = [
   // Bounded struct: small (2 bytes LE) then unit (0) then status then marker.
-  { name: 'bounded-uint-at-bound', type: BOUNDED, bytes: Uint8Array.from([...le(1000n, 2), 0, 0, 0, 0, 0, 0]), reject: RejectCategory.UintRange, de: (b) => pc.deBounded(b) },
-  { name: 'bounded-enum-at-count', type: BOUNDED, bytes: Uint8Array.from([0, 0, 3, 0, 0, 0, 0, 0]), reject: RejectCategory.EnumRange, de: (b) => pc.deBounded(b) },
-  { name: 'u12-at-bound', type: U12, bytes: Uint8Array.from(le(4096n, 2)), reject: RejectCategory.UintRange, de: (b) => pc.deU12(b) },
-  { name: 'wide-at-bound', type: WIDE, bytes: Uint8Array.from(le(70000n, 3)), reject: RejectCategory.UintRange, de: (b) => pc.deWide(b) },
-  { name: 'big-at-count', type: BIG, bytes: Uint8Array.from(le(300n, 2)), reject: RejectCategory.EnumRange, de: (b) => pc.deBig(b) },
-  { name: 'field-at-modulus', type: PRIMITIVES, bytes: padTo(Uint8Array.from([...new Uint8Array(57), ...le(FIELD_MODULUS, 32)]), 89), reject: RejectCategory.FieldRange, de: (b) => pc.dePrimitives(b) },
+  {
+    name: "bounded-uint-at-bound",
+    type: BOUNDED,
+    bytes: Uint8Array.from([...le(1000n, 2), 0, 0, 0, 0, 0, 0]),
+    reject: RejectCategory.UintRange,
+    de: (b) => pc.deBounded(b),
+  },
+  {
+    name: "bounded-enum-at-count",
+    type: BOUNDED,
+    bytes: Uint8Array.from([0, 0, 3, 0, 0, 0, 0, 0]),
+    reject: RejectCategory.EnumRange,
+    de: (b) => pc.deBounded(b),
+  },
+  {
+    name: "u12-at-bound",
+    type: U12,
+    bytes: Uint8Array.from(le(4096n, 2)),
+    reject: RejectCategory.UintRange,
+    de: (b) => pc.deU12(b),
+  },
+  {
+    name: "wide-at-bound",
+    type: WIDE,
+    bytes: Uint8Array.from(le(70000n, 3)),
+    reject: RejectCategory.UintRange,
+    de: (b) => pc.deWide(b),
+  },
+  {
+    name: "big-at-count",
+    type: BIG,
+    bytes: Uint8Array.from(le(300n, 2)),
+    reject: RejectCategory.EnumRange,
+    de: (b) => pc.deBig(b),
+  },
+  {
+    name: "field-at-modulus",
+    type: PRIMITIVES,
+    bytes: padTo(Uint8Array.from([...new Uint8Array(57), ...le(FIELD_MODULUS, 32)]), 89),
+    reject: RejectCategory.FieldRange,
+    de: (b) => pc.dePrimitives(b),
+  },
   // Twin-only: circuits consume a fixed Bytes<N>, so a short buffer cannot reach them.
-  { name: 'pair-short-buffer', type: PAIR, bytes: new Uint8Array(10), reject: RejectCategory.ShortBuffer },
+  {
+    name: "pair-short-buffer",
+    type: PAIR,
+    bytes: new Uint8Array(10),
+    reject: RejectCategory.ShortBuffer,
+  },
 ];
 
 /**
@@ -394,23 +603,23 @@ const REJECTION_CASES: RejectionCase[] = [
  * produced from an agreeing triple.
  *
  * @returns every corpus record in canonical order
- * @throws if any authority disagrees with another on any record
+ * @throws {Error} If any authority disagrees with another on any record.
  */
 export function buildCorpus(): CorpusRecord[] {
   const fixture = readFileSync(FIXTURE_URL);
   const records: CorpusRecord[] = [
     {
-      record: 'header',
+      record: "header",
       schema: CORPUS_SCHEMA,
       compactc: COMPACTC_VERSION,
-      fixture: 'serde-fixtures.compact',
-      fixtureSha256: createHash('sha256').update(fixture).digest('hex'),
+      fixture: "serde-fixtures.compact",
+      fixtureSha256: createHash("sha256").update(fixture).digest("hex"),
       encoding: {
-        uint: 'decimal string',
-        field: 'decimal string',
-        bytes: 'lowercase hex',
-        enum: 'number',
-        bound: 'decimal string',
+        uint: "decimal string",
+        field: "decimal string",
+        bytes: "lowercase hex",
+        enum: "number",
+        bound: "decimal string",
       },
     },
   ];
@@ -419,19 +628,23 @@ export function buildCorpus(): CorpusRecord[] {
     const twinPacked = compactSerialize(c.type as never, c.value as never);
     const oraclePacked = oracleSerialize(c.type, c.value);
     if (hex(twinPacked) !== hex(oraclePacked)) {
-      throw new Error(`${c.name}: twin and oracle disagree: ${hex(twinPacked)} vs ${hex(oraclePacked)}`);
+      throw new Error(
+        `${c.name}: twin and oracle disagree: ${hex(twinPacked)} vs ${hex(oraclePacked)}`,
+      );
     }
     const padded = padTo(twinPacked, c.n);
-    let provenance: 'circuit' | 'oracle' = 'oracle';
+    let provenance: "circuit" | "oracle" = "oracle";
     if (c.ser) {
       const circuit = c.ser();
       if (hex(circuit) !== hex(padded)) {
-        throw new Error(`${c.name}: circuit serialize disagrees: ${hex(circuit)} vs ${hex(padded)}`);
+        throw new Error(
+          `${c.name}: circuit serialize disagrees: ${hex(circuit)} vs ${hex(padded)}`,
+        );
       }
-      provenance = 'circuit';
+      provenance = "circuit";
     }
     records.push({
-      record: 'serialize',
+      record: "serialize",
       name: c.name,
       type: typeToJson(c.type),
       value: valueToJson(c.type, c.value),
@@ -441,20 +654,20 @@ export function buildCorpus(): CorpusRecord[] {
     });
 
     // Companion decode expectation over the padded bytes.
-    let deProvenance: 'circuit' | 'twin' = 'twin';
+    let deProvenance: "circuit" | "twin" = "twin";
     if (c.de) {
       const decoded = c.de(padded);
       if (!sameValue(c.type, decoded, c.value)) {
         throw new Error(`${c.name}: circuit deserialize returned a different value`);
       }
-      deProvenance = 'circuit';
+      deProvenance = "circuit";
     }
     const twinDecoded = compactDeserialize(c.type, padded);
     if (!sameValue(c.type, twinDecoded, c.value)) {
       throw new Error(`${c.name}: twin deserialize returned a different value`);
     }
     records.push({
-      record: 'deserialize',
+      record: "deserialize",
       name: `${c.name}-roundtrip`,
       type: typeToJson(c.type),
       bytes: hex(padded),
@@ -481,12 +694,12 @@ export function buildCorpus(): CorpusRecord[] {
     }
     if (!twinThrew) throw new Error(`${c.name}: twin ACCEPTED bytes expected to reject`);
     records.push({
-      record: 'deserialize',
+      record: "deserialize",
       name: c.name,
       type: typeToJson(c.type),
       bytes: hex(c.bytes),
       expect: { reject: c.reject },
-      provenance: c.de ? 'circuit' : 'twin',
+      provenance: c.de ? "circuit" : "twin",
     });
   }
 
@@ -497,48 +710,48 @@ export function buildCorpus(): CorpusRecord[] {
   boolBytes[24] = 0xff;
   const lenientDecoded = pc.deInner(boolBytes);
   if (!sameValue(INNER, lenientDecoded, { pair: { a: 0n, b: 0n }, ok: false })) {
-    throw new Error('divergence: circuit boolean decode of 0xff changed behaviour');
+    throw new Error("divergence: circuit boolean decode of 0xff changed behaviour");
   }
   records.push({
-    record: 'deserialize',
-    name: 'inner-bool-0xff-strict',
+    record: "deserialize",
+    name: "inner-bool-0xff-strict",
     type: typeToJson(INNER),
     bytes: hex(boolBytes),
     expect: { reject: RejectCategory.BooleanStrict },
-    provenance: 'twin',
+    provenance: "twin",
   });
   records.push({
-    record: 'deserialize',
-    name: 'inner-bool-0xff-lenient',
+    record: "deserialize",
+    name: "inner-bool-0xff-lenient",
     type: typeToJson(INNER),
     bytes: hex(boolBytes),
     options: { lenientBooleans: true },
     expect: { value: valueToJson(INNER, lenientDecoded) },
-    provenance: 'circuit',
+    provenance: "circuit",
   });
 
   const paddingBytes = padTo(compactSerialize(BOUNDED as never, boundedValue as never), 8);
   paddingBytes[7] = 0x99;
   const paddingDecoded = pc.deBounded(paddingBytes);
   if (!sameValue(BOUNDED, paddingDecoded, boundedValue)) {
-    throw new Error('divergence: circuit padding behaviour changed');
+    throw new Error("divergence: circuit padding behaviour changed");
   }
   records.push({
-    record: 'deserialize',
-    name: 'bounded-padding-garbage-strict',
+    record: "deserialize",
+    name: "bounded-padding-garbage-strict",
     type: typeToJson(BOUNDED),
     bytes: hex(paddingBytes),
     expect: { reject: RejectCategory.PaddingNonZero },
-    provenance: 'twin',
+    provenance: "twin",
   });
   records.push({
-    record: 'deserialize',
-    name: 'bounded-padding-garbage-ignored',
+    record: "deserialize",
+    name: "bounded-padding-garbage-ignored",
     type: typeToJson(BOUNDED),
     bytes: hex(paddingBytes),
     options: { ignorePadding: true },
     expect: { value: valueToJson(BOUNDED, boundedValue) },
-    provenance: 'circuit',
+    provenance: "circuit",
   });
 
   // The respond-schema pipeline: schema JSON -> descriptor -> bytes, with the
@@ -551,7 +764,7 @@ export function buildCorpus(): CorpusRecord[] {
     if (hex(twinPacked) !== hex(production)) {
       throw new Error(
         `${c.name}: production respond encoder disagrees with the twin: ` +
-          `${hex(production)} vs ${hex(twinPacked)}`
+          `${hex(production)} vs ${hex(twinPacked)}`,
       );
     }
     if (hex(twinPacked) !== hex(oracleSerialize(descriptor, c.compactValue))) {
@@ -561,13 +774,13 @@ export function buildCorpus(): CorpusRecord[] {
       throw new Error(`${c.name}: twin deserialize returned a different value`);
     }
     records.push({
-      record: 'schema',
+      record: "schema",
       name: c.name,
       schema: c.schema,
       type: typeToJson(descriptor),
       value: valueToJson(descriptor, c.compactValue),
       packed: hex(twinPacked),
-      provenance: 'production',
+      provenance: "production",
     });
   }
 
@@ -579,21 +792,21 @@ export function buildCorpus(): CorpusRecord[] {
     const value = randValue(rng, type);
     const twinPacked = compactSerialize(type as never, value as never);
     if (twinPacked.length !== compactSerializedSize(type)) {
-      throw new Error(`sweep-${i}: packed length disagrees with compactSerializedSize`);
+      throw new Error(`sweep-${String(i)}: packed length disagrees with compactSerializedSize`);
     }
     if (hex(twinPacked) !== hex(oracleSerialize(type, value))) {
-      throw new Error(`sweep-${i}: twin and oracle disagree`);
+      throw new Error(`sweep-${String(i)}: twin and oracle disagree`);
     }
     if (!sameValue(type, compactDeserialize(type, twinPacked), value)) {
-      throw new Error(`sweep-${i}: strict twin roundtrip failed`);
+      throw new Error(`sweep-${String(i)}: strict twin roundtrip failed`);
     }
     records.push({
-      record: 'sweep',
-      name: `sweep-${String(i).padStart(3, '0')}`,
+      record: "sweep",
+      name: `sweep-${String(i).padStart(3, "0")}`,
       type: typeToJson(type),
       value: valueToJson(type, value),
       packed: hex(twinPacked),
-      provenance: 'oracle',
+      provenance: "oracle",
     });
   }
 
@@ -608,22 +821,22 @@ export function buildCorpus(): CorpusRecord[] {
  * @returns the JSONL text
  */
 export function corpusText(records: CorpusRecord[]): string {
-  return records.map((r) => JSON.stringify(r)).join('\n') + '\n';
+  return records.map((r) => JSON.stringify(r)).join("\n") + "\n";
 }
 
 /** Resolved URL of the committed corpus file. */
-export const CORPUS_URL = new URL('../corpus/serde-corpus.jsonl', import.meta.url);
+export const CORPUS_URL = new URL("../corpus/serde-corpus.jsonl", import.meta.url);
 
 /**
  * Load and parse the COMMITTED corpus file.
  *
  * @returns every record, header first
- * @throws if the file is missing or malformed
+ * @throws {Error} If the file is missing or malformed.
  */
 export function loadCorpus(): CorpusRecord[] {
-  const text = readFileSync(CORPUS_URL, 'utf8');
+  const text = readFileSync(CORPUS_URL, "utf8");
   return text
-    .split('\n')
+    .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as CorpusRecord);
 }

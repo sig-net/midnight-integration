@@ -5,46 +5,46 @@
 // (`as const satisfies CompactType`) so CompactValueOf inference works in
 // consumers.
 
-import { FIELD_MODULUS, type CompactType, type CompactValue } from '@sig-net/midnight-serde';
+import { type CompactType, type CompactValue, FIELD_MODULUS } from "@sig-net/midnight-serde";
 
 /** UintPair building block: `struct Pair { a: Uint<128>; b: Uint<64> }`. */
 export const PAIR = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
-    { name: 'a', type: { kind: 'uint', bits: 128 } },
-    { name: 'b', type: { kind: 'uint', bits: 64 } },
+    { name: "a", type: { kind: "uint", bits: 128 } },
+    { name: "b", type: { kind: "uint", bits: 64 } },
   ],
 } as const satisfies CompactType;
 
 /** Every primitive kind at boundary widths: fixture struct `Primitives`. */
 export const PRIMITIVES = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
-    { name: 'flag', type: { kind: 'boolean' } },
-    { name: 'u8', type: { kind: 'uint', bits: 8 } },
-    { name: 'u64', type: { kind: 'uint', bits: 64 } },
-    { name: 'u128', type: { kind: 'uint', bits: 128 } },
-    { name: 'u248', type: { kind: 'uint', bits: 248 } },
-    { name: 'f', type: { kind: 'field' } },
+    { name: "flag", type: { kind: "boolean" } },
+    { name: "u8", type: { kind: "uint", bits: 8 } },
+    { name: "u64", type: { kind: "uint", bits: 64 } },
+    { name: "u128", type: { kind: "uint", bits: 128 } },
+    { name: "u248", type: { kind: "uint", bits: 248 } },
+    { name: "f", type: { kind: "field" } },
   ],
 } as const satisfies CompactType;
 
 /** `Bytes<N>` at 1, 20 (EVM address width) and 32: fixture struct `Buffers`. */
 export const BUFFERS = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
-    { name: 'one', type: { kind: 'bytes', length: 1 } },
-    { name: 'addr20', type: { kind: 'bytes', length: 20 } },
-    { name: 'word', type: { kind: 'bytes', length: 32 } },
+    { name: "one", type: { kind: "bytes", length: 1 } },
+    { name: "addr20", type: { kind: "bytes", length: 20 } },
+    { name: "word", type: { kind: "bytes", length: 32 } },
   ],
 } as const satisfies CompactType;
 
 /** Vectors of uints: fixture struct `VectorsPlain`. */
 export const VECTORS_PLAIN = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
-    { name: 'nums', type: { kind: 'vector', length: 3, element: { kind: 'uint', bits: 64 } } },
-    { name: 'more', type: { kind: 'vector', length: 2, element: { kind: 'uint', bits: 128 } } },
+    { name: "nums", type: { kind: "vector", length: 3, element: { kind: "uint", bits: 64 } } },
+    { name: "more", type: { kind: "vector", length: 2, element: { kind: "uint", bits: 128 } } },
   ],
 } as const satisfies CompactType;
 
@@ -53,15 +53,15 @@ export const VECTORS_PLAIN = {
  * (compactc 0.33 crashes compiling `serialize<T, N>` for these shapes).
  */
 export const VECTORS_DEEP = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
-    { name: 'pairs', type: { kind: 'vector', length: 2, element: PAIR } },
+    { name: "pairs", type: { kind: "vector", length: 2, element: PAIR } },
     {
-      name: 'matrix',
+      name: "matrix",
       type: {
-        kind: 'vector',
+        kind: "vector",
         length: 2,
-        element: { kind: 'vector', length: 2, element: { kind: 'uint', bits: 8 } },
+        element: { kind: "vector", length: 2, element: { kind: "uint", bits: 8 } },
       },
     },
   ],
@@ -69,20 +69,20 @@ export const VECTORS_DEEP = {
 
 /** One level of struct nesting: fixture struct `Inner`. */
 export const INNER = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
-    { name: 'pair', type: PAIR },
-    { name: 'ok', type: { kind: 'boolean' } },
+    { name: "pair", type: PAIR },
+    { name: "ok", type: { kind: "boolean" } },
   ],
 } as const satisfies CompactType;
 
 /** Two levels of struct nesting: deserialize-only in-circuit (same compactc bug). */
 export const NESTED = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
-    { name: 'pair', type: PAIR },
-    { name: 'inner', type: INNER },
-    { name: 'ok', type: { kind: 'boolean' } },
+    { name: "pair", type: PAIR },
+    { name: "inner", type: INNER },
+    { name: "ok", type: { kind: "boolean" } },
   ],
 } as const satisfies CompactType;
 
@@ -91,19 +91,19 @@ export const NESTED = {
  * Maybe<Uint<64>> is `{ is_some: Boolean; value: Uint<64> }`.
  */
 export const WITH_STDLIB = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
     {
-      name: 'owner',
-      type: { kind: 'struct', fields: [{ name: 'bytes', type: { kind: 'bytes', length: 32 } }] },
+      name: "owner",
+      type: { kind: "struct", fields: [{ name: "bytes", type: { kind: "bytes", length: 32 } }] },
     },
     {
-      name: 'maybe',
+      name: "maybe",
       type: {
-        kind: 'struct',
+        kind: "struct",
         fields: [
-          { name: 'is_some', type: { kind: 'boolean' } },
-          { name: 'value', type: { kind: 'uint', bits: 64 } },
+          { name: "is_some", type: { kind: "boolean" } },
+          { name: "value", type: { kind: "uint", bits: 64 } },
         ],
       },
     },
@@ -116,76 +116,72 @@ export const WITH_STDLIB = {
  * bytes, and a 3-variant enum is `Uint<0..3>` in 1 byte.
  */
 export const BOUNDED = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
-    { name: 'small', type: { kind: 'uint', bound: 1000 } },
-    { name: 'unit', type: { kind: 'uint', bound: 1 } },
-    { name: 'status', type: { kind: 'enum', variants: 3 } },
-    { name: 'marker', type: { kind: 'uint', bits: 8 } },
+    { name: "small", type: { kind: "uint", bound: 1000 } },
+    { name: "unit", type: { kind: "uint", bound: 1 } },
+    { name: "status", type: { kind: "enum", variants: 3 } },
+    { name: "marker", type: { kind: "uint", bits: 8 } },
   ],
 } as const satisfies CompactType;
 
 /** All the zero-width shapes beside a 1-byte marker: fixture struct `ZeroSizes`. */
 export const ZERO_SIZES = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
-    { name: 'empty', type: { kind: 'bytes', length: 0 } },
-    { name: 'none', type: { kind: 'vector', length: 0, element: { kind: 'uint', bits: 64 } } },
-    { name: 'nothing', type: { kind: 'struct', fields: [] } },
-    { name: 'marker', type: { kind: 'uint', bits: 8 } },
+    { name: "empty", type: { kind: "bytes", length: 0 } },
+    { name: "none", type: { kind: "vector", length: 0, element: { kind: "uint", bits: 64 } } },
+    { name: "nothing", type: { kind: "struct", fields: [] } },
+    { name: "marker", type: { kind: "uint", bits: 8 } },
   ],
 } as const satisfies CompactType;
 
 /** Heterogeneous tuple `[Boolean, Uint<16>, Bytes<4>]`. */
 export const TUPLE = {
-  kind: 'tuple',
-  elements: [
-    { kind: 'boolean' },
-    { kind: 'uint', bits: 16 },
-    { kind: 'bytes', length: 4 },
-  ],
+  kind: "tuple",
+  elements: [{ kind: "boolean" }, { kind: "uint", bits: 16 }, { kind: "bytes", length: 4 }],
 } as const satisfies CompactType;
 
 /** Tuple CONTAINING a struct (compiles in-circuit, unlike Vector<n, Struct>). */
 export const TUPLE_PAIR = {
-  kind: 'tuple',
-  elements: [PAIR, { kind: 'boolean' }],
+  kind: "tuple",
+  elements: [PAIR, { kind: "boolean" }],
 } as const satisfies CompactType;
 
 /** Non-byte-aligned sized uint: 2 bytes, decode-rejected at 4096. */
-export const U12 = { kind: 'uint', bits: 12 } as const satisfies CompactType;
+export const U12 = { kind: "uint", bits: 12 } as const satisfies CompactType;
 
 /** 3-byte bounded uint (byteLength(69999) = 3), decode-rejected at 70000. */
-export const WIDE = { kind: 'uint', bound: 70000 } as const satisfies CompactType;
+export const WIDE = { kind: "uint", bound: 70000 } as const satisfies CompactType;
 
 /** Single-variant enum: ZERO bytes wide. */
-export const SOLO = { kind: 'enum', variants: 1 } as const satisfies CompactType;
+export const SOLO = { kind: "enum", variants: 1 } as const satisfies CompactType;
 
 /** The empty tuple `[]`: ZERO bytes wide. */
-export const EMPTY_TUPLE = { kind: 'tuple', elements: [] } as const satisfies CompactType;
+export const EMPTY_TUPLE = { kind: "tuple", elements: [] } as const satisfies CompactType;
 
 /** A 300-variant enum: TWO bytes little-endian, decode-rejected at index 300. */
-export const BIG = { kind: 'enum', variants: 300 } as const satisfies CompactType;
+export const BIG = { kind: "enum", variants: 300 } as const satisfies CompactType;
 
 /**
  * Stdlib Either<Uint<64>, Bytes<32>> as a plain struct: BOTH arms always
  * occupy their full width regardless of the tag.
  */
 export const EITHER = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
-    { name: 'is_left', type: { kind: 'boolean' } },
-    { name: 'left', type: { kind: 'uint', bits: 64 } },
-    { name: 'right', type: { kind: 'bytes', length: 32 } },
+    { name: "is_left", type: { kind: "boolean" } },
+    { name: "left", type: { kind: "uint", bits: 64 } },
+    { name: "right", type: { kind: "bytes", length: 32 } },
   ],
 } as const satisfies CompactType;
 
 /** Stdlib Maybe<Uint<64>> as a plain struct. */
 export const MAYBE_U64 = {
-  kind: 'struct',
+  kind: "struct",
   fields: [
-    { name: 'is_some', type: { kind: 'boolean' } },
-    { name: 'value', type: { kind: 'uint', bits: 64 } },
+    { name: "is_some", type: { kind: "boolean" } },
+    { name: "value", type: { kind: "uint", bits: 64 } },
   ],
 } as const satisfies CompactType;
 
@@ -281,23 +277,23 @@ export const eitherBothArms = {
  * circuits.
  */
 export const SHAPES: [string, CompactType, CompactValue][] = [
-  ['Primitives', PRIMITIVES, primitivesValue],
-  ['Buffers', BUFFERS, buffersValue],
-  ['VectorsPlain', VECTORS_PLAIN, vectorsPlainValue],
-  ['VectorsDeep (no circuit serialize exists)', VECTORS_DEEP, vectorsDeepValue],
-  ['Inner', INNER, innerValue],
-  ['Inner with a false boolean', INNER, innerFalseValue],
-  ['Nested (no circuit serialize exists)', NESTED, nestedValue],
-  ['WithStdlib', WITH_STDLIB, stdlibValue],
-  ['Bounded', BOUNDED, boundedValue],
-  ['ZeroSizes', ZERO_SIZES, zeroSizesValue],
-  ['tuple', TUPLE, tupleValue],
-  ['tuple with struct', TUPLE_PAIR, tuplePairValue],
-  ['Uint<12> (non-byte-aligned)', U12, 4095n],
-  ['Uint<0..70000> (3 bytes)', WIDE, 69999n],
-  ['single-variant enum (zero-width)', SOLO, 0],
-  ['empty tuple (zero-width)', EMPTY_TUPLE, []],
-  ['300-variant enum (2 bytes)', BIG, 299],
-  ['Either with BOTH arms populated', EITHER, eitherBothArms],
-  ['Maybe none (zero-filled value arm)', MAYBE_U64, { is_some: false, value: 0n }],
+  ["Primitives", PRIMITIVES, primitivesValue],
+  ["Buffers", BUFFERS, buffersValue],
+  ["VectorsPlain", VECTORS_PLAIN, vectorsPlainValue],
+  ["VectorsDeep (no circuit serialize exists)", VECTORS_DEEP, vectorsDeepValue],
+  ["Inner", INNER, innerValue],
+  ["Inner with a false boolean", INNER, innerFalseValue],
+  ["Nested (no circuit serialize exists)", NESTED, nestedValue],
+  ["WithStdlib", WITH_STDLIB, stdlibValue],
+  ["Bounded", BOUNDED, boundedValue],
+  ["ZeroSizes", ZERO_SIZES, zeroSizesValue],
+  ["tuple", TUPLE, tupleValue],
+  ["tuple with struct", TUPLE_PAIR, tuplePairValue],
+  ["Uint<12> (non-byte-aligned)", U12, 4095n],
+  ["Uint<0..70000> (3 bytes)", WIDE, 69999n],
+  ["single-variant enum (zero-width)", SOLO, 0],
+  ["empty tuple (zero-width)", EMPTY_TUPLE, []],
+  ["300-variant enum (2 bytes)", BIG, 299],
+  ["Either with BOTH arms populated", EITHER, eitherBothArms],
+  ["Maybe none (zero-filled value arm)", MAYBE_U64, { is_some: false, value: 0n }],
 ];

@@ -2,12 +2,21 @@
 // This module MUST stay free of `vitest` imports: it is loaded by globalSetup
 // in vitest's main process, where the worker-only test APIs are unavailable.
 
-/** Loud, uniform skip line so skipped steps are obvious in the output. */
+/**
+ * Loud, uniform skip line so skipped steps are obvious in the output.
+ *
+ * @param step - Name of the step being skipped.
+ * @param reason - Why it is being skipped.
+ */
 export function logSkip(step: string, reason: string): void {
   console.log(`SKIPPED: ${step} — ${reason}`);
 }
 
-/** Print a value the operator must save, too loud to miss. */
+/**
+ * Print a value the operator must save, too loud to miss.
+ *
+ * @param lines - The banner's lines, printed between two rules.
+ */
 export function banner(lines: string[]): void {
   const border = "=".repeat(72);
   console.log(`\n${border}\n${lines.join("\n")}\n${border}\n`);
@@ -20,8 +29,12 @@ export function banner(lines: string[]): void {
  * is what segments the streaming output and shows which step is currently
  * running. A heavy rule (`━`) distinguishes step boundaries from value
  * banners (`=`).
+ *
+ * @param index - 1-based position of this step in the run.
+ * @param total - How many steps the run has.
+ * @param name - The step's name.
  */
 export function testHeader(index: number, total: number, name: string): void {
   const border = "━".repeat(72);
-  console.log(`\n${border}\n▶  TEST ${index}/${total}  ${name}\n${border}`);
+  console.log(`\n${border}\n▶  TEST ${String(index)}/${String(total)}  ${name}\n${border}`);
 }

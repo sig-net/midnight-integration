@@ -22,7 +22,7 @@ const MINUTE = 60_000;
  * requirement.
  *
  * @param env - The suite's env accumulator.
- * @throws If a stack endpoint is unreachable or `compact` is missing.
+ * @throws {Error} If a stack endpoint is unreachable or `compact` is missing.
  */
 export async function assertCallerEnvironment(env: NodeJS.ProcessEnv): Promise<void> {
   const nodeConfig = getMidnightNodeConfig(env);
@@ -41,10 +41,15 @@ export async function assertCallerEnvironment(env: NodeJS.ProcessEnv): Promise<v
  */
 export async function compileCallerContract(env: NodeJS.ProcessEnv): Promise<void> {
   if (env.MIDNIGHT_CALLER_CONTRACT_ADDRESS) {
-    logSkip("compile:test-caller-contract:zk", `MIDNIGHT_CALLER_CONTRACT_ADDRESS is set (${env.MIDNIGHT_CALLER_CONTRACT_ADDRESS})`);
+    logSkip(
+      "compile:test-caller-contract:zk",
+      `MIDNIGHT_CALLER_CONTRACT_ADDRESS is set (${env.MIDNIGHT_CALLER_CONTRACT_ADDRESS})`,
+    );
     return;
   }
-  if (trustsPrebuiltZkKeys(env, "packages/test-caller-contract/src/managed/test-caller-contract/keys")) {
+  if (
+    trustsPrebuiltZkKeys(env, "packages/test-caller-contract/src/managed/test-caller-contract/keys")
+  ) {
     logSkip(
       "compile:test-caller-contract:zk",
       "TRUST_PREBUILT_ZK_KEYS=1 and prover keys are present (restored from a cache keyed on the contract sources)",
@@ -69,8 +74,12 @@ export function ensureCallerDeployerIdentity(env: NodeJS.ProcessEnv): void {
     return;
   }
   env.CALLER_DEPLOYER_SECRET_KEY = requireEnv(env, "DEPLOYER_SEED");
-  console.log("defaulted CALLER_DEPLOYER_SECRET_KEY to the deployer wallet seed (initialise is deployer-gated)");
-  console.log(" ➜ its commitment is sealed by the caller's constructor; only its holder may pin the response key");
+  console.log(
+    "defaulted CALLER_DEPLOYER_SECRET_KEY to the deployer wallet seed (initialise is deployer-gated)",
+  );
+  console.log(
+    " ➜ its commitment is sealed by the caller's constructor; only its holder may pin the response key",
+  );
 }
 
 /**
@@ -82,12 +91,21 @@ export function ensureCallerDeployerIdentity(env: NodeJS.ProcessEnv): void {
  */
 export async function deployCallerContractStep(env: NodeJS.ProcessEnv): Promise<void> {
   if (env.MIDNIGHT_CALLER_CONTRACT_ADDRESS) {
-    logSkip("deploy:test-caller-contract", `MIDNIGHT_CALLER_CONTRACT_ADDRESS is set (${env.MIDNIGHT_CALLER_CONTRACT_ADDRESS})`);
+    logSkip(
+      "deploy:test-caller-contract",
+      `MIDNIGHT_CALLER_CONTRACT_ADDRESS is set (${env.MIDNIGHT_CALLER_CONTRACT_ADDRESS})`,
+    );
     return;
   }
-  const { contractAddress } = await retryWhileDustGenerates("deploy:test-caller-contract", () => deployCaller(env));
+  const { contractAddress } = await retryWhileDustGenerates("deploy:test-caller-contract", () =>
+    deployCaller(env),
+  );
   env.MIDNIGHT_CALLER_CONTRACT_ADDRESS = contractAddress;
   console.log(`deployed a fresh MIDNIGHT_CALLER_CONTRACT_ADDRESS=${contractAddress}`);
-  console.log(` ➜ the minimal signet caller on Midnight — records signature requests and verifies the MPC's ECDSA responses`);
-  console.log(` ➜ 💡 Set as MIDNIGHT_CALLER_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`);
+  console.log(
+    ` ➜ the minimal signet caller on Midnight — records signature requests and verifies the MPC's ECDSA responses`,
+  );
+  console.log(
+    ` ➜ 💡 Set as MIDNIGHT_CALLER_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`,
+  );
 }

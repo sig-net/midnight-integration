@@ -1,6 +1,6 @@
 {
   "name": "@sig-net/midnight-contract-deploy",
-  "version": "0.18.0",
+  "version": "0.20.0-rc.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/sig-net/midnight-integration",
@@ -34,9 +34,9 @@
   },
   "dependencies": {
     "@effect/platform-node": "^0.107.0",
-    "@midnight-ntwrk/compact-js": "2.5.5-rc.6",
-    "@midnight-ntwrk/compact-js-node": "2.5.5-rc.6",
-    "@midnight-ntwrk/midnight-js": "5.0.0-beta.4",
+    "@midnight-ntwrk/compact-js": "2.5.5-rc.7",
+    "@midnight-ntwrk/compact-js-node": "2.5.5-rc.7",
+    "@midnight-ntwrk/midnight-js": "5.0.0-beta.6",
     "@midnight-ntwrk/platform-js": "^3.0.0",
     "@midnightntwrk/ledger-v9": "1.0.0-rc.3",
     "@midnightntwrk/wallet-sdk-abstractions": "3.0.0-beta.0",
@@ -47,14 +47,15 @@
     "@midnightntwrk/wallet-sdk-shielded": "4.0.0-beta.2",
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "4.0.0-beta.2",
     "@scure/bip39": "^2.2.0",
-    "@sig-net/midnight": "^0.18.0",
-    "@sig-net/midnight-contract": "^0.18.0",
+    "@sig-net/midnight": "^0.20.0-rc.1",
+    "@sig-net/midnight-contract": "^0.20.0-rc.1",
     "effect": "^3.21.4"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "tsx": "^4.23.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.9"
   }
 }

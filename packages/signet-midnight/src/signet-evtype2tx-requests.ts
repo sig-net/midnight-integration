@@ -1,46 +1,41 @@
 // The EVM Type-2 (EIP-1559) instantiation of the signet request protocol:
 // TypeScript twins of the `EvmType2TxParams` decomposition structs in
 // `Signet.compact`, their runtime descriptors, the ABI-word helpers, and the
-// request -> transaction assembly the signer runs. Everything chain-agnostic
-// (the request record itself, ids, the descriptor toolkit) lives in
-// `signet-requests.ts`. A future non-EVM decomposition gets a sibling of THIS
-// file.
+// request -> transaction assembly. Everything chain-agnostic lives in
+// `signet-requests.ts`.
 //
-// The no-translation invariant lives here: words are stored ABI-ready and
-// {@link assembleCalldata} concatenates `selector || words` VERBATIM, so the
-// transaction the MPC signs carries the contract-stored bytes untouched.
+// Words are stored ABI-ready: {@link assembleCalldata} concatenates
+// `selector || words` VERBATIM, so the transaction the MPC signs carries the
+// contract-stored bytes untouched.
 
-import {
-  CompactTypeBytes,
-  CompactTypeUnsignedInteger,
-  CompactTypeVector,
-  keccak256,
-  type CompactType,
-} from "@midnight-ntwrk/compact-runtime";
-import { getAddress, Signature, toBeHex, Transaction } from "ethers";
+import { type CompactType, CompactTypeVector } from "@midnight-ntwrk/compact-runtime";
+import { getAddress, Transaction } from "ethers";
 
-import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
+import { bigintToBytes32BE, bytesToHex } from "./byte-codecs.ts";
 import {
-  bigintToBytes32BE,
-  ecdsaSignatureToMpcSignature,
-  mpcSignatureToEcdsaSignature,
-} from "./ecdsa-attestation.ts";
-import {
-  bytesToHex,
+  BYTES_4,
+  BYTES_20,
+  BYTES_32,
   compactMaybeDescriptor,
   compactStructDescriptor,
-  signBidirectionalEventDescriptorWith,
   type Maybe,
-  type RequestId,
+  UINT_8,
+  UINT_16,
+  UINT_64,
+  UINT_128,
+} from "./compact-descriptors.ts";
+import { signatureRespondedEventToSignature } from "./ecdsa-attestation.ts";
+import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
+import {
   type SignBidirectionalEvent,
+  signBidirectionalEventDescriptorWith,
 } from "./signet-requests.ts";
 
 /**
  * ABI calldata as a 4-byte selector + 32-byte word slots (Compact:
- * `EvmCalldata<#maxWords>`). Every stored byte is ABI-READY: the calldata the
- * MPC signs is `selector || words[0..noWords]` VERBATIM (see
- * {@link assembleCalldata}), so words are big-endian broadcast-form ABI words,
- * built in-circuit by Signet.compact's `evmAddressAbiWord` / `numericAbiWord`.
+ * `EvmCalldata<#maxWords>`). Every stored byte is ABI-READY: words are
+ * big-endian broadcast-form ABI words, and the calldata the MPC signs is
+ * `selector || words[0..noWords]` VERBATIM (see {@link assembleCalldata}).
  */
 export interface EvmCalldata {
   /** The literal first 4 calldata bytes (as broadcast). */
@@ -70,10 +65,10 @@ export interface EvmAccessListEntry {
 /**
  * The EVM transaction to be signed, decomposed into typed fields (Compact:
  * `EvmType2TxParams<#maxCalldataWords, #maxAccessListEntries,
- * #maxStorageKeysPerEntry>`, EIP-1559: https://eips.ethereum.org/EIPS/eip-1559).
- * Compact `Bytes<N>` fields arrive as N-byte `Uint8Array`s, `Uint<N>` as
- * `bigint`. Vector capacities are each contract's compile-time throttle,
- * and the runtime counts say how many leading slots are real.
+ * #maxStorageKeysPerEntry>`, EIP-1559). Compact `Bytes<N>` fields arrive as
+ * N-byte `Uint8Array`s, `Uint<N>` as `bigint`. Vector capacities are each
+ * contract's compile-time throttle, and the runtime counts say how many
+ * leading slots are real.
  */
 export interface EvmType2TxParams {
   /** EVM chain id (also expressed in the record's `caip2Id`). */
@@ -99,15 +94,8 @@ export interface EvmType2TxParams {
 }
 
 // ---- Runtime descriptors (see the deviation note in signet-requests.ts) ----
-// Base-type literals match what the compiler emits for the EVM structs'
-// fields (Uint<8/16/64/128>, Bytes<4/20/32>).
-const BYTES_4 = new CompactTypeBytes(4);
-const BYTES_20 = new CompactTypeBytes(20);
-const BYTES_32 = new CompactTypeBytes(32);
-const UINT_8 = new CompactTypeUnsignedInteger(2n ** 8n - 1n, 1);
-const UINT_16 = new CompactTypeUnsignedInteger(2n ** 16n - 1n, 2);
-const UINT_64 = new CompactTypeUnsignedInteger(2n ** 64n - 1n, 8);
-const UINT_128 = new CompactTypeUnsignedInteger(2n ** 128n - 1n, 16);
+// Base-type descriptors come from compact-descriptors.ts at the literals the
+// compiler emits for the EVM structs' fields (Uint<8/16/64/128>, Bytes<4/20/32>).
 
 /**
  * Descriptor of {@link EvmCalldata} at one word capacity: the TS analogue
@@ -175,10 +163,28 @@ export function evmType2TxParamsDescriptor(
 }
 
 /**
+ * Descriptor of {@link EvmType2TxParams} at the capacity instantiation a
+ * stored value itself exhibits: vector capacities are read off the value's
+ * array lengths, which carry the contract's compile-time throttles. For
+ * hashing or re-encoding a record already decoded at full capacity (see
+ * `calculateRequestId` in signet-request-id.ts).
+ *
+ * @param txParams - The transaction decomposition to size against.
+ * @returns The tx-params descriptor at the value's capacities.
+ */
+export function evmType2TxParamsDescriptorOf(
+  txParams: EvmType2TxParams,
+): CompactType<EvmType2TxParams> {
+  return evmType2TxParamsDescriptor(
+    txParams.calldata.value.words.length,
+    txParams.accessList.length,
+    txParams.accessList[0]?.storageKeys.length ?? 0,
+  );
+}
+
+/**
  * Descriptor of {@link SignBidirectionalEvent} at one EVM Type-2 capacity
- * instantiation: the generic record descriptor
- * (`signBidirectionalEventDescriptorWith`) over
- * {@link evmType2TxParamsDescriptor}.
+ * instantiation.
  *
  * @param maxCalldataWords - Calldata word capacity.
  * @param maxAccessListEntries - Access-list entry capacity.
@@ -197,58 +203,23 @@ export function signBidirectionalEventDescriptor(
   lenRespondSerialization: number,
 ): CompactType<SignBidirectionalEvent> {
   return signBidirectionalEventDescriptorWith(
-    evmType2TxParamsDescriptor(
-      maxCalldataWords,
-      maxAccessListEntries,
-      maxStorageKeysPerEntry,
-    ),
+    evmType2TxParamsDescriptor(maxCalldataWords, maxAccessListEntries, maxStorageKeysPerEntry),
     lenOutputDeserialization,
     lenRespondSerialization,
-  );
-}
-
-/**
- * Canonical id of a signet request: the persistent hash of the entire event
- * record (which commits to every field, the sender address included, and
- * deliberately carries no extra domain tag). TS twin of Signet.compact's
- * `calculateRequestId` circuit (see the deviation note in
- * signet-requests.ts), generic over the capacity instantiation via the
- * record's own array lengths: pass the record exactly as the ledger stores
- * it, unused slots included and schemas at their declared widths.
- *
- * @param request - The full event record (contract-shaped, all slots).
- * @returns The 32-byte request id, the record's ledger map key.
- */
-export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
-  const { txParams } = request;
-  const maxCalldataWords = txParams.calldata.value.words.length;
-  const maxAccessListEntries = txParams.accessList.length;
-  const maxStorageKeysPerEntry =
-    maxAccessListEntries === 0 ? 0 : txParams.accessList[0]!.storageKeys.length;
-  return keccak256(
-    signBidirectionalEventDescriptor(
-      maxCalldataWords,
-      maxAccessListEntries,
-      maxStorageKeysPerEntry,
-      request.outputDeserializationSchema.length,
-      request.respondSerializationSchema.length,
-    ),
-    request,
   );
 }
 
 // ---- ABI words / calldata / transaction assembly ---------------------------
 
 /**
- * The ABI word for a numeric value (e.g. an ERC20 amount): the value as a
- * 32-byte BIG-ENDIAN integer, exactly as broadcast. TS mirror of
- * Signet.compact's `numericAbiWord` circuit (lockstep-tested against the
- * compiled circuit). Use when building words off-chain (UIs, expected-record
- * builders, tests).
+ * The ABI word for a numeric value: the value as a 32-byte BIG-ENDIAN
+ * integer, exactly as broadcast. TS mirror of Signet.compact's
+ * `numericAbiWord` circuit (lockstep-tested against the compiled circuit).
+ * For off-chain word builders (UIs, expected-record builders, tests).
  *
  * @param value - The word's numeric value (e.g. an amount).
  * @returns The ABI-ready 32-byte word to store in an {@link EvmCalldata} word.
- * @throws Error if the value is negative or does not fit 32 bytes.
+ * @throws {Error} If the value is negative or does not fit 32 bytes.
  */
 export function numericAbiWord(value: bigint): Uint8Array {
   return bigintToBytes32BE(value);
@@ -261,11 +232,11 @@ export function numericAbiWord(value: bigint): Uint8Array {
  *
  * @param address - The 20-byte address in display order.
  * @returns The ABI-ready 32-byte word to store in an {@link EvmCalldata} word.
- * @throws Error if the address is not exactly 20 bytes.
+ * @throws {Error} If the address is not exactly 20 bytes.
  */
 export function evmAddressAbiWord(address: Uint8Array): Uint8Array {
   if (address.length !== 20) {
-    throw new Error(`EVM address must be 20 bytes, got ${address.length}`);
+    throw new Error(`EVM address must be 20 bytes, got ${String(address.length)}`);
   }
   const word = new Uint8Array(32);
   word.set(address, 12);
@@ -278,7 +249,7 @@ export function evmAddressAbiWord(address: Uint8Array): Uint8Array {
  * (lockstep-tested against the compiled circuit).
  *
  * @param value - The word's Boolean value.
- * @returns The ABI-ready 32-byte word to store in an {@link EvmCalldata} word.
+ * @returns The ABI-ready 32-byte word.
  */
 export function boolAbiWord(value: boolean): Uint8Array {
   const word = new Uint8Array(32);
@@ -288,54 +259,51 @@ export function boolAbiWord(value: boolean): Uint8Array {
 
 /**
  * Read a numeric ABI word back into a bigint: the big-endian reading of bytes
- * 16..31. TS mirror of Signet.compact's `abiWordToUint128` circuit, including
- * its canonicality check: the leading 16 bytes must be zero, so a word wider
- * than Uint<128> is rejected rather than silently truncated.
+ * 16..31, with the leading 16 bytes required to be zero. TS mirror of
+ * Signet.compact's `abiWordToUint128` circuit, canonicality check included.
  *
  * @param word - The ABI-ready 32-byte word.
  * @returns The word's numeric value.
- * @throws Error if the word is not 32 bytes or its leading half is nonzero.
+ * @throws {Error} If the word is not 32 bytes or its leading half is nonzero.
  */
 export function abiWordToUint128(word: Uint8Array): bigint {
   if (word.length !== 32) {
-    throw new Error(`ABI word must be 32 bytes, got ${word.length}`);
+    throw new Error(`ABI word must be 32 bytes, got ${String(word.length)}`);
   }
   if (word.slice(0, 16).some((byte) => byte !== 0)) {
     throw new Error("ABI word exceeds Uint<128>");
   }
   let value = 0n;
-  for (let i = 16; i < 32; i++) {
-    value = value * 256n + BigInt(word[i]!);
+  for (const byte of word.subarray(16, 32)) {
+    value = value * 256n + BigInt(byte);
   }
   return value;
 }
 
 /**
- * Read a Boolean ABI word back into a boolean. TS mirror of Signet.compact's
- * `abiWordToBool` circuit, including its canonicality check: the first 31
- * bytes must be zero and the last byte 0 or 1.
+ * Read a Boolean ABI word back into a boolean: the first 31 bytes must be
+ * zero and the last byte 0 or 1. TS mirror of Signet.compact's
+ * `abiWordToBool` circuit, canonicality check included.
  *
  * @param word - The ABI-ready 32-byte word.
  * @returns The word's Boolean value.
- * @throws Error if the word is not 32 bytes or is not a canonical Boolean.
+ * @throws {Error} If the word is not 32 bytes or is not a canonical Boolean.
  */
 export function abiWordToBool(word: Uint8Array): boolean {
   if (word.length !== 32) {
-    throw new Error(`ABI word must be 32 bytes, got ${word.length}`);
+    throw new Error(`ABI word must be 32 bytes, got ${String(word.length)}`);
   }
-  if (word.slice(0, 31).some((byte) => byte !== 0) || word[31]! > 1) {
+  const low = word[31];
+  if (low === undefined || word.slice(0, 31).some((byte) => byte !== 0) || low > 1) {
     throw new Error("ABI word is not a canonical Boolean");
   }
-  return word[31] === 1;
+  return low === 1;
 }
 
 /**
  * Assemble the raw calldata a request's words describe:
- * `data = selector || words[0..noWords]`, VERBATIM. Words are stored
- * ABI-ready (see {@link EvmCalldata}), so no byte of the stored record is
- * reordered or reinterpreted on the way into the transaction. Slots past
- * `noWords` are unused capacity and are dropped. This is THE implementation
- * of the signer-side assembly documented on `EvmCalldata` in Signet.compact.
+ * `data = selector || words[0..noWords]`, VERBATIM (see {@link EvmCalldata}).
+ * Slots past `noWords` are unused capacity and are dropped.
  *
  * @param calldata - The request's calldata field.
  * @returns Hex calldata for the transaction (`"0x"` when absent).
@@ -346,8 +314,8 @@ export function assembleCalldata(calldata: Maybe<EvmCalldata>): string {
   }
   const { selector, noWords, words } = calldata.value;
   let data = `0x${bytesToHex(selector)}`;
-  for (let i = 0; i < Number(noWords); i++) {
-    data += bytesToHex(words[i]!);
+  for (const word of words.slice(0, Number(noWords))) {
+    data += bytesToHex(word);
   }
   return data;
 }
@@ -361,31 +329,25 @@ export function assembleCalldata(calldata: Maybe<EvmCalldata>): string {
  */
 function decodeAccessList(
   txParams: EvmType2TxParams,
-): Array<{ address: string; storageKeys: string[] }> {
-  return txParams.accessList
-    .slice(0, Number(txParams.accessListEntryCount))
-    .map((entry) => ({
-      address: getAddress(`0x${bytesToHex(entry.address)}`),
-      storageKeys: entry.storageKeys
-        .slice(0, Number(entry.storageKeyCount))
-        .map((key) => `0x${bytesToHex(key)}`),
-    }));
+): { address: string; storageKeys: string[] }[] {
+  return txParams.accessList.slice(0, Number(txParams.accessListEntryCount)).map((entry) => ({
+    address: getAddress(`0x${bytesToHex(entry.address)}`),
+    storageKeys: entry.storageKeys
+      .slice(0, Number(entry.storageKeyCount))
+      .map((key) => `0x${bytesToHex(key)}`),
+  }));
 }
 
 /**
  * Rebuild the unsigned EIP-1559 transaction a request record describes,
- * byte-identical to the one the MPC assembles and signs: calldata from the
- * tagged words (see {@link assembleCalldata}), the count-trimmed access
- * list, and the stored envelope fields. This is the canonical
- * request→transaction transform. Response-side verification
- * (`signature-response-verification.ts`) and the signed-transaction builder
- * below both go through it, so the transaction a client broadcasts is
- * provably the one the MPC put its signature over.
+ * byte-identical to the one the MPC assembles and signs. The canonical
+ * request-to-transaction transform: response-side verification and
+ * {@link signBidirectionalEventToSignedEvmTransaction} both go through it.
  *
  * @param request - The on-ledger request record.
  * @returns The unsigned ethers transaction (`unsignedHash` is the digest the
  *   MPC signs).
- * @throws Error if a calldata word carries an unknown kind.
+ * @throws {Error} If a calldata word carries an unknown kind.
  */
 export function signBidirectionalEventToUnsignedEvmTransaction(
   request: SignBidirectionalEvent,
@@ -406,58 +368,6 @@ export function signBidirectionalEventToUnsignedEvmTransaction(
 }
 
 /**
- * Decode a response signature record (as the signet contract emits it in a
- * signature response event) into an ethers {@link Signature}. Goes through
- * {@link mpcSignatureToEcdsaSignature}, so this and in-circuit claims decode
- * a post identically:
- * ethers' `r` is the ECDSA scalar (`bigR.x` reduced mod the curve order),
- * not the raw coordinate, and a malformed record is rejected the same way
- * in both paths.
- *
- * @param response - The posted signature record.
- * @returns The ethers signature.
- * @throws Error if the record is malformed (see {@link mpcSignatureToEcdsaSignature}).
- */
-export function signatureRespondedEventToSignature(
-  response: SignatureRespondedEvent,
-): Signature {
-  const { r, s, recoveryId } = mpcSignatureToEcdsaSignature(response.signature);
-  return Signature.from({
-    r: toBeHex(r, 32),
-    s: toBeHex(s, 32),
-    v: recoveryId + 27,
-  });
-}
-
-/**
- * Encode an ECDSA signature as the response record posted to the signet
- * contract: the inverse of {@link signatureRespondedEventToSignature}, for
- * MPC-side posters (the fakenet signer, tests). An `r || s || v` signature
- * carries only R.x and the parity of R.y, so the full R point the record
- * stores is recovered on-curve (see {@link ecdsaSignatureToMpcSignature}).
- *
- * The parameter is structural (the r/s/yParity subset of an ethers
- * {@link Signature}) so signatures from ANY ethers instance qualify: posters
- * living in other repos resolve their own ethers install, and nominal class
- * typing would reject it.
- *
- * @param signature - The signature to encode (`r`/`s` as 0x hex, `yParity` 0 or 1).
- * @returns The response record, ready to post.
- * @throws Error if `r` is not the x coordinate of a secp256k1 point.
- */
-export function signatureToSignatureRespondedEvent(
-  signature: Pick<Signature, "r" | "s" | "yParity">,
-): SignatureRespondedEvent {
-  return {
-    signature: ecdsaSignatureToMpcSignature({
-      r: BigInt(signature.r),
-      s: BigInt(signature.s),
-      recoveryId: signature.yParity,
-    }),
-  };
-}
-
-/**
  * Assemble the broadcast-ready signed EIP-1559 transaction for a request from
  * its MPC signature response: rebuild the exact unsigned transaction the MPC
  * signed (see {@link signBidirectionalEventToUnsignedEvmTransaction}) and
@@ -470,7 +380,7 @@ export function signatureToSignatureRespondedEvent(
  * @returns The signed ethers transaction: `serialized` is the raw payload for
  *   `eth_sendRawTransaction`, `hash` its on-chain hash, `from` the recovered
  *   sender.
- * @throws Error if the request record is malformed (see
+ * @throws {Error} If the request record is malformed (see
  *   {@link signBidirectionalEventToUnsignedEvmTransaction}) or the response
  *   is not a decodable signature.
  */

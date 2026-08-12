@@ -7,11 +7,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  asciiPadded,
+  bytesToHex,
   deriveEvmAddress,
   deriveMidnightResponseKey,
-  deriveMidnightResponseSecretKey,
-  secp256k1PublicKeyOf,
 } from "../src/index.ts";
+import { deriveMidnightResponseSecretKey, secp256k1PublicKeyOf } from "../src/testing.ts";
 
 // The compressed secp256k1 public key of the fixed MPC root key 9e3b…9e0f
 // from the golden-vector run (also asserted in mpc-keys.test.ts).
@@ -68,6 +69,55 @@ describe("deriveEvmAddress", () => {
   it("rejects a malformed public key", () => {
     expect(() => deriveEvmAddress("0x1234", CONTRACT_ADDRESS, "vault")).toThrow();
   });
+
+  it("normalises the requester: 0x prefix and case do not change the address", () => {
+    const canonical = deriveEvmAddress(MPC_PUBKEY, CONTRACT_ADDRESS, "vault");
+    expect(deriveEvmAddress(MPC_PUBKEY, `0x${CONTRACT_ADDRESS}`, "vault")).toBe(canonical);
+    expect(deriveEvmAddress(MPC_PUBKEY, CONTRACT_ADDRESS.toUpperCase(), "vault")).toBe(canonical);
+  });
+});
+
+// Cross-implementation vectors for accounts derived from an on-ledger
+// record's `path: Bytes<32>`: the MPC renders the path as the lowercase hex
+// of the FULL 32 bytes, verbatim (sig-net/mpc chain-midnight convert.rs), so
+// the TS side must reach the same address via bytesToHex. Golden addresses
+// were generated from an independent construction of the derivation string,
+// like the CASES above: never regenerate them from the implementation.
+describe("deriveEvmAddress from record path bytes (MPC hex rendering)", () => {
+  interface PathBytesCase {
+    name: string;
+    pathBytes: Uint8Array;
+    expectedPathHex: string;
+    expectedAddress: string;
+  }
+
+  const PATH_BYTES_CASES: PathBytesCase[] = [
+    {
+      // A text-style path: the zero padding is part of the rendering.
+      name: "padded ascii literal pad(32, 'caller-path')",
+      pathBytes: asciiPadded("caller-path", 32),
+      expectedPathHex: "63616c6c65722d70617468000000000000000000000000000000000000000000",
+      expectedAddress: "0xc68d2d294AbE77eCEdEf1bCAcF2BCd1E49470986",
+    },
+    {
+      // A commitment-style path: invalid UTF-8, an interior NUL and a
+      // trailing zero byte, all rendered verbatim (the rendering is total).
+      name: "raw commitment bytes with interior and trailing NULs",
+      pathBytes: new Uint8Array([
+        0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0x07, 0x18, 0xff, 0xfe, 0x00, 0x5c, 0x6d, 0x7e, 0x8f,
+        0x90, 0xa1, 0xb2, 0xc3, 0xd4, 0xe5, 0xf6, 0x07, 0x18, 0x29, 0x3a, 0x4b, 0x5c, 0x6d, 0x7e,
+        0x8f, 0x00,
+      ]),
+      expectedPathHex: "a1b2c3d4e5f60718fffe005c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f00",
+      expectedAddress: "0x24F74013beEEb823D1E5ff373f665B7F38882B31",
+    },
+  ];
+
+  it.each(PATH_BYTES_CASES)("$name", ({ pathBytes, expectedPathHex, expectedAddress }) => {
+    const pathHex = bytesToHex(pathBytes);
+    expect(pathHex).toBe(expectedPathHex);
+    expect(deriveEvmAddress(MPC_PUBKEY, CONTRACT_ADDRESS, pathHex)).toBe(expectedAddress);
+  });
 });
 
 // The root secret key behind MPC_PUBKEY (the mpc-keys golden root key).
@@ -104,8 +154,8 @@ describe("deriveMidnightResponseKey / deriveMidnightResponseSecretKey", () => {
   });
 
   it("rejects a root secret key that is not 32 bytes", () => {
-    expect(() =>
-      deriveMidnightResponseSecretKey(new Uint8Array(31), CLIENT_ADDRESS),
-    ).toThrow(/32 bytes/);
+    expect(() => deriveMidnightResponseSecretKey(new Uint8Array(31), CLIENT_ADDRESS)).toThrow(
+      /32 bytes/,
+    );
   });
 });

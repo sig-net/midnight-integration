@@ -1,151 +1,72 @@
-// MPC-style raw state reader for the signature-REQUESTS side: decode the signet
-// request ledger fields out of a contract's raw state WITHOUT the compiled
-// contract. This is how the MPC monitor consumes signet contracts: it has only
-// a contract address, queries raw state from the indexer
-// (queryContractState(address).data), and decodes by ledger-tree PATH.
-// A contract is free to place its request index at any field: the caller
-// supplies the resolved path, which the discovery path learns from the
-// notification's requestsPath (sourced from the caller's contract-info.json).
-// The compiled contract's generated ledger() follows exactly this path internally.
-// The record descriptors themselves are the parameterised twins in
-// signet-requests.ts. The generic tree walk and shared base descriptors live
-// in signature-state-reading.ts.
+// MPC-style raw state reader for the signature-REQUESTS side: read the
+// signet request ledger fields out of a contract's raw state by resolved
+// ledger-tree path, as the MPC monitor and the event feed consume signet
+// contracts. The generic tree walk lives in raw-contract-state.ts and the
+// per-decomposition record decoding in signet-evtype2tx-record-decoding.ts.
+//
+// The read algorithm is the TS twin of the MPC's Rust reader
+// (chain-signatures/chain-midnight/src/reader.rs) and must stay in lockstep
+// with it: each record is decoded once, and id verification is a separate
+// recompute-and-drop gate ({@link lookupSignetRequestAt}).
 
-import type { CompactType } from "@midnight-ntwrk/compact-runtime";
+import type { AlignedValue } from "@midnight-ntwrk/compact-runtime";
 
+import { decodeExactly, UINT_64 } from "./compact-descriptors.ts";
+import { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";
+import { decodeEvmType2SignBidirectionalEvent } from "./signet-evtype2tx-record-decoding.ts";
+import { calculateRequestId } from "./signet-request-id.ts";
 import {
-  calculateRequestId,
-  signBidirectionalEventDescriptor,
-} from "./signet-evtype2tx-requests.ts";
-import {
-  requestIdHex,
+  requestIdBytes,
   type RequestIdHex,
+  requestIdHex,
+  requestIdType,
   type SignBidirectionalEvent,
   type SignBidirectionalEventIndex,
+  TxParamType,
 } from "./signet-requests.ts";
 
-/** The aligned-value cursor every descriptor's `fromValue` consumes. */
-type AlignedValue = Parameters<CompactType<unknown>["fromValue"]>[0];
-
-import {
-  requestIdType,
-  signetFieldNodeByPath,
-  u64,
-  type RawContractState,
-} from "./signature-state-reading.ts";
+// Atom position of `txParamType` in a stored record: the chain-agnostic head
+// of SignBidirectionalEvent (sender through txParamType) occupies the first
+// 8 atoms whatever the decomposition, so the tag sits at the same index in
+// every record.
+const TX_PARAM_TYPE_ATOM = 7;
 
 /**
- * Aligned-value entry count of an event record EXCLUDING the capacity-scaled
- * vectors: sender (1) + requestNonce (1) + keyVersion (1) + path (1) +
- * algo (1) + dest (1) + params (1) + txParamType (1, enums are one atom
- * whatever their byte width) + the EvmType2TxParams fixed fields
- * (chainId..value = 7, accessListEntryCount = 1) + the calldata Maybe's
- * is_some (1), selector (1) and noWords (1) + caip2Id (1) + the two schema
- * fields (1 each). A stored event cell therefore holds
- *   `REQUEST_FIXED_VALUE_ATOMS + maxCalldataWords
- *      + maxAccessListEntries·(2 + maxStorageKeysPerEntry)`
- * entries (each calldata word is one Bytes<32> atom, and each access-list
- * entry is address + storageKeyCount + its keys).
- */
-export const REQUEST_FIXED_VALUE_ATOMS = 22;
-
-/**
- * Recover a record's capacity instantiation (maxCalldataWords,
- * maxAccessListEntries, maxStorageKeysPerEntry) from its aligned-value atom
- * count and decode it. One atom count does not determine the capacities
- * uniquely, so candidates are enumerated, access-list-free first (today's
- * producers, the caller contract <1, 0, 0> and the erc20-vault example
- * <2, 0, 0>, are all access-list-free), and validated by the decode itself:
- * the descriptors' Bytes length checks and the enum range check reject wrong
- * splits, and a decode that leaves atoms unconsumed is rejected here.
+ * Decode a stored request record: read the `txParamType` tag and hand the
+ * cell to that decomposition's decoder, so a foreign param type fails by
+ * name rather than as capacity arithmetic. Does NOT verify the record
+ * against the id it is filed under.
  *
- * The schema byte widths (`#LenOutputDeserialization`,
- * `#LenRespondSerialization`) are read from the LAST TWO atoms' actual byte
- * lengths. That works because the state layer stores atoms with trailing
- * zeros trimmed and schemas are exact-length by protocol convention (JSON
- * schema strings sized to fit, never NUL-padded, never ending in a zero
- * byte), so stored length == declared length. A contract that padded its
- * schema capacity with trailing zeros would decode to the trimmed width and
- * fail the request-id recompute, which is the authoritative check anyway.
- *
- * @param atoms - The record cell's aligned value (a fresh copy per attempt).
- * @param expectedRequestId - The id the record is stored under, used to pick
- *   between splits when more than one decodes cleanly.
+ * @param cell - The record cell as stored (value atoms plus alignment).
  * @returns The decoded record.
- * @throws Error if no capacity split decodes the value cleanly.
+ * @throws {Error} If the cell is not a decodable request record of a known
+ *   decomposition.
  */
-function decodeSignBidirectionalEvent(
-  atoms: AlignedValue,
-  expectedRequestId: RequestIdHex,
-): SignBidirectionalEvent {
-  const variable = atoms.length - REQUEST_FIXED_VALUE_ATOMS;
-  if (variable < 0) {
+function decodeSignBidirectionalEvent(cell: AlignedValue): SignBidirectionalEvent {
+  const what = "request record";
+  const atom = cell.value[TX_PARAM_TYPE_ATOM];
+  if (atom === undefined) {
+    throw new Error(`${what} ends before txParamType`);
+  }
+  if (atom.length > 1) {
     throw new Error(
-      `request record has ${atoms.length} value entries: fewer than the ` +
-        `${REQUEST_FIXED_VALUE_ATOMS} its fixed fields need`,
+      `${what} txParamType atom holds ${String(atom.length)} bytes, expected at most 1`,
     );
   }
-  const lenOutputDeserialization = (atoms[atoms.length - 2] as Uint8Array).length;
-  const lenRespondSerialization = (atoms[atoms.length - 1] as Uint8Array).length;
-  const attempt = (
-    maxWords: number,
-    maxEntries: number,
-    maxKeys: number,
-  ): SignBidirectionalEvent | undefined => {
-    const cursor = [...atoms] as AlignedValue;
-    try {
-      const record = signBidirectionalEventDescriptor(
-        maxWords,
-        maxEntries,
-        maxKeys,
-        lenOutputDeserialization,
-        lenRespondSerialization,
-      ).fromValue(cursor);
-      // A clean decode consumes the record exactly.
-      return cursor.length === 0 ? record : undefined;
-    } catch {
-      return undefined;
-    }
-  };
-  // Several splits can decode cleanly (an access-list entry's 20-byte address atom
-  // re-pads into a 32-byte calldata word just as well), so only the id the record is
-  // filed under separates them. This disambiguates but does not authenticate (the MPC
-  // recomputes against the sender-bound id before signing).
-  //
-  // First match wins, so the common access-list-free case stays at one decode.
-  // `fallback` preserves the pre-recompute behaviour when no split matches the id.
-  let fallback: SignBidirectionalEvent | undefined;
-  const take = (record: SignBidirectionalEvent | undefined): boolean => {
-    if (record === undefined) return false;
-    fallback ??= record;
-    return requestIdHex(calculateRequestId(record)) === expectedRequestId;
-  };
-  // No access list: variable atoms are calldata words alone (one atom each).
-  const accessListFree = attempt(variable, 0, 0);
-  if (take(accessListFree)) return accessListFree!;
-  // With an access list: E entries of (2 + K) atoms, the rest words.
-  for (let entries = 1; entries * 2 <= variable; entries++) {
-    for (let keys = 0; entries * (2 + keys) <= variable; keys++) {
-      const words = variable - entries * (2 + keys);
-      const record = attempt(words, entries, keys);
-      if (take(record)) return record!;
-    }
+  // The state layer trims trailing zeros, so evmType2 (0) arrives empty.
+  const paramType = atom[0] ?? 0;
+  switch (paramType) {
+    case TxParamType.evmType2:
+      return decodeEvmType2SignBidirectionalEvent(cell, what);
+    default:
+      throw new Error(`unsupported txParamType ${String(paramType)}`);
   }
-  if (fallback === undefined) {
-    throw new Error(
-      `request record with ${atoms.length} value entries matches no ` +
-        `(calldata words, access-list entries, storage keys) capacity split`,
-    );
-  }
-  return fallback;
 }
 
 /**
  * The decoded signet ledger fields of a requesting contract: its request
  * index and its contract-local request counter (Compact `Counter`), the
- * source of each request's `requestNonce`. Nothing off-chain depends on the
- * counter: it is decoded here only because both fields travel together in
- * tests and diagnostics.
+ * source of each request's `requestNonce`.
  */
 export interface SignetRequestsLedger {
   /** The request counter (`Counter`). */
@@ -156,20 +77,19 @@ export interface SignetRequestsLedger {
 
 /**
  * MPC-style read: parse the signet ledger fields out of raw contract state
- * by field position alone, with no compiled contract and no generated
- * `ledger()`, only the caller-supplied field positions and the canonical descriptors
- * from signet-requests.ts. A contract chooses its own layout, so the caller
- * must know where the fields sit (the caller contract in this repo uses
- * index 0 / counter 1, and a notification names the index position of the
- * contract it points at).
+ * by caller-supplied field positions. A contract chooses its own layout, so
+ * the caller must know where the fields sit.
+ *
+ * Records are decoded, not verified against the ids they are filed under:
+ * {@link lookupSignetRequestAt} is the verified lookup.
  *
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`
  *   from the indexer or `ctx.currentQueryContext.state` from the simulator.
  * @param requestsIndexPath - Resolved ledger-tree path of the request index.
  * @param noncePath - Resolved ledger-tree path of the request counter.
  * @returns The decoded {@link SignetRequestsLedger}.
- * @throws Error if a field is missing, has the wrong state-value shape, or a
- *   record matches no capacity split.
+ * @throws {Error} If a field is missing, has the wrong state-value shape, or a
+ *   record is not a decodable evmType2 request record.
  */
 export function readSignetRequestsLedgerFromState(
   raw: RawContractState,
@@ -182,47 +102,37 @@ export function readSignetRequestsLedgerFromState(
   }
   const requestsIndex: SignBidirectionalEventIndex = new Map();
   for (const key of map.keys()) {
-    // fromValue consumes its input, so hand each descriptor a copy.
-    const requestId = requestIdHex(requestIdType.fromValue([...key.value]));
+    const requestId = requestIdHex(decodeExactly(requestIdType, key.value, "request index key"));
     const cell = map.get(key)?.asCell();
     if (cell === undefined) continue;
-    requestsIndex.set(requestId, decodeSignBidirectionalEvent(cell.value, requestId));
+    requestsIndex.set(requestId, decodeSignBidirectionalEvent(cell));
   }
 
-  const nonceCell = signetFieldNodeByPath(raw, noncePath).asCell();
-  if (nonceCell === undefined) {
+  const nonceField = signetFieldNodeByPath(raw, noncePath);
+  if (nonceField.type() !== "cell") {
     throw new Error(`Ledger field at path ${JSON.stringify(noncePath)} is not a Cell`);
   }
-  const nonce = u64.fromValue([...nonceCell.value]);
+  const nonce = decodeExactly(UINT_64, nonceField.asCell().value, "request counter");
 
   return { nonce, requestsIndex };
 }
 
 /**
  * Look up ONE request by id in a contract's request index at an arbitrary
- * ledger field, the single-record sibling of
- * {@link readSignetRequestsLedgerFromState}: the discovery primitive of the
- * event-based feed and what a point verification uses. A notification
- * declares the stored request's id and names both the requester contract
- * AND which field holds its index.
- *
- * `undefined` means the id is NOT a member of the index at `requestsPath`
- * (the pointer is forged, stale, points at the wrong field, or the request is
- * not yet indexed) and the caller MUST drop it.
- * Every non-membership case (field out of range, field is not a Map, id absent,
- * a cell that fails to decode) returns `undefined` rather than throwing, so a
- * malformed or adversarial notification can never crash the reader.
- *
- * Only the matched record is decoded, and it is decoded
- * by the same {@link decodeSignBidirectionalEvent} the full reader uses, so
- * the result is `toEqual` to `readSignetRequestsLedgerFromState(raw,
- * fieldIndex, …).requestsIndex.get(requestId)`.
+ * ledger field: the single-record sibling of
+ * {@link readSignetRequestsLedgerFromState} and the discovery primitive of
+ * the event-based feed. The recompute-and-drop gate: the decode never sees
+ * the id, so the final recompute is the only thing binding a record's
+ * contents to the key it was filed under, and a mismatch (a spoofed or
+ * wrongly filed record) is dropped. Every non-membership case returns
+ * `undefined` rather than throwing, and the caller MUST drop such a pointer.
  *
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`.
  * @param requestsPath - Resolved ledger-tree path of the request index in
  *   `raw`, as the notification carries it.
  * @param requestId - The request id to look up.
- * @returns The stored request record, or `undefined` when it is not a member.
+ * @returns The stored, id-verified request record, or `undefined` when it is
+ *   not a member.
  */
 export function lookupSignetRequestAt(
   raw: RawContractState,
@@ -239,20 +149,24 @@ export function lookupSignetRequestAt(
   if (map === undefined) {
     return undefined; // the named field is not a request index
   }
-  for (const key of map.keys()) {
-    // fromValue consumes its input, so hand each descriptor a copy.
-    if (requestIdHex(requestIdType.fromValue([...key.value])) !== requestId) {
-      continue;
-    }
-    const cell = map.get(key)?.asCell();
-    if (cell === undefined) {
-      return undefined;
-    }
-    try {
-      return decodeSignBidirectionalEvent(cell.value, requestId);
-    } catch {
-      return undefined; // a cell that is not a decodable request record
-    }
+  // The ledger's own keyed lookup on the ledger's own key type: toValue
+  // produces the canonical (zero-trimmed) key form the map stores.
+  const entry = map.get({
+    value: requestIdType.toValue(requestIdBytes(requestId)),
+    alignment: requestIdType.alignment(),
+  });
+  const cell = entry?.asCell();
+  if (cell === undefined) {
+    return undefined; // id absent, or its entry is not a cell
   }
-  return undefined; // id absent from the index
+  let record: SignBidirectionalEvent;
+  try {
+    record = decodeSignBidirectionalEvent(cell);
+  } catch {
+    return undefined; // a cell that is not a decodable request record
+  }
+  if (requestIdHex(calculateRequestId(record)) !== requestId) {
+    return undefined; // spoofed or wrongly filed record
+  }
+  return record;
 }

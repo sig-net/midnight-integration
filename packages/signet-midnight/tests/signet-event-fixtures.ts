@@ -7,11 +7,11 @@
 // fixtures shows up there, not here.
 
 import {
-  SIGNET_EVENT_PAYLOAD_LENGTH,
-  SignetEventName,
   type RespondBidirectionalEvent,
   type SignatureRespondedEvent,
   type SignBidirectionalNotificationRecord,
+  SIGNET_EVENT_PAYLOAD_LENGTH,
+  SignetEventName,
   type SignetMiscEvent,
 } from "../src/index.ts";
 
@@ -22,9 +22,7 @@ import {
  * @param parts - The leading payload bytes, in emit order.
  * @returns The packed payload.
  */
-export function packSignetEventPayload(
-  ...parts: (Uint8Array | number)[]
-): Uint8Array {
+export function packSignetEventPayload(...parts: (Uint8Array | number)[]): Uint8Array {
   const payload = new Uint8Array(SIGNET_EVENT_PAYLOAD_LENGTH);
   let offset = 0;
   for (const part of parts) {
@@ -54,11 +52,7 @@ export function notificationEventOf(
 ): SignetMiscEvent {
   return {
     name: SignetEventName.SignBidirectionalEvent,
-    payload: packSignetEventPayload(
-      Number(record.version),
-      requestId,
-      record.payload,
-    ),
+    payload: packSignetEventPayload(Number(record.version), requestId, record.payload),
   };
 }
 

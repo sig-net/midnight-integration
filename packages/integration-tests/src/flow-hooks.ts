@@ -5,6 +5,7 @@
 // process).
 
 import { beforeEach, inject } from "vitest";
+
 import { testHeader } from "./output.ts";
 import { waitForGo } from "./waitForGo.ts";
 
@@ -23,6 +24,8 @@ declare module "vitest" {
  * Returns an empty map when setup didn't run (RUN_INTEGRATION_TESTS unset):
  * `describe.skipIf` suites still evaluate their module top level, and
  * `inject` returns undefined when nothing was provided.
+ *
+ * @returns The provided accumulator, or an empty map when setup did not run.
  */
 export function injectE2eEnv(): NodeJS.ProcessEnv {
   return { ...(inject("e2eEnv") ?? {}) };

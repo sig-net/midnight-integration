@@ -14,6 +14,7 @@
 // (last: the derivation needs the deployed caller's address).
 
 import type { TestProject } from "vitest/node";
+
 import { buildBaseEnv } from "../e2e-env.ts";
 import { testHeader } from "../output.ts";
 import { waitForGo } from "../waitForGo.ts";
@@ -23,6 +24,7 @@ import {
   deployCallerContractStep,
   ensureCallerDeployerIdentity,
 } from "./caller-steps.ts";
+import { deployEvmTargetStep, fundDerivedSenderStep } from "./evm-steps.ts";
 import {
   compileSignetContract,
   deploySignetContractStep,
@@ -32,15 +34,22 @@ import {
   persistFakenetHandoffToDotEnv,
   startFakenetResponder,
 } from "./steps.ts";
-import { deployEvmTargetStep, fundDerivedSenderStep } from "./evm-steps.ts";
 import { ensureWalletSeeds, ensureWalletsFunded } from "./wallets.ts";
 
-/** Step names are what the operator greps for and what STEP_THROUGH
- * prompts show. */
+/**
+ * Step names are what the operator greps for and what STEP_THROUGH
+ * prompts show.
+ */
 const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void>][] = [
   ["environment: midnight stack reachable, compact on PATH", assertCallerEnvironment],
-  ["setup: deploy the SignetEvmTarget EVM contract (hardhat compile + anvil deploy)", deployEvmTargetStep],
-  ["setup: resolve/generate wallet seeds (root + deployer/invoker/mpc responder)", ensureWalletSeeds],
+  [
+    "setup: deploy the SignetEvmTarget EVM contract (hardhat compile + anvil deploy)",
+    deployEvmTargetStep,
+  ],
+  [
+    "setup: resolve/generate wallet seeds (root + deployer/invoker/mpc responder)",
+    ensureWalletSeeds,
+  ],
   ["setup: preflight root funding + fund the role wallets from root", ensureWalletsFunded],
   ["setup: check/derive MPC root key", ensureMpcRootKey],
   ["setup: check/derive MPC_SECP256K1_PUBKEY public key", ensureMpcSecp256k1Pubkey],
@@ -55,6 +64,12 @@ const STEPS: [name: string, run: (env: NodeJS.ProcessEnv) => void | Promise<void
   ["setup: fund the caller's derived EVM sender with ETH", fundDerivedSenderStep],
 ];
 
+/**
+ * vitest globalSetup: run the setup steps in order and hand the populated env
+ * accumulator to the test workers. A no-op without `RUN_INTEGRATION_TESTS`.
+ *
+ * @param project - The vitest project to provide the accumulator to.
+ */
 export async function setup(project: TestProject): Promise<void> {
   if (!process.env.RUN_INTEGRATION_TESTS) return;
 
@@ -76,7 +91,9 @@ export async function setup(project: TestProject): Promise<void> {
   project.provide(
     "e2eEnv",
     Object.fromEntries(
-      Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+      Object.entries(env).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
     ),
   );
 }

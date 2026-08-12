@@ -3,30 +3,23 @@
 // and the posted signature record must recover to the expected signer over
 // its signing hash.
 
+import { computeAddress, SigningKey } from "ethers";
 import { describe, expect, it } from "vitest";
 
 import {
-  computeAddress,
-  Interface,
-  SigningKey,
-  Transaction,
-} from "ethers";
-
-import {
-  MPCDestination,
-  MPCSignatureAlgorithm,
-  TxParamType,
   asciiPadded,
   evmAddressAbiWord,
+  MPCDestination,
+  MPCSignatureAlgorithm,
   numericAbiWord,
-  signatureToSignatureRespondedEvent,
-  signBidirectionalEventToSignedEvmTransaction,
-  signBidirectionalEventToUnsignedEvmTransaction,
   recoverSignatureResponseSigner,
-  verifySignatureRespondedEvent,
-  type SignBidirectionalEvent,
   type SignatureRespondedEvent,
+  type SignBidirectionalEvent,
+  signBidirectionalEventToUnsignedEvmTransaction,
+  TxParamType,
+  verifySignatureRespondedEvent,
 } from "../src/index.ts";
+import { ecdsaSignatureToMpcSignature } from "../src/testing.ts";
 
 // The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
 // (the app-level constant lives in the cli).
@@ -34,8 +27,7 @@ const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
 // ---- Fixtures ----
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 const ERC20 = bytes(20, 0xaa);
 const VAULT_EVM = bytes(20, 0xee);
@@ -89,12 +81,16 @@ const IMPOSTER_KEY = new SigningKey(`0x${"22".repeat(32)}`);
 const signResponse = (
   key: SigningKey,
   request: SignBidirectionalEvent,
-): SignatureRespondedEvent =>
-  signatureToSignatureRespondedEvent(
-    key.sign(
-      signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash,
-    ),
-  );
+): SignatureRespondedEvent => {
+  const signature = key.sign(signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash);
+  return {
+    signature: ecdsaSignatureToMpcSignature({
+      r: BigInt(signature.r),
+      s: BigInt(signature.s),
+      recoveryId: signature.yParity,
+    }),
+  };
+};
 
 const VALID_RESPONSE = signResponse(MPC_KEY, REQUEST);
 
@@ -104,10 +100,7 @@ const withRecoveryId = (value: bigint): SignatureRespondedEvent => ({
 });
 
 /** REQUEST with one calldata word swapped out. */
-const withWord = (
-  index: number,
-  word: Uint8Array,
-): SignBidirectionalEvent => ({
+const withWord = (index: number, word: Uint8Array): SignBidirectionalEvent => ({
   ...REQUEST,
   txParams: {
     ...REQUEST.txParams,
@@ -115,9 +108,7 @@ const withWord = (
       is_some: true,
       value: {
         ...REQUEST.txParams.calldata.value,
-        words: REQUEST.txParams.calldata.value.words.map((w, i) =>
-          i === index ? word : w,
-        ),
+        words: REQUEST.txParams.calldata.value.words.map((w, i) => (i === index ? word : w)),
       },
     },
   },
@@ -125,40 +116,24 @@ const withWord = (
 
 // ---- Tests ----
 
-describe("signBidirectionalEventToUnsignedEvmTransaction", () => {
-  it("rebuilds the exact EIP-1559 transaction the request describes", () => {
-    const tx = signBidirectionalEventToUnsignedEvmTransaction(REQUEST);
-
-    expect(tx.type).toBe(2);
-    expect(tx.chainId).toBe(11155111n);
-    expect(tx.nonce).toBe(7);
-    expect(tx.gasLimit).toBe(100_000n);
-    expect(tx.maxFeePerGas).toBe(30_000_000_000n);
-    expect(tx.maxPriorityFeePerGas).toBe(1_000_000_000n);
-    expect(tx.value).toBe(0n);
-    expect(tx.to?.toLowerCase()).toBe(`0x${"aa".repeat(20)}`);
-    expect(tx.accessList).toEqual([]);
-
-    // The calldata decodes back to the transfer args: the address in
-    // display order (proving the BE address embed) and the amount.
-    const iface = new Interface(["function transfer(address,uint256)"]);
-    const [to, amount] = iface.decodeFunctionData("transfer", tx.data);
-    expect((to as string).toLowerCase()).toBe(`0x${"ee".repeat(20)}`);
-    expect(amount).toBe(AMOUNT);
-  });
-});
-
 describe("recoverSignatureResponseSigner", () => {
   it("recovers the signing address from a genuine response", () => {
-    expect(recoverSignatureResponseSigner(REQUEST, VALID_RESPONSE)).toBe(
-      MPC_ADDRESS,
-    );
+    expect(recoverSignatureResponseSigner(REQUEST, VALID_RESPONSE)).toBe(MPC_ADDRESS);
   });
 
   it("rejects a response with an out-of-range recovery id", () => {
+    expect(() => recoverSignatureResponseSigner(REQUEST, withRecoveryId(5n))).toThrow(
+      /recovery id/,
+    );
+  });
+
+  it("rejects a request of an unsupported txParamType", () => {
     expect(() =>
-      recoverSignatureResponseSigner(REQUEST, withRecoveryId(5n)),
-    ).toThrow(/recovery id/);
+      recoverSignatureResponseSigner(
+        { ...REQUEST, txParamType: TxParamType.reserved },
+        VALID_RESPONSE,
+      ),
+    ).toThrow(/unsupported txParamType 1/);
   });
 });
 
@@ -209,7 +184,11 @@ const VERIFY_CASES: VerifyCase[] = [
     name: "garbage scalars (a well-formed record that is no signature)",
     request: REQUEST,
     response: {
-      signature: { bigR: { x: bytes(32, 0x5a), y: bytes(32, 0x5a) }, s: bytes(32, 0x5a), recoveryId: 0n },
+      signature: {
+        bigR: { x: bytes(32, 0x5a), y: bytes(32, 0x5a) },
+        s: bytes(32, 0x5a),
+        recoveryId: 0n,
+      },
     },
     expectedSigner: MPC_ADDRESS,
     valid: false,
@@ -227,38 +206,7 @@ describe("verifySignatureRespondedEvent", () => {
   it.each(VERIFY_CASES)(
     "verdict on $name is $valid",
     ({ request, response, expectedSigner, valid }) => {
-      expect(
-        verifySignatureRespondedEvent(request, response, expectedSigner),
-      ).toBe(valid);
+      expect(verifySignatureRespondedEvent(request, response, expectedSigner)).toBe(valid);
     },
   );
-});
-
-describe("signBidirectionalEventToSignedEvmTransaction", () => {
-  it("attaches the response signature to the request's transaction", () => {
-    const signed = signBidirectionalEventToSignedEvmTransaction(
-      REQUEST,
-      VALID_RESPONSE,
-    );
-
-    expect(signed.isSigned()).toBe(true);
-    // Signing is non-destructive: the signed tx carries the same body as the
-    // unsigned one, so its signing hash is unchanged.
-    expect(signed.unsignedHash).toBe(
-      signBidirectionalEventToUnsignedEvmTransaction(REQUEST).unsignedHash,
-    );
-    // The attached signature recovers to the MPC signer...
-    expect(signed.from).toBe(MPC_ADDRESS);
-    // ...and the serialized payload round-trips to the same signed tx, i.e.
-    // it is broadcast-ready for eth_sendRawTransaction.
-    const roundTripped = Transaction.from(signed.serialized);
-    expect(roundTripped.from).toBe(MPC_ADDRESS);
-    expect(roundTripped.hash).toBe(signed.hash);
-  });
-
-  it("rejects a response with an out-of-range recovery id", () => {
-    expect(() =>
-      signBidirectionalEventToSignedEvmTransaction(REQUEST, withRecoveryId(5n)),
-    ).toThrow(/recovery id/);
-  });
 });

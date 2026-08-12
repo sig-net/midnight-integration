@@ -6,10 +6,11 @@
 // any contract package's deploy script composes it.
 
 export * from "./deploy-signet-contract.ts";
-export * from "./signet-contract-binding.ts";
-export * from "./plumbing/network-id.ts";
+export * from "./plumbing/deploy.ts";
+export * from "./plumbing/env.ts";
+export * from "./plumbing/funding.ts";
 export * from "./plumbing/midnight-node-config.ts";
+export * from "./plumbing/network-id.ts";
 export * from "./plumbing/seed.ts";
 export * from "./plumbing/wallet.ts";
-export * from "./plumbing/deploy.ts";
-export * from "./plumbing/funding.ts";
+export * from "./signet-contract-binding.ts";

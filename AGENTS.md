@@ -117,11 +117,56 @@ exception for that specific case.
   `tsconfig.build.json`, ship ONLY `dist/` (`files: ["dist"]`), and swap their
   entry to it through `publishConfig.exports` at pack time — the monorepo itself
   still resolves their raw `src/index.ts`, never `dist/`.
-- **ALWAYS finish a change with `yarn build && yarn test`** in the member you
-  touched (or from the root). `tsx` and vitest execute without typechecking — "it
-  runs" is NOT verification. If you add a new top-level TS directory to a member,
-  add it to that member's tsconfig `include` in the same change; a file outside
-  `include` passes silently and then breaks in the IDE.
+- **ALWAYS finish a change with `yarn format:check && yarn lint && yarn build &&
+  yarn test`** in the member you touched (or from the root). `tsx` and vitest
+  execute without typechecking — "it runs" is NOT verification. If you add a new
+  top-level TS directory to a member, add it to that member's tsconfig `include`
+  in the same change; a file outside `include` passes silently and then breaks in
+  the IDE — and `projectService` has no program for it, so type-aware lint rules
+  go quiet on it too.
+- **Lint and format config lives ONCE, at the repo root.** `eslint.config.js`
+  (ESLint flat config, `typescript-eslint` strict + stylistic type-checked) and
+  `.prettierrc.json` cover every member; NEVER add a per-package
+  `eslint.config.*` or `.prettierrc*` — per-package copies drift, exactly as the
+  "shared plumbing lives ONCE" rule below forbids. Scripts are root-only too:
+  `yarn lint`, `yarn lint:fix`, `yarn format`, `yarn format:check` (`eslint .`
+  from the root already covers every member, so there are no
+  `lint:<package-dir>` variants). Type-aware rules read the generated
+  `src/managed/` types, so **`yarn lint` runs AFTER `yarn compile`**, the same
+  ordering `yarn build` needs — this is why CI's `unit` job runs format-check
+  before compile and lint after it.
+- **`eslint.config.js` turns NO rule off. Keep it that way.** The config has
+  zero `"off"` entries: every finding is fixed in the code instead. The only
+  non-default rule options either widen coverage (`require-jsdoc` reaching
+  types, interfaces and exported consts) or teach a rule about an API it
+  predates (`expect-expect` knowing vitest's `expectTypeOf`). If a rule fires,
+  fix the code; adding an `"off"` needs a reason good enough to write down here
+  first. An `eslint-disable` likewise carries a `--` explanation, and
+  `linterOptions.reportUnusedDisableDirectives` is `error`, so a directive that
+  stops applying fails the build rather than rotting. Reach for a real type
+  from the SDK's `.d.ts` before reaching for a disable.
+- **Two TypeScripts, on purpose: members build on 7, ESLint reads types through
+  a root-only 6.0.3.** Every member pins `typescript@^7.0.2`, the native Go
+  compiler `yarn build` runs and the one that emits every published `dist/`.
+  TypeScript 7 ships no public compiler API (it is scheduled for 7.1), so
+  typescript-eslint declares `peerDependencies.typescript: ">=4.8.4 <6.1.0"` and
+  cannot parse `.ts` at all under 7 — not merely lose its type-aware rules. The
+  root therefore carries `typescript@6.0.3` as a devDependency used ONLY by the
+  lint toolchain, which is Microsoft's own documented transition pattern (they
+  publish `@typescript/typescript6` for the same purpose). yarn resolves the
+  root to 6.0.3 and nests 7.0.2 under each member, so `yarn build` keeps the
+  native compiler. The published emit is unaffected: building the four `@sig-net/*`
+  packages under both compilers yields byte-identical `.js` and `.d.ts` (only
+  `.map` sourcemaps differ). DELETE the root pin once typescript-eslint supports
+  the 7.1 API; until then, do NOT "tidy" the two versions into one, and remember
+  lint's checker is a major behind the one that gates the build.
+- **`noUncheckedIndexedAccess` is on.** `arr[i]` and `record[key]` are typed
+  `T | undefined`, so an index read is narrowed at its use site (a guard, `.at()`,
+  or iteration over the collection) rather than asserted with `!`. This is what
+  makes `@typescript-eslint/no-unnecessary-condition` trustworthy: a bounds
+  guard on decoded chain data reads as necessary to both the compiler and the
+  linter. Prefer `for (const x of bytes.subarray(a, b))` over an index loop:
+  iteration yields `T`, indexing yields `T | undefined`.
 - **NEVER commit generated compiler output.** Each contract package's
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
   compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run

@@ -4,12 +4,12 @@
 // contract.
 
 import {
-  ZKConfigProvider,
   createProverKey,
   createVerifierKey,
   createZKIR,
   type ProverKey,
   type VerifierKey,
+  ZKConfigProvider,
   type ZKIR,
 } from "@midnight-ntwrk/midnight-js/types";
 import { describe, expect, it } from "vitest";

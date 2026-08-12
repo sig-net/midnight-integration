@@ -199,6 +199,8 @@ const reader = new SignetRequestResponseReader({
 
    // signBidirectionalEventMap's ledger-tree path (see The request map's ledger-tree path)
    requesterRequestsPath: [0],
+   // signBidirectionalEventMap's ledger-tree path (see The request map's ledger-tree path)
+   requesterRequestsPath: [0],
 
    // Address of the Signet singleton contract
    signetContractAddress,
@@ -230,6 +232,8 @@ const expectedSigner = deriveEvmAddress(mpcRootPublicKey, myContractAddress, "my
    signBidirectionalEventMap.insert(requestId, disclose(request));
 
    // Notify the MPC of the SignBidirectionalEvent and the location of your signBidirectionalEventMap.
+   // The map is at ledger field 0 (Setup step 2), so its path is [0] at depth 1
+   // (see The request map's ledger-tree path).
    // The map is at ledger field 0 (Setup step 2), so its path is [0] at depth 1
    // (see The request map's ledger-tree path).
    signetSigner.signBidirectional(
@@ -370,9 +374,45 @@ What clients import from `@sig-net/midnight`:
 | Compose expected calldata words off chain (UIs, expected-record builders, tests) | The builders `numericAbiWord`, `evmAddressAbiWord` and `boolAbiWord`, and the readers `abiWordToUint128` and `abiWordToBool`: TS twins of the circuits under identical names (see [EVM Type 2 transactions and ABI calldata words](#evm-type-2-transactions-and-abi-calldata-words)). |
 | Convert a foreign execution output into respond bytes | `deserializeEvmOutput` (raw EVM return data to named values) and `serializeRespondOutput` (named values to the packed respond payload the MPC attests): together they rebuild the `serializedOutput` of steps 4 and 5. |
 | Recognise a failed remote execution | `MPC_FAILURE_OUTPUT` and `isMpcFailureOutput`: the MPC's fixed 5-byte failure payload for reverted or replaced transactions. |
-| Verify attestations without the reader | `calculateSignetAttestationDigest` and `verifyRespondBidirectionalSignature`: the checks the reader runs internally, exposed for custom pipelines. |
-| Discover requests MPC-side (responders, background workers) | `SignetRequestFeed`: polls the signet contract's emitted notification events, looks each declared request id up in the named caller's own request map (the authenticated read), and dedupes by request id. |
+| Verify attestations without the reader | `verifyRespondBidirectionalSignature`: the check the reader runs internally, exposed for custom pipelines. |
+| Mint attestations in your contract's unit tests | The `@sig-net/midnight/testing` entry point, see [Testing entry point](#testing-entry-point). |
+| Discover requests MPC-side (responders, background workers) | The discovery primitives: decode the signet contract's emitted notification events with `decodeSignBidirectionalEventNotificationPayload` and `decodeSignBidirectionalNotification`, then resolve each pointer against the named caller's own request map with `lookupSignetRequestAt` (the authenticated read). The polling loop belongs to the responder. |
 | Call the compiled protocol circuits | `pureCircuits`: the compiled circuits of `Signet.compact`, for example the notification packer. Off-chain code calls these compiled artefacts, so it always agrees with what the contracts prove. |
+
+### Testing entry point
+
+The package has two entry points. The root import, `@sig-net/midnight`, carries
+everything a running integration needs: clients verify and decode posts, they
+never sign them. The helpers that SIGN (mint a real attestation with a
+throwaway secret key) live on `@sig-net/midnight/testing`, so a signing
+function never sits beside the runtime API.
+
+You need the testing entry in exactly one situation: unit testing a contract
+whose circuit verifies an MPC attestation. The circuit needs a genuine record
+to accept, and the testing helpers produce, with a throwaway key, the exact
+record shape the MPC posts, so the claim path is testable in-process with no
+stack and no MPC:
+
+```ts
+import { verifyRespondBidirectionalSignature } from "@sig-net/midnight"; // runtime
+import {
+  calculateSignetAttestationDigest,
+  ecdsaSignatureToMpcSignature,
+  secp256k1PublicKeyOf,
+  signAttestationDigest,
+} from "@sig-net/midnight/testing"; // tests only
+
+// A real RespondBidirectionalEvent for (requestId, output), signed by secretKey.
+// It verifies, in-circuit and off chain, against secp256k1PublicKeyOf(secretKey).
+const event = {
+  signature: ecdsaSignatureToMpcSignature(
+    signAttestationDigest(
+      calculateSignetAttestationDigest(requestId, serializedOutput),
+      secretKey,
+    ),
+  ),
+};
+```
 
 ## More examples
 

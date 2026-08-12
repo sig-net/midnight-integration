@@ -8,27 +8,26 @@
 
 import { fileURLToPath } from "node:url";
 
+import type { MidnightProviders } from "@midnight-ntwrk/midnight-js/types";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
-import type { MidnightProviders } from "@midnight-ntwrk/midnight-js/types";
-import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
-
 import {
   createCrossContractProofServerProvider,
   createWalletAndMidnightProvider,
 } from "@midnight-protocol/lib";
+import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
 import {
-  makeCompiledContract,
   type AccountKeys,
+  makeCompiledContract,
   type MidnightNodeConfig,
 } from "@sig-net/midnight-contract-deploy";
 
 import { Contract } from "./managed/test-caller-contract/contract/index.js";
-import { witnesses, type CallerPrivateState } from "./witnesses.ts";
+import { type CallerPrivateState, witnesses } from "./witnesses.ts";
 
 /** The caller's provable circuit ids, straight from the generated contract. */
-export type CallerCircuitId = keyof InstanceType<typeof Contract>["provableCircuits"] & string;
+export type CallerCircuitId = keyof InstanceType<typeof Contract>["provableCircuits"];
 
 /**
  * Literal of the private-state storage key. Just a string, but a
@@ -69,12 +68,10 @@ const signetManagedPath = fileURLToPath(new URL("./managed/SignetSigner", import
  * assets. Consumed by `findDeployedContract` (and the deploy flow in
  * {@link deployCaller}).
  */
-export const callerCompiledContract = makeCompiledContract<Contract<CallerPrivateState>, CallerPrivateState>(
-  "test-caller-contract",
-  Contract,
-  witnesses,
-  managedPath,
-);
+export const callerCompiledContract = makeCompiledContract<
+  Contract<CallerPrivateState>,
+  CallerPrivateState
+>("test-caller-contract", Contract, witnesses, managedPath);
 
 /**
  * Build the midnight-js provider set for the caller.

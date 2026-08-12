@@ -7,6 +7,7 @@
     "types": [],
 
     "strict": true,
+    "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",

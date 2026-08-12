@@ -1,47 +1,107 @@
 // Simulator-level unit tests: the contract runs entirely in-process via
 // @midnight-ntwrk/compact-runtime (no ledger, no network, no proving).
 
-import { describe, expect, it } from "vitest";
-
 import {
   createCircuitContext,
   createConstructorContext,
   sampleContractAddress,
 } from "@midnight-ntwrk/compact-runtime";
-
 import {
-  MPCDestination,
-  MPCSignatureAlgorithm,
-  SignetEventName,
-  TxParamType,
   asciiPadded,
   bytesToHex,
   calculateRequestId,
   decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
   decodeSignetLogEvents,
-  ecdsaSignatureToMpcSignature,
+  MPCDestination,
+  MPCSignatureAlgorithm,
   readSignetRequestsLedgerFromState,
   requestIdBytes,
+  type RequestIdHex,
   requestIdHex,
+  type RespondBidirectionalEvent,
+  type SignBidirectionalEvent,
+  type SignBidirectionalEventLedgerMap,
+  SignetEventName,
+  signetFieldNodeByPath,
+  type SignetMiscEvent,
+  toSignBidirectionalEventIndex,
+  TxParamType,
+} from "@sig-net/midnight";
+import {
+  calculateSignetAttestationDigest,
+  ecdsaSignatureToMpcSignature,
   secp256k1PublicKeyOf,
   signAttestationDigest,
-  signetFieldNodeByPath,
-  toSignBidirectionalEventIndex,
-  type RespondBidirectionalEvent,
-  type SignBidirectionalEventLedgerMap,
-  calculateSignetAttestationDigest,
-} from "@sig-net/midnight";
-
+} from "@sig-net/midnight/testing";
 import { compactSerialize, type CompactType } from "@sig-net/midnight-serde";
+import { describe, expect, it } from "vitest";
 
-import { Contract, ledger, pureCircuits as callerCircuits, witnesses, type CallerPrivateState } from "../src/index.ts";
-import { createCallerPrivateState } from "../src/witnesses.ts";
+import {
+  type CallerPrivateState,
+  Contract,
+  ledger,
+  pureCircuits as callerCircuits,
+  witnesses,
+} from "../src/index.ts";
 // The signet contract (callee) module: the same one the caller's generated
 // code cross-contract-calls. submitSignatureRequest ends in a call to its
 // signBidirectional, so the simulator needs its state (see
 // signetStateProvider) to execute that path.
 import * as SignetSigner from "../src/managed/SignetSigner/contract/index.js";
+import { createCallerPrivateState } from "../src/witnesses.ts";
+
+/**
+ * The single request id in a freshly-submitted caller's index. The `size`
+ * assertion at each call site proves it is there; the index signature and
+ * iterator types do not.
+ *
+ * @param index - The decoded request index.
+ * @returns The one stored request id.
+ * @throws If the index does not hold at least one entry.
+ */
+function onlyRequestId(index: ReadonlyMap<RequestIdHex, SignBidirectionalEvent>): RequestIdHex {
+  const [idHex] = [...index.keys()];
+  if (idHex === undefined) {
+    throw new Error(`expected one stored request, got ${String(index.size)}`);
+  }
+  return idHex;
+}
+
+/**
+ * The single `(id, record)` entry of a freshly-submitted caller's index.
+ *
+ * @param index - The decoded request index.
+ * @returns The one stored entry.
+ * @throws If the index does not hold at least one entry.
+ */
+function onlyRequestEntry(
+  index: ReadonlyMap<RequestIdHex, SignBidirectionalEvent>,
+): readonly [RequestIdHex, SignBidirectionalEvent] {
+  const entry = [...index.entries()][0];
+  if (entry === undefined) {
+    throw new Error(`expected one stored request, got ${String(index.size)}`);
+  }
+  return entry;
+}
+
+/**
+ * Narrow an indexed read into a decoded-event array.
+ *
+ * @param events - The decoded signet events.
+ * @param index - Position to read.
+ * @returns The event at that position.
+ * @throws If no event sits at that index.
+ */
+function eventAt(events: readonly SignetMiscEvent[], index = 0): SignetMiscEvent {
+  const event = events[index];
+  if (event === undefined) {
+    throw new Error(
+      `expected a signet event at index ${String(index)}, got ${String(events.length)} events`,
+    );
+  }
+  return event;
+}
 
 // ---- Fixtures ----
 
@@ -56,8 +116,7 @@ const REQUESTS_INDEX_FIELD = 4;
 // Dummy coin public key (32-byte hex). Required by the API, unused here.
 const CPK = "0".repeat(64);
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 // The "MPC" of these tests: its response key (secp256k1, derived per client
 // contract from the contract address + the fixed path "midnight response
@@ -91,7 +150,7 @@ const signetStateProvider = async () => {
   const { currentContractState } = await signet.initialState(
     createConstructorContext(undefined, CPK),
   );
-  return { getContractState: async () => currentContractState };
+  return { getContractState: () => Promise.resolve(currentContractState) };
 };
 
 // The simulated caller's own contract address: kernel.self() inside the
@@ -144,12 +203,11 @@ const SELECTOR_CHECK_AND_DOUBLE = new Uint8Array([0xe6, 0xcf, 0x21, 0x87]); // c
  */
 const deployUninitialised = async (witnessSecret: Uint8Array = DEPLOYER_SECRET) => {
   const contract = new Contract<CallerPrivateState>(witnesses);
-  const { currentContractState, currentPrivateState } =
-    await contract.initialState(
-      createConstructorContext<CallerPrivateState>(createCallerPrivateState(witnessSecret), CPK),
-      callerCircuits.deployerCommitment(DEPLOYER_SECRET),
-      SIGNET_CONTRACT_REF,
-    );
+  const { currentContractState, currentPrivateState } = await contract.initialState(
+    createConstructorContext<CallerPrivateState>(createCallerPrivateState(witnessSecret), CPK),
+    callerCircuits.deployerCommitment(DEPLOYER_SECRET),
+    SIGNET_CONTRACT_REF,
+  );
   const ctx = createCircuitContext(
     "submitSignatureRequest",
     CALLER_ADDRESS,
@@ -179,11 +237,12 @@ const deployContract = async () => {
  */
 const requestSubmitted = async () => {
   const { contract, ctx } = await deployContract();
-  const next = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION)).context;
+  const next = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION))
+    .context;
   const index = toSignBidirectionalEventIndex(
     ledger(next.callContext.currentQueryContext.state).signBidirectionalEventMap,
   );
-  const [idHex] = [...index.keys()];
+  const idHex = onlyRequestId(index);
   return { contract, ctx: next, requestId: requestIdBytes(idHex) };
 };
 
@@ -202,16 +261,16 @@ describe("initialise", () => {
 
   it("is set-once: a second initialise rejects", async () => {
     const { contract, ctx } = await deployContract();
-    await expect(
-      contract.circuits.initialise(ctx, IMPOSTER_PUBLIC),
-    ).rejects.toThrow(/Already initialised/);
+    await expect(contract.circuits.initialise(ctx, IMPOSTER_PUBLIC)).rejects.toThrow(
+      /Already initialised/,
+    );
   });
 
   it("is deployer-gated: a witness secret other than the sealed commitment's rejects", async () => {
     const { contract, ctx } = await deployUninitialised(bytes(32, 0xba));
-    await expect(
-      contract.circuits.initialise(ctx, MPC_RESPONSE_KEY),
-    ).rejects.toThrow(/Not the deployer/);
+    await expect(contract.circuits.initialise(ctx, MPC_RESPONSE_KEY)).rejects.toThrow(
+      /Not the deployer/,
+    );
   });
 });
 
@@ -265,9 +324,7 @@ describe("submitSignatureRequest round-trip", () => {
     const state = next.callContext.currentQueryContext.state;
 
     // Read 1: generated ledger().
-    const typedIndex = toSignBidirectionalEventIndex(
-      ledger(state).signBidirectionalEventMap,
-    );
+    const typedIndex = toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap);
     // Read 2: MPC-style raw read (no compiled contract involved).
     const rawLedger = readSignetRequestsLedgerFromState(
       state,
@@ -279,7 +336,7 @@ describe("submitSignatureRequest round-trip", () => {
     expect(rawLedger.requestsIndex).toEqual(typedIndex);
     expect(rawLedger.nonce).toBe(ledger(state).signetRequestNonce);
 
-    const [idHex, record] = [...typedIndex.entries()][0];
+    const [idHex, record] = onlyRequestEntry(typedIndex);
 
     // The cross-contract call's observable effect: the signet contract
     // emitted the notification event, its payload declaring the stored
@@ -288,9 +345,9 @@ describe("submitSignatureRequest round-trip", () => {
     // MPC's discovery feed performs).
     const notificationEvents = decodeSignetLogEvents(next.events, SIGNET_ADDRESS);
     expect(notificationEvents).toHaveLength(1);
-    expect(notificationEvents[0].name).toBe(SignetEventName.SignBidirectionalEvent);
+    expect(eventAt(notificationEvents).name).toBe(SignetEventName.SignBidirectionalEvent);
     const notificationPost = decodeSignBidirectionalEventNotificationPayload(
-      notificationEvents[0].payload,
+      eventAt(notificationEvents).payload,
     );
     // The declared id IS the stored map key: the MPC looks it up directly.
     expect(requestIdHex(notificationPost.requestId)).toBe(idHex);
@@ -350,7 +407,8 @@ describe("submitSignatureRequest round-trip", () => {
     // Everything but the request nonce is a contract constant, so uniqueness
     // of the id rests entirely on signetRequestNonce: pin that here.
     const { contract, ctx } = await deployContract();
-    const afterFirst = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION)).context;
+    const afterFirst = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION))
+      .context;
     const afterSecond = (
       await contract.circuits.submitSignatureRequest(afterFirst, EVM_NONCE, KEY_VERSION)
     ).context;
@@ -363,9 +421,9 @@ describe("submitSignatureRequest round-trip", () => {
 
   it("rejects the legacy key version 0", async () => {
     const { contract, ctx } = await deployContract();
-    await expect(
-      contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, 0n),
-    ).rejects.toThrow(/keyVersion must be >= 1/);
+    await expect(contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, 0n)).rejects.toThrow(
+      /keyVersion must be >= 1/,
+    );
   });
 });
 
@@ -392,66 +450,82 @@ describe("EVM target submit circuits round-trip", () => {
     },
   ];
 
-  it.each(CASES)("$name stores the caller-supplied target and word inside the fixed envelope", async ({ submit, selector, schema, map, requestsPath }) => {
-    const { contract, ctx } = await deployContract();
+  it.each(CASES)(
+    "$name stores the caller-supplied target and word inside the fixed envelope",
+    async ({ submit, selector, schema, map, requestsPath }) => {
+      const { contract, ctx } = await deployContract();
 
-    const next = (
-      await contract.circuits[submit](ctx, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, ARG_WORD)
-    ).context;
-    const state = next.callContext.currentQueryContext.state;
+      const next = (
+        await contract.circuits[submit](ctx, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, ARG_WORD)
+      ).context;
+      const state = next.callContext.currentQueryContext.state;
 
-    const typedIndex = toSignBidirectionalEventIndex(ledger(state)[map]);
-    expect(typedIndex.size).toBe(1);
-    const [idHex, record] = [...typedIndex.entries()][0];
+      const typedIndex = toSignBidirectionalEventIndex(ledger(state)[map]);
+      expect(typedIndex.size).toBe(1);
+      const [idHex, record] = onlyRequestEntry(typedIndex);
 
-    // Caller-supplied fields land verbatim, and the rest is the same fixed
-    // envelope as submitSignatureRequest.
-    const { calldata, ...envelope } = record.txParams;
-    expect(envelope).toEqual({
-      to: EVM_TARGET_TO,
-      chainId: 31337n,
-      nonce: EVM_NONCE,
-      gasLimit: 100000n,
-      maxFeePerGas: 30000000000n,
-      maxPriorityFeePerGas: 1000000000n,
-      value: 0n,
-      accessListEntryCount: 0n,
-      accessList: [],
-    });
-    expect(record.path).toEqual(EXPECTED_PATH);
-    expect(record.caip2Id).toEqual(EXPECTED_CAIP2);
-    expect(record.outputDeserializationSchema).toEqual(schema);
-    expect(record.respondSerializationSchema).toEqual(schema);
+      // Caller-supplied fields land verbatim, and the rest is the same fixed
+      // envelope as submitSignatureRequest.
+      const { calldata, ...envelope } = record.txParams;
+      expect(envelope).toEqual({
+        to: EVM_TARGET_TO,
+        chainId: 31337n,
+        nonce: EVM_NONCE,
+        gasLimit: 100000n,
+        maxFeePerGas: 30000000000n,
+        maxPriorityFeePerGas: 1000000000n,
+        value: 0n,
+        accessListEntryCount: 0n,
+        accessList: [],
+      });
+      expect(record.path).toEqual(EXPECTED_PATH);
+      expect(record.caip2Id).toEqual(EXPECTED_CAIP2);
+      expect(record.outputDeserializationSchema).toEqual(schema);
+      expect(record.respondSerializationSchema).toEqual(schema);
 
-    expect(calldata.is_some).toBe(true);
-    expect(calldata.value.selector).toEqual(selector);
-    expect(calldata.value.noWords).toBe(1n);
-    expect(calldata.value.words[0]).toEqual(ARG_WORD);
+      expect(calldata.is_some).toBe(true);
+      expect(calldata.value.selector).toEqual(selector);
+      expect(calldata.value.noWords).toBe(1n);
+      expect(calldata.value.words[0]).toEqual(ARG_WORD);
 
-    // Map key = the request-id TS twin, same as the base circuit.
-    expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
+      // Map key = the request-id TS twin, same as the base circuit.
+      expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
 
-    // The notification event declares the stored request's id and names
-    // THIS circuit's request map position: the in-circuit path literal the
-    // MPC's discovery follows.
-    const [notificationEvent] = decodeSignetLogEvents(next.events, SIGNET_ADDRESS);
-    const notificationPost = decodeSignBidirectionalEventNotificationPayload(
-      notificationEvent.payload,
-    );
-    expect(requestIdHex(notificationPost.requestId)).toBe(idHex);
-    expect(
-      decodeSignBidirectionalNotification(notificationPost.event).requestsPath,
-    ).toEqual(requestsPath);
-  });
+      // The notification event declares the stored request's id and names
+      // THIS circuit's request map position: the in-circuit path literal the
+      // MPC's discovery follows.
+      const notificationEvent = eventAt(decodeSignetLogEvents(next.events, SIGNET_ADDRESS));
+      const notificationPost = decodeSignBidirectionalEventNotificationPayload(
+        notificationEvent.payload,
+      );
+      expect(requestIdHex(notificationPost.requestId)).toBe(idHex);
+      expect(decodeSignBidirectionalNotification(notificationPost.event).requestsPath).toEqual(
+        requestsPath,
+      );
+    },
+  );
 
   it("all three submit circuits share the nonce counter and mint distinct ids", async () => {
     const { contract, ctx } = await deployContract();
-    const afterFirst = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION)).context;
+    const afterFirst = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION))
+      .context;
     const afterSecond = (
-      await contract.circuits.submitIsEvenRequest(afterFirst, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, ARG_WORD)
+      await contract.circuits.submitIsEvenRequest(
+        afterFirst,
+        EVM_NONCE,
+        KEY_VERSION,
+        EVM_TARGET_TO,
+        ARG_WORD,
+      )
     ).context;
     const afterThird = (
-      await contract.circuits.submitCheckAndDoubleRequest(afterSecond, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, ARG_WORD)
+      await contract.circuits.submitCheckAndDoubleRequest(
+        afterSecond,
+        EVM_NONCE,
+        KEY_VERSION,
+        EVM_TARGET_TO,
+        ARG_WORD,
+      )
     ).context;
 
     const state = afterThird.callContext.currentQueryContext.state;
@@ -497,10 +571,7 @@ const respond = (
   serializedOutput: Uint8Array,
 ): RespondBidirectionalEvent => ({
   signature: ecdsaSignatureToMpcSignature(
-    signAttestationDigest(
-      calculateSignetAttestationDigest(requestId, serializedOutput),
-      secretKey,
-    ),
+    signAttestationDigest(calculateSignetAttestationDigest(requestId, serializedOutput), secretKey),
   ),
 });
 
@@ -509,11 +580,12 @@ const respond = (
 describe("verifyResponse", () => {
   it("rejects while uninitialised (no stored key yet)", async () => {
     const { contract, ctx } = await deployUninitialised();
-    const next = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION)).context;
+    const next = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION))
+      .context;
     const index = toSignBidirectionalEventIndex(
       ledger(next.callContext.currentQueryContext.state).signBidirectionalEventMap,
     );
-    const [idHex] = [...index.keys()];
+    const idHex = onlyRequestId(index);
     const requestId = requestIdBytes(idHex);
     const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     await expect(
@@ -525,9 +597,8 @@ describe("verifyResponse", () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
 
-    const next = (
-      await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS)
-    ).context;
+    const next = (await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS))
+      .context;
 
     const state = ledger(next.callContext.currentQueryContext.state);
     expect(state.signBidirectionalEventMap.isEmpty()).toBe(true);
@@ -546,12 +617,7 @@ describe("verifyResponse", () => {
     const response = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     const tamperedOutput = OUTPUT_FAILURE;
     await expect(
-      contract.circuits.verifyResponse(
-        ctx,
-        requestId,
-        response,
-        tamperedOutput,
-      ),
+      contract.circuits.verifyResponse(ctx, requestId, response, tamperedOutput),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -614,9 +680,8 @@ describe("verifyResponse", () => {
   it("a second verify of the SAME request rejects (the first consumed it)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
-    const next = (
-      await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS)
-    ).context;
+    const next = (await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS))
+      .context;
 
     await expect(
       contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS),
@@ -644,12 +709,18 @@ describe("verifyCheckAndDoubleResponse", () => {
   const checkAndDoubleSubmitted = async () => {
     const { contract, ctx } = await deployContract();
     const next = (
-      await contract.circuits.submitCheckAndDoubleRequest(ctx, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, ARG_WORD)
+      await contract.circuits.submitCheckAndDoubleRequest(
+        ctx,
+        EVM_NONCE,
+        KEY_VERSION,
+        EVM_TARGET_TO,
+        ARG_WORD,
+      )
     ).context;
     const index = toSignBidirectionalEventIndex(
       ledger(next.callContext.currentQueryContext.state).signBidirectionalEventMap69,
     );
-    const [idHex] = [...index.keys()];
+    const idHex = onlyRequestId(index);
     return { contract, ctx: next, requestId: requestIdBytes(idHex) };
   };
 
@@ -685,9 +756,14 @@ describe("verifyCheckAndDoubleResponse", () => {
     const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
     const boolOnlyResponse = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     const paddedOutput = new Uint8Array(33);
-    paddedOutput[0] = OUTPUT_SUCCESS[0]!;
+    paddedOutput.set(OUTPUT_SUCCESS.subarray(0, 1), 0);
     await expect(
-      contract.circuits.verifyCheckAndDoubleResponse(ctx, requestId, boolOnlyResponse, paddedOutput),
+      contract.circuits.verifyCheckAndDoubleResponse(
+        ctx,
+        requestId,
+        boolOnlyResponse,
+        paddedOutput,
+      ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 

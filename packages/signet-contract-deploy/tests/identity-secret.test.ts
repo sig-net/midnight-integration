@@ -1,15 +1,16 @@
 // parseIdentitySecretKey: env → 32-byte identity secret. Pure — no network.
 
+import { hexToBytes } from "@sig-net/midnight";
 import { describe, expect, it } from "vitest";
 
-import { ParseError, generateMnemonic, parseIdentitySecretKey } from "../src/index.ts";
+import { generateMnemonic, ParseError, parseIdentitySecretKey } from "../src/index.ts";
 
 const ENV_VAR = "USER_SECRET_KEY";
 
 const SECRET_HEX = "00000000000000000000000000000000000000000000000000000000000000aa";
 const SEED_HEX = "0000000000000000000000000000000000000000000000000000000000000001";
 
-const bytesOf = (hex: string) => Uint8Array.from(hex.match(/.{2}/g)!.map((byte) => parseInt(byte, 16)));
+const bytesOf = (hex: string) => hexToBytes(hex);
 
 interface Case {
   name: string;

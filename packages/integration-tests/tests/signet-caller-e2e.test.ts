@@ -10,8 +10,8 @@
 // is one ordered pipeline on purpose. Run with `yarn test:integration-tests`
 // (or the file-scoped `yarn test:integration-tests:signet-caller-e2e`) from
 // the repo root. Without RUN_INTEGRATION_TESTS the whole suite skips, so
-// plain `yarn test` stays offline. Set STEP_THROUGH=1 to pause before each
-// test (after the first) until you hit Enter in the terminal.
+// plain `yarn test` stays offline. Set STEP_THROUGH=1 to pause before every
+// stage after the first, until you hit Enter in the terminal.
 //
 // Deliberately EVM-free: the request exists to be SIGNED, never broadcast.
 // The fakenet's own respond-bidirectional post only follows a broadcast it
@@ -24,35 +24,63 @@ import {
   asciiPadded,
   calculateRequestId,
   deriveEvmAddress,
-  deriveMidnightResponseSecretKey,
-  ecdsaSignatureToMpcSignature,
   hexToBytes,
   parseSecp256k1PublicKey,
   requestIdBytes,
-  requestIdHex,
-  signAttestationDigest,
-  sleepUnlessAborted,
-  stripHexPrefix,
-  SIGNET_DEFAULT_KEY_VERSION,
   type RequestIdHex,
-  calculateSignetAttestationDigest,
+  requestIdHex,
+  SIGNET_DEFAULT_KEY_VERSION,
+  stripHexPrefix,
 } from "@sig-net/midnight";
 import { signBidirectionalEventToSignedEvmTransaction } from "@sig-net/midnight";
-import { getAddress } from "ethers";
-import { afterAll, describe, expect, it } from "vitest";
 import {
+  calculateSignetAttestationDigest,
+  deriveMidnightResponseSecretKey,
+  ecdsaSignatureToMpcSignature,
+  signAttestationDigest,
+} from "@sig-net/midnight/testing";
+import { getAddress, type Transaction } from "ethers";
+import { afterAll, describe, expect, it } from "vitest";
+
+import {
+  type CallerContext,
   createCallerE2eSession,
   ensureMpcResponseKeyStored,
   readCallerRequestIds,
-  type CallerContext,
 } from "../src/caller-session.ts";
-import { CALLER_PATH } from "../src/constants.ts";
+import { CALLER_PATH_BYTES, CALLER_PATH_HEX } from "../src/constants.ts";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
 import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
 import { banner, logSkip } from "../src/output.ts";
 import { pollSignetNotification } from "../src/signet-notifications.ts";
 
 const MINUTE = 60_000;
+
+/**
+ * Resolve after `ms`, or immediately once `signal` aborts. Spaces out the
+ * polling loops below.
+ *
+ * @param ms - Milliseconds to wait.
+ * @param signal - Abort to resolve early.
+ * @returns A promise that settles after the delay or the abort.
+ */
+function sleepUnlessAborted(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 /**
  * The setup-populated env accumulator: repo-root `.env` overlaid with the
@@ -109,7 +137,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       const context = await session.callerContext();
       const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
 
-      if ((await ensureMpcResponseKeyStored(context, mpcResponseKey)) === "already-stored") {
+      const outcome = await ensureMpcResponseKeyStored(context, mpcResponseKey);
+      expect(outcome).toMatch(/^(stored|already-stored)$/);
+      if (outcome === "already-stored") {
         return;
       }
 
@@ -132,7 +162,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // heavy submit prove when resuming after a proof-server restart).
       if (env.CALLER_REQUEST_ID) {
         signatureRequestId = env.CALLER_REQUEST_ID as RequestIdHex;
-        logSkip("submitSignatureRequest", `CALLER_REQUEST_ID present in environment, skipping submit call '${signatureRequestId}'`);
+        logSkip(
+          "submitSignatureRequest",
+          `CALLER_REQUEST_ID present in environment, skipping submit call '${signatureRequestId}'`,
+        );
         return;
       }
 
@@ -150,8 +183,14 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }
-      expect(fresh, "the submit must add exactly one request to the caller's ledger").toHaveLength(1);
-      signatureRequestId = fresh[0];
+      expect(fresh, "the submit must add exactly one request to the caller's ledger").toHaveLength(
+        1,
+      );
+      const [firstFresh] = fresh;
+      if (firstFresh === undefined) {
+        throw new Error("the length assertion above proves this is unreachable");
+      }
+      signatureRequestId = firstFresh;
       expect(signatureRequestId).toMatch(/^[0-9a-f]{64}$/);
 
       // MPC-convention verification: fetch the request record the way the
@@ -164,7 +203,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       expect(record.txParams.calldata.is_some).toBe(true);
       expect(record.txParams.calldata.value.selector).toEqual(EXPECTED_SELECTOR);
       expect(record.txParams.calldata.value.words[0]).toEqual(EXPECTED_WORD);
-      expect(new TextDecoder().decode(record.path).replace(/\0+$/u, "")).toBe(CALLER_PATH);
+      expect(record.path).toEqual(CALLER_PATH_BYTES);
       // The event commits to its own sender: the caller contract's address.
       expect(stripHexPrefix(Buffer.from(record.sender.bytes).toString("hex")).toLowerCase()).toBe(
         stripHexPrefix(requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS")).toLowerCase(),
@@ -213,7 +252,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       banner([
         "Golden SignBidirectionalEvent notification decoded from the live indexer:",
         "",
-        `  version:            ${decoded.version}`,
+        `  version:            ${String(decoded.version)}`,
         `  declared requestId: ${signatureRequestId}`,
         `  callerAddress:      ${decoded.callerAddress}`,
         `  requestsPath:       ${JSON.stringify(decoded.requestsPath)}`,
@@ -228,13 +267,13 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       expect(signatureRequestId).toBeDefined();
 
       // The caller's requests are keyed under its contract-fixed path
-      // ("caller-path"), so the MPC signs with the account epsilon-derived
-      // from the CALLER CONTRACT's address + that path, recomputed here with
-      // the same derivation the MPC uses.
+      // bytes, so the MPC signs with the account epsilon-derived from the
+      // CALLER CONTRACT's address + the hex rendering of those bytes,
+      // recomputed here with the same derivation the MPC uses.
       const expectedSigner = deriveEvmAddress(
         requireEnv("MPC_SECP256K1_PUBKEY"),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
-        CALLER_PATH,
+        CALLER_PATH_HEX,
       );
       console.log(`expected signer (derived caller account): ${expectedSigner}`);
 
@@ -245,16 +284,26 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // signing hash, and the first valid post wins. Rejected posts are
       // immutable log entries: warn each once.
       const reader = session.responseReader();
+      // Set by the poll loop, asserted once after it: an expect inside the
+      // loop would only run on the success path.
+      let signedTransaction: Transaction | undefined;
       const warned = new Set<bigint>();
       const giveUp = new AbortController();
-      const timer = setTimeout(() => giveUp.abort(), 2 * MINUTE);
+      const timer = setTimeout(() => {
+        giveUp.abort();
+      }, 2 * MINUTE);
       try {
         while (!giveUp.signal.aborted) {
-          const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(signatureRequestId, expectedSigner);
+          const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(
+            signatureRequestId,
+            expectedSigner,
+          );
           for (const verdict of verdicts) {
             if (verdict.rejectedReason !== undefined && !warned.has(verdict.index)) {
               warned.add(verdict.index);
-              console.warn(`ignoring response post ${verdict.index}: ${verdict.rejectedReason}`);
+              console.warn(
+                `ignoring response post ${String(verdict.index)}: ${verdict.rejectedReason}`,
+              );
             }
           }
           if (verified !== undefined) {
@@ -262,25 +311,28 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
             // the verified response: the typed proof that the MPC's
             // signature answers THIS request from THIS derived account.
             const request = await reader.getSignatureRequest(signatureRequestId);
-            const signedTx = signBidirectionalEventToSignedEvmTransaction(request, verified);
-            expect(signedTx.from).toBe(getAddress(expectedSigner));
-
-            banner([
-              `MPC signed response for request ${signatureRequestId} found on the signet contract.`,
-              "",
-              `  signed tx hash: ${signedTx.hash}`,
-              `  recovered from: ${signedTx.from}`,
-              "",
-              "(Nothing is broadcast: this generic exercise ends at the signature.)",
-            ]);
-            return;
+            signedTransaction = signBidirectionalEventToSignedEvmTransaction(request, verified);
+            break;
           }
           await sleepUnlessAborted(1000, giveUp.signal);
         }
-        throw new Error(`timed out waiting for a valid response to request ${signatureRequestId}`);
       } finally {
         clearTimeout(timer);
       }
+
+      if (signedTransaction === undefined) {
+        throw new Error(`timed out waiting for a valid response to request ${signatureRequestId}`);
+      }
+      expect(signedTransaction.from).toBe(getAddress(expectedSigner));
+
+      banner([
+        `MPC signed response for request ${signatureRequestId} found on the signet contract.`,
+        "",
+        `  signed tx hash: ${String(signedTransaction.hash)}`,
+        `  recovered from: ${String(signedTransaction.from)}`,
+        "",
+        "(Nothing is broadcast: this generic exercise ends at the signature.)",
+      ]);
     },
     5 * MINUTE,
   );
@@ -307,7 +359,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // verified this request the entry is gone and verifyResponse would
       // reject with "Request not found", so skip cleanly.
       if (!(await readRequestIds(context)).has(signatureRequestId)) {
-        logSkip("verifyResponse", `request ${signatureRequestId} already verified (not on the ledger)`);
+        logSkip(
+          "verifyResponse",
+          `request ${signatureRequestId} already verified (not on the ledger)`,
+        );
         return;
       }
 

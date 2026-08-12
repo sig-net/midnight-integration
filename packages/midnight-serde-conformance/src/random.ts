@@ -6,7 +6,7 @@
 // Deterministic on purpose: a fixed seed means every regeneration produces
 // the same cases.
 
-import { FIELD_MODULUS, type CompactType, type CompactValue } from '@sig-net/midnight-serde';
+import { type CompactType, type CompactValue, FIELD_MODULUS } from "@sig-net/midnight-serde";
 
 /** The seed the corpus sweep is generated from. */
 export const SWEEP_SEED = 0xc0ffee;
@@ -72,44 +72,48 @@ export function randBigIntBelow(rng: Rng, bound: bigint): bigint {
  * @param rng - the random source
  * @param depth - maximum remaining nesting depth
  * @returns a valid CompactType
+ * @throws {Error} Never in practice: the switch's default guards the unchecked pool index.
  */
 export function randType(rng: Rng, depth: number): CompactType {
-  const leaves = ['boolean', 'field', 'uintBits', 'uintBound', 'bytes', 'enum'] as const;
-  const all = [...leaves, 'vector', 'tuple', 'struct'] as const;
-  const pick = (depth > 0 ? all : leaves)[randInt(rng, 0, (depth > 0 ? all : leaves).length - 1)]!;
+  const leaves = ["boolean", "field", "uintBits", "uintBound", "bytes", "enum"] as const;
+  const all = [...leaves, "vector", "tuple", "struct"] as const;
+  const pool: readonly (typeof all)[number][] = depth > 0 ? [...all] : [...leaves];
+  const pick = pool[randInt(rng, 0, pool.length - 1)];
   switch (pick) {
-    case 'boolean':
-      return { kind: 'boolean' };
-    case 'field':
-      return { kind: 'field' };
-    case 'uintBits':
-      return { kind: 'uint', bits: randInt(rng, 1, 248) };
-    case 'uintBound': {
+    case "boolean":
+      return { kind: "boolean" };
+    case "field":
+      return { kind: "field" };
+    case "uintBits":
+      return { kind: "uint", bits: randInt(rng, 1, 248) };
+    case "uintBound": {
       // Bounds across the whole legal range, including the zero-width bound 1.
       const bits = randInt(rng, 0, 248);
       const bound = randBigIntBelow(rng, 1n << BigInt(bits)) + 1n;
       // Exercise both descriptor forms: number bounds below 2^53, bigint above.
       return bound <= BigInt(Number.MAX_SAFE_INTEGER) && rng() < 0.5
-        ? { kind: 'uint', bound: Number(bound) }
-        : { kind: 'uint', bound };
+        ? { kind: "uint", bound: Number(bound) }
+        : { kind: "uint", bound };
     }
-    case 'bytes':
-      return { kind: 'bytes', length: randInt(rng, 0, 24) };
-    case 'enum':
-      return { kind: 'enum', variants: randInt(rng, 1, 600) };
-    case 'vector':
-      return { kind: 'vector', length: randInt(rng, 0, 3), element: randType(rng, depth - 1) };
-    case 'tuple': {
+    case "bytes":
+      return { kind: "bytes", length: randInt(rng, 0, 24) };
+    case "enum":
+      return { kind: "enum", variants: randInt(rng, 1, 600) };
+    case "vector":
+      return { kind: "vector", length: randInt(rng, 0, 3), element: randType(rng, depth - 1) };
+    case "tuple": {
       const elements = Array.from({ length: randInt(rng, 0, 3) }, () => randType(rng, depth - 1));
-      return { kind: 'tuple', elements };
+      return { kind: "tuple", elements };
     }
-    case 'struct': {
+    case "struct": {
       const fields = Array.from({ length: randInt(rng, 0, 3) }, (_, i) => ({
-        name: `f${i}`,
+        name: `f${String(i)}`,
         type: randType(rng, depth - 1),
       }));
-      return { kind: 'struct', fields };
+      return { kind: "struct", fields };
     }
+    default:
+      throw new Error(`randType picked nothing from a pool of ${String(pool.length)}`);
   }
 }
 
@@ -122,27 +126,27 @@ export function randType(rng: Rng, depth: number): CompactType {
  */
 export function randValue(rng: Rng, type: CompactType): CompactValue {
   switch (type.kind) {
-    case 'boolean':
+    case "boolean":
       return rng() < 0.5;
-    case 'field':
+    case "field":
       return randBigIntBelow(rng, FIELD_MODULUS);
-    case 'uint': {
+    case "uint": {
       const bound =
-        'bits' in type && type.bits !== undefined
+        "bits" in type
           ? 1n << BigInt(type.bits)
           : BigInt((type as { bound: number | bigint }).bound);
       return randBigIntBelow(rng, bound);
     }
-    case 'bytes':
+    case "bytes":
       return Uint8Array.from({ length: type.length }, () => randInt(rng, 0, 255));
-    case 'enum':
+    case "enum":
       return randInt(rng, 0, type.variants - 1);
-    case 'vector':
+    case "vector":
       return Array.from({ length: type.length }, () => randValue(rng, type.element));
-    case 'tuple':
+    case "tuple":
       return type.elements.map((e) => randValue(rng, e));
-    case 'struct': {
-      const value: { [field: string]: CompactValue } = {};
+    case "struct": {
+      const value: Record<string, CompactValue> = {};
       for (const field of type.fields) value[field.name] = randValue(rng, field.type);
       return value;
     }

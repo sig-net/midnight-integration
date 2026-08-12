@@ -11,27 +11,29 @@
 
 import { describe, expect, it } from "vitest";
 
+// Package-internal (deliberately absent from both entry points), tested via
+// its defining module.
+import { mpcSignatureToEcdsaSignature } from "../src/ecdsa-attestation.ts";
 import {
   bigintToBytes32BE,
-  calculateSignetAttestationDigest,
-  ecdsaSignatureToMpcSignature,
+  bytesToBigintBE,
   formatSecp256k1PublicKey,
-  isMpcFailureOutput,
-  MPC_FAILURE_OUTPUT,
-  mpcSignatureToEcdsaSignature,
+  type MpcSignature,
   parseSecp256k1PublicKey,
+  pureCircuits as signetCircuits,
+  type RespondBidirectionalEvent,
   SECP256K1_ORDER,
+  verifyRespondBidirectionalSignature,
+} from "../src/index.ts";
+import {
+  calculateSignetAttestationDigest,
+  type EcdsaSignature,
+  ecdsaSignatureToMpcSignature,
   secp256k1PublicKeyOf,
   signAttestationDigest,
-  verifyRespondBidirectionalSignature,
-  pureCircuits as signetCircuits,
-  type EcdsaSignature,
-  type MpcSignature,
-  type RespondBidirectionalEvent,
-} from "../src/index.ts";
+} from "../src/testing.ts";
 
-const bytes = (length: number, fill: number) =>
-  new Uint8Array(length).fill(fill);
+const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 // Fixed keypairs so every run (and the RFC 6979 deterministic signature) is
 // byte-for-byte reproducible. MPC_SECRET plays the MPC's response key (the
@@ -64,10 +66,7 @@ const respond = (
   serializedOutput: Uint8Array = OUTPUT_32,
 ): RespondBidirectionalEvent => ({
   signature: ecdsaSignatureToMpcSignature(
-    signAttestationDigest(
-      calculateSignetAttestationDigest(requestId, serializedOutput),
-      secretKey,
-    ),
+    signAttestationDigest(calculateSignetAttestationDigest(requestId, serializedOutput), secretKey),
   ),
 });
 
@@ -77,9 +76,21 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
   // an all-zero output, and a trailing-zero output (pinning that neither
   // side trims or pads the keccak preimage).
   const oracles = [
-    { width: 1, oracle: signetCircuits.calculateSignetAttestationDigest1 },
-    { width: 32, oracle: signetCircuits.calculateSignetAttestationDigest32 },
-    { width: 100, oracle: signetCircuits.calculateSignetAttestationDigest100 },
+    {
+      width: 1,
+      oracle: (id: Uint8Array, out: Uint8Array) =>
+        signetCircuits.calculateSignetAttestationDigest1(id, out),
+    },
+    {
+      width: 32,
+      oracle: (id: Uint8Array, out: Uint8Array) =>
+        signetCircuits.calculateSignetAttestationDigest32(id, out),
+    },
+    {
+      width: 100,
+      oracle: (id: Uint8Array, out: Uint8Array) =>
+        signetCircuits.calculateSignetAttestationDigest100(id, out),
+    },
   ] as const;
 
   const outputsOf = (width: number): Uint8Array[] => [
@@ -104,9 +115,7 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
     const digest = calculateSignetAttestationDigest(REQUEST_ID, OUTPUT_32);
     expect(digest).toHaveLength(32);
     expect(calculateSignetAttestationDigest(bytes(32, 0xab), OUTPUT_32)).not.toEqual(digest);
-    expect(
-      calculateSignetAttestationDigest(REQUEST_ID, bytes(32, 0x77)),
-    ).not.toEqual(digest);
+    expect(calculateSignetAttestationDigest(REQUEST_ID, bytes(32, 0x77))).not.toEqual(digest);
   });
 
   it("the exact width is part of the preimage: appending a zero byte changes the digest", () => {
@@ -218,9 +227,9 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
   it.each(CASES)(
     "$name (off chain, verifyRespondBidirectionalSignature)",
     ({ event, serializedOutput, requestId, pk, expected }) => {
-      expect(
-        verifyRespondBidirectionalSignature(requestId, serializedOutput, event, pk),
-      ).toBe(expected);
+      expect(verifyRespondBidirectionalSignature(requestId, serializedOutput, event, pk)).toBe(
+        expected,
+      );
     },
   );
 
@@ -252,8 +261,8 @@ describe("ecdsaSignatureToMpcSignature x mpcSignatureToEcdsaSignature", () => {
   it("reconstructs bigR with x = r and the parity the recovery id names", () => {
     expect(STORED.bigR.x).toEqual(bigintToBytes32BE(SCALAR_SIG.r));
     expect(STORED.bigR.y).toHaveLength(32);
-    // Parity of a big-endian integer is its last byte's low bit.
-    expect(STORED.bigR.y[31]! & 1).toBe(SCALAR_SIG.recoveryId);
+    // Parity of a big-endian integer is its low bit.
+    expect(bytesToBigintBE(STORED.bigR.y) & 1n).toBe(BigInt(SCALAR_SIG.recoveryId));
     expect(STORED.s).toEqual(bigintToBytes32BE(SCALAR_SIG.s));
     expect(STORED.recoveryId).toBe(BigInt(SCALAR_SIG.recoveryId));
   });
@@ -333,108 +342,37 @@ describe("ecdsaSignatureToMpcSignature x mpcSignatureToEcdsaSignature", () => {
   });
 });
 
-describe("signetKeyHash (compiled circuit)", () => {
-  it("hashes to 32 bytes, distinct per key", () => {
-    const mpc = signetCircuits.signetKeyHash(MPC_PUBLIC);
-    expect(mpc).toHaveLength(32);
-    expect(mpc).not.toEqual(signetCircuits.signetKeyHash(IMPOSTER_PUBLIC));
-  });
-});
-
 /** One row of the parse table: input → parsed point or rejection. */
 interface ParseCase {
   /** Test name, completing the sentence "parses/rejects <name>". */
   name: string;
   /** The raw config/env value. */
   value: string;
-  /** Whether the parse must succeed. */
-  ok: boolean;
 }
 
 const UNCOMPRESSED_HEX = formatSecp256k1PublicKey(MPC_PUBLIC);
 
-const PARSE_CASES: ParseCase[] = [
-  { name: "uncompressed SEC1 hex with 0x prefix", value: UNCOMPRESSED_HEX, ok: true },
-  { name: "uncompressed SEC1 hex without prefix", value: UNCOMPRESSED_HEX.slice(2), ok: true },
-  { name: "a non-hex string", value: "not-a-key", ok: false },
-  { name: "a truncated key", value: UNCOMPRESSED_HEX.slice(0, 20), ok: false },
-  { name: "an off-curve point", value: `0x04${"11".repeat(64)}`, ok: false },
+const PARSE_OK_CASES: ParseCase[] = [
+  { name: "uncompressed SEC1 hex with 0x prefix", value: UNCOMPRESSED_HEX },
+  { name: "uncompressed SEC1 hex without prefix", value: UNCOMPRESSED_HEX.slice(2) },
+];
+
+const PARSE_REJECT_CASES: ParseCase[] = [
+  { name: "a non-hex string", value: "not-a-key" },
+  { name: "a truncated key", value: UNCOMPRESSED_HEX.slice(0, 20) },
+  { name: "an off-curve point", value: `0x04${"11".repeat(64)}` },
 ];
 
 describe("parseSecp256k1PublicKey", () => {
-  it.each(PARSE_CASES)("handles $name", ({ value, ok }) => {
-    if (ok) {
-      expect(parseSecp256k1PublicKey(value)).toEqual(MPC_PUBLIC);
-    } else {
-      expect(() => parseSecp256k1PublicKey(value)).toThrow();
-    }
+  it.each(PARSE_OK_CASES)("parses $name", ({ value }) => {
+    expect(parseSecp256k1PublicKey(value)).toEqual(MPC_PUBLIC);
+  });
+
+  it.each(PARSE_REJECT_CASES)("rejects $name", ({ value }) => {
+    expect(() => parseSecp256k1PublicKey(value)).toThrow();
   });
 
   it("round-trips through formatSecp256k1PublicKey", () => {
-    expect(parseSecp256k1PublicKey(formatSecp256k1PublicKey(MPC_PUBLIC))).toEqual(
-      MPC_PUBLIC,
-    );
-  });
-});
-
-/** One row of the serializedOutput decode table: bytes → expected verdict. */
-interface DecodeCase {
-  /** Test name, completing the sentence "decodes <name>". */
-  name: string;
-  /** The response's serialized output. */
-  serializedOutput: Uint8Array;
-  /** Expected {@link isMpcFailureOutput} verdict. */
-  failure: boolean;
-}
-
-// Outputs are the exact unpadded respond payloads (a packed bool is one
-// byte). Only exact byte equality with the 5-byte failure payload counts as
-// the MPC failure: prefixes and extensions are legitimate packed outputs.
-const DECODE_CASES: DecodeCase[] = [
-  {
-    name: "a one-byte packed bool (0x01)",
-    serializedOutput: Uint8Array.from([1]),
-    failure: false,
-  },
-  {
-    name: "a one-byte packed bool (0x00)",
-    serializedOutput: Uint8Array.from([0]),
-    failure: false,
-  },
-  {
-    name: "the exact 5-byte failure payload",
-    serializedOutput: MPC_FAILURE_OUTPUT,
-    failure: true,
-  },
-  {
-    name: "a 4-byte deadbeef prefix with a different fifth byte",
-    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x02]),
-    failure: false,
-  },
-  {
-    name: "the bare 4-byte deadbeef marker without the 0x01 byte",
-    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef]),
-    failure: false,
-  },
-  {
-    name: "a 6-byte output that merely starts with the failure payload",
-    serializedOutput: Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01, 0x02]),
-    failure: false,
-  },
-];
-
-// The failure output is a wire constant shared by the responder and every
-// client's refund circuit: pin its exact bytes.
-describe("MPC_FAILURE_OUTPUT", () => {
-  it("is the 4-byte error marker followed by a single 0x01 byte", () => {
-    expect(MPC_FAILURE_OUTPUT).toEqual(
-      Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01]),
-    );
-  });
-});
-
-describe("serializedOutput decoding", () => {
-  it.each(DECODE_CASES)("decodes $name", ({ serializedOutput, failure }) => {
-    expect(isMpcFailureOutput(serializedOutput)).toBe(failure);
+    expect(parseSecp256k1PublicKey(formatSecp256k1PublicKey(MPC_PUBLIC))).toEqual(MPC_PUBLIC);
   });
 });

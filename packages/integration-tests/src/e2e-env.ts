@@ -12,16 +12,27 @@ import { loadRepoDotEnv } from "./env-file.ts";
  * doubles as the step's skip signal. `process.env` itself is never mutated;
  * the accumulator is passed explicitly to config readers and subprocesses,
  * and handed to the test workers via vitest's provide/inject.
+ *
+ * @returns The seeded accumulator, ready for the setup steps to populate.
  */
 export function buildBaseEnv(): NodeJS.ProcessEnv {
   return { ...loadRepoDotEnv(), ...process.env };
 }
 
-/** Assert a prior setup step populated `name`, failing with a pointed message. */
+/**
+ * Assert a prior setup step populated `name`, failing with a pointed message.
+ *
+ * @param env - The accumulator to read.
+ * @param name - The environment variable the prior step should have set.
+ * @returns The variable's value.
+ * @throws {Error} If the variable is unset or empty.
+ */
 export function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name];
   if (!value) {
-    throw new Error(`${name} is not set — did the step that derives it run (or is it missing from your .env)?`);
+    throw new Error(
+      `${name} is not set — did the step that derives it run (or is it missing from your .env)?`,
+    );
   }
   return value;
 }

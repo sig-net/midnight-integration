@@ -10,14 +10,11 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
-
 import {
   createCircuitContext,
   createConstructorContext,
   sampleContractAddress,
 } from "@midnight-ntwrk/compact-runtime";
-
 import {
   calculateRequestId,
   lookupSignetRequestAt,
@@ -26,6 +23,7 @@ import {
   signetFieldNodeByPath,
   toSignBidirectionalEventIndex,
 } from "@sig-net/midnight";
+import { describe, expect, it } from "vitest";
 
 import { Contract, ledger } from "../src/index.ts";
 
@@ -41,9 +39,7 @@ interface LedgerFieldInfo {
 }
 const CONTRACT_INFO = JSON.parse(
   readFileSync(
-    fileURLToPath(
-      new URL("../src/managed/compiler/contract-info.json", import.meta.url),
-    ),
+    fileURLToPath(new URL("../src/managed/compiler/contract-info.json", import.meta.url)),
     "utf8",
   ),
 ) as { ledger: LedgerFieldInfo[] };
@@ -77,9 +73,10 @@ const KEY_VERSION = 1n;
 // ---- Harness ----
 
 const deployContract = async () => {
-  const contract = new Contract({});
-  const { currentContractState, currentPrivateState } =
-    await contract.initialState(createConstructorContext(undefined, CPK));
+  const contract = new Contract<undefined>({});
+  const { currentContractState, currentPrivateState } = await contract.initialState(
+    createConstructorContext(undefined, CPK),
+  );
   const ctx = createCircuitContext(
     "submitSignatureRequest",
     sampleContractAddress(),
@@ -125,31 +122,24 @@ describe("chunked ledger raw parsing (20 fields, REAL compiler output)", () => {
   it("stores a request readable identically via ledger() and the raw reader at path [1, 14]", async () => {
     const { contract, ctx } = await deployContract();
 
-    const next = (
-      await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION)
-    ).context;
+    const next = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION))
+      .context;
     const state = next.callContext.currentQueryContext.state;
 
     // Read 1: generated ledger() (knows the chunk tree at compile time).
-    const typedIndex = toSignBidirectionalEventIndex(
-      ledger(state).signBidirectionalEventMap,
-    );
+    const typedIndex = toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap);
     // Read 2: MPC-style raw read by the compiler's resolved path alone.
-    const rawLedger = readSignetRequestsLedgerFromState(
-      state,
-      REQUESTS_INDEX_PATH,
-      NONCE_PATH,
-    );
+    const rawLedger = readSignetRequestsLedgerFromState(state, REQUESTS_INDEX_PATH, NONCE_PATH);
 
     expect(typedIndex.size).toBe(1);
     expect(rawLedger.requestsIndex).toEqual(typedIndex);
     expect(rawLedger.nonce).toBe(ledger(state).signetRequestNonce);
 
     // Read 3: the discovery path's single-record lookup at the notified path.
-    const [idHex, record] = [...typedIndex.entries()][0];
-    expect(
-      lookupSignetRequestAt(state, REQUESTS_INDEX_PATH, idHex),
-    ).toEqual(record);
+    const entry = [...typedIndex.entries()][0];
+    if (entry === undefined) throw new Error("the size assertion above proves this is unreachable");
+    const [idHex, record] = entry;
+    expect(lookupSignetRequestAt(state, REQUESTS_INDEX_PATH, idHex)).toEqual(record);
 
     // The map key is the domain-separated hash of the record: the TS twin
     // recomputes it from the raw-read record.
