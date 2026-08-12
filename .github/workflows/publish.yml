@@ -24,7 +24,7 @@ jobs:
       contents: read
       id-token: write # OIDC trusted publishing
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           # Full history: the stable-tag guard below asks whether the tagged
           # commit is an ancestor of main.
@@ -40,7 +40,7 @@ jobs:
             echo "::error::stable tag $GITHUB_REF_NAME is not on main; only prerelease (-rc) tags may come from other branches"
             exit 1
           }
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
@@ -51,7 +51,7 @@ jobs:
       # Just log the version. Upgrading npm here breaks sigstore (provenance).
       - run: npm --version
       - name: Restore the compact toolchain (keyed on the pinned versions)
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.compact
@@ -65,8 +65,10 @@ jobs:
           # Launcher pinned to compact-v0.5.1 (never releases/latest): the
           # toolchain is frozen, so bump this tag deliberately.
           if ! command -v compact >/dev/null 2>&1; then
-            curl --proto '=https' --tlsv1.2 -LsSf \
-              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh | sh
+            curl --proto '=https' --tlsv1.2 -LsSf -o /tmp/compact-installer.sh \
+              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh
+            echo "85e74a53ae4a67b31fa4d854f3b6ffb4c29f7c53e3372c5008b6a4729a8b4a73  /tmp/compact-installer.sh" | sha256sum -c
+            sh /tmp/compact-installer.sh
           fi
           # The workspace tracks the ledger-9 toolchain line: compactc
           # 0.33.0-rc.2 is a PRERELEASE published on the toolchain's LF home
@@ -79,6 +81,7 @@ jobs:
             mkdir -p "$RC_DIR"
             curl -fsSL -o /tmp/compactc-rc.zip \
               https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.2/compactc_v0.33.0-rc.2_x86_64-unknown-linux-musl.zip
+            echo "3055ab92bbc8d5bb0d6282b661b83761d2a0de2ee37e21cf7107e25aaf2a9aad  /tmp/compactc-rc.zip" | sha256sum -c
             unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
             chmod +x "$RC_DIR"/*
           fi
@@ -125,7 +128,7 @@ jobs:
       # generates BOTH contracts' keys, whereas this job generates only
       # signet-contract's, so a save from here would poison the key).
       - name: Restore prebuilt zk proving keys
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             packages/signet-contract/src/managed
