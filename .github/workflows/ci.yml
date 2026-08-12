@@ -21,7 +21,10 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    - cron: "17 3 * * *" # nightly: integration suite
+    # Nightly full run: a no-commit canary for infra drift, and it keeps the
+    # compact-toolchain and zk-keys caches warm (GitHub evicts caches unused
+    # for 7 days, and a cold zk-keys cache costs a PR ~10 minutes of keygen).
+    - cron: "17 3 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -31,7 +34,6 @@ concurrency:
 jobs:
   unit:
     name: format → compile (skip-zk) → lint → build → unit tests
-    if: github.event_name != 'schedule' || github.event.schedule == '17 3 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -115,7 +117,6 @@ jobs:
 
   rust:
     name: rust (fmt → clippy → test against the committed corpus)
-    if: github.event_name != 'schedule' || github.event.schedule == '17 3 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -142,7 +143,6 @@ jobs:
 
   integration:
     name: integration (compose stack + fakenet + signet-caller e2e)
-    if: github.event_name != 'schedule' || github.event.schedule == '17 3 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
