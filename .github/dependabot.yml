@@ -5,6 +5,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # A week's quarantine on fresh releases before Dependabot proposes
+    # them, the same window yarn's npmMinimalAgeGate enforces at install.
+    cooldown:
+      default-days: 7
     # 0 suppresses scheduled version-update PRs, which would be noisy for
     # npm deps that release often. Security updates are exempt from this
     # limit and keep working.
@@ -26,6 +30,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Same one-week quarantine as npm above: an action release must age a
+    # week before a bump PR proposes adopting it.
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns:

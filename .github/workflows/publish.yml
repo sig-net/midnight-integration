@@ -29,6 +29,7 @@ jobs:
           # Full history: the stable-tag guard below asks whether the tagged
           # commit is an ancestor of main.
           fetch-depth: 0
+          persist-credentials: false
       # Tag rulesets gate WHO may create a stable tag; this guards WHERE it
       # points. A hyphen in the tag marks a prerelease (same test the publish
       # step uses to pick the npm dist-tag), and prereleases may come from any
@@ -50,13 +51,9 @@ jobs:
         run: corepack enable
       # Just log the version. Upgrading npm here breaks sigstore (provenance).
       - run: npm --version
-      - name: Restore the compact toolchain (keyed on the pinned versions)
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.compact
-            ~/.local/bin/compact
-          key: compact-${{ runner.os }}-launcher0.5.1-compactc0.33.0-rc.2
+      # The toolchain installs fresh here, no compact-* cache: its downloads
+      # are checksum-verified and cost seconds, so caching them in a publish
+      # job would trade nothing for a cache-poisoning surface.
       - name: Install the compact toolchain (pinned launcher + compiler, per AGENTS.md)
         run: |
           export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
