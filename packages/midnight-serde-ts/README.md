@@ -200,6 +200,53 @@ ambiguous and decoding always requires the full descriptor, and the
 container width N is agreed out of band (it lives in the type on both
 sides), never carried in the data.
 
+### Why "inferred"
+
+The closest thing to a written spec is the ledger's
+[`spec/field-aligned-binary.md`](https://github.com/midnightntwrk/midnight-ledger/blob/e1edad2/spec/field-aligned-binary.md),
+and it is a spec for the FAB data model, not for this layout. What it
+defines precisely: values as arrays of byte-string atoms in normal form
+(trailing zeros stripped), alignments as their schemas, and a
+SELF-DESCRIBING wire format for those values with length flags and
+supplementary bits. That flagged format is an encoding `serialize<T, N>`
+does not use.
+
+Its closing section, "High-level vs low-level JS values", is the part that
+looks like an object-serialization spec, and for exactly one sentence it
+is one: "Plain objects are encoded by encoding their fields in sequence
+(in the order specified in the Compact type declaration)". Everything else
+a serializer author needs is absent:
+
+- **The mapping's target is atoms, not bytes.** The section maps JS values
+  to low-level FAB `Value`s. Which of the document's two byte encodings
+  then applies (the flagged wire format, or the raw atom representation
+  zero-filled to alignment widths) is left to the reader, and picking the
+  flagged one produces the wrong bytes.
+- **No widths.** Atoms are minimal little-endian byte strings, so the
+  FIXED widths that make the layout deterministic (ceil(w / 8) for
+  `Uint<w>`, byte length of n - 1 for `Uint<0..n>` and enums, 32 for
+  `Field`, the zero-width cases) appear nowhere. The document assigns that
+  entire mapping away: "with type information the Compact ... compiler
+  should be able to perform automatic mappings".
+- **The value list is TypeScript's, not Compact's.** It covers strings and
+  tagged unions (which Compact does not have, as the document itself
+  notes) and omits enums, bounded Uint ranges and their exclusive upper
+  bound, and the stdlib `Maybe`/`Either` struct shapes.
+- **No range or rejection semantics.** Nothing about `Field` values
+  staying below the modulus, out-of-range uint or enum encodings, or what
+  a decoder does with a boolean byte above 1.
+- **Nothing about `serialize<T, N>` itself.** The right zero-padding to N,
+  the compile error on a too-small N, and decode's tolerance of trailing
+  bytes live in the toolchain release notes, not in the spec.
+- **Decoding gets one sentence.** "Decoding proceeds similarly, but more
+  often requires type information to reconstruct discarded information",
+  without saying which information or how to use it.
+
+So the document pins the atom model and declaration-order traversal, and
+delegates every remaining decision to the compiler. This section is the
+result of following that delegation into the compiler pass, the ledger
+sources and the runtime.
+
 At the pinned commits below, the only implementations of this layout in
 Midnight's own code are one generator (the compiler pass), one Rust preimage
 writer over the same atoms (`transient-crypto/src/fab.rs` plus its in-circuit
