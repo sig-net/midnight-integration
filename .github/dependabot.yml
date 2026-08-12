@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # npm: security updates only (fixes for open alerts).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # 0 suppresses scheduled version-update PRs, which would be noisy for
+    # npm deps that release often. Security updates are exempt from this
+    # limit and keep working.
+    # Ref: docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#open-pull-requests-limit
+    #      From the Ref:
+    #        - "Change the limit on the maximum number of pull requests for version updates open at any time."
+    #        - "Security update pull requests are not subject to this limit and do not count toward it."
+    open-pull-requests-limit: 0
+    ignore:
+      # Matched sets of these deps are bumped deliberately in lockstep by the Signet Team.
+      # Alerts still fire, PRs are suppressed.
+      - dependency-name: "@midnight-ntwrk/*"
+      - dependency-name: "@midnightntwrk/*"
+      - dependency-name: "@sig-net/*"
+  # github-actions: version updates for the actions used in workflow
+  # files. Once those are pinned to commit SHAs, these PRs are what keep
+  # the pins current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
