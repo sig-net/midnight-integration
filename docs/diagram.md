@@ -1,1 +1,0 @@
-<img src="./sign-bidirectional-flow.drawio.png">

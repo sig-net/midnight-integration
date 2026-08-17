@@ -15,8 +15,15 @@ Read more about the [Sign Bidirectional Flow](#sign-bidirectional-flow), or jump
 
 # Sign Bidirectional Flow
 
-The flow comprises 5 steps:
-1. Client calls a contract on Midnight which requests a signature for a transaction destined for a foreign chain. The signature is made with a key derived for the requesting contract (see [Derived keys](#derived-keys)).
+The sign bidirectional flow brings foreign blockchain assets and functionality to Midnight. Its components are illustrated in the diagram below.
+
+<img src="./docs/sign-bidirectional-flow.drawio.png">
+
+As illustrated, the flow comprises 5 steps:
+
+- **1.** User interacts with a dApp which starts a cross chain interaction by calling some method on a contract on Midnight that has integrated with Sig Network.
+   - The integrating contract constructs a **[SignBidirectionalEvent](./packages/signet-midnight/src/Signet.compact#L80)** which it stores in its ledger. The **SignBidirectionalEvent** contains the fields of a transaction destined for a foreign blockchain as well as a path property from which the Sig Network Distributed MPC will derive the **Request Signing Key** to sign the transaction (see [Derived keys](#derived-keys)).
+   - Then the integrating contract performs a cross contract call to the [`signBidirectional`](./packages/signet-contract/src/signet-contract.compact#L31) method on the [**Sig Network Singleton** contract](./packages/signet-contract/src/signet-contract.compact) which emits a **Sign Bidirectional Notification** to notify the MPC of a request for a signature.
 2. Sig Network MPC honours the request, generating the transaction signature and posting it back to Midnight
 3. Client extracts the signature, using it to submit the signed transaction to the foreign chain
 4. Sig Network MPC observes the foreign transaction and posts an attestation of the execution back to Midnight: its ECDSA signature over the attestation digest `keccak256(requestId || serializedOutput)`. Both the digest and the output itself travel off chain.
