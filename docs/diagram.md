@@ -1,1 +1,1 @@
-<img src="./sign-bidirectional-flow.drawio.svg">
+<img src="./sign-bidirectional-flow.drawio.png">
