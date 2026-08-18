@@ -209,6 +209,25 @@ describe("decodeSignetLogEvents (simulator bridge)", () => {
     };
     expect(() => decodeSignetLogEvents([malformed])).toThrow(/expected a cell/);
   });
+
+  it("throws on a misc event whose cell holds more than the one bytes atom", () => {
+    const event = logEventOf(
+      SignetEventName.SignatureRespondedEvent,
+      signatureRespondedEventOf(REQUEST_ID, RESPONSE).payload,
+    );
+    if (event.data.tag !== "cell") throw new Error("logEventOf builds a cell");
+    const twoAtoms: LogEvent = {
+      ...event,
+      data: {
+        tag: "cell",
+        content: {
+          value: [...event.data.content.value, bytes(1, 0xff)],
+          alignment: event.data.content.alignment,
+        },
+      },
+    };
+    expect(() => decodeSignetLogEvents([twoAtoms])).toThrow(/1 of 2 atoms unconsumed/);
+  });
 });
 
 describe("signetEventSourceFromPublicDataProvider (indexer adapter)", () => {

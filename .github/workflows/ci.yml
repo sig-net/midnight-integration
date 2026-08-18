@@ -22,6 +22,9 @@ on:
     - cron: "17 3 * * *" # nightly: integration suite
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -33,8 +36,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: lts/*
           # corepack owns yarn: the action's yarn-1 cache probe would die here
@@ -42,7 +47,7 @@ jobs:
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
       - name: Restore the compact toolchain (keyed on the pinned versions)
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.compact
@@ -55,8 +60,10 @@ jobs:
           echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
           # Launcher pinned to compact-v0.5.1 (never releases/latest).
           if ! command -v compact >/dev/null 2>&1; then
-            curl --proto '=https' --tlsv1.2 -LsSf \
-              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh | sh
+            curl --proto '=https' --tlsv1.2 -LsSf --retry 4 -o /tmp/compact-installer.sh \
+              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh
+            echo "85e74a53ae4a67b31fa4d854f3b6ffb4c29f7c53e3372c5008b6a4729a8b4a73  /tmp/compact-installer.sh" | sha256sum -c
+            sh /tmp/compact-installer.sh
           fi
           # compactc 0.33.0-rc.2: a ledger-9 PRERELEASE not in the launcher's
           # channel, so fetch it directly. Part of the ledger-9 matched set
@@ -64,8 +71,9 @@ jobs:
           RC_DIR="$HOME/.compact/versions/0.33.0-rc.2/x86_64-unknown-linux-musl"
           if [ ! -x "$RC_DIR/compactc" ]; then
             mkdir -p "$RC_DIR"
-            curl -fsSL -o /tmp/compactc-rc.zip \
+            curl -fsSL --retry 4 -o /tmp/compactc-rc.zip \
               https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.2/compactc_v0.33.0-rc.2_x86_64-unknown-linux-musl.zip
+            echo "3055ab92bbc8d5bb0d6282b661b83761d2a0de2ee37e21cf7107e25aaf2a9aad  /tmp/compactc-rc.zip" | sha256sum -c
             unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
             chmod +x "$RC_DIR"/*
           fi
@@ -89,7 +97,7 @@ jobs:
       - name: Compile (skip-zk)
         run: yarn compile
       - name: Restore prebuilt zk proving keys (read-only, the integration job saves)
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             packages/signet-contract/src/managed
@@ -117,8 +125,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: lts/*
           # corepack owns yarn: the action's yarn-1 cache probe would die here
@@ -126,7 +136,7 @@ jobs:
       - name: Enable corepack (yarn 4 via the packageManager field)
         run: corepack enable
       - name: Restore the compact toolchain (keyed on the pinned versions)
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.compact
@@ -139,8 +149,10 @@ jobs:
           echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
           # Launcher pinned to compact-v0.5.1 (never releases/latest).
           if ! command -v compact >/dev/null 2>&1; then
-            curl --proto '=https' --tlsv1.2 -LsSf \
-              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh | sh
+            curl --proto '=https' --tlsv1.2 -LsSf --retry 4 -o /tmp/compact-installer.sh \
+              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh
+            echo "85e74a53ae4a67b31fa4d854f3b6ffb4c29f7c53e3372c5008b6a4729a8b4a73  /tmp/compact-installer.sh" | sha256sum -c
+            sh /tmp/compact-installer.sh
           fi
           # compactc 0.33.0-rc.2: a ledger-9 PRERELEASE not in the launcher's
           # channel, so fetch it directly. Part of the ledger-9 matched set
@@ -148,8 +160,9 @@ jobs:
           RC_DIR="$HOME/.compact/versions/0.33.0-rc.2/x86_64-unknown-linux-musl"
           if [ ! -x "$RC_DIR/compactc" ]; then
             mkdir -p "$RC_DIR"
-            curl -fsSL -o /tmp/compactc-rc.zip \
+            curl -fsSL --retry 4 -o /tmp/compactc-rc.zip \
               https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.2/compactc_v0.33.0-rc.2_x86_64-unknown-linux-musl.zip
+            echo "3055ab92bbc8d5bb0d6282b661b83761d2a0de2ee37e21cf7107e25aaf2a9aad  /tmp/compactc-rc.zip" | sha256sum -c
             unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
             chmod +x "$RC_DIR"/*
           fi
@@ -172,7 +185,7 @@ jobs:
         run: yarn compile
       - name: Restore prebuilt zk proving keys
         id: zk
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             packages/signet-contract/src/managed
@@ -183,7 +196,7 @@ jobs:
         run: yarn compile:zk
       - name: Save zk proving keys (immediately, before a later failure can lose them)
         if: steps.zk.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             packages/signet-contract/src/managed
@@ -214,7 +227,7 @@ jobs:
           docker ps -a > ci-logs/docker-ps.txt 2>&1 || true
       - name: Upload service logs
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: integration-logs
           path: ci-logs/

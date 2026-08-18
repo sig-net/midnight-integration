@@ -82,8 +82,14 @@ exception for that specific case.
   which set `0.33.0-rc.2` as the launcher default; the compile scripts call
   `compact compile` against that default, so locally you must pin the same default
   (`compact update 0.33.0-rc.2`) or your `managed/` output will diverge. The
-  launcher tag, the compiler URL, the npm `@midnightntwrk/*` stack, and the
-  workflow cache keys are a MATCHED SET — bump them together in one change. Corollary:
+  launcher tag, the compiler URL, the SHA-256 checksums the workflows verify for
+  the two downloads (installer script and compactc zip), the workflow cache
+  keys, the npm `@midnightntwrk/*` stack, and the README's Prerequisites and
+  Matched set tables are a MATCHED SET — bump them together in one change
+  (recompute each checksum from a fresh download of the new URL). This trigger
+  is bidirectional: a request to "update the compact version" AND a request to
+  edit a version in the README's tables both mean updating every one of these
+  sites, so enumerate them before finishing either kind of change. Corollary:
   a dependency shared by two members MUST resolve to the same version in every member
   — bump it everywhere in the same change and `yarn install` from the root. A single
   shared version is what keeps the WASM-backed `@midnight-ntwrk/*` packages

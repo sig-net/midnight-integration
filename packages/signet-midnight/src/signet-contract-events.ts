@@ -14,7 +14,8 @@
 
 import { CompactTypeBytes, type LogEvent } from "@midnight-ntwrk/compact-runtime";
 
-import { bytesToHex, hexToBytes } from "./signet-requests.ts";
+import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
+import { decodeExactly } from "./compact-descriptors.ts";
 
 /**
  * The event names the signet contract emits, exactly as the contract's
@@ -38,9 +39,8 @@ export const SIGNET_EVENT_PAYLOAD_LENGTH = 256;
 
 /**
  * A signet contract event in decoded form: the NUL-trimmed name and the full
- * re-padded {@link SIGNET_EVENT_PAYLOAD_LENGTH}-byte payload. This is the
- * one shape every source (simulator log, indexer Misc event) normalizes to
- * before the per-event payload decoders run.
+ * re-padded {@link SIGNET_EVENT_PAYLOAD_LENGTH}-byte payload. The one shape
+ * every source normalises to before the per-event payload decoders run.
  */
 export interface SignetMiscEvent {
   /** The event name, NUL padding stripped (compare to {@link SignetEventName}). */
@@ -51,8 +51,8 @@ export interface SignetMiscEvent {
 
 /**
  * Source of the signet contract's emitted events, the event-side sibling of
- * {@link SignetPublicStateSource}. Declared structurally so tests can satisfy
- * it with a plain stub; adapt a full midnight-js `PublicDataProvider` with
+ * `SignetPublicStateSource`. Structural, so tests can stub it. Adapt a
+ * full midnight-js `PublicDataProvider` with
  * {@link signetEventSourceFromPublicDataProvider}.
  */
 export interface SignetEventSource {
@@ -102,11 +102,9 @@ export function decodeSignetEventName(name: Uint8Array): string {
 }
 
 /**
- * Decode the simulator's circuit-execution log into signet events: keep the
- * `misc` emissions (of `contractAddress` when given), re-pad each to the full
- * name ++ payload width, and split. Non-signet-shaped `misc` events (wrong
- * atom shape or width) throw: in the simulator the emitting contract is under
- * test, so a malformed event is a bug, not noise to skip.
+ * Decode the simulator's circuit-execution log into signet events. For
+ * simulator tests. The indexer-path counterpart is
+ * {@link signetEventSourceFromPublicDataProvider}.
  *
  * @param events - The `context.events` of a `CircuitResults`.
  * @param contractAddress - Optional filter: only events this contract emitted.
@@ -127,9 +125,8 @@ export function decodeSignetLogEvents(
     if (event.data.tag !== "cell") {
       throw new Error(`misc event data is a '${event.data.tag}', expected a cell`);
     }
-    // fromValue consumes its input and re-pads the trailing zeros the state
-    // layer trims, so hand it a copy.
-    const bytes = eventBytes.fromValue([...event.data.content.value]);
+    // fromValue re-pads the trailing zeros the state layer trims.
+    const bytes = decodeExactly(eventBytes, event.data.content.value, "misc event data");
     out.push({
       name: decodeSignetEventName(bytes.slice(0, SIGNET_EVENT_NAME_LENGTH)),
       payload: bytes.slice(SIGNET_EVENT_NAME_LENGTH),
@@ -141,11 +138,11 @@ export function decodeSignetLogEvents(
 /**
  * The least of a midnight-js `PublicDataProvider` the event source adapter
  * needs: the `Misc` contract events of one address. Structural, so any full
- * provider (e.g. `indexerPublicDataProvider`) is assignable.
+ * provider is assignable.
  */
 export interface SignetContractEventQuerySource {
   /**
-   * Retrieve a contract's events; see
+   * Retrieve a contract's events: see
    * `PublicDataProvider.queryContractEvents`.
    *
    * @param filter - The contract address and event-type narrowing.
@@ -160,22 +157,9 @@ export interface SignetContractEventQuerySource {
 }
 
 /**
- * Normalize one indexer-served hex field that may or may not carry a `0x`
- * prefix into bytes.
- *
- * @param hex - The hex string.
- * @returns The decoded bytes.
- */
-function eventFieldBytes(hex: string): Uint8Array {
-  return hexToBytes(hex.startsWith("0x") ? hex.slice(2) : hex);
-}
-
-/**
  * Adapt a midnight-js `PublicDataProvider` (or anything exposing its
- * `queryContractEvents`) into a {@link SignetEventSource}: query the `Misc`
- * events and normalize each into a {@link SignetMiscEvent}. The indexer
- * serves `name` and `payload` as hex-encoded byte strings; the name is
- * NUL-trimmed and the payload re-padded to the full
+ * `queryContractEvents`) into a {@link SignetEventSource}. Each event's name
+ * is NUL-trimmed and its payload re-padded to the full
  * {@link SIGNET_EVENT_PAYLOAD_LENGTH}.
  *
  * @param provider - The provider to query events through.
@@ -194,11 +178,11 @@ export function signetEventSourceFromPublicDataProvider(
       for (const event of events) {
         if (event.eventType !== "Misc") continue;
         if (event.name === undefined || event.payload === undefined) continue;
-        const payload = eventFieldBytes(event.payload);
+        const payload = hexToBytes(event.payload);
         const padded = new Uint8Array(SIGNET_EVENT_PAYLOAD_LENGTH);
         padded.set(payload.slice(0, SIGNET_EVENT_PAYLOAD_LENGTH), 0);
         out.push({
-          name: decodeSignetEventName(eventFieldBytes(event.name)),
+          name: decodeSignetEventName(hexToBytes(event.name)),
           payload: padded,
         });
       }
@@ -223,10 +207,9 @@ export interface AffinePoint {
  * The MPC's canonical ECDSA signature as both respond events carry it
  * (Compact `Signature`, matching the MPC's own
  * `Signature { big_r, s, recovery_id }` and the EVM/Solana signer
- * contracts): `bigR` the full nonce point so consumers never decompress,
- * `s` big-endian, `recoveryId` the parity of R.y. Emitted UNVERIFIED like
- * everything else on the singleton. Convert with
- * `ecdsaSignatureToMpcSignature` / `mpcSignatureToEcdsaSignature`.
+ * contracts). Emitted UNVERIFIED. Decode to an ethers signature with
+ * `signatureRespondedEventToSignature`. Tests mint records with the
+ * `@sig-net/midnight/testing` entry point's `ecdsaSignatureToMpcSignature`.
  */
 export interface MpcSignature {
   /** The signature's nonce point R. */
@@ -239,12 +222,9 @@ export interface MpcSignature {
 
 /**
  * The MPC's signature over the requested EVM transaction (Compact
- * `SignatureRespondedEvent`): decode to an ethers signature with
- * `signatureRespondedEventToSignature`. The emitting event carries the
- * record beside the request id it answers (see {@link SignetEventPost});
- * the id routes, and VERIFYING the signature against the transaction the
- * request describes establishes authenticity (see
- * {@link SignetRequestResponseReader.getVerifiedSignatureRespondedEvent}).
+ * `SignatureRespondedEvent`), carried beside the request id it answers (see
+ * {@link SignetEventPost}). Emitted UNVERIFIED: authenticity comes from
+ * `SignetRequestResponseReader.getVerifiedSignatureRespondedEvent`.
  */
 export interface SignatureRespondedEvent {
   /** The requested signature over the transaction the request describes. */
@@ -254,15 +234,10 @@ export interface SignatureRespondedEvent {
 /**
  * The MPC's respond-bidirectional attestation of a request's remote EVM
  * execution (Compact `RespondBidirectionalEvent`): the ECDSA signature over
- * the attestation digest `keccak256(requestId || serializedOutput)`. Both the
- * digest and the output travel off chain: readers fetch the output, recompute
- * the digest (`calculateSignetAttestationDigest`) and verify the signature
- * over it. Emitted UNVERIFIED by the signet contract, beside the request id
- * it answers (see {@link SignetEventPost}), so that signature check
- * against the expected MPC response key is the only thing separating a
- * genuine post from garbage: in-circuit via
- * `verifyRespondBidirectionalEvent`, off chain via
- * {@link verifyRespondBidirectionalSignature}.
+ * the attestation digest (`calculateSignetAttestationDigest`), carried
+ * beside the request id it answers (see {@link SignetEventPost}). Emitted
+ * UNVERIFIED: verify in-circuit via `verifyRespondBidirectionalEvent` or off
+ * chain via `verifyRespondBidirectionalSignature`.
  */
 export interface RespondBidirectionalEvent {
   /** ECDSA signature over the attestation digest. */
@@ -272,13 +247,8 @@ export interface RespondBidirectionalEvent {
 /**
  * A decoded signet event payload: the request id the emitting circuit
  * disclosed beside the posted record. The id is UNAUTHENTICATED routing
- * data: it scopes reads to one request and proves nothing. For the respond
- * events, verifying the record's signature against the request remains the
- * authenticity check (see
- * {@link SignetRequestResponseReader.getVerifiedSignatureRespondedEvent} and
- * {@link SignetRequestResponseReader.getVerifiedRespondBidirectionalEvent});
- * for the notification, reading the declared request back from the named
- * caller's own ledger does (see signet-request-feed.ts).
+ * data: it scopes reads to one request and proves nothing. Each record
+ * type's own doc names its authenticity check.
  */
 export interface SignetEventPost<TRecord> {
   /** The request id the post declares it concerns, 32 bytes. Routing data only. */
@@ -294,20 +264,22 @@ const SIGNATURE_BIG_R_Y_OFFSET = 64;
 const SIGNATURE_S_OFFSET = 96;
 const SIGNATURE_RECOVERY_ID_OFFSET = 128;
 
+/** The packed leaves of a respond payload: declared request id plus signature. */
+interface RespondPayloadLeaves {
+  requestId: Uint8Array;
+  signature: MpcSignature;
+}
+
 /**
  * Unpack the leaves both respond payloads lead with:
  * requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1).
- * Bytes beyond the recovery id are padding today and are ignored, so a
- * future payload extension does not break existing readers.
+ * Bytes beyond the recovery id are padding and are ignored.
  *
  * @param payload - The full event payload.
  * @returns The declared request id and the decoded signature.
  * @throws {Error} When the payload is too short to hold the packed leaves.
  */
-function decodeRespondPayload(payload: Uint8Array): {
-  requestId: Uint8Array;
-  signature: MpcSignature;
-} {
+function decodeRespondPayload(payload: Uint8Array): RespondPayloadLeaves {
   const recoveryId = payload[SIGNATURE_RECOVERY_ID_OFFSET];
   if (recoveryId === undefined) {
     throw new Error(
@@ -426,7 +398,7 @@ const NOTIFICATION_PATH_OFFSET = 33;
 /**
  * Maximum ledger-tree path depth the V1 payload carries, matching the
  * `Vector<4, Uint<8>>` the `constructSignBidirectionalEventNotificationV1`
- * circuit packs. Depth 1 addresses up to 15 fields, depth 4 up to 15^4.
+ * circuit packs.
  */
 const MAX_LEDGER_PATH_DEPTH = 4;
 
@@ -435,12 +407,9 @@ const SUPPORTED_NOTIFICATION_VERSION = 1n;
 
 /**
  * A decoded V1 notification: the flat pointer a client emitted to tell the
- * MPC a request was stored, and WHERE to read the authenticated copy. The
- * emitting event declares the stored request's id beside this record (see
- * {@link SignetEventPost}): the MPC looks that id up in the request map the
- * notification points at and reads the request from the named caller's own
- * authenticated ledger (see signet-request-feed.ts). The fields themselves
- * confer no authority.
+ * MPC a request was stored, and WHERE to read the authenticated copy
+ * (resolve with `lookupSignetRequestAt`). The fields themselves confer no
+ * authority.
  */
 export interface SignBidirectionalNotification {
   /** Payload layout tag: this decoder only produces version 1. */
@@ -448,16 +417,15 @@ export interface SignBidirectionalNotification {
   /**
    * Address of the contract whose request map holds the request, rendered
    * as lowercase hex, no `0x` prefix: directly usable as a
-   * `queryContractState` argument. The MPC reads requests from THIS
-   * contract's authenticated state. The field itself confers no authority.
+   * `queryContractState` argument.
    */
   callerAddress: string;
   /**
    * Resolved ledger-tree path of the `SignBidirectionalEventMap` in
    * {@link callerAddress}, as compactc records it in that contract's
    * `contract-info.json` (`"index"`): `[4]` for a flat contract's field 4,
-   * `[1, 14]` once chunking applies. The reader follows it node for node
-   * (see `signetFieldNodeByPath`) and never assumes a layout.
+   * `[1, 14]` once chunking applies. Followed node for node by
+   * `signetFieldNodeByPath`.
    */
   requestsPath: number[];
 }
@@ -465,15 +433,12 @@ export interface SignBidirectionalNotification {
 /**
  * Unpack a {@link SignBidirectionalNotificationRecord}'s payload by the
  * fixed V1 offsets: the decode twin of the compiled
- * `constructSignBidirectionalEventNotificationV1` circuit (byte plumbing
- * only: the pack↔decode lockstep is pinned by the unit test that round-trips
- * through the real circuit). V1 layout:
+ * `constructSignBidirectionalEventNotificationV1` circuit (the pack↔decode
+ * lockstep is pinned by a unit test round-tripping through the real
+ * circuit). V1 layout:
  * callerAddress (32) ++ requestsPathDepth (1) ++ requestsPath (4) ++ zero
  * padding (91), where only the first `requestsPathDepth` path bytes are
- * meaningful.
- *
- * Fails closed on an unrecognised `version`: a future payload layout adds a
- * branch here rather than silently misinterpreting bytes under the V1 offsets.
+ * meaningful. Fails closed on an unrecognised `version`.
  *
  * @param record - The raw notification record.
  * @returns The decoded notification, its `requestsPath` trimmed to the

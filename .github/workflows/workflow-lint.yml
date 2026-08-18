@@ -1,0 +1,42 @@
+# Lints the workflow files themselves. actionlint checks correctness
+# (workflow syntax, ${{ }} expression types, shellcheck over run: blocks);
+# zizmor audits Actions security footguns (template injection, credential
+# persistence, cache poisoning, unpinned refs). Any finding from either
+# tool fails the job. zizmor also audits .github/dependabot.yml, hence
+# that file in the trigger paths.
+name: workflow-lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: actionlint + zizmor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint (pinned release, checksummed)
+        run: |
+          curl -fsSL --retry 4 -o /tmp/actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  /tmp/actionlint.tar.gz" | sha256sum -c
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          /tmp/actionlint -color
+      - name: zizmor (version-pinned via pipx)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pipx run zizmor==1.29.0 --color=always .
