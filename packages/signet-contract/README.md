@@ -1,10 +1,6 @@
 # @sig-net/midnight-contract
 
-The central [Sig Network](https://sig.network) signet contract on the [Midnight blockchain](https://midnight.network): the singleton that exposes the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration#sign-bidirectional-flow) to other Midnight contracts. Every circuit emits a named contract event: the MPC posts back through the contract, and clients poll its events:
-
-- **Signature responses**: an unauthenticated event log. Each event carries the request id it answers as routing data. Callers read their request's posts by id and verify the signatures off-chain or in their own circuits: the verification is what separates a genuine post from garbage.
-- **Remote execution responses**: secp256k1 ECDSA attestations by the MPC's per-client response key, emitted unverified like the signature responses. The client contract verifies them in its own circuit.
-- **Request-notification events**: how the MPC discovers new signature requests (each event declares the stored request's id and names the caller contract and the ledger path of its request map).
+The central [Sig Network](https://sig.network) signet contract on the [Midnight blockchain](https://midnight.network): the singleton that exposes the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow) to other Midnight contracts. Every circuit emits a named contract event: the MPC posts back through the contract, and clients poll its events.
 
 ## What is in it
 
@@ -18,6 +14,13 @@ Consumers import the package root. The `./managed/*` paths exist only for runtim
 ```sh
 npm install @sig-net/midnight-contract
 ```
+
+## Documentation
+
+The protocol and integration documentation lives in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md):
+
+- [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow): the 5-step protocol this contract relays, with diagram, failure handling and output recovery: which circuit each step calls and which event it emits.
+- [Integrator Guide](https://github.com/sig-net/midnight-integration/blob/main/README.md#integrator-guide): how client contracts and dApps drive this contract's circuits and events per request.
 
 ## Related packages
 

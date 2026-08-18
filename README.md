@@ -81,6 +81,13 @@ The same derivation, but with the path fixed to the literal `"midnight response 
 
 # Integrator Guide
 
+A signet-compliant client contract does four things:
+
+- it stores its requests in a public `SignBidirectionalEventMap` in its own ledger
+- it pins its counterparties: the Signet singleton contract and its own MPC response key
+- it submits signature requests
+- it verifies execution responses in-circuit
+
 Integrating a contract on Midnight with the Sig Network MPC consists of:
 
 - 4 once-off **setup** steps
@@ -237,7 +244,7 @@ const expectedSigner = deriveEvmAddress(
 >
 > **signetContractAddress** is the address of the deployed Signet singleton contract. On a local stack the same setup deploys a fresh singleton, prints the address as `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and appends it to `.env`. For the public networks the addresses are published in `@sig-net/midnight` via `getSignetContractAddress` (placeholders until each deployment lands).
 
-1. Store a signature request and notify the MPC via cross contract call:
+1. Store a signature request and notify the MPC via cross contract call. Build (or overwrite) every part of the transaction your contract enforces in-circuit, calldata above all (see [EVM Type 2 transactions and ABI calldata words](#evm-type-2-transactions-and-abi-calldata-words)). Never pass caller input through unchecked:
 
 ```compact
 // Construct SignBidirectionalEvent signature request and calculate its RequestId
@@ -300,7 +307,66 @@ signetSigner.signBidirectional(
    signBidirectionalEventMap.remove(requestId);
    ```
 
-## More Examples:
+## EVM Type 2 transactions and ABI calldata words
+
+An `EvmType2TxParams` request decomposes the EVM transaction into typed fields, so your contract can enforce each field in-circuit. Its optional `calldata` is an `EvmCalldata<maxWords>`: the 4-byte function selector plus a list of 32-byte ABI words, per the [Solidity ABI spec](https://docs.soliditylang.org/en/latest/abi-spec.html). Slots past `noWords` are unused capacity and never reach the transaction.
+
+Every word must be stored in canonical ABI form (big-endian). The MPC signs a transaction whose calldata is exactly `selector || words[0..noWords]`, byte for byte. A word stored in any other form becomes a signed transaction that calls the foreign contract with garbage arguments. Compact's integer casts are little-endian, so do not hand-roll the byte order. Build every word with the module's helper circuits, and read words back with the matching readers.
+
+| Solidity type | Build with | Read back with |
+|---|---|---|
+| `address` | `evmAddressAbiWord(addr: Bytes<20>)` | |
+| unsigned integers up to `uint128` (amounts, ids) | `numericAbiWord(value: Uint<128>)` | `abiWordToUint128(word)` |
+| `bool` | `boolAbiWord(value: Boolean)` | `abiWordToBool(word)` |
+
+### Example: an ERC20 transfer
+
+`transfer(address,uint256)`, selector `0xa9059cbb`, takes an address word and a numeric word:
+
+```compact
+const calldata = EvmCalldata<2> {
+  selector: Bytes[0xa9, 0x05, 0x9c, 0xbb],
+  noWords: 2 as Uint<16>,
+  words: [
+    evmAddressAbiWord(recipient),  // address argument (Bytes<20>)
+    numericAbiWord(amount)         // uint256 argument (from a Uint<128>)
+  ]
+};
+```
+
+### Example: a bool argument, and decoding a bool result
+
+`setApprovalForAll(address,bool)`, selector `0xa22cb465`:
+
+```compact
+const calldata = EvmCalldata<2> {
+  selector: Bytes[0xa2, 0x2c, 0xb4, 0x65],
+  noWords: 2 as Uint<16>,
+  words: [
+    evmAddressAbiWord(operator),
+    boolAbiWord(true)
+  ]
+};
+```
+
+The readers run the same rules in the other direction. They reject any non-canonical word outright (no silent truncation or coercion).
+
+The builders and readers apply to CALLDATA words only. The serialised output a settle circuit verifies (the explicit `serializedOutput` argument `verifyRespondBidirectionalEvent` recomputes the attestation digest from) is NOT ABI words. It is the packed respond payload produced from the request's respond serialisation schema (a bool packs to 1 byte). The circuit reads it with a single stdlib `deserialize<T, N>` call, where `T` is a struct that mirrors the schema and `N` is the schema's packed size. For an ERC20 `transfer`'s `bool` return under a one-field bool schema:
+
+```compact
+struct TransferResult {
+  success: Boolean;
+}
+
+const result = deserialize<TransferResult, 1>(serializedOutput);
+assert(result.success, "Remote transfer failed");
+```
+
+**Respond schema range trap:** the respond serialisation maps `uint256`, `address` and `field` to Compact `Field`. `Field` values must lie strictly below the BLS12-381 Fr modulus (just under 2^255). An EVM `uint256` at or above Fr cannot be respond-serialised, and `serializeRespondOutput` throws at respond time (a max-uint256 allowance readback is the everyday case). When the full 256-bit range matters, declare the field as `bytes32` in the respond schema instead.
+
+The same builders and readers exist as TypeScript twins under identical names, for composing expected words off-chain (UIs, expected-record builders, tests). The `@sig-net/midnight` test suite keeps them in lockstep with the compiled circuits.
+
+## More Examples
 
 For full integration examples (such as an ERC20 cross chain vault) see the [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples) repository.
 
