@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 
 import { deriveEvmAddress } from "@sig-net/midnight";
 
-import { CALLER_PATH } from "../constants.ts";
+import { CALLER_PATH_HEX } from "../constants.ts";
 import { requireEnv } from "../e2e-env.ts";
 import {
   assertLocalDevChain,
@@ -71,7 +71,7 @@ export async function deployEvmTargetStep(env: NodeJS.ProcessEnv): Promise<void>
 
 /**
  * Fund the caller's MPC-derived EVM sender with ETH on the local anvil:
- * `deriveEvmAddress(MPC_SECP256K1_PUBKEY, callerAddress, "caller-path")`,
+ * `deriveEvmAddress(MPC_SECP256K1_PUBKEY, callerAddress, CALLER_PATH_HEX)`,
  * topped up to 10 ETH (the contract-fixed worst case per request is
  * gasLimit x maxFeePerGas = 100000 x 30 gwei = 0.003 ETH). Shortfall-only,
  * so naturally idempotent (no skip env var). Runs AFTER the caller deploy:
@@ -85,7 +85,7 @@ export async function fundDerivedSenderStep(env: NodeJS.ProcessEnv): Promise<voi
   const derivedSender = deriveEvmAddress(
     requireEnv(env, "MPC_SECP256K1_PUBKEY"),
     requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
-    CALLER_PATH,
+    CALLER_PATH_HEX,
   );
   const balance = await topUpEth(rpc, derivedSender);
   console.log(`derived caller EVM sender ${derivedSender} holds ${String(balance)} wei`);

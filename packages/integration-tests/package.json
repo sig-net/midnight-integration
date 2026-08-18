@@ -16,12 +16,13 @@
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.6",
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.6",
     "@midnight-protocol/test-caller-contract": "*",
-    "@sig-net/midnight": "*",
-    "@sig-net/midnight-contract-deploy": "*",
+    "@sig-net/midnight": "workspace:*",
+    "@sig-net/midnight-contract-deploy": "workspace:*",
     "ethers": "^6.17.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "hardhat": "^3.9.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.9"

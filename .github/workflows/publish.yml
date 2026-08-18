@@ -24,8 +24,24 @@ jobs:
       contents: read
       id-token: write # OIDC trusted publishing
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: the stable-tag guard below asks whether the tagged
+          # commit is an ancestor of main.
+          fetch-depth: 0
+          persist-credentials: false
+      # Tag rulesets gate WHO may create a stable tag; this guards WHERE it
+      # points. A hyphen in the tag marks a prerelease (same test the publish
+      # step uses to pick the npm dist-tag), and prereleases may come from any
+      # branch.
+      - name: Stable tags must point at a commit on main
+        if: github.ref_type == 'tag' && !contains(github.ref_name, '-')
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::stable tag $GITHUB_REF_NAME is not on main; only prerelease (-rc) tags may come from other branches"
+            exit 1
+          }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
@@ -35,13 +51,9 @@ jobs:
         run: corepack enable
       # Just log the version. Upgrading npm here breaks sigstore (provenance).
       - run: npm --version
-      - name: Restore the compact toolchain (keyed on the pinned versions)
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.compact
-            ~/.local/bin/compact
-          key: compact-${{ runner.os }}-launcher0.5.1-compactc0.33.0-rc.2
+      # The toolchain installs fresh here, no compact-* cache: its downloads
+      # are checksum-verified and cost seconds, so caching them in a publish
+      # job would trade nothing for a cache-poisoning surface.
       - name: Install the compact toolchain (pinned launcher + compiler, per AGENTS.md)
         run: |
           export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
@@ -50,8 +62,10 @@ jobs:
           # Launcher pinned to compact-v0.5.1 (never releases/latest): the
           # toolchain is frozen, so bump this tag deliberately.
           if ! command -v compact >/dev/null 2>&1; then
-            curl --proto '=https' --tlsv1.2 -LsSf \
-              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh | sh
+            curl --proto '=https' --tlsv1.2 -LsSf --retry 4 -o /tmp/compact-installer.sh \
+              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh
+            echo "85e74a53ae4a67b31fa4d854f3b6ffb4c29f7c53e3372c5008b6a4729a8b4a73  /tmp/compact-installer.sh" | sha256sum -c
+            sh /tmp/compact-installer.sh
           fi
           # The workspace tracks the ledger-9 toolchain line: compactc
           # 0.33.0-rc.2 is a PRERELEASE published on the toolchain's LF home
@@ -62,8 +76,9 @@ jobs:
           RC_DIR="$HOME/.compact/versions/0.33.0-rc.2/x86_64-unknown-linux-musl"
           if [ ! -x "$RC_DIR/compactc" ]; then
             mkdir -p "$RC_DIR"
-            curl -fsSL -o /tmp/compactc-rc.zip \
+            curl -fsSL --retry 4 -o /tmp/compactc-rc.zip \
               https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.2/compactc_v0.33.0-rc.2_x86_64-unknown-linux-musl.zip
+            echo "3055ab92bbc8d5bb0d6282b661b83761d2a0de2ee37e21cf7107e25aaf2a9aad  /tmp/compactc-rc.zip" | sha256sum -c
             unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
             chmod +x "$RC_DIR"/*
           fi
@@ -110,7 +125,7 @@ jobs:
       # generates BOTH contracts' keys, whereas this job generates only
       # signet-contract's, so a save from here would poison the key).
       - name: Restore prebuilt zk proving keys
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             packages/signet-contract/src/managed
@@ -144,7 +159,7 @@ jobs:
             fi
             echo "publishing $name@$version"
             if [ "${version#*-}" != "$version" ]; then
-              yarn workspace "$name" npm publish --provenance --tag beta
+              yarn workspace "$name" npm publish --provenance --tag rc
             else
               yarn workspace "$name" npm publish --provenance
             fi

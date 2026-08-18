@@ -13,11 +13,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@sig-net/midnight": "*"
+    "@sig-net/midnight": "workspace:*"
   },
   "devDependencies": {
     "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
     "@types/node": "^26.1.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^7.0.2",
     "vitest": "^4.1.9"
   }

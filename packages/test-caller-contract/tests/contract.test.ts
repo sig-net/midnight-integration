@@ -10,11 +10,9 @@ import {
   asciiPadded,
   bytesToHex,
   calculateRequestId,
-  calculateSignetAttestationDigest,
   decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
   decodeSignetLogEvents,
-  ecdsaSignatureToMpcSignature,
   MPCDestination,
   MPCSignatureAlgorithm,
   readSignetRequestsLedgerFromState,
@@ -22,8 +20,6 @@ import {
   type RequestIdHex,
   requestIdHex,
   type RespondBidirectionalEvent,
-  secp256k1PublicKeyOf,
-  signAttestationDigest,
   type SignBidirectionalEvent,
   type SignBidirectionalEventLedgerMap,
   SignetEventName,
@@ -32,6 +28,12 @@ import {
   toSignBidirectionalEventIndex,
   TxParamType,
 } from "@sig-net/midnight";
+import {
+  calculateSignetAttestationDigest,
+  ecdsaSignatureToMpcSignature,
+  secp256k1PublicKeyOf,
+  signAttestationDigest,
+} from "@sig-net/midnight/testing";
 import { compactSerialize, type CompactType } from "@sig-net/midnight-serde";
 import { describe, expect, it } from "vitest";
 
