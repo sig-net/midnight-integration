@@ -4,12 +4,22 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 
 > ## 🚧 Under Construction 🚧
 >
-> This Sig Network Midnight Integration is still Under Construction.
+> This Integration is still Under Construction.
 > Use at your own risk and expect rapid iteration.
 
-This integration achieves this by exposing the MPC's [sign bidirectional flow](#sign-bidirectional-flow) to contracts on Midnight.
+It achieves this by exposing the MPC's [sign bidirectional flow](#sign-bidirectional-flow) to contracts on Midnight.
 
-This repository contains the pieces that make that flow available on Midnight: the Sig Network protocol singleton contract, the client-agnostic SDK that contract builders integrate against, and two test caller contracts that exercise the protocol end to end. Example applications built on this integration (such as an ERC20 cross chain vault demo) live in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples).
+This repository contains the pieces that make that flow available on Midnight.
+- [Client-agnostic Compact and TS SDK](./packages/signet-midnight/README.md)
+  - For Midnight Contract and dApp builders to integrate with Sig Network
+  - Located in `packages/signet-midnight`
+- [Sig Network Protocol Singleton Contract](./packages/signet-contract/README.md)
+  - The protocol contract that integrating Midnight contracts communicate with via cross contract call
+  - Located in `packages/signet-contract`
+- Two test caller contracts that exercise the protocol end to end
+  - Located in `packages/test-caller-contract` & `packages/test-caller-contract-20-field`
+
+Example applications built on this integration (such as an ERC20 cross chain vault demo) live in a separate repository [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples).
 
 Read more about the [Sign Bidirectional Flow](#sign-bidirectional-flow), or jump straight to the [Integrator Guide](#integrator-guide) or the [Contributor Guide](#contributor-guide) depending on your goal. The [Prerequisites](#prerequisites) are relevant to both.
 
@@ -24,13 +34,19 @@ As illustrated, the flow comprises 5 steps:
 - **1.** User interacts with a dApp which starts a cross chain interaction by calling some circuit on a contract on Midnight that has integrated with Sig Network.
    - The integrating contract constructs a **[SignBidirectionalEvent](./packages/signet-midnight/src/Signet.compact#L80)** (aka. signature request) which it stores in its ledger against the associated **RequestId** (hash of the SignBidirectionalEvent). The **SignBidirectionalEvent** contains the fields of a transaction destined for a foreign blockchain, as well as a path property which the Sig Network Distributed MPC uses to derive a **Request Signing Key** to sign the transaction (see [Derived keys](#derived-keys) for more on this key).
    - Then the integrating contract performs a cross contract call to the [`signBidirectional`](./packages/signet-contract/src/signet-contract.compact#L31) circuit on the [**Sig Network Singleton** contract](./packages/signet-contract/src/signet-contract.compact) which emits a [**SignBidirectionalEventNotification**](./packages/signet-midnight/src/Signet.compact#L225). The **SignBidirectionalEventNotification** contains the address of the integrating client contract, a **RequestId** and other information that the MPC uses to find the stored **SignBidirectionalEvent** signature request.
-- **2.** The MPC network, watching for events from the Singleton contract, picks up the emitted Sign Bidirectional Event Notification.
-  - The MPC uses the information in the event to find and read the addressed **SignBidirectionalEvent** signature request structure stored in the state of the identified Integrating Client Contract.
+- **2.** The MPC network, watching for events on the Singleton contract, picks up the emitted Sign Bidirectional Event Notification.
+  - The MPC uses the information in the event to find and read the addressed **SignBidirectionalEvent** signature request stored in the state of the identified Integrating Client Contract.
   - It honours the request by constructing the contained foreign blockchain transaction and signing it with the associated **Request Signing Key**.
-  - The signature is then made available on Midnight when the MPC calls the `respond` circuit on the **Sig Network Singleton**, emitting a SignatureResponded Event.
-3. Client extracts the signature, using it to submit the signed transaction to the foreign chain
-4. Sig Network MPC observes the foreign transaction and posts an attestation of the execution back to Midnight: its ECDSA signature over the attestation digest `keccak256(requestId || serializedOutput)`. Both the digest and the output itself travel off chain.
-5. Client obtains the execution output off chain (see the output recovery note below: it broadcast the transaction in step 3, so it can read the result), extracts the posted attestation and submits both back to the Midnight contract, which recomputes the digest from the output bytes and verifies the MPC's signature in-circuit against the contract's own response key (see [Derived keys](#derived-keys)), completing the foreign transaction execution.
+  - The signature is then made available on Midnight with the MPC calling the `respond` circuit on the **Sig Network Singleton**, emitting a **SignatureResponded Event**.
+- **3.** The integrating dApp, watching for events on the Singleton contract, picks up the emitted **SignatureResponded Event**.
+  - The dApp verifies the signature is correct and uses it to construct the fully signed foreign blockchain transaction.
+  - Functioning as a relayer, the dApp then submits the signed transaction to the foreign chain for execution
+- **4.** The Network MPC observes foreign blockchain and attests execution
+  - The MPC network, watching for transaction executions on the foreign blockchain, observes execution of the transaction signed in step **2.**.
+  - It extracts the output of the transaction execution and serialises it according the the output serialisation schema given in the **SignBidirectionalEvent** it reacted to in step **2.** applying the native Midnight standard library serialisation protocol.
+  - The MPC then creates an attestation of the execution output as the ECDSA signature over the attestation digest `keccak256(requestId || serializedOutput)` with the integrating contracts own `Response Signing Key` specific to the contract (see [Derived keys](#derived-keys)).
+  - The output attestation then made available on Midnight with the MPC calling the `respondBidrectional` circuit on the **Sig Network Singleton**, emitting a **RespondBirectional Event**.
+- **5.** Client obtains the execution output off chain (see the output recovery note below: it broadcast the transaction in step 3, so it can read the result), extracts the posted attestation and submits both back to the Midnight contract, which recomputes the digest from the output bytes and verifies the MPC's signature in-circuit against the contract's own response key (see [Derived keys](#derived-keys)), completing the foreign transaction execution.
 
 > **Output recovery:** how the client reads the execution output is chain-specific. For EVM chains it is the mined call's return data, extracted with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. Clients without trace access can fetch the raw output from the fakenet responder's helper API at `GET /responses/{requestId}` (served by [`ResponsesApi.ts`](https://github.com/sig-net/solana-signet-program/blob/fakenet-v0.10.0/fakenet-signer/src/server/ResponsesApi.ts), port 3040 in the local stack, consumed here by [`packages/integration-tests/src/fakenet-responses.ts`](packages/integration-tests/src/fakenet-responses.ts)). The fetched bytes are untrusted until step 5's in-circuit signature verification.
 
