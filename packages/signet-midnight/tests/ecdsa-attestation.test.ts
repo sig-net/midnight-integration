@@ -22,6 +22,7 @@ import {
   parseSecp256k1PublicKey,
   pureCircuits as signetCircuits,
   type RespondBidirectionalEvent,
+  respondBidirectionalEventToCircuitInput,
   SECP256K1_ORDER,
   verifyRespondBidirectionalSignature,
 } from "../src/index.ts";
@@ -215,10 +216,33 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
   ];
 
   it.each(CASES)("$name", ({ event, serializedOutput, requestId, pk, expected }) => {
-    // The client's exact claim path: hand over the stored record as read.
+    // The client's exact claim path: the record as read, flipped to the
+    // circuit-input form at the circuit call.
     expect(
-      signetCircuits.verifyRespondBidirectionalEvent32(requestId, serializedOutput, event, pk),
+      signetCircuits.verifyRespondBidirectionalEvent32(
+        requestId,
+        serializedOutput,
+        respondBidirectionalEventToCircuitInput(event),
+        pk,
+      ),
     ).toBe(expected);
+  });
+
+  it("a wire-order (unflipped) record does not verify in-circuit", () => {
+    // Pins the circuit-input convention itself: the circuit reads the
+    // signature scalars little-endian, so the big-endian wire record must be
+    // passed through respondBidirectionalEventToCircuitInput first.
+    expect(
+      signetCircuits.verifyRespondBidirectionalEvent32(REQUEST_ID, OUTPUT_32, valid, MPC_PUBLIC),
+    ).toBe(false);
+  });
+
+  it("the circuit-input flip touches only bigR.x and s", () => {
+    const flipped = respondBidirectionalEventToCircuitInput(valid);
+    expect(flipped.signature.bigR.x).toEqual(Uint8Array.from(valid.signature.bigR.x).reverse());
+    expect(flipped.signature.s).toEqual(Uint8Array.from(valid.signature.s).reverse());
+    expect(flipped.signature.bigR.y).toEqual(valid.signature.bigR.y);
+    expect(flipped.signature.recoveryId).toBe(valid.signature.recoveryId);
   });
 
   // The off-chain sifting check must answer exactly what the circuit answers:

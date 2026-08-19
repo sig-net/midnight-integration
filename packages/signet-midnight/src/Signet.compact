@@ -306,24 +306,19 @@ module Signet {
     return keccak256<[RequestId, Bytes<serializedOutputLength>]>([requestId, serializedOutput]);
   }
 
-  // Byte-order adapter: stored records are big-endian, the scalar casts read
-  // little-endian.
-  pure circuit reverseBytes32(b: Bytes<32>): Bytes<32> {
-    const v = b as Vector<32, Uint<8>>;
-    return Bytes[v[31], v[30], v[29], v[28], v[27], v[26], v[25], v[24],
-                 v[23], v[22], v[21], v[20], v[19], v[18], v[17], v[16],
-                 v[15], v[14], v[13], v[12], v[11], v[10], v[9],  v[8],
-                 v[7],  v[6],  v[5],  v[4],  v[3],  v[2],  v[1],  v[0]];
-  }
-
   // Verifies a RespondBidirectionalEvent against its execution output and MPC
   // response key: recomputes the attestation digest and checks the ECDSA
   // signature over it. Client contracts run this before consuming outputs, as
   // the singleton emits responses unverified. The caller supplies
-  // serializedOutput at its exact unpadded width and the event record as
-  // stored. Only bigR.x and s enter verification. An s that reduces to 0 mod
-  // the curve order aborts the circuit rather than returning false, so sift
-  // candidate posts off chain first (verifyRespondBidirectionalSignature).
+  // serializedOutput at its exact unpadded width, and the event record with
+  // signature.bigR.x and signature.s byte-reversed into LITTLE-endian: the
+  // scalar casts below read little-endian bytes, and the wire/ledger records
+  // are big-endian, so the reversal happens off-chain where it costs nothing
+  // (the TS SDK's respondBidirectionalEventToCircuitInput does it). A wrong
+  // byte order fails verification, never a false accept. Only bigR.x and s
+  // enter verification. An s that reduces to 0 mod the curve order aborts the
+  // circuit rather than returning false, so sift candidate posts off chain
+  // first (verifyRespondBidirectionalSignature).
   export pure circuit verifyRespondBidirectionalEvent<#serializedOutputLength>(
     requestId: RequestId,
     serializedOutput: Bytes<serializedOutputLength>,
@@ -338,8 +333,8 @@ module Signet {
     return secp256k1EcdsaVerify(
       digest,
       Secp256k1EcdsaSignature {
-        r: reverseBytes32(respondBidirectionalEvent.signature.bigR.x) as Secp256k1Scalar,
-        s: reverseBytes32(respondBidirectionalEvent.signature.s) as Secp256k1Scalar,
+        r: respondBidirectionalEvent.signature.bigR.x as Secp256k1Scalar,
+        s: respondBidirectionalEvent.signature.s as Secp256k1Scalar,
       },
       mpcResponseKey
     );
