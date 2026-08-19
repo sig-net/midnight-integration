@@ -31,7 +31,9 @@
     "compile:signet-contract:zk": "yarn workspace @sig-net/midnight-contract run compile:zk",
     "test:signet-contract": "yarn workspace @sig-net/midnight-contract run test",
     "build:signet-contract": "yarn workspace @sig-net/midnight-contract run build",
-    "deploy:signet-contract": "yarn workspace @sig-net/midnight-contract-deploy run deploy"
+    "deploy:signet-contract": "yarn workspace @sig-net/midnight-contract-deploy run deploy",
+    "build:midnight-serde-rs": "cargo build --locked --manifest-path packages/midnight-serde-rs/Cargo.toml",
+    "test:midnight-serde-rs": "cargo test --locked --manifest-path packages/midnight-serde-rs/Cargo.toml"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

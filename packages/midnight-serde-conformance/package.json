@@ -1,0 +1,27 @@
+{
+  "name": "@midnight-protocol/midnight-serde-conformance",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Conformance kit for the Compact serialize<T, N> byte layout: the fixture contract, the shared descriptor tables, the corpus generator and the COMMITTED golden corpus every midnight-serde implementation (TypeScript and Rust) is pinned against.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "compile": "compact compile --skip-zk --feature-zkir-v3 serde-fixtures.compact managed",
+    "generate": "tsx src/generate.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sig-net/midnight": "workspace:*",
+    "@sig-net/midnight-serde": "workspace:*"
+  },
+  "devDependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
+    "@types/node": "^26.1.0",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.9"
+  }
+}

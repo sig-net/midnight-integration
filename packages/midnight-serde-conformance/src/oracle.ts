@@ -1,4 +1,5 @@
-// Shared test plumbing: the hex printer and the toBinaryRepr oracle adapter.
+// The hex printer and the toBinaryRepr oracle adapter, shared by the corpus
+// generator and every implementation's test suite.
 //
 // The adapter maps a twin descriptor onto @midnight-ntwrk/compact-runtime's
 // CompactType classes so toBinaryRepr (test-only, never a runtime dependency)
@@ -18,9 +19,14 @@ import {
   CompactTypeVector,
   toBinaryRepr,
 } from "@midnight-ntwrk/compact-runtime";
+import type { CompactType, CompactValue } from "@sig-net/midnight-serde";
 
-import type { CompactType, CompactValue } from "../src/index.ts";
-
+/**
+ * Lowercase hex rendering of a byte buffer, the corpus's byte encoding.
+ *
+ * @param b - The bytes to render.
+ * @returns The bytes as lowercase hex, no prefix.
+ */
 export const hex = (b: Uint8Array): string => Buffer.from(b).toString("hex");
 
 /**
@@ -29,16 +35,31 @@ export const hex = (b: Uint8Array): string => Buffer.from(b).toString("hex");
  * classes take the byte width as a constructor argument, so feeding them the
  * twin's size would let a width bug propagate into BOTH sides of the oracle
  * comparison and pass unnoticed.
+ *
+ * @param max - The largest value the width must hold.
+ * @returns The number of bytes needed to hold `max`, zero for zero.
  */
 export function byteWidthOfMax(max: bigint): number {
   return max === 0n ? 0 : Math.ceil(max.toString(2).length / 8);
 }
 
-/** toBinaryRepr over the runtime mirror of `type`: the second serialize oracle. */
+/**
+ * toBinaryRepr over the runtime mirror of `type`: the second serialize oracle.
+ *
+ * @param type - The twin descriptor of the value's shape.
+ * @param value - The value to serialize.
+ * @returns The packed bytes, no padding.
+ */
 export function oracleSerialize(type: CompactType, value: CompactValue): Uint8Array {
   return toBinaryRepr(runtimeType(type), value);
 }
 
+/**
+ * The compact-runtime CompactType mirroring a twin descriptor.
+ *
+ * @param type - The twin descriptor to mirror.
+ * @returns A runtime type whose alignment and value conversion match `type`.
+ */
 export function runtimeType(type: CompactType): RuntimeCompactType<unknown> {
   switch (type.kind) {
     case "boolean":
