@@ -32,6 +32,10 @@ const { contractAddress, txId } = await deploySignetContract(process.env);
 
 The generic plumbing (network config, wallets, funding, transaction submission) is exported from the package root as well, for deploy scripts of other Compact contracts.
 
+## Documentation
+
+The deployed contract is the singleton of the [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow), documented in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md).
+
 ## Related packages
 
 - [`@sig-net/midnight-contract`](https://www.npmjs.com/package/@sig-net/midnight-contract): the contract this package deploys.
