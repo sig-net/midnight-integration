@@ -240,11 +240,12 @@ describe("signetEventSourceFromPublicDataProvider (indexer adapter)", () => {
     let trimmed = served.payload.length;
     while (trimmed > 0 && served.payload[trimmed - 1] === 0) trimmed -= 1;
     const source = signetEventSourceFromPublicDataProvider({
-      queryContractEvents: (filter) => {
+      queryContractEvents: (filter, page) => {
         expect(filter).toEqual({
           contractAddress: SIGNET_ADDRESS,
           types: ["Misc"],
         });
+        expect(page).toEqual({ limit: 100, offset: 0 });
         return Promise.resolve([
           {
             eventType: "Misc",
@@ -274,5 +275,28 @@ describe("signetEventSourceFromPublicDataProvider (indexer adapter)", () => {
         ]),
     });
     expect(await source.querySignetEvents(SIGNET_ADDRESS)).toHaveLength(0);
+  });
+
+  it("pages past the provider's page size: a 250-event history is read in full", async () => {
+    // A provider serves at most `limit` events per call. An adapter that
+    // stops at one page sees only the oldest 100 events of a busy signet and
+    // starves every consumer of the rest.
+    const served = signatureRespondedEventOf(REQUEST_ID, RESPONSE);
+    const history = Array.from({ length: 250 }, () => ({
+      eventType: "Misc",
+      name: bytesToHex(asciiPadded(served.name, SIGNET_EVENT_NAME_LENGTH)),
+      payload: `0x${bytesToHex(served.payload)}`,
+    }));
+    const requestedOffsets: number[] = [];
+    const source = signetEventSourceFromPublicDataProvider({
+      queryContractEvents: (_filter, page) => {
+        requestedOffsets.push(page.offset);
+        return Promise.resolve(history.slice(page.offset, page.offset + page.limit));
+      },
+    });
+
+    const events = await source.querySignetEvents(SIGNET_ADDRESS);
+    expect(events).toHaveLength(250);
+    expect(requestedOffsets).toEqual([0, 100, 200]);
   });
 });

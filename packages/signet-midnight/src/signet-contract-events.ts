@@ -142,18 +142,27 @@ export function decodeSignetLogEvents(
  */
 export interface SignetContractEventQuerySource {
   /**
-   * Retrieve a contract's events: see
-   * `PublicDataProvider.queryContractEvents`.
+   * Retrieve one page of a contract's events: see
+   * `PublicDataProvider.queryContractEvents`. Callers MUST pass `page` and
+   * keep requesting until a short page: a provider caps an un-paged call at
+   * its default page size (midnight-js: 100), silently truncating a busy
+   * contract's history.
    *
    * @param filter - The contract address and event-type narrowing.
    * @param filter.contractAddress - The contract whose events to read.
    * @param filter.types - Event types to keep; omit for all of them.
-   * @returns The matching events, oldest first.
+   * @param page - The window to read: `limit` events starting at `offset`.
+   * @param page.limit - Maximum events to return.
+   * @param page.offset - Events to skip from the start of the history.
+   * @returns The matching events in the window, oldest first.
    */
-  queryContractEvents(filter: {
-    contractAddress: string;
-    types?: "Misc"[];
-  }): Promise<{ eventType: string; name?: string; payload?: string }[]>;
+  queryContractEvents(
+    filter: {
+      contractAddress: string;
+      types?: "Misc"[];
+    },
+    page: { limit: number; offset: number },
+  ): Promise<{ eventType: string; name?: string; payload?: string }[]>;
 }
 
 /**
@@ -170,10 +179,20 @@ export function signetEventSourceFromPublicDataProvider(
 ): SignetEventSource {
   return {
     async querySignetEvents(contractAddress) {
-      const events = await provider.queryContractEvents({
-        contractAddress,
-        types: ["Misc"],
-      });
+      // Page until a short page: a single un-paged read caps at the
+      // provider's default page size and silently truncates a busy signet's
+      // history, starving every consumer of the events past the cap.
+      const events: { eventType: string; name?: string; payload?: string }[] =
+        [];
+      const pageLimit = 100;
+      for (let pageOffset = 0; ; pageOffset += pageLimit) {
+        const page = await provider.queryContractEvents(
+          { contractAddress, types: ["Misc"] },
+          { limit: pageLimit, offset: pageOffset },
+        );
+        events.push(...page);
+        if (page.length < pageLimit) break;
+      }
       const out: SignetMiscEvent[] = [];
       for (const event of events) {
         if (event.eventType !== "Misc") continue;
