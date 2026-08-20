@@ -182,8 +182,7 @@ export function signetEventSourceFromPublicDataProvider(
       // Page until a short page: a single un-paged read caps at the
       // provider's default page size and silently truncates a busy signet's
       // history, starving every consumer of the events past the cap.
-      const events: { eventType: string; name?: string; payload?: string }[] =
-        [];
+      const events: { eventType: string; name?: string; payload?: string }[] = [];
       const pageLimit = 100;
       for (let pageOffset = 0; ; pageOffset += pageLimit) {
         const page = await provider.queryContractEvents(
