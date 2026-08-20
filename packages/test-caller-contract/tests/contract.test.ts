@@ -20,6 +20,7 @@ import {
   type RequestIdHex,
   requestIdHex,
   type RespondBidirectionalEvent,
+  respondBidirectionalEventToCircuitInput,
   type SignBidirectionalEvent,
   type SignBidirectionalEventLedgerMap,
   SignetEventName,
@@ -561,19 +562,25 @@ const OUTPUT_FAILURE = compactSerialize(BOOL_RESPONSE, { success: false }, 1);
 /**
  * Sign a REAL respond-bidirectional response for (requestId, output) with
  * `secretKey`: the digest comes from the TS twin (pinned against the
- * compiled oracle circuits), exactly like the MPC. The result is the event
- * as the singleton emits it (full R point, big-endian bytes), which is
- * what a client reads and hands to verifyResponse.
+ * compiled oracle circuits), exactly like the MPC. The wire event (full R
+ * point, big-endian bytes) is flipped to
+ * verifyRespondBidirectionalEvent's circuit-input form, which is what a
+ * client hands to verifyResponse (the flip lockstep itself is pinned in
+ * signet-midnight's ecdsa-attestation tests).
  */
 const respond = (
   secretKey: Uint8Array,
   requestId: Uint8Array,
   serializedOutput: Uint8Array,
-): RespondBidirectionalEvent => ({
-  signature: ecdsaSignatureToMpcSignature(
-    signAttestationDigest(calculateSignetAttestationDigest(requestId, serializedOutput), secretKey),
-  ),
-});
+): RespondBidirectionalEvent =>
+  respondBidirectionalEventToCircuitInput({
+    signature: ecdsaSignatureToMpcSignature(
+      signAttestationDigest(
+        calculateSignetAttestationDigest(requestId, serializedOutput),
+        secretKey,
+      ),
+    ),
+  });
 
 // ---- Verify-response tests ----
 

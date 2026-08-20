@@ -248,11 +248,54 @@ export function calculateSignetAttestationDigest(
 }
 
 /**
+ * Reverse a 32-byte value between big- and little-endian byte order.
+ *
+ * @param bytes - The 32 bytes to reverse.
+ * @returns A new reversed array.
+ * @throws {Error} If the input is not exactly 32 bytes.
+ */
+function reverseBytes32(bytes: Uint8Array): Uint8Array {
+  if (bytes.length !== 32) {
+    throw new Error(`expected 32 bytes to reverse, got ${String(bytes.length)}`);
+  }
+  return Uint8Array.from(bytes).reverse();
+}
+
+/**
+ * Produce the circuit-input form of a posted respond-bidirectional
+ * attestation: `signature.bigR.x` and `signature.s` byte-reversed into
+ * little-endian, everything else verbatim. The in-circuit
+ * `verifyRespondBidirectionalEvent` reads those two scalars through
+ * little-endian casts (the reversal is free off-chain and costly
+ * in-circuit), while the wire and ledger records stay big-endian: pass every
+ * event through this exactly once, at the circuit call. A record passed
+ * without the flip fails verification, never falsely accepts.
+ *
+ * @param event - The posted record as read off the ledger (big-endian).
+ * @returns The record in circuit-input form.
+ * @throws {Error} If a signature component is not exactly 32 bytes.
+ */
+export function respondBidirectionalEventToCircuitInput(
+  event: RespondBidirectionalEvent,
+): RespondBidirectionalEvent {
+  return {
+    signature: {
+      ...event.signature,
+      bigR: { ...event.signature.bigR, x: reverseBytes32(event.signature.bigR.x) },
+      s: reverseBytes32(event.signature.s),
+    },
+  };
+}
+
+/**
  * Off-chain twin of the in-circuit `verifyRespondBidirectionalEvent`: checks
  * a posted respond-bidirectional attestation against the execution output
  * and the contract's pinned MPC response key. Clients run it to sift
  * candidate posts before calling a contract: a post this accepts verifies
- * in-circuit. Malformed records return `false` rather than throwing.
+ * in-circuit (once flipped to circuit-input form, see
+ * {@link respondBidirectionalEventToCircuitInput}). Takes the record as read
+ * off the ledger (big-endian). Malformed records return `false` rather than
+ * throwing.
  *
  * @param requestId - The 32-byte request id the response answers.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.

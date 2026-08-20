@@ -36,6 +36,7 @@ import {
   type RequestIdHex,
   requestIdHex,
   type RespondBidirectionalEvent,
+  respondBidirectionalEventToCircuitInput,
   serializeRespondOutput,
   signBidirectionalEventToSignedEvmTransaction,
   SIGNET_DEFAULT_KEY_VERSION,
@@ -508,10 +509,16 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         expect(attestedEvent).toBeDefined();
 
         // The respond bytes recomputed from the API-fetched output go into
-        // the circuit. The in-circuit digest recompute + signature check is
-        // what authenticates them: a tampered output yields a digest the
-        // MPC never signed.
-        await method.verify(context, requestIdBytes(requestId), attestedEvent, respondBytes);
+        // the circuit, and the sifted event goes in flipped to the verify
+        // circuit's input form. The in-circuit digest recompute + signature
+        // check is what authenticates them: a tampered output yields a
+        // digest the MPC never signed.
+        await method.verify(
+          context,
+          requestIdBytes(requestId),
+          respondBidirectionalEventToCircuitInput(attestedEvent),
+          respondBytes,
+        );
 
         const deadline = Date.now() + MINUTE;
         let stillPresent = true;
