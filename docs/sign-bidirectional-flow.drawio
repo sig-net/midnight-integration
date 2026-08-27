@@ -4,7 +4,7 @@
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
-                <mxCell id="e-submit" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#11A579;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="fl" edge="1">
+                <mxCell id="e-submit" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#11A579;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="fl" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="406" y="814"/>
@@ -16,7 +16,7 @@
                         <mxPoint x="-2" y="-25" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-extract-sigs" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#11A579;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="hex-resp" edge="1">
+                <mxCell id="e-extract-sigs" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#11A579;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="hex-resp" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="406" y="679"/>
@@ -157,7 +157,7 @@
                 <mxCell id="c2" value="2." style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontStyle=1;fontSize=20;spacing=0;spacingTop=-2;spacingLeft=3;fontColor=#3969AC;strokeWidth=2;strokeColor=#3969AC;align=center;" parent="ml" vertex="1">
                     <mxGeometry x="685" y="384" width="31" height="31" as="geometry"/>
                 </mxCell>
-                <mxCell id="e-complete" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#7F3C8D;exitX=1;exitY=0.75;exitDx=0;exitDy=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="code-complete" edge="1">
+                <mxCell id="e-complete" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#7F3C8D;exitX=1;exitY=0.75;exitDx=0;exitDy=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="code-complete" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="e-complete-l" value="&lt;b&gt;dApp/relayer:&lt;/b&gt;&lt;br&gt;Submits the output +&lt;br&gt;attestation to settle" style="edgeLabel;html=1;align=left;verticalAlign=middle;" parent="e-complete" vertex="1" connectable="0">
@@ -234,7 +234,7 @@
                 <mxCell id="c5" value="5." style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontStyle=1;fontSize=20;spacing=0;spacingTop=-2;spacingLeft=3;fontColor=#7F3C8D;strokeWidth=2;strokeColor=#7F3C8D;align=center;" parent="1" vertex="1">
                     <mxGeometry x="478" y="312" width="31" height="31" as="geometry"/>
                 </mxCell>
-                <mxCell id="e-user-dapp" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#E73F74;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;align=left;" parent="1" source="user-grp" target="dapp" edge="1">
+                <mxCell id="e-user-dapp" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#E73F74;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;align=left;" parent="1" source="user-grp" target="dapp" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="e-user-dapp-l" value="&lt;b&gt;User:&lt;/b&gt;&lt;br&gt;Interacts with dApp" style="edgeLabel;html=1;align=center;verticalAlign=middle;" parent="e-user-dapp" vertex="1" connectable="0">
@@ -242,7 +242,7 @@
                         <mxPoint x="-3" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-dapp-start" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#E73F74;exitX=1;exitY=0.25;exitDx=0;exitDy=5;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="code-start" edge="1">
+                <mxCell id="e-dapp-start" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#E73F74;exitX=1;exitY=0.25;exitDx=0;exitDy=5;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="code-start" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="e-dapp-start-l" value="&lt;b&gt;dApp/relayer:&lt;/b&gt;&lt;br&gt;Starts a cross chain&lt;br&gt;interaction" style="edgeLabel;html=1;align=left;verticalAlign=middle;" parent="e-dapp-start" vertex="1" connectable="0">
@@ -250,7 +250,7 @@
                         <mxPoint x="-33" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-start-map" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#E73F74;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=1;entryDx=119;entryDy=0;align=left;" parent="1" source="code-start" target="event-map" edge="1">
+                <mxCell id="e-start-map" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#E73F74;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=1;entryDx=119;entryDy=0;align=left;" parent="1" source="code-start" target="event-map" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="e-start-map-l" value="&lt;b&gt;startCrossChain circuit:&lt;/b&gt;&lt;br&gt;Constructs &amp;amp; stores the request" style="edgeLabel;html=1;align=center;verticalAlign=middle;" parent="e-start-map" vertex="1" connectable="0">
@@ -258,7 +258,7 @@
                         <mxPoint x="9" y="2" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-start-signbi" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#E73F74;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="code-start" target="code-signbi" edge="1">
+                <mxCell id="e-start-signbi" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#E73F74;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="code-start" target="code-signbi" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="1048" y="297"/>
@@ -273,13 +273,13 @@
                         <mxPoint x="-112" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-emit-notif" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#E73F74;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="code-signbi" target="hex-notif" edge="1">
+                <mxCell id="e-emit-notif" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#E73F74;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="code-signbi" target="hex-notif" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="e-read-sign" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#3969AC;exitX=0.5;exitY=1;exitDx=-0.5;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;align=left;" parent="1" source="n-read" target="n-sign" edge="1">
+                <mxCell id="e-read-sign" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#3969AC;exitX=0.5;exitY=1;exitDx=-0.5;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;align=left;" parent="1" source="n-read" target="n-sign" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="e-read-map" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#3969AC;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="n-read" target="event-map" edge="1">
+                <mxCell id="e-read-map" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#3969AC;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="n-read" target="event-map" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="1133" y="317"/>
@@ -292,7 +292,7 @@
                         <mxPoint x="15" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-post-resp" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#3969AC;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="n-sign" target="code-respond" edge="1">
+                <mxCell id="e-post-resp" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#3969AC;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="n-sign" target="code-respond" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="1297" y="454"/>
@@ -303,14 +303,14 @@
                 <mxCell id="e-post-resp-l" value="&lt;b&gt;MPC:&lt;br&gt;&lt;/b&gt;Posts&amp;nbsp;&lt;b&gt;SignatureRespondedEvent&lt;/b&gt;s" style="edgeLabel;html=1;align=left;verticalAlign=middle;" parent="e-post-resp" vertex="1" connectable="0">
                     <mxGeometry x="0.3956" relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="e-emit-resp" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#3969AC;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;align=left;" parent="1" source="code-respond" target="hex-resp" edge="1">
+                <mxCell id="e-emit-resp" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#3969AC;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;align=left;" parent="1" source="code-respond" target="hex-resp" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="655" y="551"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-post-respbi" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#FDAE61;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="n-attest" target="code-respondbi" edge="1">
+                <mxCell id="e-post-respbi" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#FDAE61;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="n-attest" target="code-respondbi" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="1297" y="568"/>
@@ -323,10 +323,10 @@
                         <mxPoint x="-75" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-emit-respbi" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#FDAE61;exitX=0;exitY=1;exitDx=205;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;align=left;" parent="1" source="code-respondbi" target="hex-respbi" edge="1">
+                <mxCell id="e-emit-respbi" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#FDAE61;exitX=0;exitY=1;exitDx=205;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;align=left;" parent="1" source="code-respondbi" target="hex-respbi" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="e-extract-att" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#7F3C8D;jumpStyle=arc;jumpSize=10;exitX=1;exitY=0.75;exitDx=0;exitDy=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="hex-respbi" edge="1">
+                <mxCell id="e-extract-att" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#7F3C8D;jumpStyle=arc;jumpSize=10;exitX=1;exitY=0.75;exitDx=0;exitDy=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="hex-respbi" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="516" y="349"/>
@@ -340,7 +340,7 @@
                         <mxPoint x="-175" y="4" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-extract-output" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#7F3C8D;jumpStyle=arc;jumpSize=10;exitX=1;exitY=0.75;exitDx=0;exitDy=1;entryX=0;entryY=0.75;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="fl" edge="1">
+                <mxCell id="e-extract-output" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#7F3C8D;jumpStyle=arc;jumpSize=10;exitX=1;exitY=0.75;exitDx=0;exitDy=1;entryX=0;entryY=0.75;entryDx=0;entryDy=0;align=left;" parent="1" source="dapp" target="fl" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="516" y="349"/>
@@ -354,7 +354,7 @@
                         <mxPoint x="-134" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-watch-notif" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#3969AC;exitX=0.25;exitY=1;exitDx=0.25;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;align=left;" parent="1" source="n-read" target="hex-notif" edge="1">
+                <mxCell id="e-watch-notif" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#3969AC;exitX=0.25;exitY=1;exitDx=0.25;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;align=left;" parent="1" source="n-read" target="hex-notif" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="1374" y="415"/>
@@ -368,7 +368,7 @@
                         <mxPoint x="-220" y="28" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-watch-foreign" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;strokeWidth=2;strokeColor=#FDAE61;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="n-attest" target="fl" edge="1">
+                <mxCell id="e-watch-foreign" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#FDAE61;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;align=left;" parent="1" source="n-attest" target="fl" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="1415" y="814"/>
