@@ -34,7 +34,7 @@ The generic plumbing (network config, wallets, funding, transaction submission) 
 
 ## Documentation
 
-The deployed contract is the singleton of the [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow), documented in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md).
+The deployed contract is the singleton of the [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow), documented in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md).
 
 ## Related packages
 
