@@ -2,9 +2,9 @@
 // codecs (alignment/toValue/fromValue) at the same literals the compiler
 // emits, composed into the signet record descriptors by the request modules.
 // They exist so the package can (a) decode raw state cells of ANY requester
-// contract discovered at runtime and (b) serialize a record byte-identically
-// to the circuits' keccak256 preimage, and they exist HERE only because the
-// Midnight libraries expose no supported equivalent:
+// contract discovered at runtime and (b) present a record to `transientHash`
+// with the same alignment the circuits hash it under, and they exist HERE
+// only because the Midnight libraries expose no supported equivalent:
 //  - A compiled contract module (`src/managed/`) builds one such codec per
 //    ledger type but keeps them module-private, exporting only `ledger()`,
 //    which decodes the FULL state of the one contract it was compiled from.

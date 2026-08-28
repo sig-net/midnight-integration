@@ -13,11 +13,18 @@
 // This belongs in github.com/sig-net/signet.js as its Midnight adapter,
 // kept here until upstreamed.
 
-import type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
+import {
+  type CompactType,
+  CompactTypeBytes,
+  type Secp256k1Point,
+  transientHash,
+  upgradeFromTransient,
+} from "@midnight-ntwrk/compact-runtime";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
-import { ethers, Signature, toBeHex } from "ethers";
+import { Signature, toBeHex } from "ethers";
 
 import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codecs.ts";
+import { BYTES_32 } from "./compact-descriptors.ts";
 import type {
   MpcSignature,
   RespondBidirectionalEvent,
@@ -229,12 +236,43 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
 }
 
 /**
+ * Descriptor of the Compact tuple `[RequestId, Bytes<serializedOutputLength>]`
+ * the attestation digest hashes, composed the way the compiler composes a
+ * tuple: the elements' alignments and values concatenated in order. The output
+ * width enters the descriptor, so it is fixed per call rather than a constant.
+ *
+ * @param serializedOutputLength - Declared width of the output element, in bytes.
+ * @returns The pair descriptor for {@link calculateSignetAttestationDigest}.
+ */
+function attestationPreimageDescriptor(
+  serializedOutputLength: number,
+): CompactType<[Uint8Array, Uint8Array]> {
+  const output = new CompactTypeBytes(serializedOutputLength);
+  return {
+    alignment: () => [...BYTES_32.alignment(), ...output.alignment()],
+    toValue: ([requestId, serializedOutput]) => [
+      ...BYTES_32.toValue(requestId),
+      ...output.toValue(serializedOutput),
+    ],
+    fromValue: (value) => [BYTES_32.fromValue(value), output.fromValue(value)],
+  };
+}
+
+/**
  * The attestation digest of a respond-bidirectional response:
- * `keccak256(requestId || serializedOutput)`, the 32-byte digest the MPC
- * ECDSA-signs to attest a remote execution. TS twin of the size-generic
- * Compact circuit of the same name, pinned against its fixed-width oracle
- * circuits in tests. The output is hashed as given, at its exact length:
- * no padding, no length prefix.
+ * `upgradeFromTransient(transientHash([requestId, serializedOutput]))`, the
+ * 32-byte digest the MPC ECDSA-signs to attest a remote execution. TS twin of
+ * the size-generic Compact circuit of the same name, pinned against its
+ * fixed-width oracle circuits in tests. The pair is hashed over its
+ * field-aligned representation: each element packs into ceil(N/31)
+ * little-endian field elements, with no padding byte or length prefix around
+ * them.
+ *
+ * The declared length is consequently NOT part of the preimage: an output
+ * whose trailing bytes within a 31-byte chunk are zero hashes the same as the
+ * shorter output it extends. Each client circuit fixes its output width and
+ * the digest binds the request id, so responses stay distinguishable. Byte 31
+ * of the digest is always zero.
  *
  * @param requestId - The 32-byte request id the response answers.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
@@ -244,7 +282,12 @@ export function calculateSignetAttestationDigest(
   requestId: RequestId,
   serializedOutput: Uint8Array,
 ): Uint8Array {
-  return ethers.getBytes(ethers.keccak256(ethers.concat([requestId, serializedOutput])));
+  return upgradeFromTransient(
+    transientHash(attestationPreimageDescriptor(serializedOutput.length), [
+      requestId,
+      serializedOutput,
+    ]),
+  );
 }
 
 /**

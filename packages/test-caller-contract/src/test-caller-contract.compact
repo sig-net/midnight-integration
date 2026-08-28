@@ -63,7 +63,7 @@ witness deployerSecretKey(): Bytes<32>;
 
 // Exported so deploy tooling and tests can compute the commitment.
 export pure circuit deployerCommitment(sk: Bytes<32>): Bytes<32> {
-  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "signet-caller:deployer:"), sk]);
+  return upgradeFromTransient(transientHash<Vector<2, Bytes<32>>>([pad(32, "signet-caller:deployer:"), sk]));
 }
 
 constructor(initialDeployerCommitment: Bytes<32>, signetContract: SignetSigner) {

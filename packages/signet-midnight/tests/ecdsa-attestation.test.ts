@@ -74,8 +74,8 @@ const respond = (
 describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circuits", () => {
   // The BINDING tests: the TS twin must agree byte-for-byte with the
   // compiled generic circuit at every width. Per width: a patterned output,
-  // an all-zero output, and a trailing-zero output (pinning that neither
-  // side trims or pads the keccak preimage).
+  // an all-zero output, and a trailing-zero output (pinning that both sides
+  // align the preimage the same way).
   const oracles = [
     {
       width: 1,
@@ -119,12 +119,38 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
     expect(calculateSignetAttestationDigest(REQUEST_ID, bytes(32, 0x77))).not.toEqual(digest);
   });
 
-  it("the exact width is part of the preimage: appending a zero byte changes the digest", () => {
-    // There is no separate length binding: distinctness across widths comes
-    // from the preimage bytes themselves (keccak's padding is length-aware).
+  it("changes with the output's content", () => {
     expect(calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1]))).not.toEqual(
-      calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1, 0])),
+      calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1, 2])),
     );
+  });
+
+  it("trailing zeros inside a 31-byte chunk do not change the digest", () => {
+    // The output is hashed over its field-aligned representation: a Bytes<N>
+    // packs into ceil(N/31) little-endian field elements, so widths that share
+    // a chunk count and a numeric value share a digest. Each client circuit
+    // fixes its output width and the digest binds the request id, so responses
+    // stay distinguishable in the protocol.
+    const oneByte = calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1]));
+    const zeroPaddedTo31 = new Uint8Array(31);
+    zeroPaddedTo31[0] = 1;
+    expect(calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1, 0]))).toEqual(oneByte);
+    expect(calculateSignetAttestationDigest(REQUEST_ID, zeroPaddedTo31)).toEqual(oneByte);
+  });
+
+  it("crossing a 31-byte chunk boundary changes the digest", () => {
+    const within = new Uint8Array(31);
+    within[0] = 1;
+    const across = new Uint8Array(62);
+    across[0] = 1;
+    expect(calculateSignetAttestationDigest(REQUEST_ID, across)).not.toEqual(
+      calculateSignetAttestationDigest(REQUEST_ID, within),
+    );
+  });
+
+  it("leaves byte 31 zero: the field element occupies the low 31 bytes", () => {
+    const digest = calculateSignetAttestationDigest(REQUEST_ID, OUTPUT_32);
+    expect(digest.at(31)).toBe(0);
   });
 });
 
