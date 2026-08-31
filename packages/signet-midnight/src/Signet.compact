@@ -306,16 +306,8 @@ module Signet {
 
   // The 32-byte attestation digest of a remote execution output:
   //    attestationDigest = upgradeFromTransient(transientHash([requestId, serializedOutput]))
-  // The pair is hashed over its field-aligned representation: each element packs
-  // into ceil(N/31) little-endian field elements, with no padding byte or length
-  // prefix around them. Off-chain code uses the TypeScript twin in
-  // `ecdsa-attestation.ts`.
-  //
-  // The declared width is consequently NOT part of the preimage. A serializedOutput
-  // whose trailing bytes within a 31-byte chunk are zero hashes the same as the
-  // shorter output it extends: the width is fixed per client circuit and the request
-  // id already binds the response, so responses cannot cross over. The digest's byte
-  // 31 is always zero, leaving ~248 bits for the ECDSA prehash.
+  // Off-chain code uses the TypeScript twin:
+  //    import { calculateSignetAttestationDigest } from "@sig-net/midnight";
   export pure circuit calculateSignetAttestationDigest<#serializedOutputLength>(
     requestId: RequestId,
     serializedOutput: Bytes<serializedOutputLength>,
