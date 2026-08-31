@@ -237,17 +237,7 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
  * The attestation digest of a respond-bidirectional response:
  * `upgradeFromTransient(transientHash([requestId, serializedOutput]))`, the
  * 32-byte digest the MPC ECDSA-signs to attest a remote execution. TS twin of
- * the size-generic Compact circuit of the same name, pinned against its
- * fixed-width oracle circuits in tests. The pair is hashed over its
- * field-aligned representation: each element packs into ceil(N/31)
- * little-endian field elements, with no padding byte or length prefix around
- * them.
- *
- * The declared length is consequently NOT part of the preimage: an output
- * whose trailing bytes within a 31-byte chunk are zero hashes the same as the
- * shorter output it extends. Each client circuit fixes its output width and
- * the digest binds the request id, so responses stay distinguishable. Byte 31
- * of the digest is always zero.
+ * the size-generic Compact circuit of the same name.
  *
  * @param requestId - The 32-byte request id the response answers.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
