@@ -32,6 +32,14 @@ const { contractAddress, txId } = await deploySignetContract(process.env);
 
 The generic plumbing (network config, wallets, funding, transaction submission) is exported from the package root as well, for deploy scripts of other Compact contracts.
 
+## Deploying from CI
+
+The [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration) repository deploys the singleton through its manually dispatched `deploy` workflow, which picks a network and a release tag and runs this flow on a runner with a local proof server.
+
+- **The wallet needs faucet-funded NIGHT and nothing else.** The flow registers that NIGHT for dust generation and waits for the first spendable DUST, so a freshly funded seed works on the first run. A run whose wallet holds no NIGHT yet fails printing the wallet's NIGHT receive address (`mn_addr…`) and the network's faucet URL, ready to paste into the faucet.
+- **The deployed address is recorded by a bot PR.** The workflow writes it into the `signetContractAddresses` table of [`@sig-net/midnight`](https://www.npmjs.com/package/@sig-net/midnight) and opens a pull request, so a human reviews the address before it ships to npm consumers.
+- **A deploy sets NO contract maintenance authority.** The maintenance signing key is sampled and dropped, so a deployed contract can never be updated: every run creates a fresh, permanent contract instance, and moving forward means a new deployment while the existing contracts stay exactly as they are.
+
 ## Documentation
 
 The deployed contract is the singleton of the [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow), documented in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md).

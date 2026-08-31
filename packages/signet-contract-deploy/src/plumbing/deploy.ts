@@ -15,7 +15,6 @@ import { ZKFileConfiguration } from "@midnight-ntwrk/compact-js-node/effect";
 import * as CoinPublicKey from "@midnight-ntwrk/platform-js/effect/CoinPublicKey";
 import * as Configuration from "@midnight-ntwrk/platform-js/effect/Configuration";
 import * as ledger from "@midnightntwrk/ledger-v9";
-import type { FacadeState } from "@midnightntwrk/wallet-sdk-facade";
 import { Effect, Layer, Option, type Types } from "effect";
 
 import { envOrUndefined } from "./env.ts";
@@ -251,21 +250,4 @@ export async function buildDeployTransaction<C extends Contract.Contract<PS>, PS
     contractAddress: deploy.address,
     serializedTransaction: transaction.serialize(),
   };
-}
-
-/**
- * Fail fast when the deployer wallet cannot pay for a transaction: fees are
- * paid in DUST, which only generates on NIGHT registered for dust generation.
- *
- * @param state - The synced facade state to inspect (see `withSyncedWalletFacade` in wallet.ts).
- * @throws {Error} If the deployer's spendable DUST balance is zero.
- */
-export function assertDeployerFunded(state: FacadeState): void {
-  const dust = state.dust.balance(new Date());
-  if (dust > 0n) return;
-  const night = Object.values(state.unshielded.balances).reduce((sum, value) => sum + value, 0n);
-  throw new Error(
-    `deployer wallet has no DUST to pay fees (NIGHT balance: ${String(night)}). ` +
-      "Fund the wallet with NIGHT and register it for dust generation, then retry.",
-  );
 }
