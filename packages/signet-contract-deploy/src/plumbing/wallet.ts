@@ -218,13 +218,16 @@ export async function submitUnprovenTransaction(
   >("signature", "pre-proof", "pre-binding", serializedTransaction);
 
   // Balance (add dust/fee inputs) → sign those inputs → finalize (prove) → submit.
+  console.log("balancing and signing transaction...");
   const recipe = await facade.balanceUnprovenTransaction(
     tx,
     { shieldedSecretKeys: keys.shieldedSecretKeys, dustSecretKey: keys.dustSecretKey },
     { ttl: new Date(Date.now() + RECIPE_TTL_MS) },
   );
   const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
+  console.log("proving transaction (proof server, can take minutes)...");
   const finalized = await facade.finalizeRecipe(signed);
+  console.log("submitting transaction...");
   return facade.submitTransaction(finalized);
 }
 
@@ -360,7 +363,9 @@ export async function withSyncedWalletFacade<T>(
   const facade = await initialiseWalletFacade(keys, config, options);
   await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
   try {
+    console.log(`syncing wallet (indexer: ${config.indexerUrl})...`);
     const state = await facade.waitForSyncedState();
+    console.log("wallet synced");
     return await fn(facade, state);
   } finally {
     await facade.stop().catch(() => undefined);
