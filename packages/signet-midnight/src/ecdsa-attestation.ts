@@ -14,8 +14,6 @@
 // kept here until upstreamed.
 
 import {
-  type CompactType,
-  CompactTypeBytes,
   type Secp256k1Point,
   transientHash,
   upgradeFromTransient,
@@ -24,7 +22,7 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { Signature, toBeHex } from "ethers";
 
 import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codecs.ts";
-import { BYTES_32 } from "./compact-descriptors.ts";
+import { attestationPreimageDescriptor } from "./compact-descriptors.ts";
 import type {
   MpcSignature,
   RespondBidirectionalEvent,
@@ -232,29 +230,6 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
     x: bytesToBigintBE(uncompressed.slice(1, 33)),
     y: bytesToBigintBE(uncompressed.slice(33, 65)),
     identity: false,
-  };
-}
-
-/**
- * Descriptor of the Compact tuple `[RequestId, Bytes<serializedOutputLength>]`
- * the attestation digest hashes, composed the way the compiler composes a
- * tuple: the elements' alignments and values concatenated in order. The output
- * width enters the descriptor, so it is fixed per call rather than a constant.
- *
- * @param serializedOutputLength - Declared width of the output element, in bytes.
- * @returns The pair descriptor for {@link calculateSignetAttestationDigest}.
- */
-function attestationPreimageDescriptor(
-  serializedOutputLength: number,
-): CompactType<[Uint8Array, Uint8Array]> {
-  const output = new CompactTypeBytes(serializedOutputLength);
-  return {
-    alignment: () => [...BYTES_32.alignment(), ...output.alignment()],
-    toValue: ([requestId, serializedOutput]) => [
-      ...BYTES_32.toValue(requestId),
-      ...output.toValue(serializedOutput),
-    ],
-    fromValue: (value) => [BYTES_32.fromValue(value), output.fromValue(value)],
   };
 }
 
