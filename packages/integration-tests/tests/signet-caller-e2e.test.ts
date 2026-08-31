@@ -29,6 +29,7 @@ import {
   requestIdBytes,
   type RequestIdHex,
   requestIdHex,
+  respondBidirectionalEventToCircuitInput,
   SIGNET_DEFAULT_KEY_VERSION,
   stripHexPrefix,
 } from "@sig-net/midnight";
@@ -388,7 +389,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // output handed in beside it.
       await context.caller.callTx.verifyResponse(
         requestKey,
-        { signature: ecdsaSignatureToMpcSignature(signature) },
+        respondBidirectionalEventToCircuitInput({
+          signature: ecdsaSignatureToMpcSignature(signature),
+        }),
         serializedOutput,
       );
 

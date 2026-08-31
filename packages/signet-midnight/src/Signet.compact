@@ -19,7 +19,7 @@
 //
 //  Key types at a glance (each declaration below carries the full contract):
 //  - SignBidirectionalEvent: a client contract's structured request for a signature on a transaction.
-//  - RequestId: 32-byte id of a request, the keccak256 of the whole SignBidirectionalEvent record.
+//  - RequestId: 32-byte id of a request, the transientHash of the whole SignBidirectionalEvent record.
 //  - SignBidirectionalEventMap: the RequestId -> SignBidirectionalEvent map a client contract
 //    declares in its own ledger for the MPC to read requests from.
 //  - SignetSigner: the contract interface client contracts call to notify the Signet singleton.
@@ -166,17 +166,26 @@ module Signet {
 
   // ---- SignBidirectionalEvent RequestId --------------------------------------------------------------
 
-  // 32 byte chain agnostic nominal id, calculated as keccak256 of the whole
+  // 32 byte chain agnostic nominal id, calculated as the transientHash of the whole
   // SignBidirectionalEvent record (see calculateRequestId).
   export new type RequestId = Bytes<32>;
 
-  // keccak256 of the whole record: the id commits to every field, including the
-  // sender, and carries no domain-separation tag. Off-chain twins must reproduce
-  // the field-aligned binary layout exactly.
+  // transientHash (Poseidon over the record's field-aligned representation) upgraded
+  // to Bytes<32>: the id commits to every field, including the sender, and carries no
+  // domain-separation tag. Off-chain twins must reproduce the field-aligned layout
+  // exactly.
+  //
+  // Two properties follow from the field-aligned representation and matter to anyone
+  // reasoning about these ids:
+  //  - byte 31 is always zero. upgradeFromTransient writes the field element's 31
+  //    little-endian bytes into bytes 0..30, so an id carries ~248 bits of entropy.
+  //  - a Bytes<N> field packs into ceil(N/31) field elements, so trailing zero bytes
+  //    within a chunk do not change the hash. Widths here are fixed at compile time
+  //    and every id commits to its sender, so requests cannot collide in practice.
   export pure circuit calculateRequestId<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
     request: SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>
   ): RequestId {
-    return keccak256<SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>>(request) as RequestId;
+    return upgradeFromTransient(transientHash<SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>>(request)) as RequestId;
   }
 
   // ---- Client Contract: SignBidirectionalEvent Map ---------------------------------------------------
@@ -278,7 +287,7 @@ module Signet {
   // RespondBidirectionalEvent: the MPC's attestation of a foreign execution, the
   // final step of the sign bidirectional flow.
   //
-  //    attestationDigest = keccak256(requestId + serializedOutput)
+  //    attestationDigest = upgradeFromTransient(transientHash([requestId, serializedOutput]))
   //    signature = signSECP256k1(mpcResponseKey, attestationDigest)
   //
   // mpcResponseKey is derived like request signing keys, with the path set to the
@@ -296,34 +305,29 @@ module Signet {
   }
 
   // The 32-byte attestation digest of a remote execution output:
-  //    attestationDigest = keccak256(requestId + serializedOutput)
-  // Inputs are concatenated raw, no padding or length prefixes. Off-chain code
-  // uses the TypeScript twin in `ecdsa-attestation.ts`.
+  //    attestationDigest = upgradeFromTransient(transientHash([requestId, serializedOutput]))
+  // Off-chain code uses the TypeScript twin:
+  //    import { calculateSignetAttestationDigest } from "@sig-net/midnight";
   export pure circuit calculateSignetAttestationDigest<#serializedOutputLength>(
     requestId: RequestId,
     serializedOutput: Bytes<serializedOutputLength>,
   ): Bytes<32> {
-    return keccak256<[RequestId, Bytes<serializedOutputLength>]>([requestId, serializedOutput]);
-  }
-
-  // Byte-order adapter: stored records are big-endian, the scalar casts read
-  // little-endian.
-  pure circuit reverseBytes32(b: Bytes<32>): Bytes<32> {
-    const v = b as Vector<32, Uint<8>>;
-    return Bytes[v[31], v[30], v[29], v[28], v[27], v[26], v[25], v[24],
-                 v[23], v[22], v[21], v[20], v[19], v[18], v[17], v[16],
-                 v[15], v[14], v[13], v[12], v[11], v[10], v[9],  v[8],
-                 v[7],  v[6],  v[5],  v[4],  v[3],  v[2],  v[1],  v[0]];
+    return upgradeFromTransient(transientHash<[RequestId, Bytes<serializedOutputLength>]>([requestId, serializedOutput]));
   }
 
   // Verifies a RespondBidirectionalEvent against its execution output and MPC
   // response key: recomputes the attestation digest and checks the ECDSA
   // signature over it. Client contracts run this before consuming outputs, as
   // the singleton emits responses unverified. The caller supplies
-  // serializedOutput at its exact unpadded width and the event record as
-  // stored. Only bigR.x and s enter verification. An s that reduces to 0 mod
-  // the curve order aborts the circuit rather than returning false, so sift
-  // candidate posts off chain first (verifyRespondBidirectionalSignature).
+  // serializedOutput at its exact unpadded width, and the event record with
+  // signature.bigR.x and signature.s byte-reversed into LITTLE-endian: the
+  // scalar casts below read little-endian bytes, and the wire/ledger records
+  // are big-endian, so the reversal happens off-chain where it costs nothing
+  // (the TS SDK's respondBidirectionalEventToCircuitInput does it). A wrong
+  // byte order fails verification, never a false accept. Only bigR.x and s
+  // enter verification. An s that reduces to 0 mod the curve order aborts the
+  // circuit rather than returning false, so sift candidate posts off chain
+  // first (verifyRespondBidirectionalSignature).
   export pure circuit verifyRespondBidirectionalEvent<#serializedOutputLength>(
     requestId: RequestId,
     serializedOutput: Bytes<serializedOutputLength>,
@@ -338,8 +342,8 @@ module Signet {
     return secp256k1EcdsaVerify(
       digest,
       Secp256k1EcdsaSignature {
-        r: reverseBytes32(respondBidirectionalEvent.signature.bigR.x) as Secp256k1Scalar,
-        s: reverseBytes32(respondBidirectionalEvent.signature.s) as Secp256k1Scalar,
+        r: respondBidirectionalEvent.signature.bigR.x as Secp256k1Scalar,
+        s: respondBidirectionalEvent.signature.s as Secp256k1Scalar,
       },
       mpcResponseKey
     );
@@ -433,25 +437,42 @@ module Signet {
 
   // Read a numeric ABI word back into a Uint<128>: the inverse of
   // numericAbiWord. Asserts the leading 16 bytes are zero (a canonical
-  // Uint<128> word).
+  // Uint<128> word). Decomposes the word into bytes exactly once (each
+  // slice would redecompose the whole word) and folds v[16..31] by Horner.
   export pure circuit abiWordToUint128(word: Bytes<32>): Uint<128> {
-    assert(slice<16>(word, 0) as Field == 0 as Field, "ABI word exceeds Uint<128>");
-    const b0  = slice<1>(word, 16) as Field;
-    const b1  = b0  * 256 + (slice<1>(word, 17) as Field);
-    const b2  = b1  * 256 + (slice<1>(word, 18) as Field);
-    const b3  = b2  * 256 + (slice<1>(word, 19) as Field);
-    const b4  = b3  * 256 + (slice<1>(word, 20) as Field);
-    const b5  = b4  * 256 + (slice<1>(word, 21) as Field);
-    const b6  = b5  * 256 + (slice<1>(word, 22) as Field);
-    const b7  = b6  * 256 + (slice<1>(word, 23) as Field);
-    const b8  = b7  * 256 + (slice<1>(word, 24) as Field);
-    const b9  = b8  * 256 + (slice<1>(word, 25) as Field);
-    const b10 = b9  * 256 + (slice<1>(word, 26) as Field);
-    const b11 = b10 * 256 + (slice<1>(word, 27) as Field);
-    const b12 = b11 * 256 + (slice<1>(word, 28) as Field);
-    const b13 = b12 * 256 + (slice<1>(word, 29) as Field);
-    const b14 = b13 * 256 + (slice<1>(word, 30) as Field);
-    const b15 = b14 * 256 + (slice<1>(word, 31) as Field);
+    const v = word as Vector<32, Uint<8>>;
+    assert(v[0] == 0, "ABI word exceeds Uint<128>");
+    assert(v[1] == 0, "ABI word exceeds Uint<128>");
+    assert(v[2] == 0, "ABI word exceeds Uint<128>");
+    assert(v[3] == 0, "ABI word exceeds Uint<128>");
+    assert(v[4] == 0, "ABI word exceeds Uint<128>");
+    assert(v[5] == 0, "ABI word exceeds Uint<128>");
+    assert(v[6] == 0, "ABI word exceeds Uint<128>");
+    assert(v[7] == 0, "ABI word exceeds Uint<128>");
+    assert(v[8] == 0, "ABI word exceeds Uint<128>");
+    assert(v[9] == 0, "ABI word exceeds Uint<128>");
+    assert(v[10] == 0, "ABI word exceeds Uint<128>");
+    assert(v[11] == 0, "ABI word exceeds Uint<128>");
+    assert(v[12] == 0, "ABI word exceeds Uint<128>");
+    assert(v[13] == 0, "ABI word exceeds Uint<128>");
+    assert(v[14] == 0, "ABI word exceeds Uint<128>");
+    assert(v[15] == 0, "ABI word exceeds Uint<128>");
+    const b0 = v[16] as Field;
+    const b1 = b0 * 256 + (v[17] as Field);
+    const b2 = b1 * 256 + (v[18] as Field);
+    const b3 = b2 * 256 + (v[19] as Field);
+    const b4 = b3 * 256 + (v[20] as Field);
+    const b5 = b4 * 256 + (v[21] as Field);
+    const b6 = b5 * 256 + (v[22] as Field);
+    const b7 = b6 * 256 + (v[23] as Field);
+    const b8 = b7 * 256 + (v[24] as Field);
+    const b9 = b8 * 256 + (v[25] as Field);
+    const b10 = b9 * 256 + (v[26] as Field);
+    const b11 = b10 * 256 + (v[27] as Field);
+    const b12 = b11 * 256 + (v[28] as Field);
+    const b13 = b12 * 256 + (v[29] as Field);
+    const b14 = b13 * 256 + (v[30] as Field);
+    const b15 = b14 * 256 + (v[31] as Field);
     return b15 as Uint<128>;
   }
 

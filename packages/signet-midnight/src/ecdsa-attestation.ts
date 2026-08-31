@@ -13,11 +13,16 @@
 // This belongs in github.com/sig-net/signet.js as its Midnight adapter,
 // kept here until upstreamed.
 
-import type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
+import {
+  type Secp256k1Point,
+  transientHash,
+  upgradeFromTransient,
+} from "@midnight-ntwrk/compact-runtime";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
-import { ethers, Signature, toBeHex } from "ethers";
+import { Signature, toBeHex } from "ethers";
 
 import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codecs.ts";
+import { attestationPreimageDescriptor } from "./compact-descriptors.ts";
 import type {
   MpcSignature,
   RespondBidirectionalEvent,
@@ -230,11 +235,9 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
 
 /**
  * The attestation digest of a respond-bidirectional response:
- * `keccak256(requestId || serializedOutput)`, the 32-byte digest the MPC
- * ECDSA-signs to attest a remote execution. TS twin of the size-generic
- * Compact circuit of the same name, pinned against its fixed-width oracle
- * circuits in tests. The output is hashed as given, at its exact length:
- * no padding, no length prefix.
+ * `upgradeFromTransient(transientHash([requestId, serializedOutput]))`, the
+ * 32-byte digest the MPC ECDSA-signs to attest a remote execution. TS twin of
+ * the size-generic Compact circuit of the same name.
  *
  * @param requestId - The 32-byte request id the response answers.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
@@ -244,7 +247,52 @@ export function calculateSignetAttestationDigest(
   requestId: RequestId,
   serializedOutput: Uint8Array,
 ): Uint8Array {
-  return ethers.getBytes(ethers.keccak256(ethers.concat([requestId, serializedOutput])));
+  return upgradeFromTransient(
+    transientHash(attestationPreimageDescriptor(serializedOutput.length), [
+      requestId,
+      serializedOutput,
+    ]),
+  );
+}
+
+/**
+ * Reverse a 32-byte value between big- and little-endian byte order.
+ *
+ * @param bytes - The 32 bytes to reverse.
+ * @returns A new reversed array.
+ * @throws {Error} If the input is not exactly 32 bytes.
+ */
+function reverseBytes32(bytes: Uint8Array): Uint8Array {
+  if (bytes.length !== 32) {
+    throw new Error(`expected 32 bytes to reverse, got ${String(bytes.length)}`);
+  }
+  return Uint8Array.from(bytes).reverse();
+}
+
+/**
+ * Produce the circuit-input form of a posted respond-bidirectional
+ * attestation: `signature.bigR.x` and `signature.s` byte-reversed into
+ * little-endian, everything else verbatim. The in-circuit
+ * `verifyRespondBidirectionalEvent` reads those two scalars through
+ * little-endian casts (the reversal is free off-chain and costly
+ * in-circuit), while the wire and ledger records stay big-endian: pass every
+ * event through this exactly once, at the circuit call. A record passed
+ * without the flip fails verification, never falsely accepts.
+ *
+ * @param event - The posted record as read off the ledger (big-endian).
+ * @returns The record in circuit-input form.
+ * @throws {Error} If a signature component is not exactly 32 bytes.
+ */
+export function respondBidirectionalEventToCircuitInput(
+  event: RespondBidirectionalEvent,
+): RespondBidirectionalEvent {
+  return {
+    signature: {
+      ...event.signature,
+      bigR: { ...event.signature.bigR, x: reverseBytes32(event.signature.bigR.x) },
+      s: reverseBytes32(event.signature.s),
+    },
+  };
 }
 
 /**
@@ -252,7 +300,10 @@ export function calculateSignetAttestationDigest(
  * a posted respond-bidirectional attestation against the execution output
  * and the contract's pinned MPC response key. Clients run it to sift
  * candidate posts before calling a contract: a post this accepts verifies
- * in-circuit. Malformed records return `false` rather than throwing.
+ * in-circuit (once flipped to circuit-input form, see
+ * {@link respondBidirectionalEventToCircuitInput}). Takes the record as read
+ * off the ledger (big-endian). Malformed records return `false` rather than
+ * throwing.
  *
  * @param requestId - The 32-byte request id the response answers.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.

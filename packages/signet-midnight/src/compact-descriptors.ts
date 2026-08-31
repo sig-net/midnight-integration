@@ -1,10 +1,12 @@
 // Compact-generic runtime descriptor toolkit: compact-runtime `CompactType`
 // codecs (alignment/toValue/fromValue) at the same literals the compiler
 // emits, composed into the signet record descriptors by the request modules.
-// They exist so the package can (a) decode raw state cells of ANY requester
-// contract discovered at runtime and (b) serialize a record byte-identically
-// to the circuits' keccak256 preimage, and they exist HERE only because the
-// Midnight libraries expose no supported equivalent:
+// These are required so that packages can
+//   - decode raw state cells processed at runtime into types used by the protocol,
+//     without requiring access to the compactc generated contract specific SDK.
+//   - present a record to `transientHash` with the same alignment the circuits hash
+//     it under
+// These descriptors are required as Midnight libraries expose no supported equivalent:
 //  - A compiled contract module (`src/managed/`) builds one such codec per
 //    ledger type but keeps them module-private, exporting only `ledger()`,
 //    which decodes the FULL state of the one contract it was compiled from.
@@ -15,6 +17,7 @@
 //    composer and no `Maybe` descriptor, and documents its own pre-built
 //    instances (`Bytes32Descriptor`, `ContractAddressDescriptor`, ...) as
 //    "not intended for direct consumption".
+//
 // Delete each piece of this file the moment compact-runtime exports a
 // supported equivalent.
 //
@@ -185,4 +188,27 @@ export function declaredWidths(cell: AlignedValue, what: string): number[] {
     }
     return segment.value.length;
   });
+}
+
+/**
+ * Descriptor of the Compact tuple `[RequestId, Bytes<serializedOutputLength>]`
+ * the attestation digest hashes, composed the way the compiler composes a
+ * tuple: the elements' alignments and values concatenated in order. The output
+ * width enters the descriptor, so it is fixed per call rather than a constant.
+ *
+ * @param serializedOutputLength - Declared width of the output element, in bytes.
+ * @returns The pair descriptor for {@link calculateSignetAttestationDigest}.
+ */
+export function attestationPreimageDescriptor(
+  serializedOutputLength: number,
+): CompactType<[Uint8Array, Uint8Array]> {
+  const output = new CompactTypeBytes(serializedOutputLength);
+  return {
+    alignment: () => [...BYTES_32.alignment(), ...output.alignment()],
+    toValue: ([requestId, serializedOutput]) => [
+      ...BYTES_32.toValue(requestId),
+      ...output.toValue(serializedOutput),
+    ],
+    fromValue: (value) => [BYTES_32.fromValue(value), output.fromValue(value)],
+  };
 }

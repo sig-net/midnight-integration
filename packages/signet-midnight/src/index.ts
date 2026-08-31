@@ -69,6 +69,7 @@ export {
 export {
   formatSecp256k1PublicKey,
   parseSecp256k1PublicKey,
+  respondBidirectionalEventToCircuitInput,
   SECP256K1_ORDER,
   type Secp256k1Point,
   signatureRespondedEventToSignature,

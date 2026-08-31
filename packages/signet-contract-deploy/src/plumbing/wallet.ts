@@ -66,13 +66,14 @@ export interface WalletAddresses {
  * transaction.
  *
  * The overhead compensates for the wallet sdk pricing a PROOF-ERASED
- * transaction while the node prices the real proof bytes. Keccak-based
- * verification proofs (~9.2 KB, vs ~6.4 KB for persistentHash-era ones)
- * left the node's fee ~2.2e13 above the wallet's estimate, so the node
- * rejected the spend with Malformed(BalanceCheckOverspend). 5e13 covers
- * that with headroom, and the excess is simply burned dust. The default is
- * tuned for local fakenet chains where dust is free: real-network deploys
- * may want a lower value (see {@link WalletFacadeOptions}).
+ * transaction while the node prices the real proof bytes. The node's fee
+ * consequently exceeds the wallet's estimate by an amount that grows with
+ * proof size, and the node rejects the spend with
+ * Malformed(BalanceCheckOverspend) when the wallet under-provides. 5e13
+ * covers the gap this repo's circuits produce, with headroom, and the excess
+ * is simply burned dust. The default is tuned for local fakenet chains where
+ * dust is free: real-network deploys may want a lower value (see
+ * {@link WalletFacadeOptions}).
  */
 export const DEFAULT_ADDITIONAL_FEE_OVERHEAD = 50_000_000_000_000n;
 

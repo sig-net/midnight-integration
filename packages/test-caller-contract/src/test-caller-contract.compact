@@ -63,7 +63,7 @@ witness deployerSecretKey(): Bytes<32>;
 
 // Exported so deploy tooling and tests can compute the commitment.
 export pure circuit deployerCommitment(sk: Bytes<32>): Bytes<32> {
-  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "signet-caller:deployer:"), sk]);
+  return upgradeFromTransient(transientHash<Vector<2, Bytes<32>>>([pad(32, "signet-caller:deployer:"), sk]));
 }
 
 constructor(initialDeployerCommitment: Bytes<32>, signetContract: SignetSigner) {
@@ -300,11 +300,12 @@ struct BoolResponse {
 // so it cannot be verified twice. The output width is the client contract's
 // own declaration: the single-bool respond schema (submitSignatureRequest
 // and submitIsEvenRequest) packs to exactly 1 byte (no padding: the digest
-// hashes the output at its exact length). The event is taken exactly as the
-// singleton emits it, with no off-chain unpacking or byte-order handling
-// by the caller: the attested bytes deserialize into BoolResponse in-circuit
-// and the decoded value gates settlement, the way a real client would react
-// to a foreign call's return value.
+// hashes the output at its exact length). The caller hands the event over in
+// verifyRespondBidirectionalEvent's circuit-input form (signature scalars
+// byte-reversed off-chain, see that circuit's contract): the attested bytes
+// deserialize into BoolResponse in-circuit and the decoded value gates
+// settlement, the way a real client would react to a foreign call's return
+// value.
 export circuit verifyResponse(
   requestId: RequestId,
   respondBidirectionalEvent: RespondBidirectionalEvent,

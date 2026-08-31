@@ -12,6 +12,9 @@ package-lock.json
 !.yarn/releases
 .pnp.*
 *.prover
+# `yarn workspace <pkg> pack` output, for linking a package into a consumer
+# checkout (see the fakenet responder notes in packages/integration-tests).
+package.tgz
 *.DS_Store
 *scratch*
 .env.stagenet
