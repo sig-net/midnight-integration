@@ -72,7 +72,7 @@ run offline under plain `yarn test`; the flow file gates itself with
 - **compact compiler** on PATH, then `yarn install` + `yarn compile` from
   the root.
 - For the signature-response leg: the fakenet MPC responder — the `fakenet`
-  compose service (`ghcr.io/sig-net/fakenet:0.13.0`, built from
+  compose service (image pinned in the root `docker-compose.yaml`, built from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)).
   **The setup starts it for you**: right after deploying the signet contract
   it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to `.env`
@@ -92,21 +92,6 @@ run offline under plain `yarn test`; the flow file gates itself with
   The container's config interpolates from the same repo-root `.env`
   (`MIDNIGHT_*`, `MPC_ROOT_KEY`, … with in-network defaults when unset), so
   pointing the stack at another environment is a `.env` change.
-
-  The pinned image carries the *published* `@sig-net/midnight` and
-  `@sig-net/midnight-contract`, so it cannot serve a local change to a
-  digest, decoder or circuit that has not been released yet. Run the
-  responder from source in that case: pack this repo's two packages
-  (`yarn compile:signet-contract:zk` once for the prover keys, then
-  `yarn workspace @sig-net/midnight pack` and
-  `yarn workspace @sig-net/midnight-contract pack`), point the responder
-  checkout's `fakenet-signer/package.json` at the resulting
-  `package.tgz` files with `file:` specifiers, `yarn install` there, and
-  start it with `yarn response` once this repo's setup has printed the
-  fresh signet address. Packing rather than symlinking matters: the tarball
-  is what makes yarn apply each package's `publishConfig` (its `dist` build
-  plus, for the contract, the `dist/managed/keys` the responder proves
-  with), and it keeps one dependency tree in the responder checkout.
 
 ## Running
 
