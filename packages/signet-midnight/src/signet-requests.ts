@@ -124,9 +124,8 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
 // tx-params type and schema lengths, and the Compact compiler cannot export
 // type-parameterised circuits from the top level, so the record descriptor
 // (and `calculateRequestId` built on it, see signet-request-id.ts) gets a TS
-// twin here. Ids come from the same
-// `transientHash` runtime builtin compiled circuits call. Lockstep with
-// Signet.compact is enforced by test-caller-contract's
+// twin here. Ids come from the same `transientHash` runtime builtin compiled
+// circuits call. Lockstep with Signet.compact is enforced by test-caller-contract's
 // "submitSignatureRequest round-trip" test, which asserts the id computed
 // here equals the ledger map key minted by the compiled contract.
 

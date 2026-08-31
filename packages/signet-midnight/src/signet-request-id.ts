@@ -16,13 +16,7 @@ import {
 
 /**
  * Canonical id of a signet request: the transientHash (Poseidon) of the
- * entire event record over its field-aligned representation, the sender
- * address included, with no extra domain tag, upgraded to 32 bytes. Pass the
- * record exactly as the ledger stores it, unused slots included and schemas
- * at their declared widths.
- *
- * Byte 31 of the id is always zero: `upgradeFromTransient` stores the field
- * element in the low 31 bytes.
+ * entire event record over its field-aligned representation.
  *
  * @param request - The full event record (contract-shaped, all slots).
  * @returns The 32-byte request id, the record's ledger map key.
