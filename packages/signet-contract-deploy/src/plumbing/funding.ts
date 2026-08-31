@@ -127,7 +127,10 @@ export async function ensureFeeReady(
         (faucetUrl ? `\n  faucet:        ${faucetUrl}` : ""),
     );
   }
-  await registerNightForDustGeneration(facade, keys, state);
+  const registered = await registerNightForDustGeneration(facade, keys, state);
+  console.log(
+    `registered ${String(registered)} NIGHT UTXO(s) for dust generation, waiting for spendable DUST...`,
+  );
   return waitForSpendableDust(facade);
 }
 
