@@ -71,9 +71,6 @@ module Signet {
     // Set with kernel.self().
     sender: ContractAddress;
 
-    // Optional nonce, set by client contracts to make otherwise-identical requests unique.
-    requestNonce: Uint<64>;
-
     // MPC Key Derivation Parameters.
     // Every key the MPC signs with is scoped by the requesting contract:
     //   derivedSigningKey = f(mpcRootKey[keyVersion], caip2ChainId, sender, hex::encode(path))
@@ -134,7 +131,6 @@ module Signet {
   // Construction helper for the canonical Signet SignBidirectionalEvent.
   export pure circuit constructSignBidirectionalEvent<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
     sender: ContractAddress,
-    requestNonce: Uint<64>,
     keyVersion: Uint<8>,
     path: Bytes<32>,
     algo: MPCSignatureAlgorithm,
@@ -150,7 +146,6 @@ module Signet {
 
     return SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization> {
       sender,
-      requestNonce,
       keyVersion,
       path,
       algo,

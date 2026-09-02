@@ -15,7 +15,7 @@ import {
   decodeSignetLogEvents,
   MPCDestination,
   MPCSignatureAlgorithm,
-  readSignetRequestsLedgerFromState,
+  readSignetRequestsIndexFromState,
   requestIdBytes,
   type RequestIdHex,
   requestIdHex,
@@ -107,12 +107,11 @@ function eventAt(events: readonly SignetMiscEvent[], index = 0): SignetMiscEvent
 // ---- Fixtures ----
 
 // THIS contract's ledger layout (declaration order in test-caller-contract.compact):
-// requestLog List at field 0, counter at field 1, request map at field 4.
-// The map position must match the depth-1 path [4] the
+// requestLog List at field 0, request map at field 3.
+// The map position must match the depth-1 path [3] the
 // contract passes in submitSignatureRequest's notification.
 const REQUEST_LOG_FIELD = 0;
-const NONCE_FIELD = 1;
-const REQUESTS_INDEX_FIELD = 4;
+const REQUESTS_INDEX_FIELD = 3;
 
 // Dummy coin public key (32-byte hex). Required by the API, unused here.
 const CPK = "0".repeat(64);
@@ -299,17 +298,12 @@ describe("test-caller-contract ledger shape", () => {
     const node = signetFieldNodeByPath(rawState, [REQUESTS_INDEX_FIELD]);
     expect(node.type()).toBe("map");
 
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
-      rawState,
-      [REQUESTS_INDEX_FIELD],
-      [NONCE_FIELD],
-    );
+    const requestsIndex = readSignetRequestsIndexFromState(rawState, [REQUESTS_INDEX_FIELD]);
     const typedIndex = toSignBidirectionalEventIndex(
       ledger(ctx.callContext.currentQueryContext.state).signBidirectionalEventMap,
     );
     expect(requestsIndex).toEqual(typedIndex);
     expect(requestsIndex.size).toBe(0);
-    expect(nonce).toBe(0n);
   });
 });
 
@@ -327,21 +321,16 @@ describe("submitSignatureRequest round-trip", () => {
     // Read 1: generated ledger().
     const typedIndex = toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap);
     // Read 2: MPC-style raw read (no compiled contract involved).
-    const rawLedger = readSignetRequestsLedgerFromState(
-      state,
-      [REQUESTS_INDEX_FIELD],
-      [NONCE_FIELD],
-    );
+    const rawIndex = readSignetRequestsIndexFromState(state, [REQUESTS_INDEX_FIELD]);
 
     expect(typedIndex.size).toBe(1);
-    expect(rawLedger.requestsIndex).toEqual(typedIndex);
-    expect(rawLedger.nonce).toBe(ledger(state).signetRequestNonce);
+    expect(rawIndex).toEqual(typedIndex);
 
     const [idHex, record] = onlyRequestEntry(typedIndex);
 
     // The cross-contract call's observable effect: the signet contract
     // emitted the notification event, its payload declaring the stored
-    // request's id and naming THIS caller and the field-4 request map
+    // request's id and naming THIS caller and the field-3 request map
     // (decoded through the shared library's decoders, the same read the
     // MPC's discovery feed performs).
     const notificationEvents = decodeSignetLogEvents(next.events, SIGNET_ADDRESS);
@@ -355,7 +344,7 @@ describe("submitSignatureRequest round-trip", () => {
     expect(decodeSignBidirectionalNotification(notificationPost.event)).toEqual({
       version: 1,
       callerAddress: bytesToHex(CALLER_ADDRESS_BYTES),
-      requestsPath: [4],
+      requestsPath: [3],
     });
 
     // The contract-composed envelope: the fixed placeholder recipient on the
@@ -378,7 +367,6 @@ describe("submitSignatureRequest round-trip", () => {
     // expect: the LOCKSTEP CHECK for the in-circuit literals (including the
     // escaped JSON schema and the sender = kernel.self()).
     expect(record.sender).toEqual({ bytes: CALLER_ADDRESS_BYTES });
-    expect(record.requestNonce).toBe(0n);
     expect(record.keyVersion).toBe(KEY_VERSION);
     expect(record.path).toEqual(EXPECTED_PATH);
     expect(record.algo).toBe(MPCSignatureAlgorithm.ecdsa);
@@ -399,25 +387,32 @@ describe("submitSignatureRequest round-trip", () => {
     // The map key IS the persistent hash of the record, recomputed
     // off-chain with the library's TS twin of the request-id circuit.
     expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
-
-    // Nonce bumped for the next request.
-    expect(ledger(state).signetRequestNonce).toBe(1n);
   });
 
-  it("two identical submits mint DISTINCT request ids (nonce-keyed)", async () => {
-    // Everything but the request nonce is a contract constant, so uniqueness
-    // of the id rests entirely on signetRequestNonce: pin that here.
+  it("submits differing only in the EVM nonce mint DISTINCT request ids", async () => {
+    // Everything but the caller-supplied EVM nonce and key version is a
+    // contract constant, so uniqueness of the id rests on those: pin it here.
     const { contract, ctx } = await deployContract();
     const afterFirst = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION))
       .context;
     const afterSecond = (
-      await contract.circuits.submitSignatureRequest(afterFirst, EVM_NONCE, KEY_VERSION)
+      await contract.circuits.submitSignatureRequest(afterFirst, EVM_NONCE + 1n, KEY_VERSION)
     ).context;
 
     const state = afterSecond.callContext.currentQueryContext.state;
     const index = toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap);
     expect(index.size).toBe(2);
-    expect(ledger(state).signetRequestNonce).toBe(2n);
+  });
+
+  it("rejects a repeat submit of an identical, still-pending request", async () => {
+    // The id commits to every field of the record, so an identical submit
+    // recomputes the same id and the membership guard refuses it.
+    const { contract, ctx } = await deployContract();
+    const afterFirst = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION))
+      .context;
+    await expect(
+      contract.circuits.submitSignatureRequest(afterFirst, EVM_NONCE, KEY_VERSION),
+    ).rejects.toThrow(/Request already exists/);
   });
 
   it("rejects the legacy key version 0", async () => {
@@ -439,7 +434,7 @@ describe("EVM target submit circuits round-trip", () => {
       selector: SELECTOR_IS_EVEN,
       schema: EXPECTED_SCHEMA,
       map: "signBidirectionalEventMap" as const,
-      requestsPath: [4],
+      requestsPath: [3],
     },
     {
       name: "submitCheckAndDoubleRequest",
@@ -447,7 +442,7 @@ describe("EVM target submit circuits round-trip", () => {
       selector: SELECTOR_CHECK_AND_DOUBLE,
       schema: EXPECTED_SCHEMA_BOOL_UINT,
       map: "signBidirectionalEventMap69" as const,
-      requestsPath: [7],
+      requestsPath: [6],
     },
   ];
 
@@ -506,7 +501,7 @@ describe("EVM target submit circuits round-trip", () => {
     },
   );
 
-  it("all three submit circuits share the nonce counter and mint distinct ids", async () => {
+  it("all three submit circuits mint distinct ids", async () => {
     const { contract, ctx } = await deployContract();
     const afterFirst = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION))
       .context;
@@ -530,10 +525,9 @@ describe("EVM target submit circuits round-trip", () => {
     ).context;
 
     const state = afterThird.callContext.currentQueryContext.state;
-    // Bool-schema requests share field 4, the 69-byte schema lives at field 7.
+    // Bool-schema requests share field 3, the 69-byte schema lives at field 6.
     expect(toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap).size).toBe(2);
     expect(toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap69).size).toBe(1);
-    expect(ledger(state).signetRequestNonce).toBe(3n);
   });
 });
 

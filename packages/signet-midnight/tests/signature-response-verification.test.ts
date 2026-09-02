@@ -40,7 +40,6 @@ const AMOUNT = 1_000_000n;
  */
 const REQUEST: SignBidirectionalEvent = {
   sender: { bytes: new Uint8Array(32) },
-  requestNonce: 0n,
   keyVersion: 1n,
   path: new Uint8Array(32),
   algo: MPCSignatureAlgorithm.ecdsa,

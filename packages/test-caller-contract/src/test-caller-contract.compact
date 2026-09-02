@@ -19,40 +19,37 @@ import CompactStandardLibrary;
 import "@sig-net/midnight/src/Signet";
 
 // Ledger layout: field numbers are declaration order and stay fixed.
-// signBidirectionalEventMap deliberately sits at field 4, after a List that
+// signBidirectionalEventMap deliberately sits at field 3, after a List that
 // grows with each request, so the tests prove the MPC locates it via the
 // field position named in the notification.
 
 // field 0: log of every submitted request id, newest first.
 export ledger requestLog: List<Bytes<32>>;
 
-// field 1: request counter keeping identical submits distinct.
-export ledger signetRequestNonce: Counter;
-
-// field 2: the MPC response key for this contract, pinned by initialise().
+// field 1: the MPC response key for this contract, pinned by initialise().
 export ledger mpcResponseKey: Secp256k1Point;
 
-// field 3: the central signet contract, sealed at deploy. submitSignatureRequest
+// field 2: the central signet contract, sealed at deploy. submitSignatureRequest
 // cross-contract-calls it to emit the request notification the MPC polls.
 sealed ledger signetSigner: SignetSigner;
 
-// field 4: the request map the MPC reads requests back from. Sized for EVM
+// field 3: the request map the MPC reads requests back from. Sized for EVM
 // Type 2 transactions with <1 calldata word, 0 access-list entries,
 // 0 storage keys> and the exact-width 34-byte single-bool schema. Shared by
 // every request of that shape: submitSignatureRequest and
 // submitIsEvenRequest. Schemas are EXACT-length by protocol convention
 // (never NUL-padded: the MPC's raw reader recovers the width from the
 // stored bytes, and trailing zeros would be trimmed), so a request with a
-// different schema length needs its own map: see field 7.
+// different schema length needs its own map: see field 6.
 export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EvmType2TxParams<1, 0, 0>, 34, 34>;
 
-// field 5: identity commitment of the deployer, gating initialise().
+// field 4: identity commitment of the deployer, gating initialise().
 sealed ledger deployer: Bytes<32>;
 
-// field 6: whether initialise has run (0 = no, 1 = yes).
+// field 5: whether initialise has run (0 = no, 1 = yes).
 export ledger initialised: Counter;
 
-// field 7: the request map for the 69-byte bool+uint256 schema
+// field 6: the request map for the 69-byte bool+uint256 schema
 // (submitCheckAndDoubleRequest). One map per schema WIDTH is the growth
 // pattern: the notification names each map's field position, so the MPC
 // locates whichever map a request lives in. New fields append AFTER this
@@ -116,10 +113,8 @@ export circuit submitSignatureRequest(
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
-  const requestNonce = signetRequestNonce as Uint<64>;
   const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(
     kernel.self(),
-    requestNonce,
     keyVersion,
     pad(32, "caller-path"),
     MPCSignatureAlgorithm.ecdsa,
@@ -134,20 +129,19 @@ export circuit submitSignatureRequest(
   const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
-  signetRequestNonce.increment(1);
   signBidirectionalEventMap.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 
   // Notify the MPC via the signet contract's notification event: the payload
   // carries the resolved ledger-tree path of signBidirectionalEventMap. This
-  // flat contract stores it at field 4, so the path is [4] at depth 1 (see
+  // flat contract stores it at field 3, so the path is [3] at depth 1 (see
   // layout).
   signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
       1 as Uint<8>,
-      [4, 0, 0, 0] as Vector<4, Uint<8>>,
+      [3, 0, 0, 0] as Vector<4, Uint<8>>,
     ),
   );
 }
@@ -159,7 +153,7 @@ export circuit submitSignatureRequest(
 // the first 4 bytes of keccak256("isEven(uint256)"), pinned here and
 // lockstep-checked against ethers in the e2e. The respond schema is the
 // same exact-width single bool as submitSignatureRequest's, so the request
-// SHARES the field-4 map and its responses verify via verifyResponse
+// SHARES the field-3 map and its responses verify via verifyResponse
 // (packed respond payload: 1 byte).
 export circuit submitIsEvenRequest(
   evmNonce: Uint<64>,
@@ -187,10 +181,8 @@ export circuit submitIsEvenRequest(
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
-  const requestNonce = signetRequestNonce as Uint<64>;
   const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(
     kernel.self(),
-    requestNonce,
     keyVersion,
     pad(32, "caller-path"),
     MPCSignatureAlgorithm.ecdsa,
@@ -205,17 +197,16 @@ export circuit submitIsEvenRequest(
   const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
-  signetRequestNonce.increment(1);
   signBidirectionalEventMap.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 
-  // signBidirectionalEventMap sits at flat field 4, path [4] at depth 1.
+  // signBidirectionalEventMap sits at flat field 3, path [3] at depth 1.
   signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
       1 as Uint<8>,
-      [4, 0, 0, 0] as Vector<4, Uint<8>>,
+      [3, 0, 0, 0] as Vector<4, Uint<8>>,
     ),
   );
 }
@@ -224,8 +215,8 @@ export circuit submitIsEvenRequest(
 // local anvil, also broadcast by the e2e. The selector is the first 4 bytes
 // of keccak256("checkAndDouble(uint256)"), pinned here and lockstep-checked
 // against ethers in the e2e. The respond schema is bool + uint256 (69
-// bytes, a different exact width than field 4's), so the request lives in
-// the field-7 map (named in the notification) and its responses verify via
+// bytes, a different exact width than field 3's), so the request lives in
+// the field-6 map (named in the notification) and its responses verify via
 // verifyCheckAndDoubleResponse (packed respond payload: 33 bytes).
 export circuit submitCheckAndDoubleRequest(
   evmNonce: Uint<64>,
@@ -253,10 +244,8 @@ export circuit submitCheckAndDoubleRequest(
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"},{\"name\":\"amount\",\"type\":\"uint256\"}]" as Bytes<69>;
-  const requestNonce = signetRequestNonce as Uint<64>;
   const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 69, 69>(
     kernel.self(),
-    requestNonce,
     keyVersion,
     pad(32, "caller-path"),
     MPCSignatureAlgorithm.ecdsa,
@@ -271,17 +260,16 @@ export circuit submitCheckAndDoubleRequest(
   const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 69, 69>(request));
 
   assert(!signBidirectionalEventMap69.member(requestId), "Request already exists");
-  signetRequestNonce.increment(1);
   signBidirectionalEventMap69.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 
-  // signBidirectionalEventMap69 sits at flat field 7, path [7] at depth 1.
+  // signBidirectionalEventMap69 sits at flat field 6, path [6] at depth 1.
   signetSigner.signBidirectional(
     requestId,
     constructSignBidirectionalEventNotificationV1(
       kernel.self(),
       1 as Uint<8>,
-      [7, 0, 0, 0] as Vector<4, Uint<8>>,
+      [6, 0, 0, 0] as Vector<4, Uint<8>>,
     ),
   );
 }
@@ -341,7 +329,7 @@ export circuit verifyResponse(
 // Same in-circuit verification as verifyResponse but for the checkAndDouble
 // respond schema (bool + uint256), whose packed respond payload is exactly
 // 33 bytes: a 1-byte bool followed by a 32-byte little-endian Field. The
-// request is consumed from the field-7 map those requests live in.
+// request is consumed from the field-6 map those requests live in.
 // Duplicated per width: contract-level circuits cannot be generic over
 // the output width.
 export circuit verifyCheckAndDoubleResponse(

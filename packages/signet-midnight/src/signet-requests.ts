@@ -23,7 +23,6 @@ import {
   CONTRACT_ADDRESS,
   type ContractAddress,
   UINT_8,
-  UINT_64,
 } from "./compact-descriptors.ts";
 import type { EvmType2TxParams } from "./signet-evtype2tx-requests.ts";
 
@@ -93,8 +92,6 @@ export const MPCDestination = {
 export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
   /** Address of the client contract that stores this event (`kernel.self()`). */
   sender: ContractAddress;
-  /** Contract-local nonce captured when the request was created. */
-  requestNonce: bigint;
   /** MPC root-key version to derive from (>= 1). */
   keyVersion: bigint;
   /** Key-derivation path: 32 opaque bytes of the client contract's choosing. */
@@ -163,7 +160,6 @@ export function signBidirectionalEventDescriptorWith<TxParams>(
 ): CompactType<SignBidirectionalEvent<TxParams>> {
   return compactStructDescriptor<SignBidirectionalEvent<TxParams>>({
     sender: CONTRACT_ADDRESS,
-    requestNonce: UINT_64,
     keyVersion: UINT_8,
     path: BYTES_32,
     algo: MPC_SIGNATURE_ALGORITHM,

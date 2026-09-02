@@ -25,7 +25,6 @@ const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill
 /** Known-good request record: the base every test uses. NEVER mutate. */
 const SAMPLE_REQUEST: SignBidirectionalEvent = {
   sender: { bytes: bytes(32, 0x01) },
-  requestNonce: 7n,
   keyVersion: 1n,
   path: bytes(32, 0x03),
   algo: MPCSignatureAlgorithm.ecdsa,

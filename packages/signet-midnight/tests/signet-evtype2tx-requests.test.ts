@@ -105,7 +105,6 @@ describe("no translation between stored record and signed transaction", () => {
     const to = bytes(20, 0xaa);
     const tx = signBidirectionalEventToUnsignedEvmTransaction({
       sender: { bytes: new Uint8Array(32) },
-      requestNonce: 0n,
       keyVersion: 1n,
       path: new Uint8Array(32),
       algo: MPCSignatureAlgorithm.ecdsa,
@@ -159,7 +158,6 @@ describe("access list in the rebuilt transaction", () => {
 
   const request = (txParams: EvmType2TxParams): SignBidirectionalEvent => ({
     sender: { bytes: new Uint8Array(32) },
-    requestNonce: 0n,
     keyVersion: 1n,
     path: new Uint8Array(32),
     algo: MPCSignatureAlgorithm.ecdsa,
@@ -230,7 +228,6 @@ const ERC20 = bytes(20, 0xaa);
  */
 const REQUEST: SignBidirectionalEvent = {
   sender: { bytes: new Uint8Array(32) },
-  requestNonce: 0n,
   keyVersion: 1n,
   path: new Uint8Array(32),
   algo: MPCSignatureAlgorithm.ecdsa,

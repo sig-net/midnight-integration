@@ -237,18 +237,18 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       const callerAddress = requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS");
 
       // callerAddress points at the caller (the contract whose authenticated
-      // ledger holds the request), and the event map is at field 4, which for
-      // this flat caller is path [4] (see test-caller-contract.compact).
+      // ledger holds the request), and the event map is at field 3, which for
+      // this flat caller is path [3] (see test-caller-contract.compact).
       const decoded = await pollSignetNotification({
         env,
         callerAddress,
-        requestsPath: [4],
+        requestsPath: [3],
         requestId: signatureRequestId,
-        description: `declaring request ${signatureRequestId} for caller ${callerAddress} at path [4]`,
+        description: `declaring request ${signatureRequestId} for caller ${callerAddress} at path [3]`,
       });
       expect(decoded.version).toBe(1);
       expect(decoded.callerAddress).toBe(stripHexPrefix(callerAddress).toLowerCase());
-      expect(decoded.requestsPath).toEqual([4]);
+      expect(decoded.requestsPath).toEqual([3]);
 
       banner([
         "Golden SignBidirectionalEvent notification decoded from the live indexer:",

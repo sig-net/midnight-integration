@@ -129,9 +129,9 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
       return sharedWallet.context;
     },
 
-    // Default field 4: the bool-schema map every submit circuit's
-    // notification names except submitCheckAndDoubleRequest's (field 7).
-    responseReader(requestsIndexField = 4): SignetRequestResponseReader {
+    // Default field 3: the bool-schema map every submit circuit's
+    // notification names except submitCheckAndDoubleRequest's (field 6).
+    responseReader(requestsIndexField = 3): SignetRequestResponseReader {
       let reader = sharedReaders.get(requestsIndexField);
       if (!reader) {
         const nodeConfig = getMidnightNodeConfig(env);

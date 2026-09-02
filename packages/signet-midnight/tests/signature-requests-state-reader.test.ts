@@ -21,7 +21,7 @@ import {
   MPCDestination,
   MPCSignatureAlgorithm,
   numericAbiWord,
-  readSignetRequestsLedgerFromState,
+  readSignetRequestsIndexFromState,
   requestIdHex,
   type SignBidirectionalEvent,
   TxParamType,
@@ -41,7 +41,6 @@ const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill
 // 34-byte schemas.
 const SAMPLE_REQUEST: SignBidirectionalEvent = {
   sender: { bytes: bytes(32, 0x01) },
-  requestNonce: 7n,
   keyVersion: 1n,
   path: bytes(32, 0x03),
   algo: MPCSignatureAlgorithm.ecdsa,
@@ -99,7 +98,9 @@ const CAPACITIES = {
 // lookupSignetRequestAt recomputes it and drops mismatches.
 const SAMPLE_REQUEST_ID = calculateRequestId(SAMPLE_REQUEST);
 const ACCESS_LIST_REQUEST_ID = calculateRequestId(ACCESS_LIST_REQUEST);
-const NONCE = 8n;
+// An unrelated counter cell: the neighbour field the index reads must not
+// be mistaken for, and the non-Map field the shape errors exercise.
+const COUNTER = 8n;
 
 const u64 = new CompactTypeUnsignedInteger(18446744073709551615n, 8);
 
@@ -136,8 +137,8 @@ const sampleIndexMap = () =>
   );
 
 // Contract root state: an array of ledger fields with the request index map
-// at field 0 and the request counter at field 1 (this synthetic contract's
-// own layout: the reader takes the positions as arguments).
+// at field 0 and an unrelated counter at field 1 (this synthetic contract's
+// own layout: the reader takes the position as an argument).
 const syntheticContractState = () => {
   const map = new StateMap()
     .insert(
@@ -154,18 +155,13 @@ const syntheticContractState = () => {
       },
       requestCell(ACCESS_LIST_REQUEST, CAPACITIES.accessList),
     );
-  return StateValue.newArray().arrayPush(StateValue.newMap(map)).arrayPush(counterCell(NONCE));
+  return StateValue.newArray().arrayPush(StateValue.newMap(map)).arrayPush(counterCell(COUNTER));
 };
 
 describe("state-reader (MPC-style raw decode)", () => {
-  it("round-trips requests and the nonce through raw state by resolved path", () => {
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
-      syntheticContractState(),
-      [0],
-      [1],
-    );
+  it("round-trips requests through raw state by resolved path", () => {
+    const requestsIndex = readSignetRequestsIndexFromState(syntheticContractState(), [0]);
 
-    expect(nonce).toBe(NONCE);
     expect(requestsIndex.size).toBe(2);
     expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(SAMPLE_REQUEST);
     expect(requestsIndex.get(requestIdHex(ACCESS_LIST_REQUEST_ID))).toEqual(ACCESS_LIST_REQUEST);
@@ -195,27 +191,20 @@ describe("state-reader (MPC-style raw decode)", () => {
       )
       .arrayPush(counterCell(0n));
 
-    const { requestsIndex } = readSignetRequestsLedgerFromState(state, [0], [1]);
+    const requestsIndex = readSignetRequestsIndexFromState(state, [0]);
     expect(requestsIndex.get(requestIdHex(id))).toEqual(request);
   });
 
-  it("returns an empty index and a zero nonce for a fresh contract", () => {
+  it("returns an empty index for a fresh contract", () => {
     const fresh = StateValue.newArray()
       .arrayPush(StateValue.newMap(new StateMap()))
       .arrayPush(counterCell(0n));
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(fresh, [0], [1]);
-    expect(requestsIndex.size).toBe(0);
-    expect(nonce).toBe(0n);
+    expect(readSignetRequestsIndexFromState(fresh, [0]).size).toBe(0);
   });
 
   it("reads an index living at a non-zero ledger field", () => {
-    // stateWithSecondIndex: index at 0, nonce at 1, a SECOND index at 2.
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
-      stateWithSecondIndex(),
-      [2],
-      [1],
-    );
-    expect(nonce).toBe(NONCE);
+    // stateWithSecondIndex: index at 0, a counter at 1, a SECOND index at 2.
+    const requestsIndex = readSignetRequestsIndexFromState(stateWithSecondIndex(), [2]);
     expect(requestsIndex.size).toBe(1);
     expect(requestsIndex.get(requestIdHex(FIELD2_REQUEST_ID))).toEqual(FIELD2_REQUEST);
   });
@@ -225,18 +214,17 @@ describe("state-reader (MPC-style raw decode)", () => {
     // node type a chunk uses. Path-following never inspects a node's width, so
     // a List sitting before the index cannot be mistaken for a chunk level;
     // following [2] lands on the index regardless. Layout: list at field 0,
-    // nonce at 1, index at 2.
+    // a counter at 1, index at 2.
     const listNode = StateValue.newArray()
       .arrayPush(StateValue.newNull())
       .arrayPush(StateValue.newNull())
       .arrayPush(counterCell(0n));
     const state = StateValue.newArray()
       .arrayPush(listNode)
-      .arrayPush(counterCell(NONCE))
+      .arrayPush(counterCell(COUNTER))
       .arrayPush(StateValue.newMap(sampleIndexMap()));
 
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(state, [2], [1]);
-    expect(nonce).toBe(NONCE);
+    const requestsIndex = readSignetRequestsIndexFromState(state, [2]);
     expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(SAMPLE_REQUEST);
   });
 
@@ -246,30 +234,28 @@ describe("state-reader (MPC-style raw decode)", () => {
     // carries the resolved path compactc records in contract-info.json, so the
     // reader follows it node for node with no chunk detection.
     const chunk0 = StateValue.newArray().arrayPush(StateValue.newMap(sampleIndexMap()));
-    let chunk1 = StateValue.newArray().arrayPush(counterCell(NONCE));
+    let chunk1 = StateValue.newArray().arrayPush(counterCell(COUNTER));
     for (let i = 0; i < 14; i += 1) {
       chunk1 = chunk1.arrayPush(StateValue.newNull());
     }
     const state = StateValue.newArray().arrayPush(chunk0).arrayPush(chunk1);
 
-    // Resolved paths: index = field 0 at chunk [0, 0], nonce = field 1 at
-    // chunk [1, 0].
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(state, [0, 0], [1, 0]);
-    expect(nonce).toBe(NONCE);
+    // Resolved path: index = field 0 at chunk [0, 0].
+    const requestsIndex = readSignetRequestsIndexFromState(state, [0, 0]);
     expect(requestsIndex.get(requestIdHex(SAMPLE_REQUEST_ID))).toEqual(SAMPLE_REQUEST);
   });
 });
 
 // A second request index living at a NON-ZERO ledger field, so the path
 // argument of lookupSignetRequestAt is genuinely exercised. Its member is a
-// nonce variation of SAMPLE_REQUEST under its own computed id.
+// key-version variation of SAMPLE_REQUEST under its own computed id.
 const FIELD2_REQUEST: SignBidirectionalEvent = {
   ...SAMPLE_REQUEST,
-  requestNonce: 9n,
+  keyVersion: 2n,
 };
 const FIELD2_REQUEST_ID = calculateRequestId(FIELD2_REQUEST);
 
-/** Contract state: index (field 0), nonce (field 1), a SECOND index (field 2). */
+/** Contract state: index (field 0), a counter (field 1), a SECOND index (field 2). */
 const stateWithSecondIndex = () => {
   const field0 = new StateMap()
     .insert(
@@ -295,7 +281,7 @@ const stateWithSecondIndex = () => {
   );
   return StateValue.newArray()
     .arrayPush(StateValue.newMap(field0))
-    .arrayPush(counterCell(NONCE))
+    .arrayPush(counterCell(COUNTER))
     .arrayPush(StateValue.newMap(field2));
 };
 
@@ -347,7 +333,7 @@ describe("lookupSignetRequestAt", () => {
     ).toBeUndefined();
   });
 
-  it("returns undefined when the field is not a Map (e.g. the nonce cell)", () => {
+  it("returns undefined when the field is not a Map (e.g. a counter cell)", () => {
     expect(
       lookupSignetRequestAt(stateWithSecondIndex(), [1], requestIdHex(SAMPLE_REQUEST_ID)),
     ).toBeUndefined();
@@ -359,18 +345,18 @@ describe("lookupSignetRequestAt", () => {
     ).toBeUndefined();
   });
 
-  it("agrees byte-for-byte with readSignetRequestsLedgerFromState (reader parity)", () => {
+  it("agrees byte-for-byte with readSignetRequestsIndexFromState (reader parity)", () => {
     const raw = stateWithSecondIndex();
-    const viaReader = readSignetRequestsLedgerFromState(raw, [0], [1]).requestsIndex.get(
+    const viaReader = readSignetRequestsIndexFromState(raw, [0]).get(
       requestIdHex(SAMPLE_REQUEST_ID),
     );
     expect(lookupSignetRequestAt(raw, [0], requestIdHex(SAMPLE_REQUEST_ID))).toEqual(viaReader);
   });
 
-  // requestNonce 32 is mined so the computed id ends in 0x00 (guarded below).
+  // EVM nonce 356 is mined so the computed id ends in 0x00 (guarded below).
   const TRAILING_ZERO_REQUEST: SignBidirectionalEvent = {
     ...SAMPLE_REQUEST,
-    requestNonce: 32n,
+    txParams: { ...SAMPLE_REQUEST.txParams, nonce: 356n },
   };
   const TRAILING_ZERO_REQUEST_ID = calculateRequestId(TRAILING_ZERO_REQUEST);
 
@@ -397,14 +383,14 @@ describe("lookupSignetRequestAt", () => {
   });
 });
 
-describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
+describe("readSignetRequestsIndexFromState: dispatch and shape errors", () => {
   /** A fresh <2,0,0> cell's value/alignment, for tampering per test. */
   const cellsOf = (): AlignedValue => {
     const descriptor = signBidirectionalEventDescriptor(2, 0, 0, 34, 34);
     return { value: descriptor.toValue(SAMPLE_REQUEST), alignment: descriptor.alignment() };
   };
 
-  /** Root state: a request index holding `cell`, with the nonce at field 1. */
+  /** Root state: a request index holding `cell`, with a counter at field 1. */
   const indexStateWithCell = (cell: AlignedValue): StateValue => {
     const id = bytes(32, 0x42);
     const map = new StateMap().insert(
@@ -420,13 +406,12 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
   it("rejects a cell that ends before the txParamType atom", () => {
     const { value, alignment } = cellsOf();
     expect(() =>
-      readSignetRequestsLedgerFromState(
+      readSignetRequestsIndexFromState(
         indexStateWithCell({
-          value: value.slice(0, 7),
-          alignment: alignment.slice(0, 7),
+          value: value.slice(0, 6),
+          alignment: alignment.slice(0, 6),
         }),
         [0],
-        [1],
       ),
     ).toThrow(/ends before txParamType/);
   });
@@ -435,38 +420,31 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
     const { value, alignment } = cellsOf();
     // A 2-byte atom needs a matching 2-byte alignment for the state layer to
     // accept the cell; the decoder's width check then rejects it.
-    value[7] = Uint8Array.of(0, 1);
-    alignment[7] = { tag: "atom", value: { tag: "bytes", length: 2 } };
+    value[6] = Uint8Array.of(0, 1);
+    alignment[6] = { tag: "atom", value: { tag: "bytes", length: 2 } };
     expect(() =>
-      readSignetRequestsLedgerFromState(indexStateWithCell({ value, alignment }), [0], [1]),
+      readSignetRequestsIndexFromState(indexStateWithCell({ value, alignment }), [0]),
     ).toThrow(/txParamType atom holds 2 bytes/);
   });
 
   it("rejects the reserved txParamType variant", () => {
     const { value, alignment } = cellsOf();
-    value[7] = Uint8Array.of(1);
+    value[6] = Uint8Array.of(1);
     expect(() =>
-      readSignetRequestsLedgerFromState(indexStateWithCell({ value, alignment }), [0], [1]),
+      readSignetRequestsIndexFromState(indexStateWithCell({ value, alignment }), [0]),
     ).toThrow(/unsupported txParamType 1/);
   });
 
   it("rejects a non-Map field as the requests index", () => {
-    // Field 1 is the nonce cell, not a request map.
-    expect(() => readSignetRequestsLedgerFromState(syntheticContractState(), [1], [1])).toThrow(
+    // Field 1 is a counter cell, not a request map.
+    expect(() => readSignetRequestsIndexFromState(syntheticContractState(), [1])).toThrow(
       /is not a Map/,
-    );
-  });
-
-  it("rejects a non-Cell field as the nonce", () => {
-    // Field 0 is the request index map, not a counter cell.
-    expect(() => readSignetRequestsLedgerFromState(syntheticContractState(), [0], [0])).toThrow(
-      /is not a Cell/,
     );
   });
 
   it("lookupSignetRequestAt returns undefined for a stored cell that is not a decodable record", () => {
     const { value, alignment } = cellsOf();
-    value[7] = Uint8Array.of(1); // the reserved txParamType variant
+    value[6] = Uint8Array.of(1); // the reserved txParamType variant
     const id = bytes(32, 0x43);
     const state = StateValue.newArray().arrayPush(
       StateValue.newMap(
@@ -497,8 +475,6 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
         ),
       )
       .arrayPush(counterCell(0n));
-    const { requestsIndex, nonce } = readSignetRequestsLedgerFromState(state, [0], [1]);
-    expect(requestsIndex.size).toBe(0);
-    expect(nonce).toBe(0n);
+    expect(readSignetRequestsIndexFromState(state, [0]).size).toBe(0);
   });
 });

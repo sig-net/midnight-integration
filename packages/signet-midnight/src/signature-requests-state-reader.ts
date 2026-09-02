@@ -1,5 +1,5 @@
-// MPC-style raw state reader for the signature-REQUESTS side: read the
-// signet request ledger fields out of a contract's raw state by resolved
+// MPC-style raw state reader for the signature-REQUESTS side: read a
+// contract's signet request index out of its raw state by resolved
 // ledger-tree path, as the MPC monitor and the event feed consume signet
 // contracts. The generic tree walk lives in raw-contract-state.ts and the
 // per-decomposition record decoding in signet-evtype2tx-record-decoding.ts.
@@ -11,7 +11,7 @@
 
 import type { AlignedValue } from "@midnight-ntwrk/compact-runtime";
 
-import { decodeExactly, UINT_64 } from "./compact-descriptors.ts";
+import { decodeExactly } from "./compact-descriptors.ts";
 import { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";
 import { decodeEvmType2SignBidirectionalEvent } from "./signet-evtype2tx-record-decoding.ts";
 import { calculateRequestId } from "./signet-request-id.ts";
@@ -27,9 +27,9 @@ import {
 
 // Atom position of `txParamType` in a stored record: the chain-agnostic head
 // of SignBidirectionalEvent (sender through txParamType) occupies the first
-// 8 atoms whatever the decomposition, so the tag sits at the same index in
+// 7 atoms whatever the decomposition, so the tag sits at the same index in
 // every record.
-const TX_PARAM_TYPE_ATOM = 7;
+const TX_PARAM_TYPE_ATOM = 6;
 
 /**
  * Decode a stored request record: read the `txParamType` tag and hand the
@@ -64,21 +64,9 @@ function decodeSignBidirectionalEvent(cell: AlignedValue): SignBidirectionalEven
 }
 
 /**
- * The decoded signet ledger fields of a requesting contract: its request
- * index and its contract-local request counter (Compact `Counter`), the
- * source of each request's `requestNonce`.
- */
-export interface SignetRequestsLedger {
-  /** The request counter (`Counter`). */
-  nonce: bigint;
-  /** The request index, keyed by hex request id. */
-  requestsIndex: SignBidirectionalEventIndex;
-}
-
-/**
- * MPC-style read: parse the signet ledger fields out of raw contract state
- * by caller-supplied field positions. A contract chooses its own layout, so
- * the caller must know where the fields sit.
+ * MPC-style read: parse a requesting contract's whole request index out of
+ * raw contract state by caller-supplied field position. A contract chooses
+ * its own layout, so the caller must know where the index sits.
  *
  * Records are decoded, not verified against the ids they are filed under:
  * {@link lookupSignetRequestAt} is the verified lookup.
@@ -86,16 +74,14 @@ export interface SignetRequestsLedger {
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`
  *   from the indexer or `ctx.currentQueryContext.state` from the simulator.
  * @param requestsIndexPath - Resolved ledger-tree path of the request index.
- * @param noncePath - Resolved ledger-tree path of the request counter.
- * @returns The decoded {@link SignetRequestsLedger}.
- * @throws {Error} If a field is missing, has the wrong state-value shape, or a
+ * @returns The decoded request index, keyed by hex request id.
+ * @throws {Error} If the field is missing, has the wrong state-value shape, or a
  *   record is not a decodable evmType2 request record.
  */
-export function readSignetRequestsLedgerFromState(
+export function readSignetRequestsIndexFromState(
   raw: RawContractState,
   requestsIndexPath: readonly number[],
-  noncePath: readonly number[],
-): SignetRequestsLedger {
+): SignBidirectionalEventIndex {
   const map = signetFieldNodeByPath(raw, requestsIndexPath).asMap();
   if (map === undefined) {
     throw new Error(`Ledger field at path ${JSON.stringify(requestsIndexPath)} is not a Map`);
@@ -107,20 +93,13 @@ export function readSignetRequestsLedgerFromState(
     if (cell === undefined) continue;
     requestsIndex.set(requestId, decodeSignBidirectionalEvent(cell));
   }
-
-  const nonceField = signetFieldNodeByPath(raw, noncePath);
-  if (nonceField.type() !== "cell") {
-    throw new Error(`Ledger field at path ${JSON.stringify(noncePath)} is not a Cell`);
-  }
-  const nonce = decodeExactly(UINT_64, nonceField.asCell().value, "request counter");
-
-  return { nonce, requestsIndex };
+  return requestsIndex;
 }
 
 /**
  * Look up ONE request by id in a contract's request index at an arbitrary
  * ledger field: the single-record sibling of
- * {@link readSignetRequestsLedgerFromState} and the discovery primitive of
+ * {@link readSignetRequestsIndexFromState} and the discovery primitive of
  * the event-based feed. The recompute-and-drop gate: the decode never sees
  * the id, so the final recompute is the only thing binding a record's
  * contents to the key it was filed under, and a mismatch (a spoofed or

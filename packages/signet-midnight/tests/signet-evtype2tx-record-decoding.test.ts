@@ -23,7 +23,6 @@ const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill
 /** Known-good request record: the base every test uses. NEVER mutate. */
 const SAMPLE_REQUEST: SignBidirectionalEvent = {
   sender: { bytes: bytes(32, 0x01) },
-  requestNonce: 7n,
   keyVersion: 1n,
   path: bytes(32, 0x03),
   algo: MPCSignatureAlgorithm.ecdsa,
@@ -130,8 +129,8 @@ describe("decodeEvmType2SignBidirectionalEvent", () => {
   it("rejects a cell whose alignment count differs from its atom count", () => {
     const { value, alignment } = cellOf(SAMPLE_REQUEST, [2, 0, 0]);
     expect(() =>
-      decodeEvmType2SignBidirectionalEvent({ value: value.slice(0, 20), alignment }, "test record"),
-    ).toThrow(/declares 24 alignment segments for 20 atoms/);
+      decodeEvmType2SignBidirectionalEvent({ value: value.slice(0, 19), alignment }, "test record"),
+    ).toThrow(/declares 23 alignment segments for 19 atoms/);
   });
 
   it("rejects an alignment segment that is not an atom", () => {
@@ -162,17 +161,17 @@ describe("decodeEvmType2SignBidirectionalEvent", () => {
     const { value, alignment } = cellOf(SAMPLE_REQUEST, [2, 0, 0]);
     expect(() =>
       decodeEvmType2SignBidirectionalEvent(
-        { value: value.slice(0, 21), alignment: alignment.slice(0, 21) },
+        { value: value.slice(0, 20), alignment: alignment.slice(0, 20) },
         "test record",
       ),
-    ).toThrow(/fewer than the 22 its fixed fields need/);
+    ).toThrow(/fewer than the 21 its fixed fields need/);
   });
 
   it("rejects a cell missing the Bytes<1> access-list entry count", () => {
     expect(() =>
       decodeEvmType2SignBidirectionalEvent(
-        // Atom 20 is the entry count after 2 calldata words: widen it to 2.
-        withAlignment(cellOf(SAMPLE_REQUEST, [2, 0, 0]), 20, {
+        // Atom 19 is the entry count after 2 calldata words: widen it to 2.
+        withAlignment(cellOf(SAMPLE_REQUEST, [2, 0, 0]), 19, {
           tag: "atom",
           value: { tag: "bytes", length: 2 },
         }),
@@ -184,8 +183,8 @@ describe("decodeEvmType2SignBidirectionalEvent", () => {
   it("rejects a non-empty access-list region with no Bytes<20> address", () => {
     expect(() =>
       decodeEvmType2SignBidirectionalEvent(
-        // Atom 21 is the entry address: widen it away from 20 bytes.
-        withAlignment(cellOf(ACCESS_LIST_REQUEST, [2, 1, 2]), 21, {
+        // Atom 20 is the entry address: widen it away from 20 bytes.
+        withAlignment(cellOf(ACCESS_LIST_REQUEST, [2, 1, 2]), 20, {
           tag: "atom",
           value: { tag: "bytes", length: 21 },
         }),
@@ -200,7 +199,7 @@ describe("decodeEvmType2SignBidirectionalEvent", () => {
       decodeEvmType2SignBidirectionalEvent(
         // Drop the final tail atom: the two-entry region becomes 3 atoms,
         // which 2 entries cannot divide evenly.
-        { value: value.slice(0, 27), alignment: alignment.slice(0, 27) },
+        { value: value.slice(0, 26), alignment: alignment.slice(0, 26) },
         "test record",
       ),
     ).toThrow(/do not divide evenly/);
@@ -211,7 +210,7 @@ describe("decodeEvmType2SignBidirectionalEvent", () => {
       decodeEvmType2SignBidirectionalEvent(
         // Drop both per-entry key-count atoms: two addresses with no counts,
         // an even region the measurement still refuses.
-        withoutAtoms(cellOf(TWO_ENTRY_REQUEST, [2, 2, 0]), [22, 24]),
+        withoutAtoms(cellOf(TWO_ENTRY_REQUEST, [2, 2, 0]), [21, 23]),
         "test record",
       ),
     ).toThrow(/each access-list entry needs at least an address and a key count/);
