@@ -1,0 +1,300 @@
+# Deploys the central signet singleton contract (packages/signet-contract) to
+# one Midnight network, at a chosen release tag, from a wallet whose seed is
+# the target environment's DEPLOYER_SEED secret.
+#
+# The wallet needs faucet-funded NIGHT and nothing else: the deploy flow
+# registers that NIGHT for dust generation and waits for the first spendable
+# DUST itself.
+#
+# A deploy sets NO contract maintenance authority (the CMA signing key is
+# sampled and dropped), so a deployed contract can never be updated: every run
+# creates a fresh, permanent contract instance, and the only way forward is a
+# new deployment.
+#
+# The record-address job then opens a PR writing the new address into
+# @sig-net/midnight's signetContractAddresses table, so a human reviews the
+# address before it reaches npm consumers.
+#
+# The `network` choice options and the GitHub environment names are one set:
+# `environment` resolves from the input, so an option with no matching
+# environment runs with no protection rules and an empty DEPLOYER_SEED, and
+# fails at the deploy step. Keep them in lockstep.
+
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "Midnight network to deploy to (must match a GitHub environment name)"
+        required: true
+        type: choice
+        options:
+          - stagenet
+          - preview
+          - preprod
+          - mainnet
+      tag:
+        description: "Release tag to deploy, v*.*.* (mainnet takes stable tags only)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Serialize deploys per network. No cancel-in-progress: a cancelled run can
+# leave a submitted deploy transaction whose address nothing records.
+concurrency:
+  group: deploy-${{ inputs.network }}
+
+jobs:
+  deploy:
+    name: deploy the signet contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Per-network secrets + reviewer gating.
+    environment: ${{ inputs.network }}
+    permissions:
+      contents: read
+    outputs:
+      contract-address: ${{ steps.deploy.outputs.contract-address }}
+    steps:
+      - name: Refuse an input that is not a release tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *)
+              echo "::error::deploy runs on a v*.*.* tag only, got $TAG"
+              exit 1
+              ;;
+          esac
+      # A hyphen in the tag marks a prerelease, the same test publish.yml uses
+      # to pick the npm dist-tag. Mainnet takes released versions only.
+      - name: Mainnet deploys a stable tag only
+        if: ${{ inputs.network == 'mainnet' && contains(inputs.tag, '-') }}
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          echo "::error::mainnet deploys a stable v*.*.* tag only, got the prerelease $TAG"
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # refs/tags/ prefixed: a ref that is not a tag fails the checkout
+          # rather than silently deploying a branch head.
+          ref: refs/tags/${{ inputs.tag }}
+          # Full history: the stable-tag guard below asks whether the tagged
+          # commit is an ancestor of main.
+          fetch-depth: 0
+          persist-credentials: false
+      # Tag rulesets gate WHO may create a stable tag; this guards WHERE it
+      # points. Prereleases may come from any branch.
+      - name: Stable tags must point at a commit on main
+        if: ${{ !contains(inputs.tag, '-') }}
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "::error::stable tag $TAG is not on main; only prerelease (-rc) tags may come from other branches"
+            exit 1
+          }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+          # corepack owns yarn: the action's yarn-1 cache probe would die here
+          package-manager-cache: false
+      - name: Enable corepack (yarn 4 via the packageManager field)
+        run: corepack enable
+      # The toolchain installs fresh here, no compact-* cache: its downloads
+      # are checksum-verified and cost seconds, so caching them in a deploy
+      # job would trade nothing for a cache-poisoning surface.
+      - name: Install the compact toolchain (pinned launcher + compiler, per AGENTS.md)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
+          # Launcher pinned to compact-v0.5.1 (never releases/latest): the
+          # toolchain is frozen, so bump this tag deliberately.
+          if ! command -v compact >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -LsSf --retry 4 -o /tmp/compact-installer.sh \
+              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh
+            echo "85e74a53ae4a67b31fa4d854f3b6ffb4c29f7c53e3372c5008b6a4729a8b4a73  /tmp/compact-installer.sh" | sha256sum -c
+            sh /tmp/compact-installer.sh
+          fi
+          # The workspace tracks the ledger-9 toolchain line: compactc
+          # 0.33.0-rc.2 is a PRERELEASE published on the toolchain's LF home
+          # (LFDT-Minokawa/compact), which the launcher's channel does not
+          # list. Download it directly and let the launcher adopt it. Part of
+          # the ledger-9 MATCHED SET (see docker-compose.yaml's image-tag
+          # comment). Bump it together with the npm stack.
+          RC_DIR="$HOME/.compact/versions/0.33.0-rc.2/x86_64-unknown-linux-musl"
+          if [ ! -x "$RC_DIR/compactc" ]; then
+            mkdir -p "$RC_DIR"
+            curl -fsSL --retry 4 -o /tmp/compactc-rc.zip \
+              https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.2/compactc_v0.33.0-rc.2_x86_64-unknown-linux-musl.zip
+            echo "3055ab92bbc8d5bb0d6282b661b83761d2a0de2ee37e21cf7107e25aaf2a9aad  /tmp/compactc-rc.zip" | sha256sum -c
+            unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
+            chmod +x "$RC_DIR"/*
+          fi
+          # `compact update <ver>` adopts an already-on-disk version without
+          # downloading. If the launcher refuses (version not in its
+          # channel), wire the default symlinks it would have created.
+          compact update 0.33.0-rc.2 || ln -sfn "$RC_DIR"/* "$HOME/.compact/bin/"
+          compact compile --version
+      - name: Read the compact compiler version (part of the zk cache key)
+        id: compact
+        run: |
+          # The zk-key cache must bust whenever the compiler BUILD changes,
+          # but `compact compile --version` drops the -rc suffix (rc.0 and
+          # rc.2 both print 0.33.0), so an rc bump would silently reuse the
+          # old rc's cached managed/ output against a newer runtime. Read the
+          # rc-qualified version from the default compiler's version directory
+          # (…/versions/<version>/<arch>/compactc) instead.
+          target="$(readlink -f "$(command -v compactc)")"
+          version="$(basename "$(dirname "$(dirname "$target")")")"
+          case "$version" in [0-9]*) ;; *) version="$(compact compile --version)" ;; esac
+          echo "version=$(printf '%s' "$version" | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies (frozen, from the committed yarn.lock)
+        run: yarn install --immutable
+      - name: Compile (skip-zk, generates the managed types the deploy imports)
+        run: yarn compile
+      # Restore-only: ci.yml's integration job owns saving this cache (it
+      # generates BOTH contracts' keys, whereas this job generates only
+      # signet-contract's, so a save from here would poison the key). An older
+      # tag's .compact sources hash to a key nothing saved, so expect a miss
+      # and the keygen below.
+      - name: Restore prebuilt zk proving keys
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            packages/signet-contract/src/managed
+            packages/test-caller-contract/src/managed
+          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
+      - name: Ensure signet-contract prover keys (the deploy transaction needs them)
+        run: |
+          if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
+            echo "prover keys present (restored from the cache), skipping keygen"
+          else
+            yarn compile:signet-contract:zk
+          fi
+      # The proof server sees private witness data, so it runs locally on the
+      # runner for every network, never as a remote host.
+      - name: Start the local proof server
+        run: docker compose up -d proof-server
+      - name: Wait for the proof server
+        run: |
+          timeout 120 bash -c 'until curl -s -o /dev/null http://127.0.0.1:6300; do sleep 3; done'
+      - name: Deploy the signet contract
+        id: deploy
+        env:
+          NETWORK_ID: ${{ inputs.network }}
+          DEPLOYER_SEED: ${{ secrets.DEPLOYER_SEED }}
+          # Optional per-environment endpoint overrides. Every network has
+          # built-in defaults, and a blank var falls through to them.
+          MIDNIGHT_NODE_URL: ${{ vars.MIDNIGHT_NODE_URL }}
+          MIDNIGHT_NODE_INDEXER_URL: ${{ vars.MIDNIGHT_NODE_INDEXER_URL }}
+          MIDNIGHT_NODE_PROOF_SERVER_URL: http://127.0.0.1:6300
+          # $GITHUB_REF_NAME is the dispatching branch, so carry the tag over.
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          yarn deploy:signet-contract 2>&1 | tee deploy.log
+          address="$(sed -n 's/^deployed signet-contract at //p' deploy.log | tail -n 1)"
+          if [ -z "$address" ]; then
+            echo "::error::the deploy printed no contract address"
+            exit 1
+          fi
+          echo "contract-address=$address" >> "$GITHUB_OUTPUT"
+          {
+            echo "### signet contract deployed"
+            echo ""
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| network | $NETWORK_ID |"
+            echo "| tag | $TAG |"
+            echo "| address | \`$address\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect deploy logs
+        if: failure()
+        run: |
+          mkdir -p deploy-logs
+          docker compose logs --no-color proof-server > deploy-logs/proof-server.log 2>&1 || true
+          cp deploy.log deploy-logs/deploy.log 2>/dev/null || true
+      - name: Upload deploy logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deploy-logs
+          path: deploy-logs/
+
+  record-address:
+    name: open the address-recording PR
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The write token lives HERE, in the job that has no deployer seed; the
+    # deploy job keeps contents: read.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # main, not the deployed tag: the PR edits main's current source.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+          # corepack owns yarn: the action's yarn-1 cache probe would die here
+          package-manager-cache: false
+      - name: Enable corepack (yarn 4 via the packageManager field)
+        run: corepack enable
+      - name: Install dependencies (frozen, from the committed yarn.lock)
+        run: yarn install --immutable
+      # The script reads the network and address from argv and rewrites one
+      # string literal, so it needs no compiled contract output.
+      - name: Record the address in @sig-net/midnight's constants
+        env:
+          NETWORK: ${{ inputs.network }}
+          ADDRESS: ${{ needs.deploy.outputs.contract-address }}
+        run: |
+          set -euo pipefail
+          yarn record-contract-address:signet-midnight --network "$NETWORK" --address "$ADDRESS"
+      # Known GitHub limitation: a PR opened with GITHUB_TOKEN does NOT
+      # trigger this repo's own workflows. A reviewer close/reopens the PR (or
+      # pushes to its branch) to run CI on it before merging.
+      - name: Commit, push and open the PR
+        env:
+          NETWORK: ${{ inputs.network }}
+          TAG: ${{ inputs.tag }}
+          ADDRESS: ${{ needs.deploy.outputs.contract-address }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          branch="deploy/record-$NETWORK-$TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add packages/signet-midnight/src/constants.ts
+          git commit -m "record the $NETWORK signet contract address from $TAG"
+          git push "https://x-access-token:$GITHUB_TOKEN@github.com/$REPOSITORY.git" "$branch"
+          body="$(cat <<EOF
+          Deployed the signet singleton to \`$NETWORK\` at \`$TAG\`.
+
+          Address: \`$ADDRESS\`
+
+          Opened by the deploy workflow. A PR from GITHUB_TOKEN does not trigger CI: close and reopen this PR (or push to its branch) to run the checks before merging.
+          EOF
+          )"
+          url="$(gh pr create --base main --head "$branch" \
+            --title "record the $NETWORK signet contract address ($TAG)" \
+            --body "$body")"
+          {
+            echo "### address-recording PR"
+            echo ""
+            echo "$url"
+          } >> "$GITHUB_STEP_SUMMARY"
