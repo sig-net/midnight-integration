@@ -13,11 +13,16 @@
 // This belongs in github.com/sig-net/signet.js as its Midnight adapter,
 // kept here until upstreamed.
 
-import type { Secp256k1Point } from "@midnight-ntwrk/compact-runtime";
+import {
+  type Secp256k1Point,
+  transientHash,
+  upgradeFromTransient,
+} from "@midnight-ntwrk/compact-runtime";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
-import { ethers, Signature, toBeHex } from "ethers";
+import { Signature, toBeHex } from "ethers";
 
 import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codecs.ts";
+import { attestationPreimageDescriptor } from "./compact-descriptors.ts";
 import type {
   MpcSignature,
   RespondBidirectionalEvent,
@@ -230,11 +235,9 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
 
 /**
  * The attestation digest of a respond-bidirectional response:
- * `keccak256(requestId || serializedOutput)`, the 32-byte digest the MPC
- * ECDSA-signs to attest a remote execution. TS twin of the size-generic
- * Compact circuit of the same name, pinned against its fixed-width oracle
- * circuits in tests. The output is hashed as given, at its exact length:
- * no padding, no length prefix.
+ * `upgradeFromTransient(transientHash([requestId, serializedOutput]))`, the
+ * 32-byte digest the MPC ECDSA-signs to attest a remote execution. TS twin of
+ * the size-generic Compact circuit of the same name.
  *
  * @param requestId - The 32-byte request id the response answers.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
@@ -244,7 +247,12 @@ export function calculateSignetAttestationDigest(
   requestId: RequestId,
   serializedOutput: Uint8Array,
 ): Uint8Array {
-  return ethers.getBytes(ethers.keccak256(ethers.concat([requestId, serializedOutput])));
+  return upgradeFromTransient(
+    transientHash(attestationPreimageDescriptor(serializedOutput.length), [
+      requestId,
+      serializedOutput,
+    ]),
+  );
 }
 
 /**

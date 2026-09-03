@@ -19,7 +19,7 @@
 //
 //  Key types at a glance (each declaration below carries the full contract):
 //  - SignBidirectionalEvent: a client contract's structured request for a signature on a transaction.
-//  - RequestId: 32-byte id of a request, the keccak256 of the whole SignBidirectionalEvent record.
+//  - RequestId: 32-byte id of a request, the transientHash of the whole SignBidirectionalEvent record.
 //  - SignBidirectionalEventMap: the RequestId -> SignBidirectionalEvent map a client contract
 //    declares in its own ledger for the MPC to read requests from.
 //  - SignetSigner: the contract interface client contracts call to notify the Signet singleton.
@@ -166,17 +166,26 @@ module Signet {
 
   // ---- SignBidirectionalEvent RequestId --------------------------------------------------------------
 
-  // 32 byte chain agnostic nominal id, calculated as keccak256 of the whole
+  // 32 byte chain agnostic nominal id, calculated as the transientHash of the whole
   // SignBidirectionalEvent record (see calculateRequestId).
   export new type RequestId = Bytes<32>;
 
-  // keccak256 of the whole record: the id commits to every field, including the
-  // sender, and carries no domain-separation tag. Off-chain twins must reproduce
-  // the field-aligned binary layout exactly.
+  // transientHash (Poseidon over the record's field-aligned representation) upgraded
+  // to Bytes<32>: the id commits to every field, including the sender, and carries no
+  // domain-separation tag. Off-chain twins must reproduce the field-aligned layout
+  // exactly.
+  //
+  // Two properties follow from the field-aligned representation and matter to anyone
+  // reasoning about these ids:
+  //  - byte 31 is always zero. upgradeFromTransient writes the field element's 31
+  //    little-endian bytes into bytes 0..30, so an id carries ~248 bits of entropy.
+  //  - a Bytes<N> field packs into ceil(N/31) field elements, so trailing zero bytes
+  //    within a chunk do not change the hash. Widths here are fixed at compile time
+  //    and every id commits to its sender, so requests cannot collide in practice.
   export pure circuit calculateRequestId<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
     request: SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>
   ): RequestId {
-    return keccak256<SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>>(request) as RequestId;
+    return upgradeFromTransient(transientHash<SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>>(request)) as RequestId;
   }
 
   // ---- Client Contract: SignBidirectionalEvent Map ---------------------------------------------------
@@ -278,7 +287,7 @@ module Signet {
   // RespondBidirectionalEvent: the MPC's attestation of a foreign execution, the
   // final step of the sign bidirectional flow.
   //
-  //    attestationDigest = keccak256(requestId + serializedOutput)
+  //    attestationDigest = upgradeFromTransient(transientHash([requestId, serializedOutput]))
   //    signature = signSECP256k1(mpcResponseKey, attestationDigest)
   //
   // mpcResponseKey is derived like request signing keys, with the path set to the
@@ -296,14 +305,14 @@ module Signet {
   }
 
   // The 32-byte attestation digest of a remote execution output:
-  //    attestationDigest = keccak256(requestId + serializedOutput)
-  // Inputs are concatenated raw, no padding or length prefixes. Off-chain code
-  // uses the TypeScript twin in `ecdsa-attestation.ts`.
+  //    attestationDigest = upgradeFromTransient(transientHash([requestId, serializedOutput]))
+  // Off-chain code uses the TypeScript twin:
+  //    import { calculateSignetAttestationDigest } from "@sig-net/midnight";
   export pure circuit calculateSignetAttestationDigest<#serializedOutputLength>(
     requestId: RequestId,
     serializedOutput: Bytes<serializedOutputLength>,
   ): Bytes<32> {
-    return keccak256<[RequestId, Bytes<serializedOutputLength>]>([requestId, serializedOutput]);
+    return upgradeFromTransient(transientHash<[RequestId, Bytes<serializedOutputLength>]>([requestId, serializedOutput]));
   }
 
   // Verifies a RespondBidirectionalEvent against its execution output and MPC

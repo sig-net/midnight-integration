@@ -4,7 +4,7 @@
 // record's tx-params descriptor by its `txParamType` tag, so every
 // decomposition mints ids through this one function.
 
-import { keccak256 } from "@midnight-ntwrk/compact-runtime";
+import { transientHash, upgradeFromTransient } from "@midnight-ntwrk/compact-runtime";
 
 import { evmType2TxParamsDescriptorOf } from "./signet-evtype2tx-requests.ts";
 import {
@@ -15,10 +15,8 @@ import {
 } from "./signet-requests.ts";
 
 /**
- * Canonical id of a signet request: the keccak256 of the entire event
- * record, the sender address included, with no extra domain tag. Pass the
- * record exactly as the ledger stores it, unused slots included and schemas
- * at their declared widths.
+ * Canonical id of a signet request: the transientHash (Poseidon) of the
+ * entire event record over its field-aligned representation.
  *
  * @param request - The full event record (contract-shaped, all slots).
  * @returns The 32-byte request id, the record's ledger map key.
@@ -32,12 +30,14 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
         `understands evmType2 (${String(TxParamType.evmType2)})`,
     );
   }
-  return keccak256(
-    signBidirectionalEventDescriptorWith(
-      evmType2TxParamsDescriptorOf(request.txParams),
-      request.outputDeserializationSchema.length,
-      request.respondSerializationSchema.length,
+  return upgradeFromTransient(
+    transientHash(
+      signBidirectionalEventDescriptorWith(
+        evmType2TxParamsDescriptorOf(request.txParams),
+        request.outputDeserializationSchema.length,
+        request.respondSerializationSchema.length,
+      ),
+      request,
     ),
-    request,
   );
 }
