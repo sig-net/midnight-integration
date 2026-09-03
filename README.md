@@ -418,16 +418,22 @@ For full integration examples (such as an ERC20 cross chain vault) see the [`sig
 
 # Contributor Guide
 
-Get set up for contributing by getting both test layers green: the offline unit tests, then the end to end integration suites.
+First install the [Prerequisites](#prerequisites), then get set up for contributing by getting both test layers green: the offline unit tests, then the end to end integration suites.
 
 Every change must also pass the linter and the formatter, which CI enforces on every pull request. One ESLint flat config (`eslint.config.js`) and one Prettier config (`.prettierrc.json`) at the repo root cover all packages, so there is nothing to configure per package. In VS Code, install the two recommended extensions the editor offers on first open (`dbaeumer.vscode-eslint` and `esbenp.prettier-vscode`) and both run on save.
 
 ## Compiling, Building and Running Unit Tests
 
-Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime, so zk keys are not needed before running them. From the root of the repository:
+Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime, so zk keys are not needed before running them. 
+
+From the root of the repository:
 
 ```sh
-## --- All packages ---
+# Install all dependencies for all workspace members once to start.
+# Run this from the repository root.
+yarn install
+
+## --- Compile, build or test: All Packages (whole workspace, from repository root) ---
 
 # Quick compile: all packages (checks syntax and generates circuits)
 # Runs the compact compiler for each package without generating zk keys (compiler output in the package's src/managed/)
@@ -446,7 +452,7 @@ yarn test
 # zk keys refuse to build without them.
 yarn build
 
-## --- Linting and formatting (whole workspace, from the root) ---
+## --- Linting and formatting: All packages (whole workspace, from repository root) ---
 
 # Check formatting (Prettier). Needs nothing compiled.
 yarn format:check
@@ -458,15 +464,15 @@ yarn format        # rewrite files in place
 yarn lint
 yarn lint:fix      # apply every autofix
 
-## --- Independently (for example) ---
+## --- Compile, build or test a single package independently ---
 
-# The signet-contract package:
+# The @sig-net/midnight-contract package:
 yarn compile:signet-contract
 yarn compile:signet-contract:zk  # generates signet-contract zk keys
 yarn test:signet-contract        # requires at least 'yarn compile:signet-contract'
 yarn build:signet-contract       # requires 'yarn compile:signet-contract:zk'
 
-# The signet-midnight package:
+# The @sig-net/midnight SDK package:
 yarn compile:signet-midnight  # NOTE: no :zk option
 yarn test:signet-midnight     # requires 'yarn compile:signet-midnight'
 yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
