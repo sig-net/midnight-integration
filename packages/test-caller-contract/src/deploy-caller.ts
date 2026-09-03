@@ -13,11 +13,12 @@
 import { hexToBytes, stripHexPrefix } from "@sig-net/midnight";
 import { envOrUndefined } from "@sig-net/midnight-contract-deploy";
 import {
-  assertDeployerFunded,
   buildDeployTransaction,
   contractAddressToReference,
   deriveAccountKeys,
+  ensureFeeReady,
   getDeployConfig,
+  getFaucetUrl,
   submitUnprovenTransaction,
   type TransactionIdentifier,
   withSyncedWalletFacade,
@@ -75,8 +76,8 @@ export interface CallerDeployment {
  *   `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
  * @throws {Error} If `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` is missing/malformed, the
- *   identity secret is malformed, the deployer wallet holds no funds, or
- *   submission fails.
+ *   identity secret is malformed, the deployer wallet holds no NIGHT to pay
+ *   fees with, or submission fails.
  */
 export async function deployCaller(
   env: Record<string, string | undefined> = process.env,
@@ -111,7 +112,7 @@ export async function deployCaller(
     accountKeys,
     deployConfig.midnightNodeConfig,
     async (facade, state) => {
-      assertDeployerFunded(state);
+      await ensureFeeReady(facade, accountKeys, state, networkId, getFaucetUrl(env, networkId));
 
       const deployTransaction = await buildDeployTransaction(
         callerCompiledContract,

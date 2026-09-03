@@ -160,8 +160,6 @@ function perChildAmount(env: NodeJS.ProcessEnv, rootNight: bigint, unfundedCount
  */
 export async function ensureWalletsFunded(env: NodeJS.ProcessEnv): Promise<void> {
   const config = getMidnightNodeConfig(env);
-  // Faucet URLs are not published in this repo; MIDNIGHT_FAUCET_URL
-  // supplies one for the underfunded-root hint (optional).
   const faucetUrl = getFaucetUrl(env, config.networkId);
 
   const root = await preflightRoot(config, requireEnv(env, ROOT.envVar), faucetUrl);

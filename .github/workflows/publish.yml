@@ -20,10 +20,21 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # User reviewer-gated environment
+    environment: npm-publish
     permissions:
       contents: read
       id-token: write # OIDC trusted publishing
     steps:
+      - name: Refuse a ref that is not a release tag
+        run: |
+          case "$GITHUB_REF_TYPE/$GITHUB_REF_NAME" in
+            tag/v[0-9]*.[0-9]*.[0-9]*) ;;
+            *)
+              echo "::error::publish runs on a v*.*.* tag only, got $GITHUB_REF_TYPE $GITHUB_REF_NAME"
+              exit 1
+              ;;
+          esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history: the stable-tag guard below asks whether the tagged
@@ -35,7 +46,7 @@ jobs:
       # step uses to pick the npm dist-tag), and prereleases may come from any
       # branch.
       - name: Stable tags must point at a commit on main
-        if: github.ref_type == 'tag' && !contains(github.ref_name, '-')
+        if: ${{ !contains(github.ref_name, '-') }}
         run: |
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
             echo "::error::stable tag $GITHUB_REF_NAME is not on main; only prerelease (-rc) tags may come from other branches"
@@ -112,12 +123,10 @@ jobs:
             echo "::error::package versions diverge: @sig-net/midnight-serde=$V_SERDE @sig-net/midnight=$V_MIDNIGHT @sig-net/midnight-contract=$V_CONTRACT @sig-net/midnight-contract-deploy=$V_DEPLOY"
             exit 1
           fi
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            TAG_VERSION="${GITHUB_REF_NAME#v}"
-            if [ "$V_MIDNIGHT" != "$TAG_VERSION" ]; then
-              echo "::error::Tag v$TAG_VERSION does not match the packages' version $V_MIDNIGHT"
-              exit 1
-            fi
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$V_MIDNIGHT" != "$TAG_VERSION" ]; then
+            echo "::error::Tag v$TAG_VERSION does not match the packages' version $V_MIDNIGHT"
+            exit 1
           fi
       - name: Compile (skip-zk)
         run: yarn compile
