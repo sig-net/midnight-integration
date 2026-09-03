@@ -29,7 +29,7 @@ This Sig Network Protocol Flow brings foreign blockchain assets and functionalit
 
 Illustrated below, the protocol is best understood in 5 steps:
 
-<img src="./docs/sign-bidirectional-flow.drawio.png">
+![The sign bidirectional protocol flow: five steps between a dApp, contracts on Midnight, the Sig Network MPC and a foreign blockchain](./docs/sign-bidirectional-flow.drawio.png)
 
 - **1.** A user interacts with a dApp, which starts a cross chain interaction by calling a circuit (`startCrossChain(...)` in the diagram) on a contract on Midnight that has integrated with Sig Network.
    - The integrating contract constructs a **[SignBidirectionalEvent](./packages/signet-midnight/src/Signet.compact#L69)** (aka. signature request) which it stores in its ledger's **[SignBidirectionalEventMap](./packages/signet-midnight/src/Signet.compact#L197)** against the associated **[RequestId](./packages/signet-midnight/src/Signet.compact#L171)** (hash of the SignBidirectionalEvent). The **SignBidirectionalEvent** contains the fields of a transaction destined for a foreign blockchain, as well as a path property which the Sig Network Distributed MPC uses to derive a **Request Signing Key** to sign the transaction (see [Derived Keys](#derived-keys) for more on this key).
