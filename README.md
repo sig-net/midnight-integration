@@ -9,7 +9,7 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 
 It achieves this by exposing the MPC's [sign bidirectional flow](#sign-bidirectional-protocol-flow) to contracts on Midnight.
 
-This repository contains the pieces that make that flow available on Midnight.
+This repository contains the pieces that make that flow available on Midnight:
 - [Client-agnostic Compact and TS SDK](./packages/signet-midnight/README.md)
   - For Midnight Contract and dApp builders to integrate with Sig Network
   - Located in `packages/signet-midnight`
@@ -45,7 +45,7 @@ Illustrated below, the protocol is best understood in 5 steps:
   - **Note:** The MPC only ever signs. Broadcasting is the dApp's responsibility.
 - **4.** The MPC network observes execution of the signed transaction on the foreign blockchain and posts an attestation thereof back to Midnight.
   - The MPC network, watching for transaction executions on the foreign blockchain, observes execution of the transaction signed in step **2.**.
-  - It extracts the output of the transaction execution and serialises it according to the output serialisation schema given in the **SignBidirectionalEvent** it reacted to in step **2.**, applying the native Midnight standard library serialisation protocol.
+  - It extracts the output of the transaction execution and serialises it according to the output serialisation schema given in the **SignBidirectionalEvent** it reacted to in step **2.**. Serialisation is done through application of the native Midnight standard library serialisation protocol.
   - If the transaction execution fails, the schema serialisation is skipped: the MPC instead attests the fixed 5-byte failure payload `deadbeef01`, the magic error marker `0xdeadbeef` followed by one `0x01` byte, the same width for every respond schema (see [`MPC_FAILURE_OUTPUT`](./packages/signet-midnight/src/constants.ts#L29), and its origin in the MPC node's [`MAGIC_ERROR_PREFIX`](https://github.com/sig-net/mpc/blob/e180584f60c6e44819d0847687589370d2d8d2ee/chain-signatures/node/src/respond_bidirectional.rs#L24) and [`process_failed_tx`](https://github.com/sig-net/mpc/blob/e180584f60c6e44819d0847687589370d2d8d2ee/chain-signatures/node/src/respond_bidirectional.rs#L141)). The rest of the step is identical for success and failure: the failure payload is attested and posted like any other serialised output.
   - The MPC then creates an attestation of the execution output as the ECDSA signature over the attestation digest `upgradeFromTransient(transientHash([requestId, serializedOutput]))` (see [`calculateSignetAttestationDigest`](./packages/signet-midnight/src/Signet.compact#L311)) with the integrating contract's own **Response Signing Key** specific to the contract (see [Derived keys](#derived-keys)).
   - The output attestation is then made available on Midnight with the MPC calling the [`respondBidirectional`](./packages/signet-contract/src/signet-contract.compact#L78) circuit on the **Sig Network Singleton**, emitting a **[RespondBidirectionalEvent](./packages/signet-midnight/src/Signet.compact#L302)**. Neither the digest nor the output itself travels on chain: the event carries only the attesting signature.
@@ -55,7 +55,7 @@ Illustrated below, the protocol is best understood in 5 steps:
   - It submits both to a completing circuit on the integrating contract (`completeCrossChain(...)` in the diagram), which recomputes the attestation digest from the output bytes and verifies the MPC's signature in-circuit via [`verifyRespondBidirectionalEvent`](./packages/signet-midnight/src/Signet.compact#L331) against the response key the contract pinned after deploy (see [Derived keys](#derived-keys)). A failed foreign transaction completes the flow the same way, since the failure payload from step **4.** is attested with the same digest and key.
   - The completing circuit takes its failure branch when the verified output bytes equal the 5-byte failure payload exactly, and deserialises them against its output schema otherwise ([`isMpcFailureOutput`](./packages/signet-midnight/src/constants.ts#L38) is the off-chain twin of that check). A prefix check is not safe, as a legitimate packed output can begin with the same bytes. A respond schema whose packed width is exactly 5 bytes cannot tell the two apart by inspection at all: such contracts must route settlement by recomputing both candidate digests and checking which one the MPC attested.
 
-> **Output recovery:** how the client reads the execution output is chain-specific. For EVM chains it is the mined call's return data, extracted with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. Clients without trace access can fetch the raw output from the fakenet responder's helper API at `GET /responses/{requestId}` (served by [`ResponsesApi.ts`](https://github.com/sig-net/solana-signet-program/blob/fakenet-v0.10.0/fakenet-signer/src/server/ResponsesApi.ts), port 3040 in the local stack, consumed here by [`packages/integration-tests/src/fakenet-responses.ts`](packages/integration-tests/src/fakenet-responses.ts)). The fetched bytes are untrusted until step 5's in-circuit signature verification.
+> **Output recovery:** how the client reads the execution output is chain-specific. For EVM chains it is the mined call's return data, extracted with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. For local development, clients without trace access can fetch the raw output from the fakenet responder's helper API at `GET /responses/{requestId}` (served by [`ResponsesApi.ts`](https://github.com/sig-net/solana-signet-program/blob/fakenet-v0.10.0/fakenet-signer/src/server/ResponsesApi.ts), port 3040 in the local stack, consumed here by [`packages/integration-tests/src/fakenet-responses.ts`](packages/integration-tests/src/fakenet-responses.ts)). The fetched bytes are untrusted until step 5's in-circuit signature verification.
 
 ## Sign Bidirectional Event Discovery & Verification
 
@@ -75,7 +75,7 @@ If any of these checks fail the request is dropped silently.
 
 ## Derived keys
 
-Every key the MPC uses is derived for the requesting contract and a path. There are two kinds: the request signing key, whose path each contract chooses, and the response signing key, whose path is fixed by the protocol. Both key derivations are **scoped by the address** of the requesting contract.
+Every key the MPC uses is derived for the **requesting contract** and a **path**. There are two kinds: the *request signing key*, whose path each contract chooses, and the *response signing key*, whose path is fixed by the protocol. Both key derivations are **scoped by the address** of the requesting contract.
 
 ### Request signing key
 
