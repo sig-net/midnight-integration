@@ -32,7 +32,7 @@ export interface SignetContractDeployment {
  * Deploy the signet contract: read config from `env`, build and prove the
  * deploy transaction and submit it through a synced wallet. Progress is
  * logged to the console. The contract takes no constructor arguments. Any
- * funded wallet can deploy; nothing about the deployer is sealed. The wallet
+ * funded wallet can deploy, and nothing about the deployer is sealed. The wallet
  * needs NIGHT only: {@link ensureFeeReady} registers it for dust generation
  * and waits for the first spendable DUST when the wallet has none yet.
  *
