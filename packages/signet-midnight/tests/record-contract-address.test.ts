@@ -12,6 +12,10 @@ import { parseDeployedNetwork, recordContractAddress } from "../src/record-contr
 const ADDRESS_HEX = "1df4ce25fc9f9c03dc6f4d0eb12ddf3d0db094995d4c70aca1142eebb3b77a5d";
 const ADDRESS = contractAddressFromHex(ADDRESS_HEX);
 const EXISTING_HEX = "ab".repeat(32);
+// Recorded into the real constants.ts below, so it must be one no network's
+// row can already hold: a pattern no deploy produces.
+const UNRECORDED_HEX = "5e".repeat(32);
+const UNRECORDED = contractAddressFromHex(UNRECORDED_HEX);
 
 describe("parseDeployedNetwork", () => {
   it.each([
@@ -134,6 +138,7 @@ describe("recordContractAddress", () => {
   // shape, and this pins the real source to the same shape.
   it("rewrites every deployed network's row of the real constants.ts", () => {
     const real = readFileSync(new URL("../src/constants.ts", import.meta.url), "utf8");
+    expect(real).not.toContain(UNRECORDED_HEX);
     const rootKeysTable = real.slice(
       real.indexOf("const mpcRootPublicKeys"),
       real.indexOf("const signetContractAddresses"),
@@ -145,9 +150,9 @@ describe("recordContractAddress", () => {
       MidnightNetwork.Mainnet,
     ];
     for (const network of networks) {
-      const recorded = recordContractAddress(real, network, ADDRESS);
+      const recorded = recordContractAddress(real, network, UNRECORDED);
       expect(recorded.source).toContain(recorded.entry);
-      expect(recorded.source.split(ADDRESS_HEX)).toHaveLength(2);
+      expect(recorded.source.split(UNRECORDED_HEX)).toHaveLength(2);
       expect(recorded.source).toContain(rootKeysTable);
     }
   });
