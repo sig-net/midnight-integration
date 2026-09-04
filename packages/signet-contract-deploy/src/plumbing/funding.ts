@@ -180,8 +180,10 @@ const GENESIS_INDEX_TIMEOUT_MS = 120_000;
  * @param rootSeed - The root wallet seed.
  * @param faucetUrl - The network's faucet URL for the underfunded message.
  * @returns The root's fee-ready funding snapshot.
- * @throws {WalletUnfundedError} If root holds no NIGHT, or if no dust
- *   appears in time after registration.
+ * @throws {WalletUnfundedError} If root holds no NIGHT.
+ * @throws {Error} If no dust appears in time after registration (see
+ *   {@link waitForSpendableDust}): root is funded but not yet fee-ready, so
+ *   this is a plain error, not a funding stop.
  */
 export async function assertRootFunded(
   config: MidnightNodeConfig,
