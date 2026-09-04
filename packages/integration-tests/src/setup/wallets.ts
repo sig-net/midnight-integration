@@ -26,8 +26,8 @@ import {
   isLocalStandaloneNetwork,
   type MidnightNodeConfig,
   readAccountFunding,
-  RootUnfundedError,
   type WalletAddresses,
+  WalletUnfundedError,
 } from "@sig-net/midnight-contract-deploy";
 
 import { requireEnv } from "../e2e-env.ts";
@@ -150,13 +150,13 @@ function perChildAmount(env: NodeJS.ProcessEnv, rootNight: bigint, unfundedCount
 /**
  * Fund the role wallets from root. Preflight root first: on a deployed network
  * whose root is not yet faucet-funded this STOPS the run (re-throwing
- * {@link RootUnfundedError}) after printing the NIGHT address + faucet URL.
+ * {@link WalletUnfundedError}) after printing the NIGHT address + faucet URL.
  * Then each child that is already fee-ready passes; each that is not is topped
  * up from root and registered for dust. Idempotent across reruns: funded
  * wallets are only checked.
  *
  * @param env - The suite's env accumulator (seeds already resolved).
- * @throws {RootUnfundedError} To halt the run when root needs faucet funding.
+ * @throws {WalletUnfundedError} To halt the run when root needs faucet funding.
  */
 export async function ensureWalletsFunded(env: NodeJS.ProcessEnv): Promise<void> {
   const config = getMidnightNodeConfig(env);
@@ -196,13 +196,13 @@ export async function ensureWalletsFunded(env: NodeJS.ProcessEnv): Promise<void>
 }
 
 /**
- * Root preflight, surfacing {@link RootUnfundedError}'s stop message before rethrowing.
+ * Root preflight, surfacing {@link WalletUnfundedError}'s stop message before rethrowing.
  *
  * @param config - The endpoints to measure root's funding against.
  * @param rootSeed - The root wallet's seed.
  * @param faucetUrl - The network's faucet, included in the stop message.
  * @returns Root's measured funding, once it passes.
- * @throws {RootUnfundedError} When root holds no spendable funds.
+ * @throws {WalletUnfundedError} When root holds no spendable funds.
  */
 async function preflightRoot(
   config: MidnightNodeConfig,
@@ -212,7 +212,7 @@ async function preflightRoot(
   try {
     return await assertRootFunded(config, rootSeed, faucetUrl);
   } catch (error) {
-    if (error instanceof RootUnfundedError) {
+    if (error instanceof WalletUnfundedError) {
       banner(["ROOT WALLET NEEDS FUNDING — stopping here", "", ...error.message.split("\n")]);
     }
     throw error;

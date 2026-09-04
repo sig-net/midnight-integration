@@ -39,9 +39,10 @@ export interface SignetContractDeployment {
  * @param env - Environment map providing `DEPLOYER_SEED` and the shared
  *   Midnight node configuration (see `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
- * @throws {Error} If the deployer wallet holds no NIGHT (the error carries the
- *   wallet's NIGHT receive address to faucet-fund), no spendable DUST appears
- *   after registering it, or submission fails.
+ * @throws {WalletUnfundedError} If the deployer wallet holds neither NIGHT
+ *   nor DUST: the error carries the wallet's NIGHT receive address to fund.
+ * @throws {Error} If no spendable DUST appears after registering the wallet's
+ *   NIGHT, or submission fails.
  */
 export async function deploySignetContract(
   env: Record<string, string | undefined> = process.env,

@@ -90,6 +90,32 @@ export function isFeeReady(funding: AccountFunding): boolean {
 }
 
 /**
+ * A wallet holds no NIGHT and no DUST, so it cannot pay fees until its NIGHT
+ * receive address is funded (on a deployed network, via the network's
+ * faucet). Thrown by {@link ensureFeeReady} and {@link assertRootFunded},
+ * carrying the exact address and faucet URL to act on, so a setup pipeline
+ * can STOP printing them.
+ */
+export class WalletUnfundedError extends Error {
+  /**
+   * @param nightAddress - The NIGHT receive address that needs funding.
+   * @param faucetUrl - The network's faucet, when one is known.
+   */
+  constructor(
+    readonly nightAddress: string,
+    readonly faucetUrl: string | undefined,
+  ) {
+    const where = faucetUrl ? `at ${faucetUrl}` : "via the network's faucet";
+    super(
+      `wallet holds no NIGHT and so cannot generate the DUST that pays fees. Fund it ${where}, then retry.\n` +
+        `  NIGHT address: ${nightAddress}` +
+        (faucetUrl ? `\n  faucet:        ${faucetUrl}` : ""),
+    );
+    this.name = "WalletUnfundedError";
+  }
+}
+
+/**
  * Bring one wallet to fee-ready and return its spendable DUST balance. Fees
  * are paid in DUST, which only generates on NIGHT registered for dust
  * generation, so every unregistered NIGHT UTXO the wallet holds is registered
@@ -107,9 +133,9 @@ export function isFeeReady(funding: AccountFunding): boolean {
  *   NIGHT receive address the no-NIGHT error prints for faucet funding.
  * @param faucetUrl - The network's faucet for the no-NIGHT hint, when one is known.
  * @returns The wallet's spendable DUST balance, always positive.
- * @throws {Error} If the wallet holds neither NIGHT nor DUST (the message
- *   carries the wallet's NIGHT receive address to fund), or no dust appears
- *   in time after registration (see {@link waitForSpendableDust}).
+ * @throws {WalletUnfundedError} If the wallet holds neither NIGHT nor DUST.
+ * @throws {Error} If no dust appears in time after registration (see
+ *   {@link waitForSpendableDust}).
  */
 export async function ensureFeeReady(
   facade: WalletFacade,
@@ -121,13 +147,7 @@ export async function ensureFeeReady(
   const dust = state.dust.balance(new Date());
   if (totalNight(state) === 0n) {
     if (dust > 0n) return dust;
-    const { unshielded } = deriveAddresses(keys, networkId);
-    const where = faucetUrl ? `at ${faucetUrl}` : "via the network's faucet";
-    throw new Error(
-      `wallet has no NIGHT and so cannot generate the DUST that pays fees. Fund it ${where}, then retry.\n` +
-        `  NIGHT address: ${unshielded}` +
-        (faucetUrl ? `\n  faucet:        ${faucetUrl}` : ""),
-    );
+    throw new WalletUnfundedError(deriveAddresses(keys, networkId).unshielded, faucetUrl);
   }
   const registered = await registerNightForDustGeneration(facade, keys, state);
   if (registered > 0) {
@@ -136,30 +156,6 @@ export async function ensureFeeReady(
   if (dust > 0n) return dust;
   console.log("waiting for spendable DUST...");
   return waitForSpendableDust(facade);
-}
-
-/**
- * The root wallet holds no funds on a deployed network until its NIGHT
- * receive address is faucet-funded. Thrown by {@link assertRootFunded} so the
- * setup pipeline can STOP with the exact address and faucet URL to act on.
- */
-export class RootUnfundedError extends Error {
-  /**
-   * @param nightAddress - The NIGHT receive address that needs funding.
-   * @param faucetUrl - The network's faucet, when one is known.
-   */
-  constructor(
-    readonly nightAddress: string,
-    readonly faucetUrl: string | undefined,
-  ) {
-    const where = faucetUrl ? `at ${faucetUrl}` : "via the network's faucet";
-    super(
-      `root wallet holds no NIGHT. Fund it ${where}, then rerun.\n` +
-        `  NIGHT address: ${nightAddress}` +
-        (faucetUrl ? `\n  faucet:        ${faucetUrl}` : ""),
-    );
-    this.name = "RootUnfundedError";
-  }
 }
 
 // A freshly composed local stack has a window where the indexer reports a
@@ -172,7 +168,7 @@ const GENESIS_INDEX_TIMEOUT_MS = 120_000;
 /**
  * Ensure the root wallet is fee-ready, returning its snapshot. Root holds no
  * NIGHT on a deployed network before faucet funding, so this throws
- * {@link RootUnfundedError} (NIGHT address + faucet URL) when NIGHT is zero.
+ * {@link WalletUnfundedError} (NIGHT address + faucet URL) when NIGHT is zero.
  * On the local standalone chain, where genesis funds root by construction, a
  * zero balance is instead retried until the indexer catches up (see
  * {@link GENESIS_INDEX_TIMEOUT_MS}). Root pays the children's funding
@@ -184,7 +180,7 @@ const GENESIS_INDEX_TIMEOUT_MS = 120_000;
  * @param rootSeed - The root wallet seed.
  * @param faucetUrl - The network's faucet URL for the underfunded message.
  * @returns The root's fee-ready funding snapshot.
- * @throws {RootUnfundedError} If root holds no NIGHT, or if no dust
+ * @throws {WalletUnfundedError} If root holds no NIGHT, or if no dust
  *   appears in time after registration.
  */
 export async function assertRootFunded(
@@ -205,7 +201,7 @@ export async function assertRootFunded(
       }
     }
     if (night === 0n) {
-      throw new RootUnfundedError(addresses.unshielded, faucetUrl);
+      throw new WalletUnfundedError(addresses.unshielded, faucetUrl);
     }
     const dust = await ensureFeeReady(facade, keys, state, config.networkId, faucetUrl);
     return { addresses, night, dust };
