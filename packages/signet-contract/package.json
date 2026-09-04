@@ -1,6 +1,6 @@
 {
   "name": "@sig-net/midnight-contract",
-  "version": "0.21.0-rc.2",
+  "version": "0.21.0-rc.6",
   "repository": {
     "type": "git",
     "url": "https://github.com/sig-net/midnight-integration",
@@ -39,7 +39,7 @@
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.6"
   },
   "devDependencies": {
-    "@sig-net/midnight": "^0.21.0-rc.2",
+    "@sig-net/midnight": "^0.21.0-rc.6",
     "@types/node": "^26.1.0",
     "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^7.0.2",
