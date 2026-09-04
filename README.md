@@ -7,9 +7,9 @@ The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-
 > This Integration is still Under Construction.
 > Use at your own risk and expect rapid iteration.
 
-It achieves this by exposing the MPC's [sign bidirectional flow](#sign-bidirectional-flow) to contracts on Midnight.
+It achieves this by exposing the MPC's [sign bidirectional flow](#sign-bidirectional-protocol-flow) to contracts on Midnight.
 
-This repository contains the pieces that make that flow available on Midnight.
+This repository contains the pieces that make that flow available on Midnight:
 - [Client-agnostic Compact and TS SDK](./packages/signet-midnight/README.md)
   - For Midnight Contract and dApp builders to integrate with Sig Network
   - Located in `packages/signet-midnight`
@@ -21,45 +21,68 @@ This repository contains the pieces that make that flow available on Midnight.
 
 Example applications built on this integration (such as an ERC20 cross chain vault demo) live in a separate repository [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples).
 
-Read more about the [Sign Bidirectional Flow](#sign-bidirectional-flow), or jump straight to the [Integrator Guide](#integrator-guide) or the [Contributor Guide](#contributor-guide) depending on your goal. The [Prerequisites](#prerequisites) are relevant to both.
+Read more about the [Sign Bidirectional Protocol Flow](#sign-bidirectional-protocol-flow), or jump straight to the [Integrator Guide](#integrator-guide) or the [Contributor Guide](#contributor-guide) depending on your goal. The [Prerequisites](#prerequisites) are relevant to both.
 
-# Sign Bidirectional Flow
+# Sign Bidirectional Protocol Flow
 
-The sign bidirectional flow brings foreign blockchain assets and functionality to Midnight. Its components are illustrated in the diagram below.
+This Sig Network Protocol Flow brings foreign blockchain assets and functionality to contracts on Midnight. Contracts record signature requests that the Sig Network MPC signs. dApps relay signed transactions to foreign chains and the MPC attests their execution outcomes back to Midnight. Then contracts complete cross chain interactions with in-circuit validation of the MPC foreign execution attestation.
 
-<img src="./docs/sign-bidirectional-flow.drawio.png">
+Illustrated below, the protocol is best understood in 5 steps:
 
-As illustrated, the flow comprises 5 steps:
+![The sign bidirectional protocol flow: five steps between a dApp, contracts on Midnight, the Sig Network MPC and a foreign blockchain](./docs/sign-bidirectional-flow.drawio.png)
 
-- **1.** User interacts with a dApp which starts a cross chain interaction by calling a circuit (`startCrossChain(...)` in the diagram) on a contract on Midnight that has integrated with Sig Network.
-   - The integrating contract constructs a **[SignBidirectionalEvent](./packages/signet-midnight/src/Signet.compact#L69)** (aka. signature request) which it stores in its ledger's **[SignBidirectionalEventMap](./packages/signet-midnight/src/Signet.compact#L197)** against the associated **[RequestId](./packages/signet-midnight/src/Signet.compact#L171)** (hash of the SignBidirectionalEvent). The **SignBidirectionalEvent** contains the fields of a transaction destined for a foreign blockchain, as well as a path property which the Sig Network Distributed MPC uses to derive a **Request Signing Key** to sign the transaction (see [Derived keys](#derived-keys) for more on this key).
-   - Then the integrating contract performs a cross contract call to the [`signBidirectional`](./packages/signet-contract/src/signet-contract.compact#L31) circuit on the [**Sig Network Singleton** contract](./packages/signet-contract/src/signet-contract.compact) which emits a [**SignBidirectionalEventNotification**](./packages/signet-midnight/src/Signet.compact#L218). The **SignBidirectionalEventNotification** contains the address of the integrating client contract, a **RequestId** and other information that the MPC uses to find the stored **SignBidirectionalEvent** signature request.
-- **2.** The MPC network, watching for events on the Singleton contract, picks up the emitted **SignBidirectionalEventNotification**.
-  - The MPC uses the information in the event to find and read the addressed **SignBidirectionalEvent** signature request stored in the state of the identified Integrating Client Contract.
-  - It honours the request by constructing the contained foreign blockchain transaction and signing it with the associated **Request Signing Key**.
+- **1.** A user interacts with a dApp, which starts a cross chain interaction by calling a circuit (`startCrossChain(...)` in the diagram) on a contract on Midnight that has integrated with Sig Network.
+   - The integrating contract constructs a **[SignBidirectionalEvent](./packages/signet-midnight/src/Signet.compact#L69)** (aka. signature request) which it stores in its ledger's **[SignBidirectionalEventMap](./packages/signet-midnight/src/Signet.compact#L197)** against the associated **[RequestId](./packages/signet-midnight/src/Signet.compact#L171)** (hash of the SignBidirectionalEvent). The **SignBidirectionalEvent** contains the fields of a transaction destined for a foreign blockchain, as well as a path property which the Sig Network Distributed MPC uses to derive a **Request Signing Key** to sign the transaction (see [Derived Keys](#derived-keys) for more on this key).
+   - Then the integrating contract performs a cross contract call to the [`signBidirectional`](./packages/signet-contract/src/signet-contract.compact#L31) circuit on the [**Sig Network Singleton** contract](./packages/signet-contract/src/signet-contract.compact) which emits a [**SignBidirectionalEventNotification**](./packages/signet-midnight/src/Signet.compact#L218). The **SignBidirectionalEventNotification** carries the address of the integrating client contract and the ledger location of its request map, and the **RequestId** travels beside it as `signBidirectional`'s first argument, so the emitted event gives the MPC everything it needs to find the stored **SignBidirectionalEvent** signature request.
+- **2.** The MPC network, watching for events on the Singleton contract, picks up the emitted **SignBidirectionalEventNotification** and honours the signature request it points to.
+  - The MPC verifies the notification before honouring it (see [Sign Bidirectional Event Discovery & Verification](#sign-bidirectional-event-discovery--verification)).
+  - The MPC uses the information in the event to find and read the addressed **SignBidirectionalEvent** signature request that the identified Integrating Client Contract stored in its state in step **1.**.
+  - It honours the request by constructing the contained foreign blockchain transaction and signing it with the associated **Request Signing Key**, derived for that contract and the path of the signature request.
   - The signature is then made available on Midnight with the MPC calling the [`respond`](./packages/signet-contract/src/signet-contract.compact#L52) circuit on the **Sig Network Singleton**, emitting a **[SignatureRespondedEvent](./packages/signet-midnight/src/Signet.compact#L282)**.
-- **3.** The integrating dApp, watching for events on the Singleton contract, picks up the emitted **SignatureRespondedEvent**.
-  - The dApp verifies the signature is correct and uses it to construct the fully signed foreign blockchain transaction.
-  - Functioning as a relayer, the dApp then submits the signed transaction to the foreign chain for execution.
-- **4.** The MPC network observes the foreign blockchain and attests execution of the signed transaction.
+- **3.** The integrating dApp, watching for events on the Singleton contract, picks up the emitted **SignatureRespondedEvent** and relays the fully signed transaction to the foreign chain.
+  - The dApp verifies the posted MPC signature is by the requested signer (i.e. the **Request Signing Key**) and uses it to construct the fully signed foreign blockchain transaction.
+  - Acting as the relayer, the dApp then submits the signed transaction to the foreign chain for execution.
+  - **Note:** The MPC only ever signs. Broadcasting is the dApp's responsibility.
+- **4.** The MPC network observes execution of the signed transaction on the foreign blockchain and posts an attestation thereof back to Midnight.
   - The MPC network, watching for transaction executions on the foreign blockchain, observes execution of the transaction signed in step **2.**.
-  - It extracts the output of the transaction execution and serialises it according to the output serialisation schema given in the **SignBidirectionalEvent** it reacted to in step **2.**, applying the native Midnight standard library serialisation protocol.
-  - If the transaction execution fails, the schema serialisation is skipped: the MPC instead attests the fixed 5-byte failure payload `deadbeef01`, the magic error marker `0xdeadbeef` followed by one `0x01` byte, the same width for every respond schema (see [`MPC_FAILURE_OUTPUT`](./packages/signet-midnight/src/constants.ts#L29), and its origin in the MPC node's [`MAGIC_ERROR_PREFIX`](https://github.com/sig-net/mpc/blob/e180584f60c6e44819d0847687589370d2d8d2ee/chain-signatures/node/src/respond_bidirectional.rs#L24) and [`process_failed_tx`](https://github.com/sig-net/mpc/blob/e180584f60c6e44819d0847687589370d2d8d2ee/chain-signatures/node/src/respond_bidirectional.rs#L141)). The rest of the step is identical for success and failure: the failure payload is attested and posted like any other serialised output.
-  - The MPC then creates an attestation of the execution output as the ECDSA signature over the attestation digest `upgradeFromTransient(transientHash([requestId, serializedOutput]))` (see [`calculateSignetAttestationDigest`](./packages/signet-midnight/src/Signet.compact#L319)) with the integrating contract's own **Response Signing Key** specific to the contract (see [Derived keys](#derived-keys)).
-  - The output attestation is then made available on Midnight with the MPC calling the [`respondBidirectional`](./packages/signet-contract/src/signet-contract.compact#L78) circuit on the **Sig Network Singleton**, emitting a **[RespondBidirectionalEvent](./packages/signet-midnight/src/Signet.compact#L302)**.
+  - The serialised output it attests depends on whether that execution succeeded:
+    - **Foreign transaction success:** the MPC extracts the output of the transaction execution, decodes it per the request's `outputDeserializationSchema`, and re-serialises the decoded values per its `respondSerializationSchema` (both given in the **SignBidirectionalEvent** it reacted to in step **2.**), applying the native Midnight standard library serialisation protocol.
+    - **Foreign transaction failure:** there is no output to serialise, so the serialised output is instead the fixed 5-byte failure payload `deadbeef01` (see [Handling Failure](#handling-failure)).
+  - From here the two branches converge: the MPC creates the attestation as the ECDSA signature over the attestation digest `upgradeFromTransient(transientHash([requestId, serializedOutput]))` (see [`calculateSignetAttestationDigest`](./packages/signet-midnight/src/Signet.compact#L311)) of whichever serialised output the branch produced, signed with the integrating contract's own **Response Signing Key** (see [Derived Keys](#derived-keys)).
+  - The output attestation is then made available on Midnight with the MPC calling the [`respondBidirectional`](./packages/signet-contract/src/signet-contract.compact#L78) circuit on the **Sig Network Singleton**, emitting a **[RespondBidirectionalEvent](./packages/signet-midnight/src/Signet.compact#L302)**. Neither the digest nor the output itself travels on chain: the event carries only the attesting signature.
 - **5.** The integrating dApp collects the execution output and its attestation and submits both back to the integrating contract, completing the cross chain interaction.
   - The dApp extracts the posted output attestation from the emitted **RespondBidirectionalEvent**.
-  - It obtains the serialised execution output off chain (see the output recovery note below: it broadcast the transaction in step **3.**, so it can read the result).
-  - It submits both to a completing circuit on the integrating contract (`completeCrossChain(...)` in the diagram), which recomputes the attestation digest from the output bytes and verifies the MPC's signature in-circuit via [`verifyRespondBidirectionalEvent`](./packages/signet-midnight/src/Signet.compact#L344) against the contract's own response key (see [Derived keys](#derived-keys)). A failed foreign transaction completes the flow the same way, since the failure payload from step **4.** is attested with the same digest and key.
-  - The completing circuit takes its failure branch when the verified output bytes equal the 5-byte failure payload exactly, and deserialises them against its output schema otherwise ([`isMpcFailureOutput`](./packages/signet-midnight/src/constants.ts#L38) is the off-chain twin of that check). A prefix check is not safe, as a legitimate packed output can begin with the same bytes. A respond schema whose packed width is exactly 5 bytes cannot tell the two apart by inspection at all: such contracts must route settlement by recomputing both candidate digests and checking which one the MPC attested.
+  - It then reconstructs the exact serialised output the MPC attested, mirroring step **4.**'s branch:
+    - **Foreign transaction success:** the dApp obtains the actual execution output off chain (see the output recovery note below: it broadcast the transaction in step **3.**, so it can read the result) and serialises it exactly as the MPC did in step **4.**, running the same two schema conversions, so the bytes match the attested ones byte for byte.
+    - **Foreign transaction failure:** there is no output to obtain, and the serialised output is exactly the fixed 5-byte failure payload from step **4.**, at exactly that width.
+  - It submits the attestation and the reconstructed serialised output to a completing circuit on the integrating contract (`completeCrossChain(...)` in the diagram), which recomputes the attestation digest from the output bytes and verifies the MPC's signature in-circuit via [`verifyRespondBidirectionalEvent`](./packages/signet-midnight/src/Signet.compact#L331) against the response key the contract pinned after deploy (see [Derived Keys](#derived-keys)). Success and failure verify identically, since step **4.** attests both with the same digest construction and key.
+  - The completing circuit settles by the same distinction: when the verified output bytes equal the 5-byte failure payload exactly, it concludes the foreign transaction failed and reacts accordingly, and otherwise it treats them as a success, deserialising them against its respond serialisation schema ([`isMpcFailureOutput`](./packages/signet-midnight/src/constants.ts#L38) is the off-chain twin of that check). **Warning:** a contract whose successful serialised output could itself equal the failure payload cannot tell success from failure at all: see [Handling Failure](#handling-failure) for what types of respond schemas are vulnerable and how to protect against it.
 
-> **Output recovery:** how the client reads the execution output is chain-specific. For EVM chains it is the mined call's return data, extracted with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. Clients without trace access can fetch the raw output from the fakenet responder's helper API at `GET /responses/{requestId}` (served by [`ResponsesApi.ts`](https://github.com/sig-net/solana-signet-program/blob/fakenet-v0.10.0/fakenet-signer/src/server/ResponsesApi.ts), port 3040 in the local stack, consumed here by [`packages/integration-tests/src/fakenet-responses.ts`](packages/integration-tests/src/fakenet-responses.ts)). The fetched bytes are untrusted until step 5's in-circuit signature verification.
+> **Output recovery:** how the client reads the execution output is chain-specific. For EVM chains it is the mined call's return data, extracted with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. For local development, clients without trace access can fetch the raw output from the fakenet responder's helper API at `GET /responses/{requestId}` (served by [`ResponsesApi.ts`](https://github.com/sig-net/solana-signet-program/blob/fakenet-v0.18.0/fakenet-signer/src/server/ResponsesApi.ts), port 3040 in the local stack, consumed here by [`packages/integration-tests/src/fakenet-responses.ts`](packages/integration-tests/src/fakenet-responses.ts)). The fetched bytes are untrusted until step 5's in-circuit signature verification.
 
-## Derived keys
+## Sign Bidirectional Event Discovery & Verification
 
-Every key the MPC uses is derived for the requesting contract and a path. There are two kinds: the request signing key, whose path each contract chooses, and the response signing key, whose path is fixed by the protocol. Both key derivations are **scoped by the address** of the requesting contract.
+The MPC receives notification of pending **SignBidirectionalEvent** signature requests via versioned `SignBidirectionalEventNotification` events emitted by the Sig Network Singleton contract. The v1 payload of this notification contains:
+- `callerAddress` to locate the caller contract
+- `requestsPathDepth` and `requestsPath` to locate the `signBidirectionalEventMap` in its ledger storage (see [The Request Map's Ledger-Tree Path](#the-request-maps-ledger-tree-path)).
 
-### Request signing key
+The **RequestId** itself is not part of the payload: it is `signBidirectional`'s own first argument, disclosed in the same emitted event.
+
+The MPC only generates signatures for **Verified Request Events**, which it discovers as follows:
+- it picks up a notification event emitted by the Sig Network Singleton contract
+- it confirms the notification event was emitted by a cross contract invocation of the `signBidirectional` circuit (direct invocations outside cross contract calls are ignored)
+- it confirms the cross contract caller address equals the `callerAddress` in the notification
+- it reads the `SignBidirectionalEvent` from ledger state at the `callerAddress`
+- it confirms the `sender` in the `SignBidirectionalEvent` matches the `callerAddress` from the notification
+- it confirms the read `SignBidirectionalEvent` hashes back to the notified **RequestId**
+
+If any of these checks fail the request is dropped silently.
+
+## Derived Keys
+
+Every key the MPC uses is derived for the **requesting contract** and a **path**. There are two kinds: the *request signing key*, whose path each contract chooses, and the *response signing key*, whose path is fixed by the protocol. Both key derivations are **scoped by the address** of the requesting contract.
+
+### Request Signing Key
 
 The key the MPC signs requested foreign transactions with:
 
@@ -67,7 +90,7 @@ The key the MPC signs requested foreign transactions with:
 
 The path is 32 opaque bytes of the contract's choosing (e.g. a fixed literal for a contract-owned account like "vault" or a hash of a caller's secret for per-user accounts). There are no format requirements: any 32 bytes are valid. **CRITICAL:** the MPC renders the path as `hex::encode(path)` before it derives the key: lowercase hex of the full 32 bytes, no trimming, no `0x` prefix. The contract address is always part of the derivation, so no contract can reach another contract's derived keys.
 
-### Response key
+### Response Key
 
 The key the MPC signs remote execution attestations with when posting them back to Midnight:
 
@@ -78,6 +101,27 @@ The same derivation, but with the path fixed to the literal `"midnight response 
 > **keyVersion** is the version of the MPC root key that the derivation starts from. Current deployments use version `1`.
 >
 > **caip2ChainId** is the id of the chain the request originates from, in [CAIP-2](https://chainagnostic.org/CAIPs/caip-2) form. For signature requests made on Midnight it is the Midnight variant (currently `midnight:testnet`). It is not the target chain id carried in the request record's `caip2Id` field.
+
+## Handling Failure
+
+A failed foreign transaction (one that reverted on chain, or whose nonce another transaction consumed) still completes the flow, through the same steps as a success: the MPC attests a **fixed failure payload** in step **4.**, the dApp submits it in step **5.**, and the integrating contract settles against it in-circuit.
+
+- **The failure payload** is the 5 bytes `deadbeef01`: the magic error marker `0xdeadbeef` followed by one `0x01` byte, the same width regardless of the request's respond serialisation schema. It is [`MPC_FAILURE_OUTPUT`](./packages/signet-midnight/src/constants.ts#L29) in this library, originating in the MPC node's [`MAGIC_ERROR_PREFIX`](https://github.com/sig-net/mpc/blob/e180584f60c6e44819d0847687589370d2d8d2ee/chain-signatures/node/src/respond_bidirectional.rs#L24) and [`process_failed_tx`](https://github.com/sig-net/mpc/blob/e180584f60c6e44819d0847687589370d2d8d2ee/chain-signatures/node/src/respond_bidirectional.rs#L141).
+- **The attestation carries no success flag.** Success and failure are signed identically: the same attestation digest formula `upgradeFromTransient(transientHash([requestId, serializedOutput]))`, the same **Response Signing Key**. The only signal of the outcome is the serialised output the signature verifies over.
+- **Settlement must route on the verified bytes**: a foreign transaction failed when the verified output equals the failure payload exactly ([`isMpcFailureOutput`](./packages/signet-midnight/src/constants.ts#L38) is the off-chain twin of that check). The best way to route the two outcomes is Compact's fixed-width `Bytes<n>` circuit arguments: ensure the respond schema's packed width is not 5 bytes, then expose two settle circuits, one taking the schema's `Bytes<n>` for success and one taking `Bytes<5>` for failure, asserting exact equality with the failure payload. Every attested output then type-fits exactly one of the two.
+
+> **Warning:** if `deadbeef01` is a valid successful serialised output for your contract, the contract cannot tell success from failure!
+
+### Which Contracts Are Vulnerable
+
+The MPC does not reserve the failure payload: a success whose output genuinely serialises to `deadbeef01` is attested with exactly those bytes (see the MPC node's [`process_success_tx`](https://github.com/sig-net/mpc/blob/e180584f60c6e44819d0847687589370d2d8d2ee/chain-signatures/node/src/respond_bidirectional.rs#L175)). Guarding against the ambiguity is the integrating contract's responsibility, through its respond serialisation schema:
+
+- **Any packed width other than 5 bytes is fully safe.** The attestation digest covers the output at its full length, so a success attestation and a failure attestation can never verify over each other's output.
+- **A packed width of exactly 5 bytes is vulnerable.** A prefix check is not safe (a legitimate output can begin `0xdeadbeef`), so the contract would have to recompute both candidate digests and check which one the MPC attested. For a genuine success output equal to `deadbeef01` even that fails: the two attestations are byte-identical, indistinguishable to the contract, the dApp and every observer. A contract that refunds on failure would then refund a transaction that actually executed.
+
+**The rule: never give a request a respond serialisation schema that packs to exactly 5 bytes.** If one is truly unavoidable, either ensure the legitimate output domain excludes `deadbeef01`, or design settlement so either interpretation of that value is safe.
+
+A worked example of getting this right is the [erc20-vault contract](https://github.com/sig-net/midnight-examples/blob/main/examples/erc20-vault/contract/src/erc20-vault.compact) in the examples repository. Its respond schemas pack to 1 byte (a transfer's bool) or 8 bytes (a uint64 amount), never 5 bytes, so an attested success only type-fits its `complete*` settle circuits (`Bytes<1>` / `Bytes<8>`). Its four refund circuits share one failure gate, `assertAttestedFailureOutput`, which takes `Bytes<5>` and asserts the exact payload bytes, so only a genuine failure attestation can settle as a refund.
 
 # Integrator Guide
 
@@ -114,7 +158,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
 
    The Compact toolchain requirements in [Prerequisites](#prerequisites) apply to integrators too: compile with the pinned compiler version (currently `compact update 0.33.0-rc.2`) and always pass `--feature-zkir-v3`, as above.
 
-3. Declare the required Sig Network protocol state in your ledger (plus recommended deployer identity and initialisation state). The event map can sit at ANY ledger field. Each notification that your contract emits declares the stored request's id and carries the map's resolved ledger-tree path (see [The request map's ledger-tree path](#the-request-maps-ledger-tree-path)), and the MPC looks the authenticated request up there by that id.
+3. Declare the required Sig Network protocol state in your ledger (plus recommended deployer identity and initialisation state). The event map can sit at ANY ledger field. Each notification that your contract emits declares the stored request's id and carries the map's resolved ledger-tree path (see [The Request Map's Ledger-Tree Path](#the-request-maps-ledger-tree-path)), and the MPC looks the authenticated request up there by that id.
 
    ```compact
    // Required: Map of SignBidirectionalEvent signature requests, configured by transaction type.
@@ -158,7 +202,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    }
    ```
 
-4. Set the contract's MPC response key once, right after deploy. Deriving this key requires the address of the contract, which only exists after deploy (see [Response key](#response-key)):
+4. Set the contract's MPC response key once, right after deploy. Deriving this key requires the address of the contract, which only exists after deploy (see [Response Key](#response-key)):
 
    ```compact
    export circuit initialise(responseKey: Secp256k1Point): [] {
@@ -172,7 +216,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    }
    ```
 
-## The request map's ledger-tree path
+## The Request Map's Ledger-Tree Path
 
 Each notification must tell the MPC where your `signBidirectionalEventMap` sits in your contract's compiled on-chain state, so the MPC can read the authenticated request out of raw contract state. The location is a path in the state tree, passed to `constructSignBidirectionalEventNotificationV1` as two arguments:
 
@@ -194,7 +238,7 @@ Each interaction with your contract that executes a transaction on a foreign cha
 
 Steps 1 and 5 are circuits on your contract, and steps 2 to 4 are off-chain client code built on the utilities in `@sig-net/midnight`.
 
-The off-chain steps share one `SignetRequestResponseReader` over your contract / Signet singleton pair, and the expected signer of the requested transaction (the key the MPC derives for your contract and the request's path, see [Derived keys](#derived-keys)):
+The off-chain steps share one `SignetRequestResponseReader` over your contract / Signet singleton pair, and the expected signer of the requested transaction (the key the MPC derives for your contract and the request's path, see [Derived Keys](#derived-keys)):
 
 ```ts
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
@@ -217,7 +261,7 @@ const reader = new SignetRequestResponseReader({
    // Address of YOUR deployed contract
    requesterContractAddress: myContractAddress,
 
-   // signBidirectionalEventMap's ledger-tree path (see The request map's ledger-tree path)
+   // signBidirectionalEventMap's ledger-tree path (see The Request Map's Ledger-Tree Path)
    requesterRequestsPath: [0],
 
    // Address of the Signet singleton contract
@@ -232,7 +276,7 @@ const reader = new SignetRequestResponseReader({
 });
 
 // The path argument is the MPC's rendering of the exact 32 path bytes the
-// contract stores in its requests, here pad(32, "my-path") (see Derived keys).
+// contract stores in its requests, here pad(32, "my-path") (see Derived Keys).
 const expectedSigner = deriveEvmAddress(
    mpcRootPublicKey,
    myContractAddress,
@@ -244,31 +288,31 @@ const expectedSigner = deriveEvmAddress(
 >
 > **signetContractAddress** is the address of the deployed Signet singleton contract. On a local stack the same setup deploys a fresh singleton, prints the address as `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and appends it to `.env`. For the public networks the addresses are published in `@sig-net/midnight` via `getSignetContractAddress` (placeholders until each deployment lands).
 
-1. Store a signature request and notify the MPC via cross contract call. Build (or overwrite) every part of the transaction your contract enforces in-circuit, calldata above all (see [EVM Type 2 transactions and ABI calldata words](#evm-type-2-transactions-and-abi-calldata-words)). Never pass caller input through unchecked:
+1. Store a signature request and notify the MPC via cross contract call. Build (or overwrite) every part of the transaction your contract enforces in-circuit, calldata above all (see [EVM Type 2 Transactions and ABI Calldata Words](#evm-type-2-transactions-and-abi-calldata-words)). Never pass caller input through unchecked:
 
-```compact
-// Construct SignBidirectionalEvent signature request and calculate its RequestId
-const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(/* ... */);
-const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
+   ```compact
+   // Construct SignBidirectionalEvent signature request and calculate its RequestId
+   const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(/* ... */);
+   const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
-// Store the signature request in your signBidirectionalEventMap for MPC to discover
-signetRequestNonce.increment(1);
-signBidirectionalEventMap.insert(requestId, disclose(request));
+   // Store the signature request in your signBidirectionalEventMap for MPC to discover
+   signetRequestNonce.increment(1);
+   signBidirectionalEventMap.insert(requestId, disclose(request));
 
-// Notify the MPC of the SignBidirectionalEvent and the location of your signBidirectionalEventMap.
-// The map is at ledger field 0 (Setup step 3), so its path is [0] at depth 1
-// (see The request map's ledger-tree path).
-signetSigner.signBidirectional(
-   requestId,
-   constructSignBidirectionalEventNotificationV1(
-      kernel.self(),
-      1 as Uint<8>,                        // requestsPathDepth
-      [0, 0, 0, 0] as Vector<4, Uint<8>>,  // requestsPath, zero padded
-   ),
-);
-```
+   // Notify the MPC of the SignBidirectionalEvent and the location of your signBidirectionalEventMap.
+   // The map is at ledger field 0 (Setup step 3), so its path is [0] at depth 1
+   // (see The Request Map's Ledger-Tree Path).
+   signetSigner.signBidirectional(
+      requestId,
+      constructSignBidirectionalEventNotificationV1(
+         kernel.self(),
+         1 as Uint<8>,                        // requestsPathDepth
+         [0, 0, 0, 0] as Vector<4, Uint<8>>,  // requestsPath, zero padded
+      ),
+   );
+   ```
 
-**NOTE:** Return `requestId` from this circuit call so the client can use it in the next steps. You can also compute it off-chain with the `calculateRequestId` TS twin.
+   **NOTE:** Return `requestId` from this circuit call so the client can use it in the next steps. You can also compute it off-chain with the `calculateRequestId` TS twin.
 
 2. Poll the Signet singleton for the MPC's signature response. The singleton emits each response as a contract event that carries the request id it answers beside the signature. The id is unauthenticated routing data: it scopes the read to your request's posts and proves nothing. The event log is unauthenticated (anyone can post under any id), so use the verifying getter. It only returns a post whose signature recovers to `expectedSigner` over the signing hash of the requested transaction:
 
@@ -307,7 +351,9 @@ signetSigner.signBidirectional(
    signBidirectionalEventMap.remove(requestId);
    ```
 
-## EVM Type 2 transactions and ABI calldata words
+   A foreign transaction that never executed settles through the same verification at the failure payload's own 5-byte width. Route by width and exact bytes, and never choose a respond schema that packs to exactly 5 bytes: see [Handling Failure](#handling-failure).
+
+## EVM Type 2 Transactions and ABI Calldata Words
 
 An `EvmType2TxParams` request decomposes the EVM transaction into typed fields, so your contract can enforce each field in-circuit. Its optional `calldata` is an `EvmCalldata<maxWords>`: the 4-byte function selector plus a list of 32-byte ABI words, per the [Solidity ABI spec](https://docs.soliditylang.org/en/latest/abi-spec.html). Slots past `noWords` are unused capacity and never reach the transaction.
 
@@ -319,7 +365,7 @@ Every word must be stored in canonical ABI form (big-endian). The MPC signs a tr
 | unsigned integers up to `uint128` (amounts, ids) | `numericAbiWord(value: Uint<128>)` | `abiWordToUint128(word)` |
 | `bool` | `boolAbiWord(value: Boolean)` | `abiWordToBool(word)` |
 
-### Example: an ERC20 transfer
+### Example: An ERC20 Transfer
 
 `transfer(address,uint256)`, selector `0xa9059cbb`, takes an address word and a numeric word:
 
@@ -334,7 +380,7 @@ const calldata = EvmCalldata<2> {
 };
 ```
 
-### Example: a bool argument, and decoding a bool result
+### Example: A Bool Argument, and Decoding a Bool Result
 
 `setApprovalForAll(address,bool)`, selector `0xa22cb465`:
 
@@ -372,16 +418,22 @@ For full integration examples (such as an ERC20 cross chain vault) see the [`sig
 
 # Contributor Guide
 
-Get set up for contributing by getting both test layers green: the offline unit tests, then the end to end integration suites.
+First install the [Prerequisites](#prerequisites), then get set up for contributing by getting both test layers green: the offline unit tests, then the end to end integration suites.
 
 Every change must also pass the linter and the formatter, which CI enforces on every pull request. One ESLint flat config (`eslint.config.js`) and one Prettier config (`.prettierrc.json`) at the repo root cover all packages, so there is nothing to configure per package. In VS Code, install the two recommended extensions the editor offers on first open (`dbaeumer.vscode-eslint` and `esbenp.prettier-vscode`) and both run on save.
 
 ## Compiling, Building and Running Unit Tests
 
-Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime, so zk keys are not needed before running them. From the root of the repository:
+Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime, so zk keys are not needed before running them. 
+
+From the root of the repository:
 
 ```sh
-## --- All packages ---
+# Install all dependencies for all workspace members once to start.
+# Run this from the repository root.
+yarn install
+
+## --- Compile, build or test: All Packages (whole workspace, from repository root) ---
 
 # Quick compile: all packages (checks syntax and generates circuits)
 # Runs the compact compiler for each package without generating zk keys (compiler output in the package's src/managed/)
@@ -400,7 +452,7 @@ yarn test
 # zk keys refuse to build without them.
 yarn build
 
-## --- Linting and formatting (whole workspace, from the root) ---
+## --- Linting and formatting: All packages (whole workspace, from repository root) ---
 
 # Check formatting (Prettier). Needs nothing compiled.
 yarn format:check
@@ -412,15 +464,15 @@ yarn format        # rewrite files in place
 yarn lint
 yarn lint:fix      # apply every autofix
 
-## --- Independently (for example) ---
+## --- Compile, build or test a single package independently ---
 
-# The signet-contract package:
+# The @sig-net/midnight-contract package:
 yarn compile:signet-contract
 yarn compile:signet-contract:zk  # generates signet-contract zk keys
 yarn test:signet-contract        # requires at least 'yarn compile:signet-contract'
 yarn build:signet-contract       # requires 'yarn compile:signet-contract:zk'
 
-# The signet-midnight package:
+# The @sig-net/midnight SDK package:
 yarn compile:signet-midnight  # NOTE: no :zk option
 yarn test:signet-midnight     # requires 'yarn compile:signet-midnight'
 yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
@@ -470,9 +522,9 @@ Use your /e2e skill to get the integration suite running for me, from fresh clon
 
 **NOTE:** every `compact compile` against this stack must pass the `--feature-zkir-v3` flag: it is part of the pinned ledger-9 matched set (compiler, node, indexer, proof server), and output compiled without it is not compatible with that stack. This repository's compile scripts already pass it. Integrators compiling their own contracts must pass it themselves (as shown in the [Integrator Guide](#integrator-guide)).
 
-**NOTE:** the midnight proof server is quite heavy. It is recommended that you allocate at least 16 GB of RAM to your docker environment, otherwise expect to have to restart the tests as the proof server hangs.
+**NOTE:** the Midnight proof server is quite heavy. It is recommended that you allocate at least 16 GB of RAM to your docker environment, otherwise expect to have to restart the tests as the proof server hangs.
 
-## Matched set
+## Matched Set
 
 These versions move together. Bumping one alone produces a stack that compiles but does not interoperate, and the failure is usually silent: a responder that does not recognise a request simply never answers it.
 
@@ -486,7 +538,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
 | `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
 
-**NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). `fakenet:0.18.0` is built against 0.21.0-rc.1 and serves the public `/responses/{requestId}` helper API on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), from which the integration tests fetch each request's raw traced EVM output.
+**NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). `fakenet:0.18.0` is built against 0.21.0-rc.2 and serves the public `/responses/{requestId}` helper API on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), from which the integration tests fetch each request's raw traced EVM output.
 
 # Packages
 

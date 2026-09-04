@@ -2,7 +2,7 @@
 
 The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-net/mpc) integration for the [Midnight blockchain](https://midnight.network) lets contracts on Midnight execute arbitrary transactions on foreign blockchains, and respond to the results of those transactions.
 
-`@sig-net/midnight` is the client-agnostic protocol library for that integration. It carries everything a Midnight contract or off-chain client needs to speak the signet protocol (the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow)). It does not bind to any particular contract.
+`@sig-net/midnight` is the client-agnostic protocol library for that integration. It carries everything a Midnight contract or off-chain client needs to speak the signet protocol (the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow)). It does not bind to any particular contract.
 
 > ## 🚧 Under Construction 🚧
 >
@@ -33,7 +33,7 @@ npm install @sig-net/midnight
 
 The protocol and integration documentation lives in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md):
 
-- [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow): the 5-step protocol this package speaks, with diagram, failure handling and output recovery.
+- [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow): the 5-step protocol this package speaks, with diagram, failure handling and output recovery.
 - [Derived keys](https://github.com/sig-net/midnight-integration/blob/main/README.md#derived-keys): the request signing key and the response key, and how the MPC derives them.
 - [Integrator Guide](https://github.com/sig-net/midnight-integration/blob/main/README.md#integrator-guide): the once-off setup and the per-request runtime steps, built on this package's exports.
 - [EVM Type 2 transactions and ABI calldata words](https://github.com/sig-net/midnight-integration/blob/main/README.md#evm-type-2-transactions-and-abi-calldata-words): building calldata words in-circuit and deserialising respond payloads.

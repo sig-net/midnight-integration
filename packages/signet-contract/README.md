@@ -1,6 +1,6 @@
 # @sig-net/midnight-contract
 
-The central [Sig Network](https://sig.network) signet contract on the [Midnight blockchain](https://midnight.network): the singleton that exposes the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow) to other Midnight contracts. Every circuit emits a named contract event: the MPC posts back through the contract, and clients poll its events.
+The central [Sig Network](https://sig.network) signet contract on the [Midnight blockchain](https://midnight.network): the singleton that exposes the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow) to other Midnight contracts. Every circuit emits a named contract event: the MPC posts back through the contract, and clients poll its events.
 
 ## What is in it
 
@@ -19,7 +19,7 @@ npm install @sig-net/midnight-contract
 
 The protocol and integration documentation lives in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md):
 
-- [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-flow): the 5-step protocol this contract relays, with diagram, failure handling and output recovery: which circuit each step calls and which event it emits.
+- [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow): the 5-step protocol this contract relays, with diagram, failure handling and output recovery: which circuit each step calls and which event it emits.
 - [Integrator Guide](https://github.com/sig-net/midnight-integration/blob/main/README.md#integrator-guide): how client contracts and dApps drive this contract's circuits and events per request.
 
 ## Related packages
