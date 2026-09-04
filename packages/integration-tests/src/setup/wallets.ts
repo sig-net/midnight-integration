@@ -33,7 +33,7 @@ import {
 import { requireEnv } from "../e2e-env.ts";
 import { appendRepoDotEnv } from "../env-file.ts";
 import { banner, logSkip } from "../output.ts";
-import { retryWhileDustGenerates } from "./steps.ts";
+import { explainDustSpendRejection } from "./steps.ts";
 
 /** One wallet role: its display label and the env var holding its seed. */
 interface RoleWallet {
@@ -183,9 +183,7 @@ export async function ensureWalletsFunded(env: NodeJS.ProcessEnv): Promise<void>
     console.log(
       `${child.label} not fee-ready (NIGHT ${String(funding.night)}, DUST ${String(funding.dust)}) — funding ${String(amount)} from root`,
     );
-    // Retry-safe: fundChildFromRoot re-reads the child's balance each attempt
-    // and skips the transfer once the NIGHT has landed.
-    const funded = await retryWhileDustGenerates(`fund ${child.label}`, () =>
+    const funded = await explainDustSpendRejection(`fund ${child.label}`, () =>
       fundChildFromRoot(
         config,
         requireEnv(env, ROOT.envVar),

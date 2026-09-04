@@ -194,6 +194,7 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   hashed struct. Keep every enum in hashed structs at ≥ 2 variants.
 - `Wallet.InsufficientFunds` / "could not balance dust" on a young dev
   chain is transient (dust generates block by block from genesis NIGHT).
-  The deploy steps already retry for ~6 minutes.
+  The deploy plumbing retries the balancing step for ~6 minutes before
+  surfacing it.
 - `DustDoubleSpend` (node `Custom error: 196`): stale local wallet dust
   view. Transient: rerun, and a fresh wallet session resyncs.

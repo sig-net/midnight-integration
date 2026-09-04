@@ -123,58 +123,41 @@ export async function compileSignetContract(env: NodeJS.ProcessEnv): Promise<voi
 }
 
 /**
- * Run a fee-paying call (a deploy, a root-to-child funding transfer),
- * retrying while the paying wallet cannot yet cover the fee. On a freshly
- * started dev chain DUST generates block by block from the genesis NIGHT,
- * so the first fee-paying transactions can race the chain's first minutes:
- * `Wallet.InsufficientFunds` ("could not balance dust") is transient there.
- * A genuinely unfunded wallet fails fast in {@link ensureDeployerDust}
- * instead, so the bounded retry here cannot mask real underfunding.
+ * Run a fee-paying call (a deploy, a root-to-child funding transfer) and
+ * translate the one opaque node rejection a local stack produces. Waiting
+ * for DUST is not this function's job: the deploy plumbing retries the
+ * balancing step itself while dust generates, and a wallet with nothing to
+ * generate from fails fast in `ensureFeeReady` with a funding hint.
  *
- * @param what - Step label for the retry log lines.
- * @param action - The fee-paying call to (re)attempt.
+ * @param what - Step label for the error message.
+ * @param action - The fee-paying call.
  * @returns Whatever `action` resolves to.
- * @throws {Error} The last error when attempts are exhausted, or immediately for
- *   any error that is not the transient insufficient-dust failure.
+ * @throws {Error} Node error 1010 / "Custom error: 170" (InvalidDustSpendProof)
+ *   wrapped with the stack-reset hint, as the raw message is opaque. Any
+ *   other error passes through unchanged.
  */
-export async function retryWhileDustGenerates<T>(
+export async function explainDustSpendRejection<T>(
   what: string,
   action: () => Promise<T>,
 ): Promise<T> {
-  const RETRY_DELAY_MS = 15_000;
-  const MAX_ATTEMPTS = 24; // ~6 minutes: a young dev chain generates plenty by then
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await action();
-    } catch (error) {
-      const message = String(error);
-      const transient =
-        message.includes("InsufficientFunds") || message.includes("could not balance dust");
-      if (!transient || attempt >= MAX_ATTEMPTS) {
-        // Node error 1010 / "Custom error: 170" is InvalidDustSpendProof:
-        // the local chain has diverged from the wallet's view. Wrap it with
-        // the recovery hint, as the raw node message is opaque.
-        if (
-          message.includes("Custom error: 170") ||
-          message.includes("InvalidDustSpendProof") ||
-          /\b1010\b/.test(message)
-        ) {
-          throw new Error(
-            `${what}: node rejected the dust spend (error 170 = InvalidDustSpendProof). ` +
-              "The local chain has diverged from the wallet's dust state: reset the stack " +
-              "(docker compose down and up, then redeploy) before rerunning. " +
-              `Original error: ${message}`,
-            { cause: error },
-          );
-        }
-        throw error;
-      }
-      console.log(
-        `${what}: the paying wallet cannot cover the fee yet (dust still generating on a young chain?),` +
-          ` retrying in ${String(RETRY_DELAY_MS / 1000)}s (attempt ${String(attempt)}/${String(MAX_ATTEMPTS)})`,
+  try {
+    return await action();
+  } catch (error) {
+    const message = String(error);
+    if (
+      message.includes("Custom error: 170") ||
+      message.includes("InvalidDustSpendProof") ||
+      /\b1010\b/.test(message)
+    ) {
+      throw new Error(
+        `${what}: node rejected the dust spend (error 170 = InvalidDustSpendProof). ` +
+          "The local chain has diverged from the wallet's dust state: reset the stack " +
+          "(docker compose down and up, then redeploy) before rerunning. " +
+          `Original error: ${message}`,
+        { cause: error },
       );
-      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
     }
+    throw error;
   }
 }
 
@@ -191,7 +174,7 @@ export async function deploySignetContractStep(env: NodeJS.ProcessEnv): Promise<
     );
     return;
   }
-  const { contractAddress } = await retryWhileDustGenerates("deploy:signet-contract", () =>
+  const { contractAddress } = await explainDustSpendRejection("deploy:signet-contract", () =>
     deploySignetContract(env),
   );
   env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS = contractAddress;
