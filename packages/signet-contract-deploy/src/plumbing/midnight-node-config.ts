@@ -63,13 +63,15 @@ export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
   },
 };
 
-// Faucet URLs for the networks that publish one, for underfunded-wallet
-// hints. The local standalone chain funds via genesis, not a faucet, so it
-// has no entry, and the *.midnight.network faucet URLs stay out until they
-// are confirmed. A network with no entry here takes its URL from the
-// MIDNIGHT_FAUCET_URL environment variable (see {@link getFaucetUrl}), and
-// without that the hint degrades to a generic "fund via the network's faucet".
-/** Known faucet URLs per network, used to build the fund-your-wallet hint. */
+/**
+ * Faucet URLs per test network, for the fund-your-wallet hint: stagenet's
+ * own faucet, and the Nethermind-hosted Midnight faucets for preview and
+ * preprod. Mainnet carries real value and has no faucet, and the local
+ * standalone chain funds via genesis, so neither has an entry. The
+ * MIDNIGHT_FAUCET_URL environment variable overrides any entry and supplies
+ * one where there is none (see {@link getFaucetUrl}), and without either the
+ * hint degrades to a generic "fund via the network's faucet".
+ */
 export const FAUCET_URLS: Partial<Record<NetworkId, string>> = {
   [MidnightNetwork.Stagenet]: "https://faucet.stagenet.shielded.tools",
   [MidnightNetwork.Preview]: "https://midnight-tmnight-preview.nethermind.dev",
