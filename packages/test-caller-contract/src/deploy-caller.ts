@@ -10,11 +10,10 @@
 // built), so it is pinned afterwards via the contract's one-shot
 // `initialise` circuit — see the integration-tests flow.
 
-import { hexToBytes, stripHexPrefix } from "@sig-net/midnight";
+import { contractAddressFromHex, hexToBytes, stripHexPrefix } from "@sig-net/midnight";
 import { envOrUndefined } from "@sig-net/midnight-contract-deploy";
 import {
   buildDeployTransaction,
-  contractAddressToReference,
   deriveAccountKeys,
   ensureFeeReady,
   getDeployConfig,
@@ -100,7 +99,7 @@ export async function deployCaller(
       "MIDNIGHT_SIGNET_CONTRACT_ADDRESS is required (deploy the signet contract first)",
     );
   }
-  const signetSigner = contractAddressToReference(signetContractAddress);
+  const signetSigner = contractAddressFromHex(signetContractAddress);
 
   const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
 

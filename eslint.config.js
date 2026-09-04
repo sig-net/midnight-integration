@@ -97,8 +97,8 @@ export default defineConfig([
 
   {
     name: "workspace/jsdoc",
-    // Package sources plus the package-root tsx entrypoints, which carry the
-    // same documentation mandate as the code they drive.
+    // The package-root tsx entrypoints carry the same documentation mandate
+    // as the src they drive.
     files: ["**/src/**/*.ts", "**/deploy.ts", "**/record-contract-address.ts"],
     extends: [jsdoc.configs["flat/recommended-typescript-error"]],
     rules: {
