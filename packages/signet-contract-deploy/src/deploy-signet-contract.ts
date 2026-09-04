@@ -6,11 +6,9 @@
 // package's compiled assets to carry keys (its published dist/managed
 // always does; an in-repo checkout needs `yarn compile:zk`).
 
-import {
-  assertDeployerFunded,
-  buildDeployTransaction,
-  getDeployConfig,
-} from "./plumbing/deploy.ts";
+import { buildDeployTransaction, getDeployConfig } from "./plumbing/deploy.ts";
+import { ensureFeeReady } from "./plumbing/funding.ts";
+import { getFaucetUrl } from "./plumbing/midnight-node-config.ts";
 import {
   deriveAccountKeys,
   submitUnprovenTransaction,
@@ -34,12 +32,17 @@ export interface SignetContractDeployment {
  * Deploy the signet contract: read config from `env`, build and prove the
  * deploy transaction and submit it through a synced wallet. Progress is
  * logged to the console. The contract takes no constructor arguments. Any
- * funded wallet can deploy; nothing about the deployer is sealed.
+ * funded wallet can deploy, and nothing about the deployer is sealed. The wallet
+ * needs NIGHT only: {@link ensureFeeReady} registers it for dust generation
+ * and waits for the first spendable DUST when the wallet has none yet.
  *
  * @param env - Environment map providing `DEPLOYER_SEED` and the shared
  *   Midnight node configuration (see `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
- * @throws {Error} If the deployer wallet holds no funds or submission fails.
+ * @throws {WalletUnfundedError} If the deployer wallet holds neither NIGHT
+ *   nor DUST: the error carries the wallet's NIGHT receive address to fund.
+ * @throws {Error} If no spendable DUST appears after registering the wallet's
+ *   NIGHT, or submission fails.
  */
 export async function deploySignetContract(
   env: Record<string, string | undefined> = process.env,
@@ -57,7 +60,7 @@ export async function deploySignetContract(
     accountKeys,
     deployConfig.midnightNodeConfig,
     async (facade, state) => {
-      assertDeployerFunded(state);
+      await ensureFeeReady(facade, accountKeys, state, networkId, getFaucetUrl(env, networkId));
 
       const deployTransaction = await buildDeployTransaction(
         signetContractCompiledContract,

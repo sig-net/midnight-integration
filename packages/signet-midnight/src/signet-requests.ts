@@ -15,7 +15,7 @@ import {
   CompactTypeEnum,
 } from "@midnight-ntwrk/compact-runtime";
 
-import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
+import { bytesToHex, hexToBytes, stripHexPrefix } from "./byte-codecs.ts";
 import {
   BYTES_32,
   BYTES_64,
@@ -29,6 +29,24 @@ import type { EvmType2TxParams } from "./signet-evtype2tx-requests.ts";
 
 // Public re-export: these types appear throughout the request record's shape.
 export type { ContractAddress, Maybe } from "./compact-descriptors.ts";
+
+/**
+ * Parse a contract address from its hex rendering (optional `0x`/`0X`
+ * prefix): the form the deploy flow prints, the environment carries and the
+ * published per-network table stores. The inverse of rendering
+ * {@link ContractAddress.bytes} with {@link bytesToHex}.
+ *
+ * @param hex - The 32-byte contract address in hex.
+ * @returns The typed contract address.
+ * @throws {Error} If the string is not exactly 32 bytes of hex.
+ */
+export function contractAddressFromHex(hex: string): ContractAddress {
+  const digits = stripHexPrefix(hex);
+  if (!/^[0-9a-fA-F]{64}$/.test(digits)) {
+    throw new Error(`not a 32-byte contract address in hex: "${hex}"`);
+  }
+  return { bytes: hexToBytes(digits) };
+}
 
 /**
  * 32-byte signet request id (Compact: `new type RequestId = Bytes<32>`).

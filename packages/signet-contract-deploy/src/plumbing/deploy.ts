@@ -15,7 +15,6 @@ import { ZKFileConfiguration } from "@midnight-ntwrk/compact-js-node/effect";
 import * as CoinPublicKey from "@midnight-ntwrk/platform-js/effect/CoinPublicKey";
 import * as Configuration from "@midnight-ntwrk/platform-js/effect/Configuration";
 import * as ledger from "@midnightntwrk/ledger-v9";
-import type { FacadeState } from "@midnightntwrk/wallet-sdk-facade";
 import { Effect, Layer, Option, type Types } from "effect";
 
 import { envOrUndefined } from "./env.ts";
@@ -162,28 +161,6 @@ export function makeVacantCompiledContract<C extends Contract.Contract<PS>, PS>(
   return CompiledContract.withCompiledFileAssets(vacant, managedDirPath);
 }
 
-/**
- * Convert a contract address (hex, optional `0x`) into the reference shape a
- * Compact contract-typed constructor arg expects: `{ bytes: Uint8Array(32) }`.
- * Deploy scripts use this to seal a cross-contract reference (e.g. the
- * central signet contract) read from the environment.
- *
- * @param contractAddress - The 32-byte contract address in hex.
- * @returns The `{ bytes }` reference.
- * @throws {Error} If the address is not 32 bytes of hex.
- */
-export function contractAddressToReference(contractAddress: string): { bytes: Uint8Array } {
-  const hex = contractAddress.startsWith("0x") ? contractAddress.slice(2) : contractAddress;
-  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
-    throw new Error(`not a 32-byte contract address in hex: "${contractAddress}"`);
-  }
-  const bytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return { bytes };
-}
-
 // How long the deploy intent stays valid before it must be re-built.
 const DEPLOY_TTL_MS = 30 * 60 * 1000;
 
@@ -251,21 +228,4 @@ export async function buildDeployTransaction<C extends Contract.Contract<PS>, PS
     contractAddress: deploy.address,
     serializedTransaction: transaction.serialize(),
   };
-}
-
-/**
- * Fail fast when the deployer wallet cannot pay for a transaction: fees are
- * paid in DUST, which only generates on NIGHT registered for dust generation.
- *
- * @param state - The synced facade state to inspect (see `withSyncedWalletFacade` in wallet.ts).
- * @throws {Error} If the deployer's spendable DUST balance is zero.
- */
-export function assertDeployerFunded(state: FacadeState): void {
-  const dust = state.dust.balance(new Date());
-  if (dust > 0n) return;
-  const night = Object.values(state.unshielded.balances).reduce((sum, value) => sum + value, 0n);
-  throw new Error(
-    `deployer wallet has no DUST to pay fees (NIGHT balance: ${String(night)}). ` +
-      "Fund the wallet with NIGHT and register it for dust generation, then retry.",
-  );
 }

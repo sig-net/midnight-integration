@@ -12,7 +12,7 @@ import { requireEnv } from "../e2e-env.ts";
 import { logSkip } from "../output.ts";
 import { assertCommandAvailable, assertHttpReachable } from "../preflight.ts";
 import { runRootScript } from "../subprocess.ts";
-import { retryWhileDustGenerates, trustsPrebuiltZkKeys } from "./steps.ts";
+import { explainDustSpendRejection, trustsPrebuiltZkKeys } from "./steps.ts";
 
 const MINUTE = 60_000;
 
@@ -97,7 +97,7 @@ export async function deployCallerContractStep(env: NodeJS.ProcessEnv): Promise<
     );
     return;
   }
-  const { contractAddress } = await retryWhileDustGenerates("deploy:test-caller-contract", () =>
+  const { contractAddress } = await explainDustSpendRejection("deploy:test-caller-contract", () =>
     deployCaller(env),
   );
   env.MIDNIGHT_CALLER_CONTRACT_ADDRESS = contractAddress;

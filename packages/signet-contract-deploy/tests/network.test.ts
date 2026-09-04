@@ -35,16 +35,18 @@ describe("network ids", () => {
   );
 });
 
-// Stagenet's endpoints are deliberately not published in this repo: the
-// defaults are blank and the environment must supply them.
 describe("getMidnightNodeConfig for stagenet", () => {
-  it("REQUIRES the endpoint env vars, failing with the exact names to set", () => {
-    expect(() => getMidnightNodeConfig({ NETWORK_ID: "stagenet" })).toThrow(
-      /MIDNIGHT_NODE_URL, MIDNIGHT_NODE_INDEXER_URL, MIDNIGHT_NODE_INDEXER_WS_URL/,
-    );
+  it("resolves the built-in endpoints from NETWORK_ID alone", () => {
+    expect(getMidnightNodeConfig({ NETWORK_ID: "stagenet" })).toEqual({
+      networkId: "stagenet",
+      indexerUrl: "https://indexer.stagenet.shielded.tools/api/v4/graphql",
+      indexerWsUrl: "wss://indexer.stagenet.shielded.tools/api/v4/graphql/ws",
+      nodeUrl: "https://rpc.stagenet.shielded.tools",
+      proofServerUrl: "http://127.0.0.1:6300",
+    });
   });
 
-  it("resolves env-provided endpoints (WS twin derived from the indexer URL)", () => {
+  it("resolves env-provided endpoints over the defaults (WS twin derived from the indexer URL)", () => {
     const config = getMidnightNodeConfig({
       NETWORK_ID: "stagenet",
       MIDNIGHT_NODE_URL: "https://node.example",
@@ -59,9 +61,9 @@ describe("getMidnightNodeConfig for stagenet", () => {
     });
   });
 
-  it("publishes no stagenet faucet URL; MIDNIGHT_FAUCET_URL supplies one", () => {
-    expect(FAUCET_URLS.stagenet).toBeUndefined();
-    expect(getFaucetUrl({}, "stagenet")).toBeUndefined();
+  it("publishes the stagenet faucet URL, which MIDNIGHT_FAUCET_URL overrides", () => {
+    expect(FAUCET_URLS.stagenet).toBe("https://faucet.stagenet.shielded.tools");
+    expect(getFaucetUrl({}, "stagenet")).toBe("https://faucet.stagenet.shielded.tools");
     expect(getFaucetUrl({ MIDNIGHT_FAUCET_URL: "https://faucet.example" }, "stagenet")).toBe(
       "https://faucet.example",
     );

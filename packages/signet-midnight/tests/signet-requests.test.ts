@@ -7,7 +7,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   calculateRequestId,
+  contractAddressFromHex,
   evmAddressAbiWord,
+  hexToBytes,
   MPCDestination,
   MPCSignatureAlgorithm,
   numericAbiWord,
@@ -105,5 +107,26 @@ describe("toSignBidirectionalEventIndex", () => {
 
   it("an empty iterable gives an empty index", () => {
     expect(toSignBidirectionalEventIndex([]).size).toBe(0);
+  });
+});
+
+describe("contractAddressFromHex", () => {
+  const HEX = "1df4ce25fc9f9c03dc6f4d0eb12ddf3d0db094995d4c70aca1142eebb3b77a5d";
+
+  it.each([
+    ["bare lowercase hex", HEX],
+    ["a 0x prefix", `0x${HEX}`],
+    ["a 0X prefix and uppercase digits", `0X${HEX.toUpperCase()}`],
+  ])("accepts %s", (_name, hex) => {
+    expect(contractAddressFromHex(hex)).toEqual({ bytes: hexToBytes(HEX) });
+  });
+
+  it.each([
+    ["31 bytes", HEX.slice(2)],
+    ["33 bytes", `${HEX}00`],
+    ["a non-hex digit", `g${HEX.slice(1)}`],
+    ["the empty string", ""],
+  ])("rejects %s", (_name, hex) => {
+    expect(() => contractAddressFromHex(hex)).toThrow(/not a 32-byte contract address in hex/);
   });
 });
