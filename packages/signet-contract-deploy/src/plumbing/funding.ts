@@ -92,22 +92,24 @@ export function isFeeReady(funding: AccountFunding): boolean {
 /**
  * Bring one wallet to fee-ready and return its spendable DUST balance. Fees
  * are paid in DUST, which only generates on NIGHT registered for dust
- * generation, so a wallet holding unregistered NIGHT is registered here and
- * then waited on until its first dust appears (a few blocks). A wallet that
- * already has spendable dust is left untouched, and one holding NIGHT that is
- * already registered simply waits. The facade must be started and synced, and
- * `state` must be its synced state (see `withSyncedWalletFacade` in wallet.ts).
+ * generation, so every unregistered NIGHT UTXO the wallet holds is registered
+ * here first, whatever its current dust: a faucet top-up or transfer change
+ * arrives unregistered, and leaving it so while older dust lasts would let
+ * the wallet's dust generation shrink with every spend. Then a wallet with
+ * spendable dust returns it, and one without waits until its first dust
+ * appears (a few blocks). The facade must be started and synced, and `state`
+ * must be its synced state (see `withSyncedWalletFacade` in wallet.ts).
  *
  * @param facade - A started wallet facade for `keys`, which submits the registration.
- * @param keys - The key material of the same wallet; its keystore signs the registration.
+ * @param keys - The key material of the same wallet. Its keystore signs the registration.
  * @param state - The synced facade state the balances and NIGHT UTXOs are read from.
  * @param networkId - The network the wallet lives on, which prefixes the
  *   NIGHT receive address the no-NIGHT error prints for faucet funding.
  * @param faucetUrl - The network's faucet for the no-NIGHT hint, when one is known.
  * @returns The wallet's spendable DUST balance, always positive.
- * @throws {Error} If the wallet holds no NIGHT at all (the message carries the
- *   wallet's NIGHT receive address to fund), or no dust appears in time after
- *   registration (see {@link waitForSpendableDust}).
+ * @throws {Error} If the wallet holds neither NIGHT nor DUST (the message
+ *   carries the wallet's NIGHT receive address to fund), or no dust appears
+ *   in time after registration (see {@link waitForSpendableDust}).
  */
 export async function ensureFeeReady(
   facade: WalletFacade,
@@ -117,8 +119,8 @@ export async function ensureFeeReady(
   faucetUrl?: string,
 ): Promise<bigint> {
   const dust = state.dust.balance(new Date());
-  if (dust > 0n) return dust;
   if (totalNight(state) === 0n) {
+    if (dust > 0n) return dust;
     const { unshielded } = deriveAddresses(keys, networkId);
     const where = faucetUrl ? `at ${faucetUrl}` : "via the network's faucet";
     throw new Error(
@@ -128,9 +130,11 @@ export async function ensureFeeReady(
     );
   }
   const registered = await registerNightForDustGeneration(facade, keys, state);
-  console.log(
-    `registered ${String(registered)} NIGHT UTXO(s) for dust generation, waiting for spendable DUST...`,
-  );
+  if (registered > 0) {
+    console.log(`registered ${String(registered)} NIGHT UTXO(s) for dust generation`);
+  }
+  if (dust > 0n) return dust;
+  console.log("waiting for spendable DUST...");
   return waitForSpendableDust(facade);
 }
 
