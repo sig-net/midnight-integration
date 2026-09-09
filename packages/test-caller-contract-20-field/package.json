@@ -16,7 +16,7 @@
     "@sig-net/midnight": "workspace:*"
   },
   "devDependencies": {
-    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
+    "@midnight-ntwrk/compact-runtime": "0.19.0",
     "@types/node": "^26.1.0",
     "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^7.0.2",

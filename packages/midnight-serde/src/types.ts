@@ -14,7 +14,7 @@
  */
 export const FIELD_MODULUS = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001n;
 
-/** Maximum `Uint` width accepted by compactc 0.33 (bits). */
+/** Maximum `Uint` width accepted by compactc 0.34 (bits). */
 export const MAX_UINT_BITS = 248;
 
 /**

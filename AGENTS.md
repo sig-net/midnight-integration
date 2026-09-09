@@ -78,10 +78,10 @@ exception for that specific case.
   is not deprecated (from the `yarn npm info` above), and after install
   `yarn npm audit` reports no new advisory. The compact toolchain is likewise
   PINNED, not floating: the launcher (`compact-v0.5.1`) and the compiler
-  (`compactc 0.33.0-rc.2`) are fetched by EXACT URL in the CI/publish workflows,
-  which set `0.33.0-rc.2` as the launcher default; the compile scripts call
+  (`compactc 0.34.0`) are fetched by EXACT URL in the CI/publish workflows,
+  which set `0.34.0` as the launcher default; the compile scripts call
   `compact compile` against that default, so locally you must pin the same default
-  (`compact update 0.33.0-rc.2`) or your `managed/` output will diverge. The
+  (`compact update 0.34.0`) or your `managed/` output will diverge. The
   launcher tag, the compiler URL, the SHA-256 checksums the workflows verify for
   the two downloads (installer script and compactc zip), the workflow cache
   keys, the npm `@midnightntwrk/*` stack, and the README's Prerequisites and
@@ -156,6 +156,19 @@ exception for that specific case.
   guard on decoded chain data reads as necessary to both the compiler and the
   linter. Prefer `for (const x of bytes.subarray(a, b))` over an index loop:
   iteration yields `T`, indexing yields `T | undefined`.
+- **Every `compact compile` passes `--feature-zkir-v3`, and `yarn check-zkir`
+  enforces it.** The flag does two separable jobs: it makes the secp256k1
+  types (`Secp256k1Point`, `Secp256k1Scalar`) exist at all, and it selects
+  ZKIR v3 over the compiler's default of v2. A package that reaches the ECDSA
+  circuits fails loudly without it (`unbound identifier Secp256k1Point`), but
+  a package that does not fails SILENTLY: the emitted TypeScript is
+  byte-identical, so compile, lint, build and the whole unit suite pass while
+  the proving artifacts and verifier keys diverge from what is deployed. The
+  guard (`scripts/check-zkir-version.sh`) checks both the source (every
+  compile script carries the flag) and the output (every emitted `.zkir`
+  declares version 3), and fails if either input set comes up empty rather
+  than reporting a vacuous pass. It runs automatically at the end of `yarn
+  compile` and `yarn compile:zk`.
 - **NEVER commit generated compiler output.** Each contract package's
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
   compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run

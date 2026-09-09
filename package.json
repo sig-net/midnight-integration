@@ -13,8 +13,9 @@
     "lint:fix": "eslint . --fix --concurrency=auto",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "compile": "yarn workspaces foreach --all --exclude midnight-protocol --topological run compile",
-    "compile:zk": "yarn workspaces foreach --all --exclude midnight-protocol --topological run compile:zk",
+    "compile": "yarn workspaces foreach --all --exclude midnight-protocol --topological run compile && yarn check-zkir",
+    "compile:zk": "yarn workspaces foreach --all --exclude midnight-protocol --topological run compile:zk && yarn check-zkir",
+    "check-zkir": "sh scripts/check-zkir-version.sh",
     "compile:test-caller-contract": "yarn workspace @midnight-protocol/test-caller-contract run compile",
     "compile:test-caller-contract:zk": "yarn workspace @midnight-protocol/test-caller-contract run compile:zk",
     "compile:test-caller-contract-20-field": "yarn workspace @midnight-protocol/test-caller-contract-20-field run compile",
@@ -48,6 +49,8 @@
     "typescript-eslint": "^8.66.0"
   },
   "resolutions": {
+    "@midnight-ntwrk/compact-runtime": "0.19.0",
+    "effect": "3.22.1",
     "@midnightntwrk/ledger-v9": "1.0.0-rc.3",
     "@midnightntwrk/onchain-runtime-v4": "4.0.0-rc.3",
     "@midnightntwrk/wallet-sdk-address-format": "4.0.0-beta.2"

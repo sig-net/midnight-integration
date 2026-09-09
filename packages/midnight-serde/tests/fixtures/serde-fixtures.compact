@@ -67,7 +67,7 @@ struct VectorsPlain {
 }
 
 // 2 * 24 + 2 * 2 * 1 = 52 bytes packed. DESERIALIZE-ONLY: serialize<T, N>
-// over a Vector of structs or a Vector of Vectors crashes compactc 0.33 with
+// over a Vector of structs or a Vector of Vectors crashes compactc 0.34 with
 // an internal error ("encountered undefined identifier %t.0"), while
 // deserialize<T, N> of the same type compiles and works. Pinned by the tests:
 // off-chain encoders CAN emit these layouts for contracts to read, but a
@@ -84,7 +84,7 @@ struct Inner {
 }
 
 // 24 + 25 + 1 = 50 bytes packed. DESERIALIZE-ONLY: TWO levels of struct
-// nesting crash serialize<T, N> in compactc 0.33 with the same internal error
+// nesting crash serialize<T, N> in compactc 0.34 with the same internal error
 // as VectorsDeep, while deserialize<T, N> handles the shape fine.
 struct Nested {
   pair: Pair;
@@ -197,7 +197,7 @@ export pure circuit deTuple(data: Bytes<7>): [Boolean, Uint<16>, Bytes<4>] {
 }
 
 // Tuple containing a struct, exact packed size (24 + 1 = 25). Note this
-// COMPILES in the serialize direction: the compactc 0.33 crash is specific
+// COMPILES in the serialize direction: the compactc 0.34 crash is specific
 // to Vector<n, Struct>, not to tuples holding structs.
 export pure circuit serTuplePair(v: [Pair, Boolean]): Bytes<25> {
   return serialize<[Pair, Boolean], 25>(v);

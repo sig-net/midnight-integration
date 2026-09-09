@@ -122,38 +122,30 @@ jobs:
             echo "85e74a53ae4a67b31fa4d854f3b6ffb4c29f7c53e3372c5008b6a4729a8b4a73  /tmp/compact-installer.sh" | sha256sum -c
             sh /tmp/compact-installer.sh
           fi
-          # The workspace tracks the ledger-9 toolchain line: compactc
-          # 0.33.0-rc.2 is a PRERELEASE published on the toolchain's LF home
-          # (LFDT-Minokawa/compact), which the launcher's channel does not
-          # list. Download it directly and let the launcher adopt it. Part of
-          # the ledger-9 MATCHED SET (see docker-compose.yaml's image-tag
-          # comment). Bump it together with the npm stack.
-          RC_DIR="$HOME/.compact/versions/0.33.0-rc.2/x86_64-unknown-linux-musl"
-          if [ ! -x "$RC_DIR/compactc" ]; then
-            mkdir -p "$RC_DIR"
-            curl -fsSL --retry 4 -o /tmp/compactc-rc.zip \
-              https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.2/compactc_v0.33.0-rc.2_x86_64-unknown-linux-musl.zip
-            echo "3055ab92bbc8d5bb0d6282b661b83761d2a0de2ee37e21cf7107e25aaf2a9aad  /tmp/compactc-rc.zip" | sha256sum -c
-            unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
-            chmod +x "$RC_DIR"/*
+          # compactc 0.34.0 fetched by exact URL and checksum-verified rather
+          # than via `compact update`, which pins no digest. Part of the
+          # ledger-9 matched set (see docker-compose.yaml). Bump it with the
+          # npm stack.
+          COMPACTC_DIR="$HOME/.compact/versions/0.34.0/x86_64-unknown-linux-musl"
+          if [ ! -x "$COMPACTC_DIR/compactc" ]; then
+            mkdir -p "$COMPACTC_DIR"
+            curl -fsSL --retry 4 -o /tmp/compactc.zip \
+              https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.34.0/compactc_v0.34.0_x86_64-unknown-linux-musl.zip
+            echo "775ccddf5a71399835329bbf7471ba5a8c54fcc825d372c75e19ba7042069584  /tmp/compactc.zip" | sha256sum -c
+            unzip -qo /tmp/compactc.zip -d "$COMPACTC_DIR"
+            chmod +x "$COMPACTC_DIR"/*
           fi
           # `compact update <ver>` adopts an already-on-disk version without
           # downloading. If the launcher refuses (version not in its
           # channel), wire the default symlinks it would have created.
-          compact update 0.33.0-rc.2 || ln -sfn "$RC_DIR"/* "$HOME/.compact/bin/"
+          compact update 0.34.0 || ln -sfn "$COMPACTC_DIR"/* "$HOME/.compact/bin/"
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
         run: |
-          # The zk-key cache must bust whenever the compiler BUILD changes,
-          # but `compact compile --version` drops the -rc suffix (rc.0 and
-          # rc.2 both print 0.33.0), so an rc bump would silently reuse the
-          # old rc's cached managed/ output against a newer runtime. Read the
-          # rc-qualified version from the default compiler's version directory
-          # (…/versions/<version>/<arch>/compactc) instead.
-          target="$(readlink -f "$(command -v compactc)")"
-          version="$(basename "$(dirname "$(dirname "$target")")")"
-          case "$version" in [0-9]*) ;; *) version="$(compact compile --version)" ;; esac
+          # The zk-key cache must bust whenever the compiler version changes,
+          # so the compiler's own reported version is the key input.
+          version="$(compact compile --version)"
           echo "version=$(printf '%s' "$version" | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
       - name: Install dependencies (frozen, from the committed yarn.lock)
         run: yarn install --immutable

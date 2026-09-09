@@ -1,7 +1,7 @@
 // Byte-exact twin of Compact's builtin `serialize<T, N>` from
 // CompactStandardLibrary, pinned against compiled circuits by tests/.
 //
-// Layout rules (compactc 0.33 / language 0.25):
+// Layout rules (compactc 0.34 / language 0.26):
 //   - struct fields and tuple elements are packed in declaration order, no
 //     alignment gaps
 //   - every value is little-endian at its NATURAL width (see src/types.ts);
