@@ -197,18 +197,23 @@ export function declaredWidths(cell: AlignedValue, what: string): number[] {
  * width enters the descriptor, so it is fixed per call rather than a constant.
  *
  * @param serializedOutputLength - Declared width of the output element, in bytes.
- * @returns The pair descriptor for {@link calculateSignetAttestationDigest}.
+ * @returns The triple descriptor for {@link calculateSignetAttestationDigest}.
  */
 export function attestationPreimageDescriptor(
   serializedOutputLength: number,
-): CompactType<[Uint8Array, Uint8Array]> {
+): CompactType<[Uint8Array, bigint, Uint8Array]> {
   const output = new CompactTypeBytes(serializedOutputLength);
   return {
-    alignment: () => [...BYTES_32.alignment(), ...output.alignment()],
-    toValue: ([requestId, serializedOutput]) => [
+    alignment: () => [...BYTES_32.alignment(), ...UINT_64.alignment(), ...output.alignment()],
+    toValue: ([requestId, outputLength, serializedOutput]) => [
       ...BYTES_32.toValue(requestId),
+      ...UINT_64.toValue(outputLength),
       ...output.toValue(serializedOutput),
     ],
-    fromValue: (value) => [BYTES_32.fromValue(value), output.fromValue(value)],
+    fromValue: (value) => [
+      BYTES_32.fromValue(value),
+      UINT_64.fromValue(value),
+      output.fromValue(value),
+    ],
   };
 }

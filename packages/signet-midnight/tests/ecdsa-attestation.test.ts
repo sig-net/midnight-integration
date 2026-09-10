@@ -85,6 +85,11 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
         signetCircuits.calculateSignetAttestationDigest1(id, out),
     },
     {
+      width: 2,
+      oracle: (id: Uint8Array, out: Uint8Array) =>
+        signetCircuits.calculateSignetAttestationDigest2(id, out),
+    },
+    {
       width: 32,
       oracle: (id: Uint8Array, out: Uint8Array) =>
         signetCircuits.calculateSignetAttestationDigest32(id, out),
@@ -127,17 +132,22 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
     );
   });
 
-  it("trailing zeros inside a 31-byte chunk do not change the digest", () => {
-    // The output is hashed over its field-aligned representation: a Bytes<N>
-    // packs into ceil(N/31) little-endian field elements, so widths that share
-    // a chunk count and a numeric value share a digest. Each client circuit
-    // fixes its output width and the digest binds the request id, so responses
-    // stay distinguishable in the protocol.
+  it("the output width is part of the digest", () => {
     const oneByte = calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1]));
     const zeroPaddedTo31 = new Uint8Array(31);
     zeroPaddedTo31[0] = 1;
-    expect(calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1, 0]))).toEqual(oneByte);
-    expect(calculateSignetAttestationDigest(REQUEST_ID, zeroPaddedTo31)).toEqual(oneByte);
+    expect(calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1, 0]))).not.toEqual(
+      oneByte,
+    );
+    expect(calculateSignetAttestationDigest(REQUEST_ID, zeroPaddedTo31)).not.toEqual(oneByte);
+  });
+
+  it("the compiled circuit binds the width too", () => {
+    expect(
+      signetCircuits.calculateSignetAttestationDigest2(REQUEST_ID, Uint8Array.from([1, 0])),
+    ).not.toEqual(
+      signetCircuits.calculateSignetAttestationDigest1(REQUEST_ID, Uint8Array.from([1])),
+    );
   });
 
   it("crossing a 31-byte chunk boundary changes the digest", () => {
