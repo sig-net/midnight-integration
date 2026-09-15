@@ -43,10 +43,10 @@
 // 4. MPC observes txn execution on destination chain and posts a RespondBidirectionalEvent attestation
 //    through the Signet singleton, which emits it as a contract event beside the request id.
 //    The client polls its request's posts and takes the first one that verifies over the request id
-//    and output. The client recovers the execution output itself off chain (for EVM: the mined
-//    call's return data via debug_traceTransaction, also served by the fakenet
-//    responder's /responses/{requestId} helper API) and hands output plus attestation
-//    to its verify circuit. See "Output recovery" in this package's README.
+//    and output. The client obtains the execution output off chain (for EVM: the mined
+//    call's return data via debug_traceTransaction, or the exact attested bytes from the
+//    MPC's output cache) and hands output plus attestation to its verify circuit. See
+//    "Output Recovery" in the repository README.
 //
 // Read more:
 //   - The sign bidirectional flow and key derivation: this package's README

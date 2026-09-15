@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   asciiPadded,
   type DeployedNetwork,
+  getMpcOutputCacheUrl,
   getMpcRootPublicKey,
   getSignetContractAddress,
   isMpcFailureOutput,
@@ -125,6 +126,18 @@ describe("getMpcRootPublicKey", () => {
 
   it.each(UNPUBLISHED_NETWORKS)("throws for %s, whose key is not published yet", (network) => {
     expect(() => getMpcRootPublicKey(network)).toThrow(/no MPC root public key published/);
+  });
+});
+
+describe("getMpcOutputCacheUrl", () => {
+  it("publishes the stagenet cache down to the MPC's object prefix", () => {
+    expect(getMpcOutputCacheUrl(MidnightNetwork.Stagenet)).toBe(
+      "https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet",
+    );
+  });
+
+  it.each(UNPUBLISHED_NETWORKS)("throws for %s, whose cache is not published yet", (network) => {
+    expect(() => getMpcOutputCacheUrl(network)).toThrow(/no MPC output cache URL/);
   });
 });
 

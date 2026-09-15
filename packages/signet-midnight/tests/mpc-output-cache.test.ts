@@ -5,7 +5,12 @@ import { createServer, type Server } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { MPC_FAILURE_OUTPUT, MpcOutputCacheReader, parseRequestIdHex } from "../src/index.ts";
+import {
+  MidnightNetwork,
+  MPC_FAILURE_OUTPUT,
+  MpcOutputCacheReader,
+  parseRequestIdHex,
+} from "../src/index.ts";
 
 const REQUEST_ID = parseRequestIdHex("5c".repeat(32));
 const NETWORK_ID = "stagenet";
@@ -67,6 +72,31 @@ describe("MpcOutputCacheReader", () => {
       );
     },
   );
+
+  it("defaults to the cache the package publishes for the network", () => {
+    const reader = new MpcOutputCacheReader({
+      networkId: MidnightNetwork.Stagenet,
+      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+    });
+    expect(reader.objectUrl(REQUEST_ID)).toBe(
+      `https://storage.googleapis.com/midnight-cache-storage-dev${EXPECTED_OBJECT_PATH}`,
+    );
+  });
+
+  it.each([
+    {
+      networkId: MidnightNetwork.Undeployed,
+      expected: /no MPC output cache is published for the 'undeployed' network: pass cacheUrl/,
+    },
+    {
+      networkId: MidnightNetwork.Preview,
+      expected: /no MPC output cache URL published for the 'preview' network yet/,
+    },
+  ])("refuses to default on $networkId", ({ networkId, expected }) => {
+    expect(
+      () => new MpcOutputCacheReader({ networkId, signetContractAddress: SIGNET_CONTRACT_ADDRESS }),
+    ).toThrow(expected);
+  });
 
   it.each([
     {

@@ -7,6 +7,7 @@
 // but the packed output, and is UNTRUSTED until the attestation signature
 // verifies over it (`verifyRespondBidirectionalSignature`).
 
+import { type DeployedNetwork, getMpcOutputCacheUrl, MidnightNetwork } from "./constants.ts";
 import type { RequestIdHex } from "./signet-requests.ts";
 
 /** Where the MPC's output cache lives and which of its namespaces to read. */
@@ -14,13 +15,37 @@ export interface MpcOutputCacheConfig {
   /**
    * The cache's public URL down to the MPC's configured object prefix, e.g.
    * `https://storage.googleapis.com/<bucket>/<prefix>`. A trailing slash is
-   * tolerated.
+   * tolerated. Defaults to the cache this package publishes for `networkId`
+   * ({@link getMpcOutputCacheUrl}), so a network with none (the local
+   * standalone stack) must pass it.
    */
-  readonly cacheUrl: string;
+  readonly cacheUrl?: string;
   /** The Midnight network id the MPC serves: the path segment after the prefix. */
   readonly networkId: string;
   /** The signet singleton the MPC publishes through, 64 hex chars: the segment after the network. */
   readonly signetContractAddress: string;
+}
+
+/** The networks this package may publish an output cache for: every named one but the local stack. */
+const DEPLOYED_NETWORKS: readonly string[] = Object.values(MidnightNetwork).filter(
+  (network) => network !== MidnightNetwork.Undeployed,
+);
+
+/**
+ * The cache URL this package publishes for `networkId`.
+ *
+ * @param networkId - The Midnight network id the MPC serves.
+ * @returns The published cache URL.
+ * @throws {Error} When `networkId` is not a deployed network, or is one with
+ *   no cache published yet.
+ */
+function publishedCacheUrl(networkId: string): string {
+  if (!DEPLOYED_NETWORKS.includes(networkId)) {
+    throw new Error(
+      `no MPC output cache is published for the '${networkId}' network: pass cacheUrl`,
+    );
+  }
+  return getMpcOutputCacheUrl(networkId as DeployedNetwork);
 }
 
 /**
@@ -36,9 +61,11 @@ export class MpcOutputCacheReader {
 
   /**
    * @param config - The cache location and the namespace to read.
+   * @throws {Error} When `cacheUrl` is omitted for a network this package
+   *   publishes no cache for.
    */
   constructor(config: MpcOutputCacheConfig) {
-    const prefixUrl = config.cacheUrl.replace(/\/+$/u, "");
+    const prefixUrl = (config.cacheUrl ?? publishedCacheUrl(config.networkId)).replace(/\/+$/u, "");
     this.namespaceUrl = `${prefixUrl}/${config.networkId}/${config.signetContractAddress}`;
   }
 

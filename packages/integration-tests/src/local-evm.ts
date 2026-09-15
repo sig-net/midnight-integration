@@ -275,6 +275,36 @@ export async function broadcastSignedTx(
 }
 
 /**
+ * The top call frame of a `callTracer` trace, in the field read here. Nodes
+ * omit `output` when the frame returned no data.
+ */
+interface CallTracerFrame {
+  readonly output?: string;
+}
+
+/**
+ * The raw return data of a mined call's top frame, read with
+ * `debug_traceTransaction` (callTracer), the method the MPC observes
+ * executions with: the input of the recompute route in Output Recovery.
+ *
+ * @param rpcUrl - The JSON-RPC endpoint, which must serve the method (anvil does).
+ * @param txHash - The mined transaction to trace.
+ * @returns The top frame's return data as 0x-hex, `0x` when it returned none.
+ */
+export async function traceTopCallOutput(rpcUrl: string, txHash: string): Promise<string> {
+  const provider = new JsonRpcProvider(rpcUrl);
+  try {
+    const frame = (await provider.send("debug_traceTransaction", [
+      txHash,
+      { tracer: "callTracer" },
+    ])) as CallTracerFrame;
+    return frame.output ?? "0x";
+  } finally {
+    provider.destroy();
+  }
+}
+
+/**
  * A mined receipt with `status: 0` means the tx was included but reverted
  * (nonce consumed, gas burned, state rolled back): a failure, not a result.
  *

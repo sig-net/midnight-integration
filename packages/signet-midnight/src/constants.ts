@@ -156,3 +156,34 @@ export function getSignetContractAddress(networkId: DeployedNetwork): string {
   }
   return contractAddress;
 }
+
+// The public URL of each network's MPC output cache down to the MPC's
+// configured object prefix (`publisher.output_storage.prefix`). An empty
+// string means "no cache published" and makes getMpcOutputCacheUrl throw for
+// that network.
+const mpcOutputCacheUrls: Record<DeployedNetwork, string> = {
+  [MidnightNetwork.Stagenet]:
+    "https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet",
+  [MidnightNetwork.Preview]: "",
+  [MidnightNetwork.Preprod]: "",
+  [MidnightNetwork.Mainnet]: "",
+};
+
+/**
+ * The public URL of the MPC's output cache on a deployed Midnight network,
+ * down to the MPC's object prefix: the `cacheUrl` an `MpcOutputCacheReader`
+ * defaults to. A local standalone stack has no published cache: its
+ * responder serves its own.
+ *
+ * @param networkId - The deployed network to look up.
+ * @returns The network's output cache URL.
+ * @throws {Error} When no cache is published for the network in this
+ *   package.
+ */
+export function getMpcOutputCacheUrl(networkId: DeployedNetwork): string {
+  const cacheUrl = mpcOutputCacheUrls[networkId];
+  if (!cacheUrl) {
+    throw new Error(`no MPC output cache URL published for the '${networkId}' network yet`);
+  }
+  return cacheUrl;
+}
