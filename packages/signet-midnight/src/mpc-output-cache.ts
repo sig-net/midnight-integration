@@ -65,7 +65,10 @@ export class MpcOutputCacheReader {
    *   publishes no cache for.
    */
   constructor(config: MpcOutputCacheConfig) {
-    const prefixUrl = (config.cacheUrl ?? publishedCacheUrl(config.networkId)).replace(/\/+$/u, "");
+    let prefixUrl = config.cacheUrl ?? publishedCacheUrl(config.networkId);
+    while (prefixUrl.endsWith("/")) {
+      prefixUrl = prefixUrl.slice(0, -1);
+    }
     this.namespaceUrl = `${prefixUrl}/${config.networkId}/${config.signetContractAddress}`;
   }
 

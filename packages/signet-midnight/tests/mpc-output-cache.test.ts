@@ -59,6 +59,7 @@ describe("MpcOutputCacheReader", () => {
   it.each([
     { name: "a bare cache URL", suffix: "" },
     { name: "a cache URL with a trailing slash", suffix: "/" },
+    { name: "a cache URL with several trailing slashes", suffix: "///" },
   ])(
     "locates the object under <prefix>/<network>/<signet>/<request>.bin from $name",
     ({ suffix }) => {
