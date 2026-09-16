@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   asciiPadded,
   bytesToHex,
+  type ContractEventRow,
   decodeRespondBidirectionalEventPayload,
   decodeSignatureRespondedEventPayload,
   decodeSignBidirectionalEventNotificationPayload,
@@ -26,6 +27,7 @@ import {
   SignetEventName,
   signetEventSourceFromPublicDataProvider,
   type SignetMiscEvent,
+  signetMiscEventFromContractEventRow,
 } from "../src/index.ts";
 import {
   notificationEventOf,
@@ -43,7 +45,7 @@ import {
  * @returns The event at that position.
  * @throws If no event sits at that index.
  */
-function eventAt(events: readonly SignetMiscEvent[], index = 0): SignetMiscEvent {
+function eventAt<TEvent extends SignetMiscEvent>(events: readonly TEvent[], index = 0): TEvent {
   const event = events[index];
   if (event === undefined) {
     throw new Error(
@@ -230,15 +232,91 @@ describe("decodeSignetLogEvents (simulator bridge)", () => {
   });
 });
 
+/**
+ * Drain an async iterable into an array, the way a consumer that wants the
+ * whole history reads a stream.
+ *
+ * @param stream - The stream to drain.
+ * @returns Every item, in stream order.
+ */
+async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
+  const items: T[] = [];
+  for await (const item of stream) items.push(item);
+  return items;
+}
+
+describe("signetMiscEventFromContractEventRow", () => {
+  const served = signatureRespondedEventOf(REQUEST_ID, RESPONSE);
+  // The indexer serves hex strings, the payload's trailing zeros trimmed
+  // like any stored atom.
+  let trimmed = served.payload.length;
+  while (trimmed > 0 && served.payload[trimmed - 1] === 0) trimmed -= 1;
+  const MISC_ROW: ContractEventRow = {
+    eventType: "Misc",
+    id: 7,
+    maxId: 9,
+    transactionId: 42,
+    name: bytesToHex(asciiPadded(served.name, SIGNET_EVENT_NAME_LENGTH)),
+    payload: `0x${bytesToHex(served.payload.slice(0, trimmed))}`,
+  };
+
+  it("normalises a Misc row into a signet event carrying the indexer cursor", () => {
+    const event = signetMiscEventFromContractEventRow(MISC_ROW);
+    if (event === undefined) throw new Error("expected a Misc row to yield an event");
+    expect(event).toMatchObject({
+      name: SignetEventName.SignatureRespondedEvent,
+      id: 7,
+      maxId: 9,
+      transactionId: 42,
+    });
+    expect(event.payload).toHaveLength(SIGNET_EVENT_PAYLOAD_LENGTH);
+    expect(decodeSignatureRespondedEventPayload(event.payload)).toEqual({
+      requestId: REQUEST_ID,
+      event: RESPONSE,
+    });
+  });
+
+  it.each<{ label: string; row: ContractEventRow }>([
+    { label: "a non-Misc row", row: { ...MISC_ROW, eventType: "Paused" } },
+    { label: "a Misc row without a name", row: { ...MISC_ROW, name: undefined } },
+    { label: "a Misc row without a payload", row: { ...MISC_ROW, payload: undefined } },
+  ])("yields no event for $label", ({ row }) => {
+    expect(signetMiscEventFromContractEventRow(row)).toBeUndefined();
+  });
+
+  it("throws on a payload that is not a hex byte string", () => {
+    expect(() => signetMiscEventFromContractEventRow({ ...MISC_ROW, payload: "zz" })).toThrow(
+      /not a hex byte string/,
+    );
+  });
+});
+
 describe("signetEventSourceFromPublicDataProvider (indexer adapter)", () => {
   const SIGNET_ADDRESS = "signet-contract-address";
+  const served = signatureRespondedEventOf(REQUEST_ID, RESPONSE);
+  const SERVED_NAME = bytesToHex(asciiPadded(served.name, SIGNET_EVENT_NAME_LENGTH));
+  const SERVED_PAYLOAD = `0x${bytesToHex(served.payload)}`;
 
-  it("queries Misc events and normalizes hex name/payload into signet events", async () => {
-    const served = signatureRespondedEventOf(REQUEST_ID, RESPONSE);
-    // The indexer serves hex strings, the payload's trailing zeros trimmed
-    // like any stored atom.
-    let trimmed = served.payload.length;
-    while (trimmed > 0 && served.payload[trimmed - 1] === 0) trimmed -= 1;
+  /**
+   * A history of `count` Misc rows with ids 1 to `count`, every row
+   * reporting `maxId` as the indexer tip.
+   *
+   * @param count - Number of rows.
+   * @param maxId - The tip every row reports.
+   * @returns The rows, oldest first.
+   */
+  function historyOf(count: number, maxId: number): ContractEventRow[] {
+    return Array.from({ length: count }, (_, index) => ({
+      eventType: "Misc",
+      id: index + 1,
+      maxId,
+      transactionId: index + 1,
+      name: SERVED_NAME,
+      payload: SERVED_PAYLOAD,
+    }));
+  }
+
+  it("queries Misc events and streams them as signet events", async () => {
     const source = signetEventSourceFromPublicDataProvider({
       queryContractEvents: (filter, page) => {
         expect(filter).toEqual({
@@ -246,20 +324,18 @@ describe("signetEventSourceFromPublicDataProvider (indexer adapter)", () => {
           types: ["Misc"],
         });
         expect(page).toEqual({ limit: 100, offset: 0 });
-        return Promise.resolve([
-          {
-            eventType: "Misc",
-            name: bytesToHex(asciiPadded(served.name, SIGNET_EVENT_NAME_LENGTH)),
-            payload: `0x${bytesToHex(served.payload.slice(0, trimmed))}`,
-          },
-        ]);
+        return Promise.resolve(historyOf(1, 1));
       },
     });
 
-    const events = await source.querySignetEvents(SIGNET_ADDRESS);
+    const events = await collect(source.streamSignetEvents(SIGNET_ADDRESS));
     expect(events).toHaveLength(1);
-    expect(eventAt(events).name).toBe(SignetEventName.SignatureRespondedEvent);
-    expect(eventAt(events).payload).toHaveLength(SIGNET_EVENT_PAYLOAD_LENGTH);
+    expect(eventAt(events)).toMatchObject({
+      name: SignetEventName.SignatureRespondedEvent,
+      id: 1,
+      maxId: 1,
+      transactionId: 1,
+    });
     expect(decodeSignatureRespondedEventPayload(eventAt(events).payload)).toEqual({
       requestId: REQUEST_ID,
       event: RESPONSE,
@@ -270,23 +346,18 @@ describe("signetEventSourceFromPublicDataProvider (indexer adapter)", () => {
     const source = signetEventSourceFromPublicDataProvider({
       queryContractEvents: () =>
         Promise.resolve([
-          { eventType: "Paused" },
-          { eventType: "Misc", name: bytesToHex(asciiPadded("x", 32)) },
+          { eventType: "Paused", id: 1, maxId: 2, transactionId: 1 },
+          { eventType: "Misc", id: 2, maxId: 2, transactionId: 2, name: SERVED_NAME },
         ]),
     });
-    expect(await source.querySignetEvents(SIGNET_ADDRESS)).toHaveLength(0);
+    expect(await collect(source.streamSignetEvents(SIGNET_ADDRESS))).toHaveLength(0);
   });
 
   it("pages past the provider's page size: a 250-event history is read in full", async () => {
     // A provider serves at most `limit` events per call. An adapter that
     // stops at one page sees only the oldest 100 events of a busy signet and
     // starves every consumer of the rest.
-    const served = signatureRespondedEventOf(REQUEST_ID, RESPONSE);
-    const history = Array.from({ length: 250 }, () => ({
-      eventType: "Misc",
-      name: bytesToHex(asciiPadded(served.name, SIGNET_EVENT_NAME_LENGTH)),
-      payload: `0x${bytesToHex(served.payload)}`,
-    }));
+    const history = historyOf(250, 250);
     const requestedOffsets: number[] = [];
     const source = signetEventSourceFromPublicDataProvider({
       queryContractEvents: (_filter, page) => {
@@ -295,8 +366,65 @@ describe("signetEventSourceFromPublicDataProvider (indexer adapter)", () => {
       },
     });
 
-    const events = await source.querySignetEvents(SIGNET_ADDRESS);
+    const events = await collect(source.streamSignetEvents(SIGNET_ADDRESS));
     expect(events).toHaveLength(250);
+    expect(events.map((event) => event.id)).toEqual(history.map((row) => row.id));
     expect(requestedOffsets).toEqual([0, 100, 200]);
+  });
+
+  it("yields a page's events before requesting the next page", async () => {
+    const history = historyOf(150, 150);
+    const requestedOffsets: number[] = [];
+    const source = signetEventSourceFromPublicDataProvider({
+      queryContractEvents: (_filter, page) => {
+        requestedOffsets.push(page.offset);
+        return Promise.resolve(history.slice(page.offset, page.offset + page.limit));
+      },
+    });
+
+    const stream = source.streamSignetEvents(SIGNET_ADDRESS)[Symbol.asyncIterator]();
+    for (let pulled = 0; pulled < 100; pulled += 1) {
+      expect((await stream.next()).done).toBe(false);
+    }
+    expect(requestedOffsets).toEqual([0]);
+    expect((await stream.next()).done).toBe(false);
+    expect(requestedOffsets).toEqual([0, 100]);
+  });
+
+  it("ends at the tip pinned by the first page, dropping events appended since", async () => {
+    // Page one reports a tip of 120. Rows past it (appended while paging)
+    // would extend the walk indefinitely on a busy contract.
+    const history = [...historyOf(100, 120), ...historyOf(150, 150).slice(100)];
+    const requestedOffsets: number[] = [];
+    const source = signetEventSourceFromPublicDataProvider({
+      queryContractEvents: (_filter, page) => {
+        requestedOffsets.push(page.offset);
+        return Promise.resolve(history.slice(page.offset, page.offset + page.limit));
+      },
+    });
+
+    const events = await collect(source.streamSignetEvents(SIGNET_ADDRESS));
+    expect(events).toHaveLength(120);
+    expect(eventAt(events, 119).id).toBe(120);
+    expect(requestedOffsets).toEqual([0, 100]);
+  });
+
+  it("stops requesting pages when the consumer leaves the loop", async () => {
+    const history = historyOf(250, 250);
+    const requestedOffsets: number[] = [];
+    const source = signetEventSourceFromPublicDataProvider({
+      queryContractEvents: (_filter, page) => {
+        requestedOffsets.push(page.offset);
+        return Promise.resolve(history.slice(page.offset, page.offset + page.limit));
+      },
+    });
+
+    let seen = 0;
+    for await (const event of source.streamSignetEvents(SIGNET_ADDRESS)) {
+      seen += 1;
+      if (event.id === 100) break;
+    }
+    expect(seen).toBe(100);
+    expect(requestedOffsets).toEqual([0]);
   });
 });

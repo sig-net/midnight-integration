@@ -20,6 +20,7 @@ import {
   CAIP2_ID_BYTES,
   decodeSignBidirectionalNotification,
   evmAddressAbiWord,
+  hexToBytes,
   numericAbiWord,
   pureCircuits,
 } from "../src/index.ts";
@@ -81,67 +82,96 @@ describe("ethereumCaip2Id (MPC routing key)", () => {
   });
 });
 
-describe("ABI word circuits (circuit/TS lockstep)", () => {
-  const ADDRESS = Uint8Array.from({ length: 20 }, (_, i) => 0xa0 + i);
-  const VALUES = [0n, 1n, 255n, 256n, 1_000_000n, (1n << 128n) - 1n];
+describe("ABI word circuits (circuit/TS lockstep, golden bytes)", () => {
+  // Each row pins BOTH the compiled circuit and its TS twin to fixed
+  // big-endian bytes, so a compiler change that altered the circuit's cast
+  // could not pass by the twin merely agreeing with it. Values sit on the
+  // byte, 64-bit and 128-bit boundaries where an endianness slip shows.
+  const NUMERIC_WORD_VECTORS: { value: bigint; word: string }[] = [
+    { value: 0n, word: "0000000000000000000000000000000000000000000000000000000000000000" },
+    { value: 1n, word: "0000000000000000000000000000000000000000000000000000000000000001" },
+    { value: 255n, word: "00000000000000000000000000000000000000000000000000000000000000ff" },
+    { value: 256n, word: "0000000000000000000000000000000000000000000000000000000000000100" },
+    { value: 1_000_000n, word: "00000000000000000000000000000000000000000000000000000000000f4240" },
+    {
+      value: (1n << 64n) - 1n,
+      word: "000000000000000000000000000000000000000000000000ffffffffffffffff",
+    },
+    {
+      value: 1n << 64n,
+      word: "0000000000000000000000000000000000000000000000010000000000000000",
+    },
+    {
+      value: (1n << 64n) + 1n,
+      word: "0000000000000000000000000000000000000000000000010000000000000001",
+    },
+    {
+      value: (1n << 128n) - 1n,
+      word: "00000000000000000000000000000000ffffffffffffffffffffffffffffffff",
+    },
+  ];
 
-  it("evmAddressAbiWord: circuit and TS mirror emit identical bytes", () => {
-    const circuitWord = pureCircuits.evmAddressAbiWord(ADDRESS);
-    expect(circuitWord).toHaveLength(32);
-    expect(circuitWord).toEqual(evmAddressAbiWord(ADDRESS));
-    // Broadcast form: 12 zero bytes, then the display-order address.
-    expect(circuitWord.slice(0, 12)).toEqual(new Uint8Array(12));
-    expect(circuitWord.slice(12)).toEqual(ADDRESS);
-  });
+  it.each(NUMERIC_WORD_VECTORS)(
+    "numericAbiWord($value): circuit and TS twin both emit $word",
+    ({ value, word }) => {
+      expect(bytesToHex(pureCircuits.numericAbiWord(value))).toBe(word);
+      expect(bytesToHex(numericAbiWord(value))).toBe(word);
+    },
+  );
 
-  it("numericAbiWord: circuit and TS mirror emit identical bytes", () => {
-    for (const value of VALUES) {
-      const circuitWord = pureCircuits.numericAbiWord(value);
-      expect(circuitWord).toEqual(numericAbiWord(value));
-    }
-  });
-
-  it("abiWordToUint128 round-trips numericAbiWord, circuit and TS", () => {
-    for (const value of VALUES) {
-      const word = pureCircuits.numericAbiWord(value);
-      expect(pureCircuits.abiWordToUint128(word)).toBe(value);
-      expect(abiWordToUint128(word)).toBe(value);
-    }
-  });
+  it.each(NUMERIC_WORD_VECTORS)(
+    "abiWordToUint128($word) reads back $value, circuit and TS",
+    ({ value, word }) => {
+      expect(pureCircuits.abiWordToUint128(hexToBytes(word))).toBe(value);
+      expect(abiWordToUint128(hexToBytes(word))).toBe(value);
+    },
+  );
 
   it("abiWordToUint128 rejects a word wider than Uint<128>", () => {
-    const wide = new Uint8Array(32);
-    wide[15] = 1; // lowest byte of the forbidden high half
+    const wide = hexToBytes("0000000000000000000000000000000100000000000000000000000000000000");
     expect(() => pureCircuits.abiWordToUint128(wide)).toThrow();
     expect(() => abiWordToUint128(wide)).toThrow("exceeds Uint<128>");
   });
 
-  it("boolAbiWord: circuit and TS mirror emit identical bytes", () => {
-    for (const value of [true, false]) {
-      const circuitWord = pureCircuits.boolAbiWord(value);
-      expect(circuitWord).toHaveLength(32);
-      expect(circuitWord).toEqual(boolAbiWord(value));
-    }
-    expect(pureCircuits.boolAbiWord(false)).toEqual(new Uint8Array(32));
-    expect(pureCircuits.boolAbiWord(true)[31]).toBe(1);
+  it("evmAddressAbiWord: 12 zero bytes, then the display-order address, circuit and TS", () => {
+    const address = hexToBytes("a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3");
+    const word = "000000000000000000000000a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3";
+    expect(bytesToHex(pureCircuits.evmAddressAbiWord(address))).toBe(word);
+    expect(bytesToHex(evmAddressAbiWord(address))).toBe(word);
   });
 
-  it("abiWordToBool round-trips boolAbiWord, circuit and TS", () => {
-    for (const value of [true, false]) {
-      const word = pureCircuits.boolAbiWord(value);
-      expect(pureCircuits.abiWordToBool(word)).toBe(value);
-      expect(abiWordToBool(word)).toBe(value);
-    }
-  });
+  const BOOL_WORD_VECTORS: { value: boolean; word: string }[] = [
+    { value: false, word: "0000000000000000000000000000000000000000000000000000000000000000" },
+    { value: true, word: "0000000000000000000000000000000000000000000000000000000000000001" },
+  ];
 
-  it("abiWordToBool rejects non-canonical words", () => {
-    const junkHigh = new Uint8Array(32);
-    junkHigh[0] = 1; // nonzero byte in the zero prefix
-    const junkLast = new Uint8Array(32);
-    junkLast[31] = 2; // last byte outside 0/1
-    for (const word of [junkHigh, junkLast]) {
-      expect(() => pureCircuits.abiWordToBool(word)).toThrow();
-      expect(() => abiWordToBool(word)).toThrow("canonical Boolean");
-    }
+  it.each(BOOL_WORD_VECTORS)(
+    "boolAbiWord($value): circuit and TS twin both emit $word",
+    ({ value, word }) => {
+      expect(bytesToHex(pureCircuits.boolAbiWord(value))).toBe(word);
+      expect(bytesToHex(boolAbiWord(value))).toBe(word);
+    },
+  );
+
+  it.each(BOOL_WORD_VECTORS)(
+    "abiWordToBool($word) reads back $value, circuit and TS",
+    ({ value, word }) => {
+      expect(pureCircuits.abiWordToBool(hexToBytes(word))).toBe(value);
+      expect(abiWordToBool(hexToBytes(word))).toBe(value);
+    },
+  );
+
+  it.each([
+    {
+      reason: "nonzero byte in the zero prefix",
+      word: "0100000000000000000000000000000000000000000000000000000000000000",
+    },
+    {
+      reason: "last byte outside 0/1",
+      word: "0000000000000000000000000000000000000000000000000000000000000002",
+    },
+  ])("abiWordToBool rejects $reason, circuit and TS", ({ word }) => {
+    expect(() => pureCircuits.abiWordToBool(hexToBytes(word))).toThrow();
+    expect(() => abiWordToBool(hexToBytes(word))).toThrow("canonical Boolean");
   });
 });
