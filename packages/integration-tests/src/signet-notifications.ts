@@ -68,8 +68,7 @@ export async function pollSignetNotification(
   const timeoutMs = options.timeoutMs ?? 60_000;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const events = await eventSource.querySignetEvents(signetAddress);
-    for (const event of events) {
+    for await (const event of eventSource.streamSignetEvents(signetAddress)) {
       if (!isSignetEventNamed(event, SignetEventName.SignBidirectionalEvent)) continue;
       let declaredId: RequestIdHex;
       let decoded: SignBidirectionalNotification;
