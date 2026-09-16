@@ -50,10 +50,10 @@ and two flow files:
   continuation past signing. The caller contract requests calls against the
   `SignetEvmTarget` Solidity contract, the suite broadcasts the MPC-signed
   transaction on the local anvil chain, the fakenet observes the mined
-  execution and posts its attestation, and the suite fetches the raw output
-  from the fakenet's public `/responses/{requestId}` helper API, picks the
-  attestation that verifies over the bytes it recomputed, and verifies it
-  in-circuit. Self-sufficient (its own idempotent initialise stage), so it
+  execution and posts its attestation, and the suite recomputes the attested
+  bytes from the mined call's trace, checks the fakenet's output cache holds
+  exactly those bytes, picks the attestation that verifies over them, and
+  verifies it in-circuit. Self-sufficient (its own idempotent initialise stage), so it
   never depends on the generic flow file having run first.
 
 The unit tests beside it (`tests/env-file.test.ts`, `tests/mpc-keys.test.ts`)
@@ -190,7 +190,7 @@ the address vars, rerun the suite and watch the run for you.
 | `FAKENET_EVM_RPC_URL` | EVM endpoint as reachable from the fakenet CONTAINER (compose-only; not read by the tests) | `http://evm:8545` |
 | `EVM_RPC_URL` | The host-side EVM JSON-RPC endpoint the tests and EVM setup steps use (anvil) | `http://127.0.0.1:8545` |
 | `EVM_TARGET_CONTRACT_ADDRESS` | The deployed `SignetEvmTarget` Solidity contract: set with code at the address to skip hardhat compile + deploy (a codeless address redeploys) | deployed by setup |
-| `FAKENET_RESPONSES_URL` | Base URL of the fakenet's public `/responses/{requestId}` helper API the real-EVM flow fetches raw execution outputs from | `http://localhost:3040` |
+| `MPC_OUTPUT_CACHE_URL` | The fakenet's output cache simulation, down to its object prefix: where the real-EVM flow reads each attestation's cached bytes through `MpcOutputCacheReader` | `http://localhost:3040/v1/fakenet` |
 | `CALLER_EVM_REQUEST_ID_ISEVEN` | Resume the real-EVM `isEven` pipeline with an existing request id, skipping its submit prove | unset |
 | `CALLER_EVM_REQUEST_ID_CHECKANDDOUBLE` | Resume the real-EVM `checkAndDouble` pipeline with an existing request id, skipping its submit prove | unset |
 | `TRUST_PREBUILT_ZK_KEYS` | `1` = setup skips `compile:*:zk` when prover keys are already present. CI-only: the CI cache is keyed on the contract sources, so present ⇒ fresh; locally stale keys would poison deploys — never set it by hand | unset |

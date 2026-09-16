@@ -16,7 +16,7 @@ import {
 const STAGENET_SIGNET = getSignetContractAddress(MidnightNetwork.Stagenet);
 const STAGENET_MPC_KEY = getMpcRootPublicKey(MidnightNetwork.Stagenet);
 const STAGENET_MPC_KEY_NEAR_FORM =
-  "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
+  "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5";
 const OTHER_KEY_COMPRESSED = "0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 
 /** One environment and what a resolver must make of it. */

@@ -20,9 +20,10 @@ test, including single-file runs.
 The default run covers TWO flow files: the generic flow (EVM-free: its
 request exists to be SIGNED, never broadcast, 5 online tests) and the
 real-EVM flow (15 online tests), which broadcasts the MPC-signed
-transactions on the compose `evm` service (anvil, :8545) and fetches raw
-execution outputs from the fakenet's public `/responses/{requestId}` helper
-API on :3040.
+transactions on the compose `evm` service (anvil, :8545), recomputes each
+attested output from its trace and checks the fakenet's output cache
+simulation on :3040 (`MPC_OUTPUT_CACHE_URL`, default
+`http://localhost:3040/v1/fakenet`) holds the same bytes.
 
 ## Fresh-clone quickstart (zero to green)
 
@@ -109,7 +110,7 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   `MPC_ROOT_KEY` / `MIDNIGHT_WALLET_SEED` (the funded `MPC_RESPONDER_SEED`)
   / `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` from this repo's values, and start it
   AFTER the signet deploy prints the fresh address. Only one responder may
-  run: the `/responses` helper API binds :3040.
+  run: the output cache simulation binds :3040.
 - **Local library linking is opt-in ONLY.** Run the tarball flow below ONLY
   when the user explicitly asks for it ("yarn link", "local library
   linking", "link the local packages into the responder", or equivalent).
