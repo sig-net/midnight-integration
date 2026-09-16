@@ -109,7 +109,7 @@ describe("isMpcFailureOutput", () => {
 // The stagenet MPC root key as the MPC operators publish it (NEAR form): the
 // constant must be that very key in the canonical spelling.
 const STAGENET_MPC_ROOT_KEY_NEAR_FORM =
-  "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
+  "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5";
 // The deployed networks whose counterparty values are not published yet.
 const UNPUBLISHED_NETWORKS: readonly DeployedNetwork[] = [
   MidnightNetwork.Preview,
