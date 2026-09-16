@@ -208,7 +208,7 @@ jobs:
         run: |
           timeout 180 bash -c 'until curl -fsS http://127.0.0.1:9944/health >/dev/null 2>&1; do sleep 3; done'
           timeout 60 bash -c 'until curl -s -o /dev/null http://127.0.0.1:6300; do sleep 3; done'
-          timeout 180 bash -c 'until curl -fs -X POST -H "content-type: application/json" -d "{\"query\":\"{__typename}\"}" http://127.0.0.1:8088/api/v3/graphql >/dev/null 2>&1; do sleep 3; done'
+          timeout 180 bash -c 'until curl -fs -X POST -H "content-type: application/json" -d "{\"query\":\"{__typename}\"}" http://127.0.0.1:8088/api/v4/graphql >/dev/null 2>&1; do sleep 3; done'
           curl -fsS -X POST -H 'content-type: application/json' \
             -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' http://127.0.0.1:8545
       # The suite's setup deploys both contracts, writes MPC_ROOT_KEY +
