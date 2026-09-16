@@ -176,14 +176,14 @@ export class SignetRequestResponseReader {
     decode: (payload: Uint8Array) => SignetEventPost<TRecord>,
     requestId: RequestIdHex,
   ): Promise<TRecord[]> {
-    const events = await this.config.eventSource.querySignetEvents(
-      this.config.signetContractAddress,
-    );
-    return events
-      .filter((event) => isSignetEventNamed(event, name))
-      .map((event) => decode(event.payload))
-      .filter((post) => requestIdHex(post.requestId) === requestId)
-      .map((post) => post.event);
+    const records: TRecord[] = [];
+    const events = this.config.eventSource.streamSignetEvents(this.config.signetContractAddress);
+    for await (const event of events) {
+      if (!isSignetEventNamed(event, name)) continue;
+      const post = decode(event.payload);
+      if (requestIdHex(post.requestId) === requestId) records.push(post.event);
+    }
+    return records;
   }
 
   /**

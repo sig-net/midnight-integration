@@ -36,7 +36,11 @@ import {
   secp256k1PublicKeyOf,
   signAttestationDigest,
 } from "../src/testing.ts";
-import { respondBidirectionalEventOf, signatureRespondedEventOf } from "./signet-event-fixtures.ts";
+import {
+  respondBidirectionalEventOf,
+  signatureRespondedEventOf,
+  streamOf,
+} from "./signet-event-fixtures.ts";
 
 // The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
 // (the app-level constant lives in the cli).
@@ -215,10 +219,10 @@ const makeReader = (
     signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     publicDataProvider,
     eventSource: {
-      querySignetEvents: (contractAddress) => {
+      streamSignetEvents: (contractAddress) => {
         expect(contractAddress).toBe(SIGNET_CONTRACT_ADDRESS);
         queries.events += 1;
-        return Promise.resolve(events);
+        return streamOf(events);
       },
     },
   });
@@ -254,7 +258,7 @@ describe("getSignatureRequest", () => {
       requesterRequestsPath: [0],
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
       publicDataProvider: { queryContractState: () => Promise.resolve(null) },
-      eventSource: { querySignetEvents: () => Promise.resolve([]) },
+      eventSource: { streamSignetEvents: () => streamOf([]) },
     });
     await expect(reader.getSignatureRequest(REQUEST_ID_HEX)).rejects.toThrow(/is it deployed/);
   });
