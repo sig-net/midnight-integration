@@ -3,12 +3,11 @@
 // means polling (gotcha #15). This module owns only that plumbing. Every
 // assertion on the decoded notification stays in the test bodies.
 
-import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import {
   type RequestIdHex,
   type SignBidirectionalNotification,
   SignetEventName,
-  signetEventSourceFromPublicDataProvider,
+  signetEventSourceFromIndexer,
   stripHexPrefix,
   tryDecodeSignetEvent,
 } from "@sig-net/midnight";
@@ -53,12 +52,7 @@ export async function pollSignetNotification(
 ): Promise<SignBidirectionalNotification> {
   const signetAddress = requireEnv(options.env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
   const nodeConfig = getMidnightNodeConfig(options.env);
-  const eventSource = signetEventSourceFromPublicDataProvider(
-    indexerPublicDataProvider({
-      queryURL: nodeConfig.indexerUrl,
-      subscriptionURL: nodeConfig.indexerWsUrl,
-    }),
-  );
+  const eventSource = signetEventSourceFromIndexer({ queryUrl: nodeConfig.indexerUrl });
   const expectedCaller = stripHexPrefix(options.callerAddress).toLowerCase();
   const expectedPath = [...options.requestsPath];
 

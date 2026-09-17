@@ -67,8 +67,8 @@ export interface SignetRequestResponseReaderConfig {
   /** Source of raw contract state, e.g. midnight-js's `indexerPublicDataProvider`. */
   readonly publicDataProvider: SignetPublicStateSource;
   /**
-   * Source of the signet contract's emitted events. Adapt a full provider
-   * with `signetEventSourceFromPublicDataProvider`.
+   * Source of the signet contract's emitted events. Read a live indexer
+   * with `signetEventSourceFromIndexer`.
    */
   readonly eventSource: SignetEventSource;
 }

@@ -52,26 +52,34 @@ export interface SignetMiscEvent {
 
 /**
  * A {@link SignetMiscEvent} read through the indexer, carrying the indexer's
- * event cursor and the row id of the emitting transaction so a consumer can
- * dedup, resume, show progress against the tip, and link the event back to
- * its transaction. The simulator path ({@link decodeSignetLogEvents}) has no
- * cursor and yields plain {@link SignetMiscEvent}s.
+ * event cursor and where on chain the event was emitted, so a consumer can
+ * dedup, resume, show progress against the tip, say when the event happened
+ * and link it to its transaction. The simulator path
+ * ({@link decodeSignetLogEvents}) has none of this and yields plain
+ * {@link SignetMiscEvent}s.
  */
 export interface IndexedSignetMiscEvent extends SignetMiscEvent {
   /** The indexer's global event cursor, ascending in emission order. */
   id: number;
   /** The highest event id the indexer knew when the event's page was served. */
   maxId: number;
-  /** Indexer row id of the emitting transaction, not the chain transaction hash. */
+  /** Indexer row id of the emitting transaction. For the chain's id see {@link transactionHash}. */
   transactionId: number;
+  /** Hash of the emitting transaction, lowercase hex, no `0x` prefix. */
+  transactionHash: string;
+  /** Height of the block holding the emitting transaction. */
+  blockHeight: number;
+  /** Hash of that block, lowercase hex, no `0x` prefix. */
+  blockHash: string;
+  /** When that block was produced. */
+  blockTimestamp: Date;
 }
 
 /**
  * Source of the signet contract's emitted events, the event-side sibling of
  * `SignetPublicStateSource`. Structural, so tests can stub it with a stream
- * over fixtures. Adapt a full midnight-js `PublicDataProvider` with
- * {@link signetEventSourceFromPublicDataProvider}, which yields
- * {@link IndexedSignetMiscEvent}s.
+ * over fixtures. Read a live indexer with {@link signetEventSourceFromIndexer},
+ * which yields {@link IndexedSignetMiscEvent}s.
  */
 export interface SignetEventSource<TEvent extends SignetMiscEvent = SignetMiscEvent> {
   /**
@@ -124,7 +132,7 @@ export function decodeSignetEventName(name: Uint8Array): string {
 /**
  * Decode the simulator's circuit-execution log into signet events. For
  * simulator tests. The indexer-path counterpart is
- * {@link signetEventSourceFromPublicDataProvider}.
+ * {@link signetEventSourceFromIndexer}.
  *
  * @param events - The `context.events` of a `CircuitResults`.
  * @param contractAddress - Optional filter: only events this contract emitted.
@@ -155,54 +163,68 @@ export function decodeSignetLogEvents(
   return out;
 }
 
-/**
- * One row of a contract-events page as a midnight-js `PublicDataProvider`
- * serves it: the fields of its `ContractEvent` the event source reads.
- * Structural, so any full `ContractEvent` is assignable.
- */
-export interface ContractEventRow {
-  /** The event variant: the signet contract only emits `Misc`. */
-  eventType: string;
-  /** The indexer's global event cursor, ascending in emission order. */
-  id: number;
-  /** The highest event id the indexer knew when the page was served. */
-  maxId: number;
-  /** Indexer row id of the emitting transaction, not the chain transaction hash. */
-  transactionId: number;
-  /** The `Misc` event's name, hex encoded. Absent on other variants. */
-  name?: string;
-  /** The `Misc` event's payload, hex encoded. Absent on other variants. */
-  payload?: string;
+/** Where {@link signetEventSourceFromIndexer} reads the signet contract's events from. */
+export interface SignetIndexerConfig {
+  /** The indexer's GraphQL query endpoint over HTTP, e.g. `https://<indexer>/api/v4/graphql`. */
+  readonly queryUrl: string;
 }
 
 /**
- * The least of a midnight-js `PublicDataProvider` the event source adapter
- * needs: the `Misc` contract events of one address. Structural, so any full
- * provider is assignable.
+ * The events query, written against the indexer v4 schema. It selects the
+ * `transaction` relation, which is what carries the emitting transaction's
+ * hash and its block.
  */
-export interface SignetContractEventQuerySource {
-  /**
-   * Retrieve one page of a contract's events: see
-   * `PublicDataProvider.queryContractEvents`. Callers MUST pass `page` and
-   * keep requesting until a short page: a provider caps an un-paged call at
-   * its default page size (midnight-js: 100), silently truncating a busy
-   * contract's history.
-   *
-   * @param filter - The contract address and event-type narrowing.
-   * @param filter.contractAddress - The contract whose events to read.
-   * @param filter.types - Event types to keep; omit for all of them.
-   * @param page - The window to read: `limit` events starting at `offset`.
-   * @param page.limit - Maximum events to return.
-   * @param page.offset - Events to skip from the start of the history.
-   * @returns The matching events in the window, oldest first.
-   */
-  queryContractEvents(
-    filter: {
-      contractAddress: string;
-      types?: "Misc"[];
-    },
-    page: { limit: number; offset: number },
-  ): Promise<ContractEventRow[]>;
+const SIGNET_CONTRACT_EVENTS_QUERY = `
+  query SignetContractEvents($filter: ContractEventFilter!, $limit: Int, $offset: Int) {
+    contractEvents(filter: $filter, limit: $limit, offset: $offset) {
+      __typename
+      id
+      maxId
+      transactionId
+      transaction { hash block { height hash timestamp } }
+      ... on MiscContractEvent { name payload }
+    }
+  }
+`;
+
+/** The `__typename` of the one contract event variant the signet contract emits. */
+const MISC_CONTRACT_EVENT_TYPENAME = "MiscContractEvent";
+
+/** Events requested per page: the page size midnight-js's own contract events query defaults to. */
+const EVENT_PAGE_LIMIT = 100;
+
+/**
+ * One `contractEvents` row as the indexer's JSON carries it. Every field is
+ * optional: the wire is external input until {@link signetMiscEventFromIndexerRow}
+ * has checked it.
+ */
+interface IndexerContractEventRow {
+  /** The GraphQL type of the row: the event variant. */
+  __typename?: string;
+  /** The indexer's global event cursor. */
+  id?: number;
+  /** The highest event id the indexer knew when the page was served. */
+  maxId?: number;
+  /** Indexer row id of the emitting transaction. */
+  transactionId?: number;
+  /** The emitting transaction. */
+  transaction?: {
+    /** The transaction hash, hex encoded. */
+    hash?: string;
+    /** The block holding the transaction. */
+    block?: {
+      /** The block height. */
+      height?: number;
+      /** The block hash, hex encoded. */
+      hash?: string;
+      /** When the block was produced, epoch milliseconds. */
+      timestamp?: number;
+    };
+  };
+  /** A `Misc` event's name, hex encoded. */
+  name?: string;
+  /** A `Misc` event's payload, hex encoded, trailing zeros trimmed. */
+  payload?: string;
 }
 
 /**
@@ -210,59 +232,127 @@ export interface SignetContractEventQuerySource {
  * the payload re-padded to the full {@link SIGNET_EVENT_PAYLOAD_LENGTH}
  * (the indexer trims a stored atom's trailing zeros).
  *
- * @param row - The row as the provider served it.
- * @returns The signet event, or `undefined` when the row is not a `Misc`
- *   event carrying both a name and a payload.
- * @throws {Error} When the name or payload is not a hex byte string.
+ * @param row - The row as the indexer served it.
+ * @returns The signet event, or `undefined` when the row is not a `Misc` event.
+ * @throws {Error} When a `Misc` row lacks a field the query selects, or its
+ *   name or payload is not a hex byte string.
  */
-export function signetMiscEventFromContractEventRow(
-  row: ContractEventRow,
+function signetMiscEventFromIndexerRow(
+  row: IndexerContractEventRow,
 ): IndexedSignetMiscEvent | undefined {
-  if (row.eventType !== "Misc" || row.name === undefined || row.payload === undefined) {
-    return undefined;
+  if (row.__typename !== MISC_CONTRACT_EVENT_TYPENAME) return undefined;
+  const { id, maxId, transactionId, name, payload } = row;
+  const transactionHash = row.transaction?.hash;
+  const block = row.transaction?.block;
+  if (
+    id === undefined ||
+    maxId === undefined ||
+    transactionId === undefined ||
+    name === undefined ||
+    payload === undefined ||
+    transactionHash === undefined ||
+    block?.height === undefined ||
+    block.hash === undefined ||
+    block.timestamp === undefined
+  ) {
+    throw new Error(`the indexer served a malformed Misc contract event: ${JSON.stringify(row)}`);
   }
-  const payload = hexToBytes(row.payload);
   const padded = new Uint8Array(SIGNET_EVENT_PAYLOAD_LENGTH);
-  padded.set(payload.slice(0, SIGNET_EVENT_PAYLOAD_LENGTH), 0);
+  padded.set(hexToBytes(payload).slice(0, SIGNET_EVENT_PAYLOAD_LENGTH), 0);
   return {
-    name: decodeSignetEventName(hexToBytes(row.name)),
+    name: decodeSignetEventName(hexToBytes(name)),
     payload: padded,
-    id: row.id,
-    maxId: row.maxId,
-    transactionId: row.transactionId,
+    id,
+    maxId,
+    transactionId,
+    transactionHash,
+    blockHeight: block.height,
+    blockHash: block.hash,
+    blockTimestamp: new Date(block.timestamp),
   };
 }
 
-/** Events requested per page: midnight-js's default `queryContractEvents` page size. */
-const EVENT_PAGE_LIMIT = 100;
+/** The indexer's answer to {@link SIGNET_CONTRACT_EVENTS_QUERY}: the GraphQL response envelope. */
+interface IndexerContractEventsResponse {
+  /** The query result, absent or null when the query failed. */
+  data?: {
+    /** The page of events. */
+    contractEvents?: IndexerContractEventRow[];
+  } | null;
+  /** What the indexer rejected, e.g. a contract address that is not hex. */
+  errors?: {
+    /** The rejection, in the indexer's words. */
+    message?: string;
+  }[];
+}
 
 /**
- * Adapt a midnight-js `PublicDataProvider` (or anything exposing its
- * `queryContractEvents`) into a {@link SignetEventSource}. The stream pages
- * the provider by offset and pins its end to the tip (`maxId`) of the first
- * page, so the walk is a point-in-time snapshot that ends even while the
- * contract keeps emitting: rows past that tip are dropped. Each row passes
- * through {@link signetMiscEventFromContractEventRow}.
+ * Fetch one page of a contract's `Misc` events from the indexer.
  *
- * @param provider - The provider to query events through.
- * @returns The adapted event source.
+ * @param queryUrl - The indexer's GraphQL query endpoint.
+ * @param contractAddress - The contract whose events to read.
+ * @param offset - Events to skip from the start of the history.
+ * @returns The page's rows, oldest first.
+ * @throws {Error} When the indexer cannot be reached, answers a status other
+ *   than 200, rejects the query, or answers without a page.
  */
-export function signetEventSourceFromPublicDataProvider(
-  provider: SignetContractEventQuerySource,
+async function fetchContractEventPage(
+  queryUrl: string,
+  contractAddress: string,
+  offset: number,
+): Promise<IndexerContractEventRow[]> {
+  const response = await fetch(queryUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      query: SIGNET_CONTRACT_EVENTS_QUERY,
+      variables: {
+        filter: { contractAddress, types: ["MISC"] },
+        limit: EVENT_PAGE_LIMIT,
+        offset,
+      },
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `indexer answered HTTP ${String(response.status)} for ${queryUrl}: ${await response.text()}`,
+    );
+  }
+  const body = (await response.json()) as IndexerContractEventsResponse;
+  if (body.errors !== undefined && body.errors.length > 0) {
+    const messages = body.errors.map((error) => error.message ?? "unspecified error");
+    throw new Error(`indexer rejected the contract events query: ${messages.join(", ")}`);
+  }
+  const page = body.data?.contractEvents;
+  if (page === undefined) {
+    throw new Error(`indexer answered the contract events query without a page: ${queryUrl}`);
+  }
+  return page;
+}
+
+/**
+ * Read the signet contract's events from a Midnight indexer. The stream
+ * pages the indexer by offset and pins its end to the tip (`maxId`) of the
+ * first page, so the walk is a point-in-time snapshot that ends even while
+ * the contract keeps emitting: rows past that tip are dropped.
+ *
+ * @param config - Where the indexer is.
+ * @returns The event source.
+ */
+export function signetEventSourceFromIndexer(
+  config: SignetIndexerConfig,
 ): SignetEventSource<IndexedSignetMiscEvent> {
   return {
     async *streamSignetEvents(contractAddress) {
       let tipId: number | undefined;
       for (let offset = 0; ; offset += EVENT_PAGE_LIMIT) {
-        const page = await provider.queryContractEvents(
-          { contractAddress, types: ["Misc"] },
-          { limit: EVENT_PAGE_LIMIT, offset },
-        );
+        const page = await fetchContractEventPage(config.queryUrl, contractAddress, offset);
         for (const row of page) {
-          tipId ??= row.maxId;
-          if (row.id > tipId) return;
-          const event = signetMiscEventFromContractEventRow(row);
-          if (event !== undefined) yield event;
+          const event = signetMiscEventFromIndexerRow(row);
+          if (event === undefined) continue;
+          tipId ??= event.maxId;
+          if (event.id > tipId) return;
+          yield event;
         }
         if (page.length < EVENT_PAGE_LIMIT) return;
       }

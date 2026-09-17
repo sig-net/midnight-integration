@@ -23,7 +23,7 @@ import {
   hexToBytes,
   type RequestIdHex,
   type Secp256k1Point,
-  signetEventSourceFromPublicDataProvider,
+  signetEventSourceFromIndexer,
   SignetRequestResponseReader,
   stripHexPrefix,
   toSignBidirectionalEventIndex,
@@ -146,8 +146,8 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
           signetContractAddress: requireEnv(env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
           publicDataProvider,
           // The MPC's responses are read from the contract events the
-          // signet contract emits, through the same provider.
-          eventSource: signetEventSourceFromPublicDataProvider(publicDataProvider),
+          // signet contract emits, queried from the same indexer.
+          eventSource: signetEventSourceFromIndexer({ queryUrl: nodeConfig.indexerUrl }),
         });
         sharedReaders.set(requestsIndexField, reader);
       }

@@ -258,7 +258,7 @@ import {
    asciiPadded,
    bytesToHex,
    deriveEvmAddress,
-   signetEventSourceFromPublicDataProvider,
+   signetEventSourceFromIndexer,
    SignetRequestResponseReader,
 } from "@sig-net/midnight";
 
@@ -283,8 +283,8 @@ const reader = new SignetRequestResponseReader({
    publicDataProvider,
 
    // The MPC's responses are read from the contract events the Signet
-   // singleton emits, through the same provider
-   eventSource: signetEventSourceFromPublicDataProvider(publicDataProvider),
+   // singleton emits, queried from the same indexer
+   eventSource: signetEventSourceFromIndexer({ queryUrl: indexerUrl }),
 });
 
 // The path argument is the MPC's rendering of the exact 32 path bytes the
