@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   asciiPadded,
   type DeployedNetwork,
+  getMpcOutputCacheUrl,
   getMpcRootPublicKey,
   getSignetContractAddress,
   isMpcFailureOutput,
@@ -108,7 +109,7 @@ describe("isMpcFailureOutput", () => {
 // The stagenet MPC root key as the MPC operators publish it (NEAR form): the
 // constant must be that very key in the canonical spelling.
 const STAGENET_MPC_ROOT_KEY_NEAR_FORM =
-  "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
+  "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5";
 // The deployed networks whose counterparty values are not published yet.
 const UNPUBLISHED_NETWORKS: readonly DeployedNetwork[] = [
   MidnightNetwork.Preview,
@@ -125,6 +126,18 @@ describe("getMpcRootPublicKey", () => {
 
   it.each(UNPUBLISHED_NETWORKS)("throws for %s, whose key is not published yet", (network) => {
     expect(() => getMpcRootPublicKey(network)).toThrow(/no MPC root public key published/);
+  });
+});
+
+describe("getMpcOutputCacheUrl", () => {
+  it("publishes the stagenet cache down to the MPC's object prefix", () => {
+    expect(getMpcOutputCacheUrl(MidnightNetwork.Stagenet)).toBe(
+      "https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet",
+    );
+  });
+
+  it.each(UNPUBLISHED_NETWORKS)("throws for %s, whose cache is not published yet", (network) => {
+    expect(() => getMpcOutputCacheUrl(network)).toThrow(/no MPC output cache URL/);
   });
 });
 

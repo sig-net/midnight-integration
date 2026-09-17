@@ -11,7 +11,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   calculateRequestId,
+  type DecodedSignetEvent,
+  decodeSignetEvent,
   evmAddressAbiWord,
+  findVerifiedRespondBidirectionalEvent,
   MPCDestination,
   MPCSignatureAlgorithm,
   numericAbiWord,
@@ -36,7 +39,12 @@ import {
   secp256k1PublicKeyOf,
   signAttestationDigest,
 } from "../src/testing.ts";
-import { respondBidirectionalEventOf, signatureRespondedEventOf } from "./signet-event-fixtures.ts";
+import {
+  notificationEventOf,
+  respondBidirectionalEventOf,
+  signatureRespondedEventOf,
+  streamOf,
+} from "./signet-event-fixtures.ts";
 
 // The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
 // (the app-level constant lives in the cli).
@@ -215,10 +223,10 @@ const makeReader = (
     signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     publicDataProvider,
     eventSource: {
-      querySignetEvents: (contractAddress) => {
+      streamSignetEvents: (contractAddress) => {
         expect(contractAddress).toBe(SIGNET_CONTRACT_ADDRESS);
         queries.events += 1;
-        return Promise.resolve(events);
+        return streamOf(events);
       },
     },
   });
@@ -254,7 +262,7 @@ describe("getSignatureRequest", () => {
       requesterRequestsPath: [0],
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
       publicDataProvider: { queryContractState: () => Promise.resolve(null) },
-      eventSource: { querySignetEvents: () => Promise.resolve([]) },
+      eventSource: { streamSignetEvents: () => streamOf([]) },
     });
     await expect(reader.getSignatureRequest(REQUEST_ID_HEX)).rejects.toThrow(/is it deployed/);
   });
@@ -283,6 +291,30 @@ describe("getSignatureRespondedEvents", () => {
 
   it("ignores events under other signet names", async () => {
     const { reader } = makeReader([GENUINE_RESPONSE], [RESPOND_BIDIRECTIONAL]);
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
+  });
+
+  it("is not failed by an undecodable notification anyone can emit into the log", async () => {
+    // Version 2 is a layout the notification decoder refuses, so decoding this event throws.
+    const undecodableNotification = notificationEventOf(REQUEST_ID, {
+      version: 2n,
+      payload: new Uint8Array(128),
+    });
+    const reader = new SignetRequestResponseReader({
+      requesterContractAddress: REQUESTER_ADDRESS,
+      requesterRequestsPath: [0],
+      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      publicDataProvider: {
+        queryContractState: () => Promise.resolve({ data: requesterState() }),
+      },
+      eventSource: {
+        streamSignetEvents: () =>
+          streamOf([
+            undecodableNotification,
+            signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE),
+          ]),
+      },
+    });
     expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
   });
 });
@@ -390,6 +422,55 @@ describe("getVerifiedSignatureRespondedEvent", () => {
       });
     },
   );
+});
+
+describe("verification over decoded events already in hand", () => {
+  // The whole history a consumer streamed and decoded once: another request's
+  // genuine response sits in front of this request's posts.
+  const IN_HAND: DecodedSignetEvent[] = [
+    signatureRespondedEventOf(FOREIGN_REQUEST_ID, GENUINE_RESPONSE),
+    signatureRespondedEventOf(REQUEST_ID, IMPOSTER_RESPONSE),
+    signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE),
+    respondBidirectionalEventOf(REQUEST_ID, RESPOND_BIDIRECTIONAL),
+    respondBidirectionalEventOf(REQUEST_ID, ATTESTED_RESPOND_BIDIRECTIONAL),
+  ].flatMap((event) => decodeSignetEvent(event) ?? []);
+
+  it("verifies signature responses without streaming the event history", async () => {
+    const { reader, queries } = makeReader([]);
+    const result = await reader.verifySignatureRespondedEvents(
+      REQUEST_ID_HEX,
+      MPC_ADDRESS,
+      IN_HAND,
+    );
+    expect(result.verified).toEqual(GENUINE_RESPONSE);
+    expect(result.verdicts.map((verdict) => verdict.rejectedReason === undefined)).toEqual([
+      false,
+      true,
+    ]);
+    expect(queries).toEqual({ requester: 1, events: 0 });
+  });
+
+  it("finds the attesting respond-bidirectional post past the garbage in front of it", () => {
+    expect(
+      findVerifiedRespondBidirectionalEvent(
+        REQUEST_ID_HEX,
+        ATTESTED_OUTPUT,
+        MPC_RESPONSE_KEY,
+        IN_HAND,
+      ),
+    ).toEqual(ATTESTED_RESPOND_BIDIRECTIONAL);
+  });
+
+  it("finds no attestation under a request id none of the events declare", () => {
+    expect(
+      findVerifiedRespondBidirectionalEvent(
+        requestIdHex(FOREIGN_REQUEST_ID),
+        ATTESTED_OUTPUT,
+        MPC_RESPONSE_KEY,
+        IN_HAND,
+      ),
+    ).toBeUndefined();
+  });
 });
 
 describe("getUnsignedEvmTransaction", () => {

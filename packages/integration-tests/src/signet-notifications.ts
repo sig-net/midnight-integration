@@ -3,17 +3,13 @@
 // means polling (gotcha #15). This module owns only that plumbing. Every
 // assertion on the decoded notification stays in the test bodies.
 
-import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import {
-  decodeSignBidirectionalEventNotificationPayload,
-  decodeSignBidirectionalNotification,
-  isSignetEventNamed,
   type RequestIdHex,
-  requestIdHex,
   type SignBidirectionalNotification,
   SignetEventName,
-  signetEventSourceFromPublicDataProvider,
+  signetEventSourceFromIndexer,
   stripHexPrefix,
+  tryDecodeSignetEvent,
 } from "@sig-net/midnight";
 import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 
@@ -56,37 +52,25 @@ export async function pollSignetNotification(
 ): Promise<SignBidirectionalNotification> {
   const signetAddress = requireEnv(options.env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
   const nodeConfig = getMidnightNodeConfig(options.env);
-  const eventSource = signetEventSourceFromPublicDataProvider(
-    indexerPublicDataProvider({
-      queryURL: nodeConfig.indexerUrl,
-      subscriptionURL: nodeConfig.indexerWsUrl,
-    }),
-  );
+  const eventSource = signetEventSourceFromIndexer({ queryUrl: nodeConfig.indexerUrl });
   const expectedCaller = stripHexPrefix(options.callerAddress).toLowerCase();
   const expectedPath = [...options.requestsPath];
 
   const timeoutMs = options.timeoutMs ?? 60_000;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const events = await eventSource.querySignetEvents(signetAddress);
-    for (const event of events) {
-      if (!isSignetEventNamed(event, SignetEventName.SignBidirectionalEvent)) continue;
-      let declaredId: RequestIdHex;
-      let decoded: SignBidirectionalNotification;
-      try {
-        const post = decodeSignBidirectionalEventNotificationPayload(event.payload);
-        declaredId = requestIdHex(post.requestId);
-        decoded = decodeSignBidirectionalNotification(post.event);
-      } catch {
-        continue;
-      }
+    for await (const event of eventSource.streamSignetEvents(signetAddress)) {
+      const result = tryDecodeSignetEvent(event);
+      if (result?.ok !== true) continue;
+      const decoded = result.event;
       if (
-        declaredId === options.requestId &&
-        decoded.callerAddress === expectedCaller &&
-        decoded.requestsPath.length === expectedPath.length &&
-        decoded.requestsPath.every((entry, i) => entry === expectedPath[i])
+        decoded.name === SignetEventName.SignBidirectionalEvent &&
+        decoded.requestId === options.requestId &&
+        decoded.record.callerAddress === expectedCaller &&
+        decoded.record.requestsPath.length === expectedPath.length &&
+        decoded.record.requestsPath.every((entry, i) => entry === expectedPath[i])
       ) {
-        return decoded;
+        return decoded.record;
       }
     }
     await new Promise((r) => setTimeout(r, 1000));

@@ -13,13 +13,13 @@ import type { RawContractState } from "./raw-contract-state.ts";
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
 import {
-  decodeRespondBidirectionalEventPayload,
-  decodeSignatureRespondedEventPayload,
-  isSignetEventNamed,
+  type DecodedSignetEvent,
+  decodeSignetEventNamed,
   type RespondBidirectionalEvent,
   type SignatureRespondedEvent,
   SignetEventName,
-  type SignetEventPost,
+  type SignetEventRecords,
+  signetEventRecordsOf,
   type SignetEventSource,
 } from "./signet-contract-events.ts";
 import {
@@ -29,7 +29,6 @@ import {
 import {
   requestIdBytes,
   type RequestIdHex,
-  requestIdHex,
   type SignBidirectionalEvent,
   TxParamType,
 } from "./signet-requests.ts";
@@ -68,8 +67,8 @@ export interface SignetRequestResponseReaderConfig {
   /** Source of raw contract state, e.g. midnight-js's `indexerPublicDataProvider`. */
   readonly publicDataProvider: SignetPublicStateSource;
   /**
-   * Source of the signet contract's emitted events. Adapt a full provider
-   * with `signetEventSourceFromPublicDataProvider`.
+   * Source of the signet contract's emitted events. Read a live indexer
+   * with `signetEventSourceFromIndexer`.
    */
   readonly eventSource: SignetEventSource;
 }
@@ -108,6 +107,62 @@ function assertEvmType2Request(request: SignBidirectionalEvent): void {
   if (request.txParamType !== TxParamType.evmType2) {
     throw new Error(`unsupported txParamType ${String(request.txParamType)}`);
   }
+}
+
+/**
+ * The first (oldest) of a request's respond-bidirectional posts whose
+ * signature verifies over `serializedOutput` against `mpcResponseKey`.
+ *
+ * @param requestId - The request id the attestation must commit to.
+ * @param serializedOutput - The serialised execution output, exact unpadded bytes.
+ * @param mpcResponseKey - The MPC response key the requesting contract pinned.
+ * @param posts - The request's posts, in emission order.
+ * @returns The first verifying post, or `undefined` when none verifies.
+ */
+function firstVerifiedRespondBidirectionalEvent(
+  requestId: RequestIdHex,
+  serializedOutput: Uint8Array,
+  mpcResponseKey: Secp256k1Point,
+  posts: readonly RespondBidirectionalEvent[],
+): RespondBidirectionalEvent | undefined {
+  return posts.find((post) =>
+    verifyRespondBidirectionalSignature(
+      requestIdBytes(requestId),
+      serializedOutput,
+      post,
+      mpcResponseKey,
+    ),
+  );
+}
+
+/**
+ * `SignetRequestResponseReader.getVerifiedRespondBidirectionalEvent` over
+ * decoded events already in hand: no walk of the signet contract's event
+ * history, and no ledger read either, since the attestation verifies against
+ * the output and the response key alone.
+ *
+ * @param requestId - The request id the posts must declare and the
+ *   attestation must commit to.
+ * @param serializedOutput - The serialised execution output the attestation
+ *   must commit to, exact unpadded bytes.
+ * @param mpcResponseKey - The MPC response key the requesting contract
+ *   pinned at deploy (see `deriveMidnightResponseKey`).
+ * @param events - Decoded signet events of any kinds and request ids, in
+ *   emission order. Only attestations declaring `requestId` are judged.
+ * @returns The first verifying post, or `undefined` when none attests this output.
+ */
+export function findVerifiedRespondBidirectionalEvent(
+  requestId: RequestIdHex,
+  serializedOutput: Uint8Array,
+  mpcResponseKey: Secp256k1Point,
+  events: readonly DecodedSignetEvent[],
+): RespondBidirectionalEvent | undefined {
+  return firstVerifiedRespondBidirectionalEvent(
+    requestId,
+    serializedOutput,
+    mpcResponseKey,
+    signetEventRecordsOf(events, SignetEventName.RespondBidirectionalEvent, requestId),
+  );
 }
 
 /**
@@ -167,23 +222,20 @@ export class SignetRequestResponseReader {
    * `requestId`, in emission order. The declared id is routing data only.
    *
    * @param name - The signet event name to keep.
-   * @param decode - The payload decoder for that event kind.
    * @param requestId - The request id the kept posts must declare.
    * @returns The kept posts' records, oldest first.
    */
-  private async getRespondPostsNamed<TRecord>(
-    name: SignetEventName,
-    decode: (payload: Uint8Array) => SignetEventPost<TRecord>,
+  private async getRecordsNamed<TName extends SignetEventName>(
+    name: TName,
     requestId: RequestIdHex,
-  ): Promise<TRecord[]> {
-    const events = await this.config.eventSource.querySignetEvents(
-      this.config.signetContractAddress,
-    );
-    return events
-      .filter((event) => isSignetEventNamed(event, name))
-      .map((event) => decode(event.payload))
-      .filter((post) => requestIdHex(post.requestId) === requestId)
-      .map((post) => post.event);
+  ): Promise<SignetEventRecords[TName][]> {
+    const records: SignetEventRecords[TName][] = [];
+    const events = this.config.eventSource.streamSignetEvents(this.config.signetContractAddress);
+    for await (const event of events) {
+      const decoded = decodeSignetEventNamed(event, name);
+      if (decoded?.requestId === requestId) records.push(decoded.record);
+    }
+    return records;
   }
 
   /**
@@ -195,11 +247,7 @@ export class SignetRequestResponseReader {
    * @returns The request's posted records, oldest first, empty when none yet.
    */
   async getSignatureRespondedEvents(requestId: RequestIdHex): Promise<SignatureRespondedEvent[]> {
-    return this.getRespondPostsNamed(
-      SignetEventName.SignatureRespondedEvent,
-      decodeSignatureRespondedEventPayload,
-      requestId,
-    );
+    return this.getRecordsNamed(SignetEventName.SignatureRespondedEvent, requestId);
   }
 
   /**
@@ -220,8 +268,58 @@ export class SignetRequestResponseReader {
     requestId: RequestIdHex,
     expectedSigner: string,
   ): Promise<VerifiedSignatureResponseResult> {
+    return this.verifySignatureResponses(
+      requestId,
+      expectedSigner,
+      await this.getSignatureRespondedEvents(requestId),
+    );
+  }
+
+  /**
+   * {@link getVerifiedSignatureRespondedEvent} over decoded events already in
+   * hand: the one ledger read for the request (cached), and no walk of the
+   * signet contract's event history. For a consumer that streamed and decoded
+   * the history once and verifies many requests against it.
+   *
+   * @param requestId - The request id to verify responses for.
+   * @param expectedSigner - The EVM address (0x hex, any case) the genuine
+   *   response must be signed by: the requester's MPC-derived address.
+   * @param events - Decoded signet events of any kinds and request ids, in
+   *   emission order. Only signature responses declaring `requestId` are judged.
+   * @returns The first valid response (if any) plus per-post verdicts.
+   * @throws {Error} When the requester contract has no state or the request is
+   *   not on its ledger.
+   */
+  async verifySignatureRespondedEvents(
+    requestId: RequestIdHex,
+    expectedSigner: string,
+    events: readonly DecodedSignetEvent[],
+  ): Promise<VerifiedSignatureResponseResult> {
+    return this.verifySignatureResponses(
+      requestId,
+      expectedSigner,
+      signetEventRecordsOf(events, SignetEventName.SignatureRespondedEvent, requestId),
+    );
+  }
+
+  /**
+   * Judge each of a request's posted signature responses against the request:
+   * the verdict step {@link getVerifiedSignatureRespondedEvent} and
+   * {@link verifySignatureRespondedEvents} share.
+   *
+   * @param requestId - The request id the responses were posted under.
+   * @param expectedSigner - The EVM address the genuine response must be signed by.
+   * @param responses - The request's posted responses, in emission order.
+   * @returns The first valid response (if any) plus per-post verdicts.
+   * @throws {Error} When the requester contract has no state or the request is
+   *   not on its ledger.
+   */
+  private async verifySignatureResponses(
+    requestId: RequestIdHex,
+    expectedSigner: string,
+    responses: readonly SignatureRespondedEvent[],
+  ): Promise<VerifiedSignatureResponseResult> {
     const request = await this.getSignatureRequest(requestId);
-    const responses = await this.getSignatureRespondedEvents(requestId);
     const verdicts = responses.map((response, position): SignatureResponseVerdict => {
       const index = BigInt(position);
       let signer: string;
@@ -307,11 +405,7 @@ export class SignetRequestResponseReader {
   async getRespondBidirectionalEvents(
     requestId: RequestIdHex,
   ): Promise<RespondBidirectionalEvent[]> {
-    return this.getRespondPostsNamed(
-      SignetEventName.RespondBidirectionalEvent,
-      decodeRespondBidirectionalEventPayload,
-      requestId,
-    );
+    return this.getRecordsNamed(SignetEventName.RespondBidirectionalEvent, requestId);
   }
 
   /**
@@ -336,14 +430,11 @@ export class SignetRequestResponseReader {
     serializedOutput: Uint8Array,
     mpcResponseKey: Secp256k1Point,
   ): Promise<RespondBidirectionalEvent | undefined> {
-    const events = await this.getRespondBidirectionalEvents(requestId);
-    return events.find((event) =>
-      verifyRespondBidirectionalSignature(
-        requestIdBytes(requestId),
-        serializedOutput,
-        event,
-        mpcResponseKey,
-      ),
+    return firstVerifiedRespondBidirectionalEvent(
+      requestId,
+      serializedOutput,
+      mpcResponseKey,
+      await this.getRespondBidirectionalEvents(requestId),
     );
   }
 }

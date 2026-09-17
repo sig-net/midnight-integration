@@ -30,13 +30,11 @@ export const LOCAL_PROOF_SERVER = "http://127.0.0.1:6300";
 /** Baseline endpoints per network, before any environment override. */
 export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
   [MidnightNetwork.Undeployed]: {
-    indexerUrl: "http://127.0.0.1:8088/api/v3/graphql",
-    indexerWsUrl: "ws://127.0.0.1:8088/api/v3/graphql/ws",
+    indexerUrl: "http://127.0.0.1:8088/api/v4/graphql",
+    indexerWsUrl: "ws://127.0.0.1:8088/api/v4/graphql/ws",
     nodeUrl: "http://127.0.0.1:9944",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
-  // Stagenet runs the v4 indexer API, so its indexer paths differ from the
-  // v3 paths of the *.midnight.network networks below.
   [MidnightNetwork.Stagenet]: {
     indexerUrl: "https://indexer.stagenet.shielded.tools/api/v4/graphql",
     indexerWsUrl: "wss://indexer.stagenet.shielded.tools/api/v4/graphql/ws",
@@ -44,20 +42,20 @@ export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
   [MidnightNetwork.Preview]: {
-    indexerUrl: "https://indexer.preview.midnight.network/api/v3/graphql",
-    indexerWsUrl: "wss://indexer.preview.midnight.network/api/v3/graphql/ws",
+    indexerUrl: "https://indexer.preview.midnight.network/api/v4/graphql",
+    indexerWsUrl: "wss://indexer.preview.midnight.network/api/v4/graphql/ws",
     nodeUrl: "https://rpc.preview.midnight.network",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
   [MidnightNetwork.Preprod]: {
-    indexerUrl: "https://indexer.preprod.midnight.network/api/v3/graphql",
-    indexerWsUrl: "wss://indexer.preprod.midnight.network/api/v3/graphql/ws",
+    indexerUrl: "https://indexer.preprod.midnight.network/api/v4/graphql",
+    indexerWsUrl: "wss://indexer.preprod.midnight.network/api/v4/graphql/ws",
     nodeUrl: "https://rpc.preprod.midnight.network",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
   [MidnightNetwork.Mainnet]: {
-    indexerUrl: "https://indexer.mainnet.midnight.network/api/v3/graphql",
-    indexerWsUrl: "wss://indexer.mainnet.midnight.network/api/v3/graphql/ws",
+    indexerUrl: "https://indexer.mainnet.midnight.network/api/v4/graphql",
+    indexerWsUrl: "wss://indexer.mainnet.midnight.network/api/v4/graphql/ws",
     nodeUrl: "https://rpc.mainnet.midnight.network",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },

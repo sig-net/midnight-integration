@@ -85,6 +85,11 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
         signetCircuits.calculateSignetAttestationDigest1(id, out),
     },
     {
+      width: 2,
+      oracle: (id: Uint8Array, out: Uint8Array) =>
+        signetCircuits.calculateSignetAttestationDigest2(id, out),
+    },
+    {
       width: 32,
       oracle: (id: Uint8Array, out: Uint8Array) =>
         signetCircuits.calculateSignetAttestationDigest32(id, out),
@@ -127,17 +132,22 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
     );
   });
 
-  it("trailing zeros inside a 31-byte chunk do not change the digest", () => {
-    // The output is hashed over its field-aligned representation: a Bytes<N>
-    // packs into ceil(N/31) little-endian field elements, so widths that share
-    // a chunk count and a numeric value share a digest. Each client circuit
-    // fixes its output width and the digest binds the request id, so responses
-    // stay distinguishable in the protocol.
+  it("the output width is part of the digest", () => {
     const oneByte = calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1]));
     const zeroPaddedTo31 = new Uint8Array(31);
     zeroPaddedTo31[0] = 1;
-    expect(calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1, 0]))).toEqual(oneByte);
-    expect(calculateSignetAttestationDigest(REQUEST_ID, zeroPaddedTo31)).toEqual(oneByte);
+    expect(calculateSignetAttestationDigest(REQUEST_ID, Uint8Array.from([1, 0]))).not.toEqual(
+      oneByte,
+    );
+    expect(calculateSignetAttestationDigest(REQUEST_ID, zeroPaddedTo31)).not.toEqual(oneByte);
+  });
+
+  it("the compiled circuit binds the width too", () => {
+    expect(
+      signetCircuits.calculateSignetAttestationDigest2(REQUEST_ID, Uint8Array.from([1, 0])),
+    ).not.toEqual(
+      signetCircuits.calculateSignetAttestationDigest1(REQUEST_ID, Uint8Array.from([1])),
+    );
   });
 
   it("crossing a 31-byte chunk boundary changes the digest", () => {
@@ -446,10 +456,10 @@ describe("parseSecp256k1PublicKey", () => {
 // its canonical spelling: a fixed vector, computed independently of the
 // parser, so the canonicaliser cannot drift with it.
 const STAGENET_NEAR_FORM =
-  "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
+  "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5";
 const STAGENET_CANONICAL =
-  "0x04cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61ca3e59da1c194aa90108098a9e5cdc55d3b3297cdefbc085ffafd0f2c34ae61a";
-const STAGENET_COMPRESSED = "0x02cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61";
+  "0x047dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d8432847f591ab25ca454effb522ec2eaf04b7e1c83ba65ae731ea98dd52eb7d458dd4";
+const STAGENET_COMPRESSED = "0x027dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d84328";
 
 describe("normaliseSecp256k1PublicKey", () => {
   it.each([

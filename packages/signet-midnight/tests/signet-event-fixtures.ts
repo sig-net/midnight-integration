@@ -105,3 +105,19 @@ export function respondBidirectionalEventOf(
     ),
   };
 }
+
+/**
+ * Serve fixture events as the async stream a stub {@link SignetEventSource}
+ * returns: every item, in order, one per pull.
+ *
+ * @param events - The events to serve.
+ * @returns The stream.
+ */
+export function streamOf<T>(events: readonly T[]): AsyncIterable<T> {
+  return {
+    [Symbol.asyncIterator]: () => {
+      const iterator = events[Symbol.iterator]();
+      return { next: () => Promise.resolve(iterator.next()) };
+    },
+  };
+}

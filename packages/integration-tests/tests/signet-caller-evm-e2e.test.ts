@@ -3,13 +3,13 @@
 // THIS SUITE broadcasts (the MPC only signs: broadcasting is a client
 // responsibility), the fakenet observes the mined execution (via
 // debug_traceTransaction, the same RPC method the real MPC uses) and posts
-// a respond-bidirectional attestation. The suite then fetches the raw
-// execution output from the fakenet's public /responses/{requestId} helper
-// API (so clients need no debug_traceTransaction access of their own),
-// recomputes the respond bytes (deserializeEvmOutput,
-// serializeRespondOutput) and picks the attestation that VERIFIES over them
-// against the pinned MPC response key before in-circuit verification. The
-// fetched output is UNTRUSTED until that signature verification passes.
+// a respond-bidirectional attestation. The suite then recomputes the respond
+// bytes from the mined call's trace (deserializeEvmOutput,
+// serializeRespondOutput), checks the fakenet's output cache (the twin of
+// the MPC's bucket, for clients without trace access) holds the same bytes,
+// and picks the attestation that VERIFIES over them against the pinned MPC
+// response key before in-circuit verification. Both the traced and the
+// cached bytes are UNTRUSTED until that signature verification passes.
 //
 // One ordered pipeline per target method, driven by the METHODS config
 // below: adding a Solidity method later means one Solidity function, one
@@ -31,6 +31,7 @@ import {
   deriveEvmAddress,
   deserializeEvmOutput,
   hexToBytes,
+  MpcOutputCacheReader,
   parseSecp256k1PublicKey,
   requestIdBytes,
   type RequestIdHex,
@@ -43,6 +44,7 @@ import {
   stripHexPrefix,
 } from "@sig-net/midnight";
 import { calculateSignetAttestationDigest } from "@sig-net/midnight/testing";
+import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 import {
   getAddress,
   getBytes,
@@ -62,9 +64,9 @@ import {
 } from "../src/caller-session.ts";
 import { CALLER_PATH_HEX } from "../src/constants.ts";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
-import { fetchFakenetResponse } from "../src/fakenet-responses.ts";
 import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
-import { broadcastSignedTx, evmRpcUrl, getEvmNonce } from "../src/local-evm.ts";
+import { broadcastSignedTx, evmRpcUrl, getEvmNonce, traceTopCallOutput } from "../src/local-evm.ts";
+import { fetchAttestedOutput, mpcOutputCacheUrl } from "../src/mpc-output-cache.ts";
 import { banner, logSkip } from "../src/output.ts";
 import { pollSignetNotification } from "../src/signet-notifications.ts";
 
@@ -416,22 +418,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           logSkip(`${method.name} recompute`, `request ${requestId} already consumed`);
           return;
         }
-        expect(receipt).toBeDefined();
-
-        // Fetch the raw execution output from the fakenet's public
-        // /responses/{requestId} helper API: the mined call's actual return
-        // data as the fakenet traced it (debug_traceTransaction, the same
-        // method the real MPC uses), served so clients need no trace RPC
-        // access of their own. UNTRUSTED until an attestation below verifies
-        // over the bytes recomputed from it.
-        const cached = await fetchFakenetResponse(requestId);
-        expect(cached.success, "the fakenet must report a succeeded execution").toBe(true);
-        const callResult = cached.output;
-        if (callResult === null) {
-          throw new Error("a succeeded execution must carry its raw output");
-        }
-
-        // The two abi-serde conversions under test, on live protocol data.
+        // Recompute route: the mined call's return data, read from the local
+        // anvil with debug_traceTransaction (the method the MPC observes
+        // with), through the two abi-serde conversions under test on live
+        // protocol data.
+        const callResult = await traceTopCallOutput(evmRpcUrl(env), receipt.hash);
         const decoded = deserializeEvmOutput(method.schema, callResult);
         expect(decoded, "the EVM output must decode to the expected values").toEqual(
           method.expectedDecoded,
@@ -441,6 +432,20 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           respondBytes,
           "the packed respond payload must have the schema's exact width",
         ).toHaveLength(method.packedWidth);
+
+        // Cache route: the bytes the fakenet wrote to its output cache before
+        // posting, read exactly as a client without trace access reads a real
+        // MPC's bucket. The cache holds what the attestation commits to, so
+        // they must equal the recomputed bytes to the byte.
+        const outputCache = new MpcOutputCacheReader({
+          cacheUrl: mpcOutputCacheUrl(env),
+          networkId: getMidnightNodeConfig(env).networkId,
+          signetContractAddress: requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
+        });
+        const cached = await fetchAttestedOutput(outputCache, requestId);
+        expect(cached, "the fakenet must cache exactly the bytes a client recomputes").toEqual(
+          respondBytes,
+        );
 
         // The signature seals the round trip: the post attests a digest over
         // respond bytes only the fakenet's side produced, so it verifies

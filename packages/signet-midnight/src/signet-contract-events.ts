@@ -16,6 +16,7 @@ import { CompactTypeBytes, type LogEvent } from "@midnight-ntwrk/compact-runtime
 
 import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
 import { decodeExactly } from "./compact-descriptors.ts";
+import { contractAddressFromHex, type RequestIdHex, requestIdHex } from "./signet-requests.ts";
 
 /**
  * The event names the signet contract emits, exactly as the contract's
@@ -50,20 +51,47 @@ export interface SignetMiscEvent {
 }
 
 /**
- * Source of the signet contract's emitted events, the event-side sibling of
- * `SignetPublicStateSource`. Structural, so tests can stub it. Adapt a
- * full midnight-js `PublicDataProvider` with
- * {@link signetEventSourceFromPublicDataProvider}.
+ * A {@link SignetMiscEvent} read through the indexer, carrying the indexer's
+ * event cursor and where on chain the event was emitted, so a consumer can
+ * dedup, resume, show progress against the tip, say when the event happened
+ * and link it to its transaction. The simulator path
+ * ({@link decodeSignetLogEvents}) has none of this and yields plain
+ * {@link SignetMiscEvent}s.
  */
-export interface SignetEventSource {
+export interface IndexedSignetMiscEvent extends SignetMiscEvent {
+  /** The indexer's global event cursor, ascending in emission order. */
+  id: number;
+  /** The highest event id the indexer knew when the event's page was served. */
+  maxId: number;
+  /** Indexer row id of the emitting transaction. For the chain's id see {@link transactionHash}. */
+  transactionId: number;
+  /** Hash of the emitting transaction, lowercase hex, no `0x` prefix. */
+  transactionHash: string;
+  /** Height of the block holding the emitting transaction. */
+  blockHeight: number;
+  /** Hash of that block, lowercase hex, no `0x` prefix. */
+  blockHash: string;
+  /** When that block was produced. */
+  blockTimestamp: Date;
+}
+
+/**
+ * Source of the signet contract's emitted events, the event-side sibling of
+ * `SignetPublicStateSource`. Structural, so tests can stub it with a stream
+ * over fixtures. Read a live indexer with {@link signetEventSourceFromIndexer},
+ * which yields {@link IndexedSignetMiscEvent}s.
+ */
+export interface SignetEventSource<TEvent extends SignetMiscEvent = SignetMiscEvent> {
   /**
-   * Fetch every signet event the contract has emitted so far, in emission
-   * order.
+   * Stream every signet event the contract has emitted so far, oldest
+   * first. Events arrive one indexer page at a time: a page's events are
+   * yielded before the next page is requested, so a consumer sees progress
+   * per page, and leaving the `for await` loop early stops further requests.
    *
    * @param contractAddress - The signet contract to read events of.
    * @returns The decoded events, oldest first.
    */
-  querySignetEvents(contractAddress: string): Promise<SignetMiscEvent[]>;
+  streamSignetEvents(contractAddress: string): AsyncIterable<TEvent>;
 }
 
 /** Descriptor re-padding a name ++ payload event atom to its full width. */
@@ -104,7 +132,7 @@ export function decodeSignetEventName(name: Uint8Array): string {
 /**
  * Decode the simulator's circuit-execution log into signet events. For
  * simulator tests. The indexer-path counterpart is
- * {@link signetEventSourceFromPublicDataProvider}.
+ * {@link signetEventSourceFromIndexer}.
  *
  * @param events - The `context.events` of a `CircuitResults`.
  * @param contractAddress - Optional filter: only events this contract emitted.
@@ -135,76 +163,203 @@ export function decodeSignetLogEvents(
   return out;
 }
 
-/**
- * The least of a midnight-js `PublicDataProvider` the event source adapter
- * needs: the `Misc` contract events of one address. Structural, so any full
- * provider is assignable.
- */
-export interface SignetContractEventQuerySource {
-  /**
-   * Retrieve one page of a contract's events: see
-   * `PublicDataProvider.queryContractEvents`. Callers MUST pass `page` and
-   * keep requesting until a short page: a provider caps an un-paged call at
-   * its default page size (midnight-js: 100), silently truncating a busy
-   * contract's history.
-   *
-   * @param filter - The contract address and event-type narrowing.
-   * @param filter.contractAddress - The contract whose events to read.
-   * @param filter.types - Event types to keep; omit for all of them.
-   * @param page - The window to read: `limit` events starting at `offset`.
-   * @param page.limit - Maximum events to return.
-   * @param page.offset - Events to skip from the start of the history.
-   * @returns The matching events in the window, oldest first.
-   */
-  queryContractEvents(
-    filter: {
-      contractAddress: string;
-      types?: "Misc"[];
-    },
-    page: { limit: number; offset: number },
-  ): Promise<{ eventType: string; name?: string; payload?: string }[]>;
+/** Where {@link signetEventSourceFromIndexer} reads the signet contract's events from. */
+export interface SignetIndexerConfig {
+  /** The indexer's GraphQL query endpoint over HTTP, e.g. `https://<indexer>/api/v4/graphql`. */
+  readonly queryUrl: string;
 }
 
 /**
- * Adapt a midnight-js `PublicDataProvider` (or anything exposing its
- * `queryContractEvents`) into a {@link SignetEventSource}. Each event's name
- * is NUL-trimmed and its payload re-padded to the full
- * {@link SIGNET_EVENT_PAYLOAD_LENGTH}.
- *
- * @param provider - The provider to query events through.
- * @returns The adapted event source.
+ * The events query, written against the indexer v4 schema. It selects the
+ * `transaction` relation, which is what carries the emitting transaction's
+ * hash and its block.
  */
-export function signetEventSourceFromPublicDataProvider(
-  provider: SignetContractEventQuerySource,
-): SignetEventSource {
+const SIGNET_CONTRACT_EVENTS_QUERY = `
+  query SignetContractEvents($filter: ContractEventFilter!, $limit: Int, $offset: Int) {
+    contractEvents(filter: $filter, limit: $limit, offset: $offset) {
+      __typename
+      id
+      maxId
+      transactionId
+      transaction { hash block { height hash timestamp } }
+      ... on MiscContractEvent { name payload }
+    }
+  }
+`;
+
+/** The `__typename` of the one contract event variant the signet contract emits. */
+const MISC_CONTRACT_EVENT_TYPENAME = "MiscContractEvent";
+
+/** Events requested per page: the page size midnight-js's own contract events query defaults to. */
+const EVENT_PAGE_LIMIT = 100;
+
+/**
+ * One `contractEvents` row as the indexer's JSON carries it. Every field is
+ * optional: the wire is external input until {@link signetMiscEventFromIndexerRow}
+ * has checked it.
+ */
+interface IndexerContractEventRow {
+  /** The GraphQL type of the row: the event variant. */
+  __typename?: string;
+  /** The indexer's global event cursor. */
+  id?: number;
+  /** The highest event id the indexer knew when the page was served. */
+  maxId?: number;
+  /** Indexer row id of the emitting transaction. */
+  transactionId?: number;
+  /** The emitting transaction. */
+  transaction?: {
+    /** The transaction hash, hex encoded. */
+    hash?: string;
+    /** The block holding the transaction. */
+    block?: {
+      /** The block height. */
+      height?: number;
+      /** The block hash, hex encoded. */
+      hash?: string;
+      /** When the block was produced, epoch milliseconds. */
+      timestamp?: number;
+    };
+  };
+  /** A `Misc` event's name, hex encoded. */
+  name?: string;
+  /** A `Misc` event's payload, hex encoded, trailing zeros trimmed. */
+  payload?: string;
+}
+
+/**
+ * Normalise one indexer row into a signet event: the name NUL-trimmed and
+ * the payload re-padded to the full {@link SIGNET_EVENT_PAYLOAD_LENGTH}
+ * (the indexer trims a stored atom's trailing zeros).
+ *
+ * @param row - The row as the indexer served it.
+ * @returns The signet event, or `undefined` when the row is not a `Misc` event.
+ * @throws {Error} When a `Misc` row lacks a field the query selects, or its
+ *   name or payload is not a hex byte string.
+ */
+function signetMiscEventFromIndexerRow(
+  row: IndexerContractEventRow,
+): IndexedSignetMiscEvent | undefined {
+  if (row.__typename !== MISC_CONTRACT_EVENT_TYPENAME) return undefined;
+  const { id, maxId, transactionId, name, payload } = row;
+  const transactionHash = row.transaction?.hash;
+  const block = row.transaction?.block;
+  if (
+    id === undefined ||
+    maxId === undefined ||
+    transactionId === undefined ||
+    name === undefined ||
+    payload === undefined ||
+    transactionHash === undefined ||
+    block?.height === undefined ||
+    block.hash === undefined ||
+    block.timestamp === undefined
+  ) {
+    throw new Error(`the indexer served a malformed Misc contract event: ${JSON.stringify(row)}`);
+  }
+  const padded = new Uint8Array(SIGNET_EVENT_PAYLOAD_LENGTH);
+  padded.set(hexToBytes(payload).slice(0, SIGNET_EVENT_PAYLOAD_LENGTH), 0);
   return {
-    async querySignetEvents(contractAddress) {
-      // Page until a short page: a single un-paged read caps at the
-      // provider's default page size and silently truncates a busy signet's
-      // history, starving every consumer of the events past the cap.
-      const events: { eventType: string; name?: string; payload?: string }[] = [];
-      const pageLimit = 100;
-      for (let pageOffset = 0; ; pageOffset += pageLimit) {
-        const page = await provider.queryContractEvents(
-          { contractAddress, types: ["Misc"] },
-          { limit: pageLimit, offset: pageOffset },
-        );
-        events.push(...page);
-        if (page.length < pageLimit) break;
+    name: decodeSignetEventName(hexToBytes(name)),
+    payload: padded,
+    id,
+    maxId,
+    transactionId,
+    transactionHash,
+    blockHeight: block.height,
+    blockHash: block.hash,
+    blockTimestamp: new Date(block.timestamp),
+  };
+}
+
+/** The indexer's answer to {@link SIGNET_CONTRACT_EVENTS_QUERY}: the GraphQL response envelope. */
+interface IndexerContractEventsResponse {
+  /** The query result, absent or null when the query failed. */
+  data?: {
+    /** The page of events. */
+    contractEvents?: IndexerContractEventRow[];
+  } | null;
+  /** What the indexer rejected, e.g. a contract address that is not hex. */
+  errors?: {
+    /** The rejection, in the indexer's words. */
+    message?: string;
+  }[];
+}
+
+/**
+ * Fetch one page of a contract's `Misc` events from the indexer.
+ *
+ * @param queryUrl - The indexer's GraphQL query endpoint.
+ * @param contractAddress - The contract whose events to read.
+ * @param offset - Events to skip from the start of the history.
+ * @returns The page's rows, oldest first.
+ * @throws {Error} When the indexer cannot be reached, answers a status other
+ *   than 200, rejects the query, or answers without a page.
+ */
+async function fetchContractEventPage(
+  queryUrl: string,
+  contractAddress: string,
+  offset: number,
+): Promise<IndexerContractEventRow[]> {
+  const response = await fetch(queryUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      query: SIGNET_CONTRACT_EVENTS_QUERY,
+      variables: {
+        filter: { contractAddress, types: ["MISC"] },
+        limit: EVENT_PAGE_LIMIT,
+        offset,
+      },
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `indexer answered HTTP ${String(response.status)} for ${queryUrl}: ${await response.text()}`,
+    );
+  }
+  const body = (await response.json()) as IndexerContractEventsResponse;
+  if (body.errors !== undefined && body.errors.length > 0) {
+    const messages = body.errors.map((error) => error.message ?? "unspecified error");
+    throw new Error(`indexer rejected the contract events query: ${messages.join(", ")}`);
+  }
+  const page = body.data?.contractEvents;
+  if (page === undefined) {
+    throw new Error(`indexer answered the contract events query without a page: ${queryUrl}`);
+  }
+  return page;
+}
+
+/**
+ * Read the signet contract's events from a Midnight indexer. The stream
+ * pages the indexer by offset and pins its end to the tip (`maxId`) of the
+ * first page, so the walk is a point-in-time snapshot that ends even while
+ * the contract keeps emitting: rows past that tip are dropped. The contract
+ * address is parsed with {@link contractAddressFromHex} before the first
+ * request, so a malformed one fails without a round trip, and a `0x`
+ * prefixed one reaches the indexer as the bare hex it expects.
+ *
+ * @param config - Where the indexer is.
+ * @returns The event source.
+ */
+export function signetEventSourceFromIndexer(
+  config: SignetIndexerConfig,
+): SignetEventSource<IndexedSignetMiscEvent> {
+  return {
+    async *streamSignetEvents(contractAddress) {
+      const address = bytesToHex(contractAddressFromHex(contractAddress).bytes);
+      let tipId: number | undefined;
+      for (let offset = 0; ; offset += EVENT_PAGE_LIMIT) {
+        const page = await fetchContractEventPage(config.queryUrl, address, offset);
+        for (const row of page) {
+          const event = signetMiscEventFromIndexerRow(row);
+          if (event === undefined) continue;
+          tipId ??= event.maxId;
+          if (event.id > tipId) return;
+          yield event;
+        }
+        if (page.length < EVENT_PAGE_LIMIT) return;
       }
-      const out: SignetMiscEvent[] = [];
-      for (const event of events) {
-        if (event.eventType !== "Misc") continue;
-        if (event.name === undefined || event.payload === undefined) continue;
-        const payload = hexToBytes(event.payload);
-        const padded = new Uint8Array(SIGNET_EVENT_PAYLOAD_LENGTH);
-        padded.set(payload.slice(0, SIGNET_EVENT_PAYLOAD_LENGTH), 0);
-        out.push({
-          name: decodeSignetEventName(hexToBytes(event.name)),
-          payload: padded,
-        });
-      }
-      return out;
     },
   };
 }
@@ -430,8 +585,14 @@ const SUPPORTED_NOTIFICATION_VERSION = 1n;
  * authority.
  */
 export interface SignBidirectionalNotification {
-  /** Payload layout tag: this decoder only produces version 1. */
-  version: number;
+  /**
+   * Payload layout tag, the literal of the one layout this decoder produces.
+   * A second layout joins as its own interface with its own literal, making
+   * the decoded notification a union discriminated on `version`, so every
+   * consumer gets a compile error where it must handle the new layout. Keep
+   * this a literal: widening it to `number` gives that error away.
+   */
+  version: 1;
   /**
    * Address of the contract whose request map holds the request, rendered
    * as lowercase hex, no `0x` prefix: directly usable as a
@@ -489,8 +650,190 @@ export function decodeSignBidirectionalNotification(
     record.payload.slice(NOTIFICATION_PATH_OFFSET, NOTIFICATION_PATH_OFFSET + depth),
   );
   return {
-    version: Number(record.version),
+    version: 1,
     callerAddress,
     requestsPath,
   };
+}
+
+/**
+ * The decoded record each signet event kind posts, keyed by the event's
+ * name: what {@link DecodedSignetEventNamed} carries as `record`.
+ */
+export interface SignetEventRecords {
+  /** The flat pointer to the stored request (the notification fully decoded). */
+  [SignetEventName.SignBidirectionalEvent]: SignBidirectionalNotification;
+  /** The MPC's signature over the requested transaction. */
+  [SignetEventName.SignatureRespondedEvent]: SignatureRespondedEvent;
+  /** The MPC's attestation of the foreign execution. */
+  [SignetEventName.RespondBidirectionalEvent]: RespondBidirectionalEvent;
+}
+
+/**
+ * A signet event of kind `TName` in decoded form: a discriminated union over
+ * `name`, so narrowing on it narrows `record`. `TEvent` is the shape the
+ * event was read in, so an {@link IndexedSignetMiscEvent} keeps its indexer
+ * cursor across the decode. Everything here is UNAUTHENTICATED: each record
+ * type's own doc names its authenticity check. A shared `requestId` links
+ * nothing by itself: events grouped by it are a request, signature and
+ * attestation lifecycle only once the request is read from the caller's own
+ * ledger with `lookupSignetRequestAt` and each post verifies against it.
+ */
+export type DecodedSignetEventNamed<
+  TName extends SignetEventName,
+  TEvent extends SignetMiscEvent = SignetMiscEvent,
+> = {
+  [Name in TName]: {
+    /** The event kind: the discriminant `record` narrows on. */
+    name: Name;
+    /** The request id the post declares it concerns. Routing data only. */
+    requestId: RequestIdHex;
+    /** The posted record, decoded. */
+    record: SignetEventRecords[Name];
+    /** The event as its source served it: the undecoded payload, and the cursor when indexed. */
+    source: TEvent;
+  };
+}[TName];
+
+/** A signet event of any kind in decoded form: see {@link DecodedSignetEventNamed}. */
+export type DecodedSignetEvent<TEvent extends SignetMiscEvent = SignetMiscEvent> =
+  DecodedSignetEventNamed<SignetEventName, TEvent>;
+
+/** The payload decoder of each signet event kind, each yielding that kind's decoded record. */
+const SIGNET_EVENT_PAYLOAD_DECODERS: {
+  [Name in SignetEventName]: (payload: Uint8Array) => SignetEventPost<SignetEventRecords[Name]>;
+} = {
+  [SignetEventName.SignBidirectionalEvent]: (payload) => {
+    const post = decodeSignBidirectionalEventNotificationPayload(payload);
+    return { requestId: post.requestId, event: decodeSignBidirectionalNotification(post.event) };
+  },
+  [SignetEventName.SignatureRespondedEvent]: decodeSignatureRespondedEventPayload,
+  [SignetEventName.RespondBidirectionalEvent]: decodeRespondBidirectionalEventPayload,
+};
+
+/**
+ * Decode `event` as the signet event kind `name`, or skip it when it carries
+ * another name. The name is checked BEFORE the payload is touched, which is
+ * what a reader of one kind needs: the signet contract is unauthenticated,
+ * so anyone can emit an undecodable event of another kind, and that must not
+ * fail a read that never asked for it.
+ *
+ * @param event - The signet event as its source served it.
+ * @param name - The event kind to decode.
+ * @returns The decoded event, or `undefined` when `event` is not a `name` event.
+ * @throws {Error} When `event` is a `name` event whose payload does not decode
+ *   (see the payload decoder of that kind).
+ */
+export function decodeSignetEventNamed<
+  TName extends SignetEventName,
+  TEvent extends SignetMiscEvent,
+>(event: TEvent, name: TName): DecodedSignetEventNamed<TName, TEvent> | undefined {
+  if (!isSignetEventNamed(event, name)) return undefined;
+  const post = SIGNET_EVENT_PAYLOAD_DECODERS[name](event.payload);
+  return { name, requestId: requestIdHex(post.requestId), record: post.event, source: event };
+}
+
+/**
+ * Decode `event` by whichever signet event name it carries. What to do with
+ * an event that is not a signet event, or that does not decode, is the
+ * caller's policy: a responder skips both, an explorer shows both.
+ *
+ * WARNING: this THROWS on input anyone can put on chain. The signet contract
+ * is unauthenticated, so a `SignBidirectionalEvent` with an unsupported
+ * version or a zero path depth costs its sender one transaction. A loop over
+ * a live stream must catch, or use {@link tryDecodeSignetEvent}.
+ *
+ * @param event - The signet event as its source served it.
+ * @returns The decoded event, or `undefined` when `event`'s name is not a
+ *   {@link SignetEventName}.
+ * @throws {Error} When the named kind's payload does not decode.
+ */
+export function decodeSignetEvent<TEvent extends SignetMiscEvent>(
+  event: TEvent,
+): DecodedSignetEvent<TEvent> | undefined {
+  for (const name of Object.values(SignetEventName)) {
+    const decoded = decodeSignetEventNamed(event, name);
+    if (decoded !== undefined) return decoded;
+  }
+  return undefined;
+}
+
+/**
+ * The outcome of {@link tryDecodeSignetEvent} on a signet event: the decoded
+ * event, or the event that did not decode beside the decoder's reason.
+ */
+export type SignetEventDecodeResult<TEvent extends SignetMiscEvent = SignetMiscEvent> =
+  | {
+      /** The payload decoded. */
+      ok: true;
+      /** The decoded event. */
+      event: DecodedSignetEvent<TEvent>;
+    }
+  | {
+      /** The payload did not decode. */
+      ok: false;
+      /** The event as its source served it. */
+      source: TEvent;
+      /** The payload decoder's error message. */
+      reason: string;
+    };
+
+/**
+ * {@link decodeSignetEvent} without the throw: an undecodable payload comes
+ * back as a result to inspect. It reports the failure and leaves the policy
+ * (skip it, show it, count it) to the caller.
+ *
+ * @param event - The signet event as its source served it.
+ * @returns The decode result, or `undefined` when `event`'s name is not a
+ *   {@link SignetEventName}.
+ */
+export function tryDecodeSignetEvent<TEvent extends SignetMiscEvent>(
+  event: TEvent,
+): SignetEventDecodeResult<TEvent> | undefined {
+  try {
+    const decoded = decodeSignetEvent(event);
+    return decoded === undefined ? undefined : { ok: true, event: decoded };
+  } catch (error) {
+    return {
+      ok: false,
+      source: event,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/** Each signet event kind's record selector: the record of a decoded event of that kind. */
+const SIGNET_EVENT_RECORD_SELECTORS: {
+  [Name in SignetEventName]: (event: DecodedSignetEvent) => SignetEventRecords[Name] | undefined;
+} = {
+  [SignetEventName.SignBidirectionalEvent]: (event) =>
+    event.name === SignetEventName.SignBidirectionalEvent ? event.record : undefined,
+  [SignetEventName.SignatureRespondedEvent]: (event) =>
+    event.name === SignetEventName.SignatureRespondedEvent ? event.record : undefined,
+  [SignetEventName.RespondBidirectionalEvent]: (event) =>
+    event.name === SignetEventName.RespondBidirectionalEvent ? event.record : undefined,
+};
+
+/**
+ * The records of kind `name` that declare `requestId`, out of decoded events
+ * already in hand, in the order given. The routing step of every per-request
+ * read: it selects by the UNAUTHENTICATED declared id and verifies nothing.
+ *
+ * @param events - Decoded signet events of any kinds.
+ * @param name - The event kind to keep.
+ * @param requestId - The request id the kept events must declare.
+ * @returns The kept events' records.
+ */
+export function signetEventRecordsOf<TName extends SignetEventName>(
+  events: readonly DecodedSignetEvent[],
+  name: TName,
+  requestId: RequestIdHex,
+): SignetEventRecords[TName][] {
+  const records: SignetEventRecords[TName][] = [];
+  for (const event of events) {
+    if (event.requestId !== requestId) continue;
+    const record = SIGNET_EVENT_RECORD_SELECTORS[name](event);
+    if (record !== undefined) records.push(record);
+  }
+  return records;
 }
