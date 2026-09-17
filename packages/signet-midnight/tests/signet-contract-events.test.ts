@@ -7,12 +7,13 @@
 // simulator tests.
 
 import { CompactTypeBytes, type LogEvent } from "@midnight-ntwrk/compact-runtime";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   asciiPadded,
   bytesToHex,
   type ContractEventRow,
+  type DecodedSignetEvent,
   decodeRespondBidirectionalEventPayload,
   decodeSignatureRespondedEventPayload,
   decodeSignBidirectionalEventNotificationPayload,
@@ -26,12 +27,15 @@ import {
   requestIdHex,
   type RespondBidirectionalEvent,
   type SignatureRespondedEvent,
+  type SignBidirectionalNotification,
   SIGNET_EVENT_NAME_LENGTH,
   SIGNET_EVENT_PAYLOAD_LENGTH,
   SignetEventName,
+  signetEventRecordsOf,
   signetEventSourceFromPublicDataProvider,
   type SignetMiscEvent,
   signetMiscEventFromContractEventRow,
+  tryDecodeSignetEvent,
 } from "../src/index.ts";
 import {
   notificationEventOf,
@@ -169,7 +173,7 @@ describe("decodeSignetEvent (dispatch by name)", () => {
       name: event.name,
       requestId: requestIdHex(REQUEST_ID),
       record,
-      raw: event,
+      source: event,
     });
   });
 
@@ -180,7 +184,7 @@ describe("decodeSignetEvent (dispatch by name)", () => {
       maxId: 9,
       transactionId: 42,
     };
-    expect(decodeSignetEvent(indexed)?.raw).toBe(indexed);
+    expect(decodeSignetEvent(indexed)?.source).toBe(indexed);
   });
 
   it("returns undefined for a name that is not a signet event name", () => {
@@ -200,7 +204,7 @@ describe("decodeSignetEventNamed (one kind only)", () => {
       name: SignetEventName.SignatureRespondedEvent,
       requestId: requestIdHex(REQUEST_ID),
       record: RESPONSE,
-      raw: event,
+      source: event,
     });
   });
 
@@ -209,6 +213,89 @@ describe("decodeSignetEventNamed (one kind only)", () => {
     expect(
       decodeSignetEventNamed(garbage, SignetEventName.SignatureRespondedEvent),
     ).toBeUndefined();
+  });
+});
+
+describe("DecodedSignetEvent (type-level promises)", () => {
+  it("narrows record when narrowed on name", () => {
+    const decoded = decodeSignetEvent(signatureRespondedEventOf(REQUEST_ID, RESPONSE));
+    if (decoded?.name === SignetEventName.SignBidirectionalEvent) {
+      expectTypeOf(decoded.record).toEqualTypeOf<SignBidirectionalNotification>();
+    }
+    if (decoded?.name === SignetEventName.SignatureRespondedEvent) {
+      expectTypeOf(decoded.record).toEqualTypeOf<SignatureRespondedEvent>();
+    }
+    if (decoded?.name === SignetEventName.RespondBidirectionalEvent) {
+      expectTypeOf(decoded.record).toEqualTypeOf<RespondBidirectionalEvent>();
+    }
+  });
+
+  it("types a named decode as that one kind", () => {
+    const event = signatureRespondedEventOf(REQUEST_ID, RESPONSE);
+    const decoded = decodeSignetEventNamed(event, SignetEventName.SignatureRespondedEvent);
+    expectTypeOf(decoded?.record).toEqualTypeOf<SignatureRespondedEvent | undefined>();
+  });
+
+  it("keeps the indexed shape on the source event", () => {
+    expectTypeOf<
+      DecodedSignetEvent<IndexedSignetMiscEvent>["source"]
+    >().toEqualTypeOf<IndexedSignetMiscEvent>();
+    expectTypeOf<DecodedSignetEvent["source"]>().toEqualTypeOf<SignetMiscEvent>();
+  });
+
+  it("pins the notification version to the literal of its one layout", () => {
+    expectTypeOf<SignBidirectionalNotification["version"]>().toEqualTypeOf<1>();
+  });
+});
+
+describe("tryDecodeSignetEvent (decode without the throw)", () => {
+  it("wraps a decoded event", () => {
+    const event = signatureRespondedEventOf(REQUEST_ID, RESPONSE);
+    expect(tryDecodeSignetEvent(event)).toEqual({ ok: true, event: decodeSignetEvent(event) });
+  });
+
+  it("reports an undecodable payload beside its event and the decoder's reason", () => {
+    const event = notificationEventOf(REQUEST_ID, { ...NOTIFICATION, version: 2n });
+    const result = tryDecodeSignetEvent(event);
+    if (result?.ok !== false) {
+      throw new Error("expected the decode to fail");
+    }
+    expect(result.source).toBe(event);
+    expect(result.reason).toMatch(/version 2 is not supported/);
+  });
+
+  it("returns undefined for a name that is not a signet event name", () => {
+    expect(tryDecodeSignetEvent({ name: "SomethingElse", payload: bytes(256, 0) })).toBeUndefined();
+  });
+});
+
+describe("signetEventRecordsOf (routing over events in hand)", () => {
+  const OTHER_REQUEST_ID = bytes(32, 0x30);
+  const IN_HAND: DecodedSignetEvent[] = [
+    notificationEventOf(REQUEST_ID, NOTIFICATION),
+    signatureRespondedEventOf(OTHER_REQUEST_ID, RESPONSE),
+    signatureRespondedEventOf(REQUEST_ID, RESPONSE),
+    respondBidirectionalEventOf(REQUEST_ID, RESPOND_BIDIRECTIONAL),
+  ].flatMap((event) => decodeSignetEvent(event) ?? []);
+
+  it("keeps the records of the asked kind declared under the asked request id", () => {
+    expect(
+      signetEventRecordsOf(
+        IN_HAND,
+        SignetEventName.SignatureRespondedEvent,
+        requestIdHex(REQUEST_ID),
+      ),
+    ).toEqual([RESPONSE]);
+  });
+
+  it("returns nothing for a request id no event declares", () => {
+    expect(
+      signetEventRecordsOf(
+        IN_HAND,
+        SignetEventName.RespondBidirectionalEvent,
+        requestIdHex(OTHER_REQUEST_ID),
+      ),
+    ).toEqual([]);
   });
 });
 

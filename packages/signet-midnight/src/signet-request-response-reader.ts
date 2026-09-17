@@ -13,11 +13,13 @@ import type { RawContractState } from "./raw-contract-state.ts";
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
 import {
+  type DecodedSignetEvent,
   decodeSignetEventNamed,
   type RespondBidirectionalEvent,
   type SignatureRespondedEvent,
   SignetEventName,
   type SignetEventRecords,
+  signetEventRecordsOf,
   type SignetEventSource,
 } from "./signet-contract-events.ts";
 import {
@@ -105,6 +107,62 @@ function assertEvmType2Request(request: SignBidirectionalEvent): void {
   if (request.txParamType !== TxParamType.evmType2) {
     throw new Error(`unsupported txParamType ${String(request.txParamType)}`);
   }
+}
+
+/**
+ * The first (oldest) of a request's respond-bidirectional posts whose
+ * signature verifies over `serializedOutput` against `mpcResponseKey`.
+ *
+ * @param requestId - The request id the attestation must commit to.
+ * @param serializedOutput - The serialised execution output, exact unpadded bytes.
+ * @param mpcResponseKey - The MPC response key the requesting contract pinned.
+ * @param posts - The request's posts, in emission order.
+ * @returns The first verifying post, or `undefined` when none verifies.
+ */
+function firstVerifiedRespondBidirectionalEvent(
+  requestId: RequestIdHex,
+  serializedOutput: Uint8Array,
+  mpcResponseKey: Secp256k1Point,
+  posts: readonly RespondBidirectionalEvent[],
+): RespondBidirectionalEvent | undefined {
+  return posts.find((post) =>
+    verifyRespondBidirectionalSignature(
+      requestIdBytes(requestId),
+      serializedOutput,
+      post,
+      mpcResponseKey,
+    ),
+  );
+}
+
+/**
+ * `SignetRequestResponseReader.getVerifiedRespondBidirectionalEvent` over
+ * decoded events already in hand: no walk of the signet contract's event
+ * history, and no ledger read either, since the attestation verifies against
+ * the output and the response key alone.
+ *
+ * @param requestId - The request id the posts must declare and the
+ *   attestation must commit to.
+ * @param serializedOutput - The serialised execution output the attestation
+ *   must commit to, exact unpadded bytes.
+ * @param mpcResponseKey - The MPC response key the requesting contract
+ *   pinned at deploy (see `deriveMidnightResponseKey`).
+ * @param events - Decoded signet events of any kinds and request ids, in
+ *   emission order. Only attestations declaring `requestId` are judged.
+ * @returns The first verifying post, or `undefined` when none attests this output.
+ */
+export function findVerifiedRespondBidirectionalEvent(
+  requestId: RequestIdHex,
+  serializedOutput: Uint8Array,
+  mpcResponseKey: Secp256k1Point,
+  events: readonly DecodedSignetEvent[],
+): RespondBidirectionalEvent | undefined {
+  return firstVerifiedRespondBidirectionalEvent(
+    requestId,
+    serializedOutput,
+    mpcResponseKey,
+    signetEventRecordsOf(events, SignetEventName.RespondBidirectionalEvent, requestId),
+  );
 }
 
 /**
@@ -210,8 +268,58 @@ export class SignetRequestResponseReader {
     requestId: RequestIdHex,
     expectedSigner: string,
   ): Promise<VerifiedSignatureResponseResult> {
+    return this.verifySignatureResponses(
+      requestId,
+      expectedSigner,
+      await this.getSignatureRespondedEvents(requestId),
+    );
+  }
+
+  /**
+   * {@link getVerifiedSignatureRespondedEvent} over decoded events already in
+   * hand: the one ledger read for the request (cached), and no walk of the
+   * signet contract's event history. For a consumer that streamed and decoded
+   * the history once and verifies many requests against it.
+   *
+   * @param requestId - The request id to verify responses for.
+   * @param expectedSigner - The EVM address (0x hex, any case) the genuine
+   *   response must be signed by: the requester's MPC-derived address.
+   * @param events - Decoded signet events of any kinds and request ids, in
+   *   emission order. Only signature responses declaring `requestId` are judged.
+   * @returns The first valid response (if any) plus per-post verdicts.
+   * @throws {Error} When the requester contract has no state or the request is
+   *   not on its ledger.
+   */
+  async verifySignatureRespondedEvents(
+    requestId: RequestIdHex,
+    expectedSigner: string,
+    events: readonly DecodedSignetEvent[],
+  ): Promise<VerifiedSignatureResponseResult> {
+    return this.verifySignatureResponses(
+      requestId,
+      expectedSigner,
+      signetEventRecordsOf(events, SignetEventName.SignatureRespondedEvent, requestId),
+    );
+  }
+
+  /**
+   * Judge each of a request's posted signature responses against the request:
+   * the verdict step {@link getVerifiedSignatureRespondedEvent} and
+   * {@link verifySignatureRespondedEvents} share.
+   *
+   * @param requestId - The request id the responses were posted under.
+   * @param expectedSigner - The EVM address the genuine response must be signed by.
+   * @param responses - The request's posted responses, in emission order.
+   * @returns The first valid response (if any) plus per-post verdicts.
+   * @throws {Error} When the requester contract has no state or the request is
+   *   not on its ledger.
+   */
+  private async verifySignatureResponses(
+    requestId: RequestIdHex,
+    expectedSigner: string,
+    responses: readonly SignatureRespondedEvent[],
+  ): Promise<VerifiedSignatureResponseResult> {
     const request = await this.getSignatureRequest(requestId);
-    const responses = await this.getSignatureRespondedEvents(requestId);
     const verdicts = responses.map((response, position): SignatureResponseVerdict => {
       const index = BigInt(position);
       let signer: string;
@@ -322,14 +430,11 @@ export class SignetRequestResponseReader {
     serializedOutput: Uint8Array,
     mpcResponseKey: Secp256k1Point,
   ): Promise<RespondBidirectionalEvent | undefined> {
-    const events = await this.getRespondBidirectionalEvents(requestId);
-    return events.find((event) =>
-      verifyRespondBidirectionalSignature(
-        requestIdBytes(requestId),
-        serializedOutput,
-        event,
-        mpcResponseKey,
-      ),
+    return firstVerifiedRespondBidirectionalEvent(
+      requestId,
+      serializedOutput,
+      mpcResponseKey,
+      await this.getRespondBidirectionalEvents(requestId),
     );
   }
 }

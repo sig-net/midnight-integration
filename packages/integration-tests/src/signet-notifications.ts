@@ -5,13 +5,12 @@
 
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import {
-  type DecodedSignetEventNamed,
-  decodeSignetEventNamed,
   type RequestIdHex,
   type SignBidirectionalNotification,
   SignetEventName,
   signetEventSourceFromPublicDataProvider,
   stripHexPrefix,
+  tryDecodeSignetEvent,
 } from "@sig-net/midnight";
 import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 
@@ -67,14 +66,12 @@ export async function pollSignetNotification(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     for await (const event of eventSource.streamSignetEvents(signetAddress)) {
-      let decoded: DecodedSignetEventNamed<SignetEventName.SignBidirectionalEvent> | undefined;
-      try {
-        decoded = decodeSignetEventNamed(event, SignetEventName.SignBidirectionalEvent);
-      } catch {
-        continue;
-      }
+      const result = tryDecodeSignetEvent(event);
+      if (result?.ok !== true) continue;
+      const decoded = result.event;
       if (
-        decoded?.requestId === options.requestId &&
+        decoded.name === SignetEventName.SignBidirectionalEvent &&
+        decoded.requestId === options.requestId &&
         decoded.record.callerAddress === expectedCaller &&
         decoded.record.requestsPath.length === expectedPath.length &&
         decoded.record.requestsPath.every((entry, i) => entry === expectedPath[i])

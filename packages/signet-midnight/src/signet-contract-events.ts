@@ -491,8 +491,14 @@ const SUPPORTED_NOTIFICATION_VERSION = 1n;
  * authority.
  */
 export interface SignBidirectionalNotification {
-  /** Payload layout tag: this decoder only produces version 1. */
-  version: number;
+  /**
+   * Payload layout tag, the literal of the one layout this decoder produces.
+   * A second layout joins as its own interface with its own literal, making
+   * the decoded notification a union discriminated on `version`, so every
+   * consumer gets a compile error where it must handle the new layout. Keep
+   * this a literal: widening it to `number` gives that error away.
+   */
+  version: 1;
   /**
    * Address of the contract whose request map holds the request, rendered
    * as lowercase hex, no `0x` prefix: directly usable as a
@@ -550,7 +556,7 @@ export function decodeSignBidirectionalNotification(
     record.payload.slice(NOTIFICATION_PATH_OFFSET, NOTIFICATION_PATH_OFFSET + depth),
   );
   return {
-    version: Number(record.version),
+    version: 1,
     callerAddress,
     requestsPath,
   };
@@ -574,7 +580,10 @@ export interface SignetEventRecords {
  * `name`, so narrowing on it narrows `record`. `TEvent` is the shape the
  * event was read in, so an {@link IndexedSignetMiscEvent} keeps its indexer
  * cursor across the decode. Everything here is UNAUTHENTICATED: each record
- * type's own doc names its authenticity check.
+ * type's own doc names its authenticity check. A shared `requestId` links
+ * nothing by itself: events grouped by it are a request, signature and
+ * attestation lifecycle only once the request is read from the caller's own
+ * ledger with `lookupSignetRequestAt` and each post verifies against it.
  */
 export type DecodedSignetEventNamed<
   TName extends SignetEventName,
@@ -587,8 +596,8 @@ export type DecodedSignetEventNamed<
     requestId: RequestIdHex;
     /** The posted record, decoded. */
     record: SignetEventRecords[Name];
-    /** The event as its source served it, before decoding. */
-    raw: TEvent;
+    /** The event as its source served it: the undecoded payload, and the cursor when indexed. */
+    source: TEvent;
   };
 }[TName];
 
@@ -627,13 +636,18 @@ export function decodeSignetEventNamed<
 >(event: TEvent, name: TName): DecodedSignetEventNamed<TName, TEvent> | undefined {
   if (!isSignetEventNamed(event, name)) return undefined;
   const post = SIGNET_EVENT_PAYLOAD_DECODERS[name](event.payload);
-  return { name, requestId: requestIdHex(post.requestId), record: post.event, raw: event };
+  return { name, requestId: requestIdHex(post.requestId), record: post.event, source: event };
 }
 
 /**
  * Decode `event` by whichever signet event name it carries. What to do with
  * an event that is not a signet event, or that does not decode, is the
  * caller's policy: a responder skips both, an explorer shows both.
+ *
+ * WARNING: this THROWS on input anyone can put on chain. The signet contract
+ * is unauthenticated, so a `SignBidirectionalEvent` with an unsupported
+ * version or a zero path depth costs its sender one transaction. A loop over
+ * a live stream must catch, or use {@link tryDecodeSignetEvent}.
  *
  * @param event - The signet event as its source served it.
  * @returns The decoded event, or `undefined` when `event`'s name is not a
@@ -648,4 +662,84 @@ export function decodeSignetEvent<TEvent extends SignetMiscEvent>(
     if (decoded !== undefined) return decoded;
   }
   return undefined;
+}
+
+/**
+ * The outcome of {@link tryDecodeSignetEvent} on a signet event: the decoded
+ * event, or the event that did not decode beside the decoder's reason.
+ */
+export type SignetEventDecodeResult<TEvent extends SignetMiscEvent = SignetMiscEvent> =
+  | {
+      /** The payload decoded. */
+      ok: true;
+      /** The decoded event. */
+      event: DecodedSignetEvent<TEvent>;
+    }
+  | {
+      /** The payload did not decode. */
+      ok: false;
+      /** The event as its source served it. */
+      source: TEvent;
+      /** The payload decoder's error message. */
+      reason: string;
+    };
+
+/**
+ * {@link decodeSignetEvent} without the throw: an undecodable payload comes
+ * back as a result to inspect. It reports the failure and leaves the policy
+ * (skip it, show it, count it) to the caller.
+ *
+ * @param event - The signet event as its source served it.
+ * @returns The decode result, or `undefined` when `event`'s name is not a
+ *   {@link SignetEventName}.
+ */
+export function tryDecodeSignetEvent<TEvent extends SignetMiscEvent>(
+  event: TEvent,
+): SignetEventDecodeResult<TEvent> | undefined {
+  try {
+    const decoded = decodeSignetEvent(event);
+    return decoded === undefined ? undefined : { ok: true, event: decoded };
+  } catch (error) {
+    return {
+      ok: false,
+      source: event,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/** Each signet event kind's record selector: the record of a decoded event of that kind. */
+const SIGNET_EVENT_RECORD_SELECTORS: {
+  [Name in SignetEventName]: (event: DecodedSignetEvent) => SignetEventRecords[Name] | undefined;
+} = {
+  [SignetEventName.SignBidirectionalEvent]: (event) =>
+    event.name === SignetEventName.SignBidirectionalEvent ? event.record : undefined,
+  [SignetEventName.SignatureRespondedEvent]: (event) =>
+    event.name === SignetEventName.SignatureRespondedEvent ? event.record : undefined,
+  [SignetEventName.RespondBidirectionalEvent]: (event) =>
+    event.name === SignetEventName.RespondBidirectionalEvent ? event.record : undefined,
+};
+
+/**
+ * The records of kind `name` that declare `requestId`, out of decoded events
+ * already in hand, in the order given. The routing step of every per-request
+ * read: it selects by the UNAUTHENTICATED declared id and verifies nothing.
+ *
+ * @param events - Decoded signet events of any kinds.
+ * @param name - The event kind to keep.
+ * @param requestId - The request id the kept events must declare.
+ * @returns The kept events' records.
+ */
+export function signetEventRecordsOf<TName extends SignetEventName>(
+  events: readonly DecodedSignetEvent[],
+  name: TName,
+  requestId: RequestIdHex,
+): SignetEventRecords[TName][] {
+  const records: SignetEventRecords[TName][] = [];
+  for (const event of events) {
+    if (event.requestId !== requestId) continue;
+    const record = SIGNET_EVENT_RECORD_SELECTORS[name](event);
+    if (record !== undefined) records.push(record);
+  }
+  return records;
 }
