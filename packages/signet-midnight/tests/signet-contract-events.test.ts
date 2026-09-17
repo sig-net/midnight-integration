@@ -588,13 +588,36 @@ describe("signetEventSourceFromIndexer", () => {
     ).rejects.toThrow(expected);
   });
 
+  it.each<{ label: string; contractAddress: string }>([
+    { label: "an address that is not hex", contractAddress: "zz".repeat(32) },
+    { label: "an address shorter than 32 bytes", contractAddress: "ab".repeat(31) },
+  ])("fails on $label before sending any request", async ({ contractAddress }) => {
+    const queries: ServedQuery[] = [];
+    const queryUrl = await serveHistory([MISC_ROW], queries);
+    await expect(
+      collect(signetEventSourceFromIndexer({ queryUrl }).streamSignetEvents(contractAddress)),
+    ).rejects.toThrow(/not a 32-byte contract address in hex/);
+    expect(queries).toEqual([]);
+  });
+
+  it("sends a 0x prefixed, upper case address as the bare lower case hex the indexer expects", async () => {
+    const queries: ServedQuery[] = [];
+    const queryUrl = await serveHistory([MISC_ROW], queries);
+    await collect(
+      signetEventSourceFromIndexer({ queryUrl }).streamSignetEvents(
+        `0x${SIGNET_ADDRESS.toUpperCase()}`,
+      ),
+    );
+    expect(queries.map((query) => query.filter.contractAddress)).toEqual([SIGNET_ADDRESS]);
+  });
+
   it("throws with the indexer's words when it rejects the query", async () => {
     const queryUrl = await serveIndexer(() => ({
       data: null,
-      errors: [{ message: "invalid contract event filter: invalid contractAddress" }],
+      errors: [{ message: "invalid contract event filter: unknown field prefix" }],
     }));
     await expect(
-      collect(signetEventSourceFromIndexer({ queryUrl }).streamSignetEvents("zz")),
+      collect(signetEventSourceFromIndexer({ queryUrl }).streamSignetEvents(SIGNET_ADDRESS)),
     ).rejects.toThrow(/indexer rejected the contract events query: invalid contract event filter/);
   });
 

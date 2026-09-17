@@ -16,7 +16,7 @@ import { CompactTypeBytes, type LogEvent } from "@midnight-ntwrk/compact-runtime
 
 import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
 import { decodeExactly } from "./compact-descriptors.ts";
-import { type RequestIdHex, requestIdHex } from "./signet-requests.ts";
+import { contractAddressFromHex, type RequestIdHex, requestIdHex } from "./signet-requests.ts";
 
 /**
  * The event names the signet contract emits, exactly as the contract's
@@ -334,7 +334,10 @@ async function fetchContractEventPage(
  * Read the signet contract's events from a Midnight indexer. The stream
  * pages the indexer by offset and pins its end to the tip (`maxId`) of the
  * first page, so the walk is a point-in-time snapshot that ends even while
- * the contract keeps emitting: rows past that tip are dropped.
+ * the contract keeps emitting: rows past that tip are dropped. The contract
+ * address is parsed with {@link contractAddressFromHex} before the first
+ * request, so a malformed one fails without a round trip, and a `0x`
+ * prefixed one reaches the indexer as the bare hex it expects.
  *
  * @param config - Where the indexer is.
  * @returns The event source.
@@ -344,9 +347,10 @@ export function signetEventSourceFromIndexer(
 ): SignetEventSource<IndexedSignetMiscEvent> {
   return {
     async *streamSignetEvents(contractAddress) {
+      const address = bytesToHex(contractAddressFromHex(contractAddress).bytes);
       let tipId: number | undefined;
       for (let offset = 0; ; offset += EVENT_PAGE_LIMIT) {
-        const page = await fetchContractEventPage(config.queryUrl, contractAddress, offset);
+        const page = await fetchContractEventPage(config.queryUrl, address, offset);
         for (const row of page) {
           const event = signetMiscEventFromIndexerRow(row);
           if (event === undefined) continue;
