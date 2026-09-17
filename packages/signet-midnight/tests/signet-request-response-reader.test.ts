@@ -37,6 +37,7 @@ import {
   signAttestationDigest,
 } from "../src/testing.ts";
 import {
+  notificationEventOf,
   respondBidirectionalEventOf,
   signatureRespondedEventOf,
   streamOf,
@@ -287,6 +288,30 @@ describe("getSignatureRespondedEvents", () => {
 
   it("ignores events under other signet names", async () => {
     const { reader } = makeReader([GENUINE_RESPONSE], [RESPOND_BIDIRECTIONAL]);
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
+  });
+
+  it("is not failed by an undecodable notification anyone can emit into the log", async () => {
+    // Version 2 is a layout the notification decoder refuses, so decoding this event throws.
+    const undecodableNotification = notificationEventOf(REQUEST_ID, {
+      version: 2n,
+      payload: new Uint8Array(128),
+    });
+    const reader = new SignetRequestResponseReader({
+      requesterContractAddress: REQUESTER_ADDRESS,
+      requesterRequestsPath: [0],
+      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      publicDataProvider: {
+        queryContractState: () => Promise.resolve({ data: requesterState() }),
+      },
+      eventSource: {
+        streamSignetEvents: () =>
+          streamOf([
+            undecodableNotification,
+            signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE),
+          ]),
+      },
+    });
     expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
   });
 });

@@ -13,13 +13,11 @@ import type { RawContractState } from "./raw-contract-state.ts";
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
 import {
-  decodeRespondBidirectionalEventPayload,
-  decodeSignatureRespondedEventPayload,
-  isSignetEventNamed,
+  decodeSignetEventNamed,
   type RespondBidirectionalEvent,
   type SignatureRespondedEvent,
   SignetEventName,
-  type SignetEventPost,
+  type SignetEventRecords,
   type SignetEventSource,
 } from "./signet-contract-events.ts";
 import {
@@ -29,7 +27,6 @@ import {
 import {
   requestIdBytes,
   type RequestIdHex,
-  requestIdHex,
   type SignBidirectionalEvent,
   TxParamType,
 } from "./signet-requests.ts";
@@ -167,21 +164,18 @@ export class SignetRequestResponseReader {
    * `requestId`, in emission order. The declared id is routing data only.
    *
    * @param name - The signet event name to keep.
-   * @param decode - The payload decoder for that event kind.
    * @param requestId - The request id the kept posts must declare.
    * @returns The kept posts' records, oldest first.
    */
-  private async getRespondPostsNamed<TRecord>(
-    name: SignetEventName,
-    decode: (payload: Uint8Array) => SignetEventPost<TRecord>,
+  private async getRecordsNamed<TName extends SignetEventName>(
+    name: TName,
     requestId: RequestIdHex,
-  ): Promise<TRecord[]> {
-    const records: TRecord[] = [];
+  ): Promise<SignetEventRecords[TName][]> {
+    const records: SignetEventRecords[TName][] = [];
     const events = this.config.eventSource.streamSignetEvents(this.config.signetContractAddress);
     for await (const event of events) {
-      if (!isSignetEventNamed(event, name)) continue;
-      const post = decode(event.payload);
-      if (requestIdHex(post.requestId) === requestId) records.push(post.event);
+      const decoded = decodeSignetEventNamed(event, name);
+      if (decoded?.requestId === requestId) records.push(decoded.record);
     }
     return records;
   }
@@ -195,11 +189,7 @@ export class SignetRequestResponseReader {
    * @returns The request's posted records, oldest first, empty when none yet.
    */
   async getSignatureRespondedEvents(requestId: RequestIdHex): Promise<SignatureRespondedEvent[]> {
-    return this.getRespondPostsNamed(
-      SignetEventName.SignatureRespondedEvent,
-      decodeSignatureRespondedEventPayload,
-      requestId,
-    );
+    return this.getRecordsNamed(SignetEventName.SignatureRespondedEvent, requestId);
   }
 
   /**
@@ -307,11 +297,7 @@ export class SignetRequestResponseReader {
   async getRespondBidirectionalEvents(
     requestId: RequestIdHex,
   ): Promise<RespondBidirectionalEvent[]> {
-    return this.getRespondPostsNamed(
-      SignetEventName.RespondBidirectionalEvent,
-      decodeRespondBidirectionalEventPayload,
-      requestId,
-    );
+    return this.getRecordsNamed(SignetEventName.RespondBidirectionalEvent, requestId);
   }
 
   /**

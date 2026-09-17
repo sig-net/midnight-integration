@@ -5,11 +5,9 @@
 
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import {
-  decodeSignBidirectionalEventNotificationPayload,
-  decodeSignBidirectionalNotification,
-  isSignetEventNamed,
+  type DecodedSignetEventNamed,
+  decodeSignetEventNamed,
   type RequestIdHex,
-  requestIdHex,
   type SignBidirectionalNotification,
   SignetEventName,
   signetEventSourceFromPublicDataProvider,
@@ -69,23 +67,19 @@ export async function pollSignetNotification(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     for await (const event of eventSource.streamSignetEvents(signetAddress)) {
-      if (!isSignetEventNamed(event, SignetEventName.SignBidirectionalEvent)) continue;
-      let declaredId: RequestIdHex;
-      let decoded: SignBidirectionalNotification;
+      let decoded: DecodedSignetEventNamed<SignetEventName.SignBidirectionalEvent> | undefined;
       try {
-        const post = decodeSignBidirectionalEventNotificationPayload(event.payload);
-        declaredId = requestIdHex(post.requestId);
-        decoded = decodeSignBidirectionalNotification(post.event);
+        decoded = decodeSignetEventNamed(event, SignetEventName.SignBidirectionalEvent);
       } catch {
         continue;
       }
       if (
-        declaredId === options.requestId &&
-        decoded.callerAddress === expectedCaller &&
-        decoded.requestsPath.length === expectedPath.length &&
-        decoded.requestsPath.every((entry, i) => entry === expectedPath[i])
+        decoded?.requestId === options.requestId &&
+        decoded.record.callerAddress === expectedCaller &&
+        decoded.record.requestsPath.length === expectedPath.length &&
+        decoded.record.requestsPath.every((entry, i) => entry === expectedPath[i])
       ) {
-        return decoded;
+        return decoded.record;
       }
     }
     await new Promise((r) => setTimeout(r, 1000));

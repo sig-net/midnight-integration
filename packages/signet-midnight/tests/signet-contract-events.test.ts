@@ -17,9 +17,13 @@ import {
   decodeSignatureRespondedEventPayload,
   decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
+  decodeSignetEvent,
   decodeSignetEventName,
+  decodeSignetEventNamed,
   decodeSignetLogEvents,
+  type IndexedSignetMiscEvent,
   pureCircuits,
+  requestIdHex,
   type RespondBidirectionalEvent,
   type SignatureRespondedEvent,
   SIGNET_EVENT_NAME_LENGTH,
@@ -140,6 +144,71 @@ describe("respond event payloads (encode↔decode round trip)", () => {
   it("rejects a payload too short to hold the packed record", () => {
     // 128 bytes end exactly where the recovery id byte should sit.
     expect(() => decodeSignatureRespondedEventPayload(bytes(128, 1))).toThrow(/too short/);
+  });
+});
+
+describe("decodeSignetEvent (dispatch by name)", () => {
+  it.each<{ label: string; event: SignetMiscEvent; record: object }>([
+    {
+      label: "a notification, decoded through to its pointer",
+      event: notificationEventOf(REQUEST_ID, NOTIFICATION),
+      record: { version: 1, callerAddress: bytesToHex(CALLER_ADDRESS_BYTES), requestsPath: [4] },
+    },
+    {
+      label: "a signature response",
+      event: signatureRespondedEventOf(REQUEST_ID, RESPONSE),
+      record: RESPONSE,
+    },
+    {
+      label: "a respond-bidirectional attestation",
+      event: respondBidirectionalEventOf(REQUEST_ID, RESPOND_BIDIRECTIONAL),
+      record: RESPOND_BIDIRECTIONAL,
+    },
+  ])("decodes $label under its name with the request id in canonical form", ({ event, record }) => {
+    expect(decodeSignetEvent(event)).toEqual({
+      name: event.name,
+      requestId: requestIdHex(REQUEST_ID),
+      record,
+      raw: event,
+    });
+  });
+
+  it("keeps the indexer cursor of the event it was given", () => {
+    const indexed: IndexedSignetMiscEvent = {
+      ...signatureRespondedEventOf(REQUEST_ID, RESPONSE),
+      id: 7,
+      maxId: 9,
+      transactionId: 42,
+    };
+    expect(decodeSignetEvent(indexed)?.raw).toBe(indexed);
+  });
+
+  it("returns undefined for a name that is not a signet event name", () => {
+    expect(decodeSignetEvent({ name: "SomethingElse", payload: bytes(256, 0) })).toBeUndefined();
+  });
+
+  it("throws on a recognised event whose payload does not decode", () => {
+    const event = notificationEventOf(REQUEST_ID, { ...NOTIFICATION, version: 2n });
+    expect(() => decodeSignetEvent(event)).toThrow(/version 2 is not supported/);
+  });
+});
+
+describe("decodeSignetEventNamed (one kind only)", () => {
+  it("decodes an event of the asked kind", () => {
+    const event = signatureRespondedEventOf(REQUEST_ID, RESPONSE);
+    expect(decodeSignetEventNamed(event, SignetEventName.SignatureRespondedEvent)).toEqual({
+      name: SignetEventName.SignatureRespondedEvent,
+      requestId: requestIdHex(REQUEST_ID),
+      record: RESPONSE,
+      raw: event,
+    });
+  });
+
+  it("skips an undecodable event of another kind without touching its payload", () => {
+    const garbage = notificationEventOf(REQUEST_ID, { ...NOTIFICATION, version: 2n });
+    expect(
+      decodeSignetEventNamed(garbage, SignetEventName.SignatureRespondedEvent),
+    ).toBeUndefined();
   });
 });
 

@@ -16,6 +16,7 @@ import { CompactTypeBytes, type LogEvent } from "@midnight-ntwrk/compact-runtime
 
 import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
 import { decodeExactly } from "./compact-descriptors.ts";
+import { type RequestIdHex, requestIdHex } from "./signet-requests.ts";
 
 /**
  * The event names the signet contract emits, exactly as the contract's
@@ -553,4 +554,98 @@ export function decodeSignBidirectionalNotification(
     callerAddress,
     requestsPath,
   };
+}
+
+/**
+ * The decoded record each signet event kind posts, keyed by the event's
+ * name: what {@link DecodedSignetEventNamed} carries as `record`.
+ */
+export interface SignetEventRecords {
+  /** The flat pointer to the stored request (the notification fully decoded). */
+  [SignetEventName.SignBidirectionalEvent]: SignBidirectionalNotification;
+  /** The MPC's signature over the requested transaction. */
+  [SignetEventName.SignatureRespondedEvent]: SignatureRespondedEvent;
+  /** The MPC's attestation of the foreign execution. */
+  [SignetEventName.RespondBidirectionalEvent]: RespondBidirectionalEvent;
+}
+
+/**
+ * A signet event of kind `TName` in decoded form: a discriminated union over
+ * `name`, so narrowing on it narrows `record`. `TEvent` is the shape the
+ * event was read in, so an {@link IndexedSignetMiscEvent} keeps its indexer
+ * cursor across the decode. Everything here is UNAUTHENTICATED: each record
+ * type's own doc names its authenticity check.
+ */
+export type DecodedSignetEventNamed<
+  TName extends SignetEventName,
+  TEvent extends SignetMiscEvent = SignetMiscEvent,
+> = {
+  [Name in TName]: {
+    /** The event kind: the discriminant `record` narrows on. */
+    name: Name;
+    /** The request id the post declares it concerns. Routing data only. */
+    requestId: RequestIdHex;
+    /** The posted record, decoded. */
+    record: SignetEventRecords[Name];
+    /** The event as its source served it, before decoding. */
+    raw: TEvent;
+  };
+}[TName];
+
+/** A signet event of any kind in decoded form: see {@link DecodedSignetEventNamed}. */
+export type DecodedSignetEvent<TEvent extends SignetMiscEvent = SignetMiscEvent> =
+  DecodedSignetEventNamed<SignetEventName, TEvent>;
+
+/** The payload decoder of each signet event kind, each yielding that kind's decoded record. */
+const SIGNET_EVENT_PAYLOAD_DECODERS: {
+  [Name in SignetEventName]: (payload: Uint8Array) => SignetEventPost<SignetEventRecords[Name]>;
+} = {
+  [SignetEventName.SignBidirectionalEvent]: (payload) => {
+    const post = decodeSignBidirectionalEventNotificationPayload(payload);
+    return { requestId: post.requestId, event: decodeSignBidirectionalNotification(post.event) };
+  },
+  [SignetEventName.SignatureRespondedEvent]: decodeSignatureRespondedEventPayload,
+  [SignetEventName.RespondBidirectionalEvent]: decodeRespondBidirectionalEventPayload,
+};
+
+/**
+ * Decode `event` as the signet event kind `name`, or skip it when it carries
+ * another name. The name is checked BEFORE the payload is touched, which is
+ * what a reader of one kind needs: the signet contract is unauthenticated,
+ * so anyone can emit an undecodable event of another kind, and that must not
+ * fail a read that never asked for it.
+ *
+ * @param event - The signet event as its source served it.
+ * @param name - The event kind to decode.
+ * @returns The decoded event, or `undefined` when `event` is not a `name` event.
+ * @throws {Error} When `event` is a `name` event whose payload does not decode
+ *   (see the payload decoder of that kind).
+ */
+export function decodeSignetEventNamed<
+  TName extends SignetEventName,
+  TEvent extends SignetMiscEvent,
+>(event: TEvent, name: TName): DecodedSignetEventNamed<TName, TEvent> | undefined {
+  if (!isSignetEventNamed(event, name)) return undefined;
+  const post = SIGNET_EVENT_PAYLOAD_DECODERS[name](event.payload);
+  return { name, requestId: requestIdHex(post.requestId), record: post.event, raw: event };
+}
+
+/**
+ * Decode `event` by whichever signet event name it carries. What to do with
+ * an event that is not a signet event, or that does not decode, is the
+ * caller's policy: a responder skips both, an explorer shows both.
+ *
+ * @param event - The signet event as its source served it.
+ * @returns The decoded event, or `undefined` when `event`'s name is not a
+ *   {@link SignetEventName}.
+ * @throws {Error} When the named kind's payload does not decode.
+ */
+export function decodeSignetEvent<TEvent extends SignetMiscEvent>(
+  event: TEvent,
+): DecodedSignetEvent<TEvent> | undefined {
+  for (const name of Object.values(SignetEventName)) {
+    const decoded = decodeSignetEventNamed(event, name);
+    if (decoded !== undefined) return decoded;
+  }
+  return undefined;
 }
