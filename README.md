@@ -568,15 +568,15 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.21.0 | [`packages/*/package.json`](packages) |
-| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.23.0` | [`docker-compose.yaml`](docker-compose.yaml) |
+| `@sig-net/*` npm packages | 0.22.0 | [`packages/*/package.json`](packages) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.25.0` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
 | Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight indexer | 4.4.0-pre-alpha.16 (`l91r3-n2r3` build) | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
 | `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
 
-**NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). The real-EVM integration flow reads the responder's output cache simulation on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), the fakenet twin of the MPC's output storage bucket (see [Output Recovery](#output-recovery)). Until a release carries that simulation, `FAKENET_IMAGE` in `.env` runs a locally built responder in its place.
+**NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). The real-EVM integration flow reads the responder's output cache simulation on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), the fakenet twin of the MPC's output storage bucket (see [Output Recovery](#output-recovery)).
 
 # Packages
 

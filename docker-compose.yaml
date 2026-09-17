@@ -79,7 +79,7 @@ services:
     # starts this service. Manual equivalent (and the FAKENET_MANAGED=0 path):
     #   docker compose --profile fakenet up -d --force-recreate fakenet
     container_name: 'fakenet-responder'
-    image: 'ghcr.io/sig-net/fakenet:0.24.0'
+    image: 'ghcr.io/sig-net/fakenet:0.25.0'
     profiles: ['fakenet']
     depends_on:
       indexer:
@@ -105,8 +105,8 @@ services:
       # the container itself, hence the dedicated variable).
       EVM_RPC_URL: '${FAKENET_EVM_RPC_URL:-http://evm:8545}'
       MIDNIGHT_NETWORK_ID: '${MIDNIGHT_NETWORK_ID:-undeployed}'
-      MIDNIGHT_INDEXER_URL: '${MIDNIGHT_INDEXER_URL:-http://indexer:8088/api/v3/graphql}'
-      MIDNIGHT_INDEXER_WS_URL: '${MIDNIGHT_INDEXER_WS_URL:-ws://indexer:8088/api/v3/graphql/ws}'
+      MIDNIGHT_INDEXER_URL: '${MIDNIGHT_INDEXER_URL:-http://indexer:8088/api/v4/graphql}'
+      MIDNIGHT_INDEXER_WS_URL: '${MIDNIGHT_INDEXER_WS_URL:-ws://indexer:8088/api/v4/graphql/ws}'
       MIDNIGHT_NODE_URL: '${MIDNIGHT_NODE_URL:-http://node:9944}'
       MIDNIGHT_PROOF_SERVER_URL: '${MIDNIGHT_PROOF_SERVER_URL:-http://proof-server:6300}'
       # The responder's fee-paying wallet: the mpc_responder role seed the
