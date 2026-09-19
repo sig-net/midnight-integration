@@ -1,4 +1,4 @@
-// Epsilon key derivation: contract address + path -> derived EVM account.
+// Epsilon key derivation: contract address + path -> derived key and its EVM account.
 //
 // This belongs in github.com/sig-net/signet.js, kept here until upstreamed.
 //
@@ -8,12 +8,14 @@
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { computeAddress, keccak256, toUtf8Bytes } from "ethers";
 
-import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codecs.ts";
+import { bigintToBytes32BE, bytesToBigintBE, bytesToHex, stripHexPrefix } from "./byte-codecs.ts";
 import {
+  formatSecp256k1PublicKey,
   parseSecp256k1PublicKeyToNoblePoint,
   SECP256K1_ORDER,
   type Secp256k1Point,
 } from "./ecdsa-attestation.ts";
+import type { SignBidirectionalEvent } from "./signet-requests.ts";
 
 /**
  * Domain prefix of the sig-net v2.0.0 epsilon derivation scheme. The full
@@ -45,6 +47,13 @@ export const MIDNIGHT_CAIP2_ID = "midnight:mainnet";
 export const MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH = "midnight response key";
 
 /**
+ * The two fields of a request record that select its request signing key.
+ * The record's tx-params decomposition plays no part, so a record over any
+ * decomposition satisfies it.
+ */
+export type SignBidirectionalEventKeySelector = Pick<SignBidirectionalEvent, "sender" | "path">;
+
+/**
  * Normalise a Midnight contract address for use as the requester component
  * of the derivation string: strip an optional `0x` prefix and lowercase.
  * Both sides of the protocol (the deploy pinning a key and the MPC signing
@@ -58,11 +67,41 @@ function normaliseRequesterAddress(contractAddress: string): string {
 }
 
 /**
- * Derive the EVM address the MPC network signs from for a given Midnight
- * contract and derivation path, using the sig-net v2.0.0 epsilon scheme:
+ * Derive the REQUEST SIGNING key: the public key the MPC network signs a
+ * Midnight contract's requested transactions with, using the sig-net v2.0.0
+ * epsilon scheme:
  * `epsilon = keccak256("<prefix>:midnight:mainnet:<requester>:<path>")` and
  * `derivedPubKey = mpcRootPubKey + epsilon * G` on secp256k1. The MPC
- * treats `path` as an opaque string.
+ * treats `path` as an opaque string. For a request record already in hand,
+ * {@link deriveSignBidirectionalEventSigningKey} renders the two record
+ * fields itself.
+ *
+ * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key, in any
+ *   spelling `parseSecp256k1PublicKey` accepts (SEC1 hex or NEAR
+ *   `secp256k1:<base58>`).
+ * @param contractAddress - The Midnight contract address the request
+ *   originates from (`0x` prefix optional, case-insensitive: it enters the
+ *   derivation string through {@link normaliseRequesterAddress}).
+ * @param path - The derivation path string. For a key derived from an
+ *   on-ledger request record, this is the MPC's rendering of the record's
+ *   `path: Bytes<32>`: the lowercase hex of the FULL 32 bytes, no `0x`
+ *   prefix and no trimming ({@link bytesToHex} of the raw bytes), so
+ *   `0xab..00` and `0xab..` derive different keys.
+ * @returns The request signing public key as a Compact-runtime
+ *   `Secp256k1Point`.
+ */
+export function deriveMidnightRequestSigningKey(
+  mpcSecp256k1PublicKey: string,
+  contractAddress: string,
+  path: string,
+): Secp256k1Point {
+  return deriveChildKey(mpcSecp256k1PublicKey, normaliseRequesterAddress(contractAddress), path);
+}
+
+/**
+ * Derive the EVM address of the request signing key (see
+ * {@link deriveMidnightRequestSigningKey}): the account the MPC network
+ * signs from for a given Midnight contract and derivation path.
  *
  * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key, in any
  *   spelling `parseSecp256k1PublicKey` accepts (SEC1 hex or NEAR
@@ -82,12 +121,58 @@ export function deriveEvmAddress(
   contractAddress: string,
   path: string,
 ): string {
-  const derivedPoint = deriveChildPoint(
-    mpcSecp256k1PublicKey,
-    normaliseRequesterAddress(contractAddress),
-    path,
+  return computeAddress(
+    formatSecp256k1PublicKey(
+      deriveMidnightRequestSigningKey(mpcSecp256k1PublicKey, contractAddress, path),
+    ),
   );
-  return computeAddress(`0x${derivedPoint.toHex(false)}`);
+}
+
+/**
+ * Derive the request signing key of an on-ledger request record: the public
+ * key the MPC signs THAT request's transaction with. Owns the MPC's
+ * rendering of the record into the derivation string: the requester is the
+ * record's `sender`, and the path is the lowercase hex of its FULL 32
+ * `path` bytes.
+ *
+ * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key of the
+ *   record's `keyVersion`, in any spelling `parseSecp256k1PublicKey`
+ *   accepts (SEC1 hex or NEAR `secp256k1:<base58>`).
+ * @param request - The on-ledger request record, or its `sender` and `path`.
+ * @returns The request signing public key as a Compact-runtime
+ *   `Secp256k1Point`.
+ */
+export function deriveSignBidirectionalEventSigningKey(
+  mpcSecp256k1PublicKey: string,
+  request: SignBidirectionalEventKeySelector,
+): Secp256k1Point {
+  return deriveMidnightRequestSigningKey(
+    mpcSecp256k1PublicKey,
+    bytesToHex(request.sender.bytes),
+    bytesToHex(request.path),
+  );
+}
+
+/**
+ * Derive the EVM address of an on-ledger request record's request signing
+ * key (see {@link deriveSignBidirectionalEventSigningKey}): the signer a
+ * response to that request must recover to.
+ *
+ * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key of the
+ *   record's `keyVersion`, in any spelling `parseSecp256k1PublicKey`
+ *   accepts (SEC1 hex or NEAR `secp256k1:<base58>`).
+ * @param request - The on-ledger request record, or its `sender` and `path`.
+ * @returns The derived EVM address as a 0x-prefixed EIP-55 checksummed string.
+ */
+export function deriveSignBidirectionalEventSignerEvmAddress(
+  mpcSecp256k1PublicKey: string,
+  request: SignBidirectionalEventKeySelector,
+): string {
+  return computeAddress(
+    formatSecp256k1PublicKey(
+      deriveSignBidirectionalEventSigningKey(mpcSecp256k1PublicKey, request),
+    ),
+  );
 }
 
 /**
@@ -110,18 +195,24 @@ export function deriveEpsilon(requester: string, path: string): bigint {
 }
 
 /**
- * Derive the child public key as a noble curve point (internal shape).
+ * Derive the child public key `rootPubKey + epsilon * G`.
  *
  * @param mpcSecp256k1PublicKey - The MPC root public key, any spelling
  *   `parseSecp256k1PublicKey` accepts.
  * @param requester - The normalised requester address.
  * @param path - The derivation path component.
- * @returns The derived child point on secp256k1.
+ * @returns The derived child public key.
  */
-function deriveChildPoint(mpcSecp256k1PublicKey: string, requester: string, path: string) {
+function deriveChildKey(
+  mpcSecp256k1PublicKey: string,
+  requester: string,
+  path: string,
+): Secp256k1Point {
   const epsilon = deriveEpsilon(requester, path);
   const rootPoint = parseSecp256k1PublicKeyToNoblePoint(mpcSecp256k1PublicKey);
-  return epsilon === 0n ? rootPoint : rootPoint.add(secp256k1.Point.BASE.multiply(epsilon));
+  const childPoint =
+    epsilon === 0n ? rootPoint : rootPoint.add(secp256k1.Point.BASE.multiply(epsilon));
+  return { x: childPoint.x, y: childPoint.y, identity: false };
 }
 
 /**
@@ -141,12 +232,11 @@ export function deriveMidnightResponseKey(
   mpcSecp256k1PublicKey: string,
   clientContractAddress: string,
 ): Secp256k1Point {
-  const point = deriveChildPoint(
+  return deriveChildKey(
     mpcSecp256k1PublicKey,
     normaliseRequesterAddress(clientContractAddress),
     MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
   );
-  return { x: point.x, y: point.y, identity: false };
 }
 
 /**
