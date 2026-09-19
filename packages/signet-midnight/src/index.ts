@@ -22,10 +22,14 @@ export * from "./constants.ts";
 export {
   deriveEpsilon,
   deriveEvmAddress,
+  deriveMidnightRequestSigningKey,
   deriveMidnightResponseKey,
+  deriveSignBidirectionalEventSignerEvmAddress,
+  deriveSignBidirectionalEventSigningKey,
   EPSILON_DERIVATION_PREFIX,
   MIDNIGHT_CAIP2_ID,
   MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
+  type SignBidirectionalEventKeySelector,
 } from "./epsilon-derivation.ts";
 export * from "./mpc-output-cache.ts";
 export { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";

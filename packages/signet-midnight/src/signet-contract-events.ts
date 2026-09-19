@@ -16,6 +16,7 @@ import { CompactTypeBytes, type LogEvent } from "@midnight-ntwrk/compact-runtime
 
 import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
 import { decodeExactly } from "./compact-descriptors.ts";
+import { asciiUnpadded } from "./constants.ts";
 import { contractAddressFromHex, type RequestIdHex, requestIdHex } from "./signet-requests.ts";
 
 /**
@@ -115,18 +116,14 @@ export function isSignetEventNamed(event: { name: string }, name: SignetEventNam
 }
 
 /**
- * Strip the NUL padding off a fixed-width event name and decode it as ASCII:
- * the inverse of the contract's `pad(32, "...")`.
+ * Decode a fixed-width event name: the inverse of the contract's
+ * `pad(32, "...")`.
  *
  * @param name - The padded name bytes.
  * @returns The trimmed name string.
  */
 export function decodeSignetEventName(name: Uint8Array): string {
-  let end = name.length;
-  while (end > 0 && name[end - 1] === 0) {
-    end -= 1;
-  }
-  return new TextDecoder().decode(name.slice(0, end));
+  return asciiUnpadded(name);
 }
 
 /**
