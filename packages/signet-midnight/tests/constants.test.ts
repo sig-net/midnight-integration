@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   asciiPadded,
+  asciiUnpadded,
   type DeployedNetwork,
   getMpcOutputCacheUrl,
   getMpcRootPublicKey,
@@ -43,6 +44,41 @@ describe("asciiPadded", () => {
 
   it("rejects text longer than the field", () => {
     expect(() => asciiPadded("too long", 4)).toThrow(/does not fit/);
+  });
+});
+
+describe("asciiUnpadded", () => {
+  interface Case {
+    name: string;
+    bytes: Uint8Array;
+    expected: string;
+  }
+
+  const CASES: Case[] = [
+    {
+      name: "a padded field loses its padding",
+      bytes: asciiPadded("eip155:1", 32),
+      expected: "eip155:1",
+    },
+    {
+      name: "text filling the whole field is returned whole",
+      bytes: asciiPadded("x".repeat(32), 32),
+      expected: "x".repeat(32),
+    },
+    {
+      name: "a zero byte inside the text is kept",
+      bytes: Uint8Array.from([0x61, 0x00, 0x62, 0x00, 0x00]),
+      expected: "a\u0000b",
+    },
+    {
+      name: "an all-zero field is the empty text",
+      bytes: new Uint8Array(32),
+      expected: "",
+    },
+  ];
+
+  it.each(CASES)("$name", ({ bytes, expected }) => {
+    expect(asciiUnpadded(bytes)).toBe(expected);
   });
 });
 
