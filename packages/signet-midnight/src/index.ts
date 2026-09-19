@@ -32,6 +32,7 @@ export { type RawContractState, signetFieldNodeByPath } from "./raw-contract-sta
 export * from "./signature-requests-state-reader.ts";
 export * from "./signature-response-verification.ts";
 export * from "./signet-contract-events.ts";
+export { decodeEvmType2SignBidirectionalEvent } from "./signet-evtype2tx-record-decoding.ts";
 export {
   abiWordToBool,
   abiWordToUint128,
