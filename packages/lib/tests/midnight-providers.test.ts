@@ -12,6 +12,7 @@ import {
   ZKConfigProvider,
   type ZKIR,
 } from "@midnight-ntwrk/midnight-js/types";
+import { FallibleCallError } from "@sig-net/midnight";
 import { describe, expect, it } from "vitest";
 
 import { createCrossContractProofServerProvider } from "../src/index.ts";
@@ -43,5 +44,29 @@ describe("createCrossContractProofServerProvider", () => {
       new StaticZKConfigProvider(),
     ]);
     expect(typeof proofProvider.proveTx).toBe("function");
+  });
+
+  it("refuses a transaction with a fallible call before reaching the proof server", async () => {
+    const proofProvider = createCrossContractProofServerProvider(PROOF_SERVER_URL, [
+      new StaticZKConfigProvider(),
+    ]);
+    const demoted = {
+      intents: new Map([
+        [
+          1,
+          {
+            actions: [
+              {
+                address: "0xvault",
+                entryPoint: "startSupply",
+                guaranteedTranscript: undefined,
+                fallibleTranscript: {},
+              },
+            ],
+          },
+        ],
+      ]),
+    } as unknown as Parameters<typeof proofProvider.proveTx>[0];
+    await expect(proofProvider.proveTx(demoted)).rejects.toThrow(FallibleCallError);
   });
 });

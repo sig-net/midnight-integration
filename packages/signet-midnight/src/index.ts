@@ -17,6 +17,7 @@ export {
 // toolkit (compact-descriptors.ts and the per-module record descriptors) is
 // package-internal, consumed only through the reader and request functions.
 export * from "./constants.ts";
+export * from "./guaranteed-only.ts";
 // Selective: deriveMidnightResponseSecretKey takes the MPC root secret, so
 // it is exported through ./testing with the other secret-taking helpers.
 export {

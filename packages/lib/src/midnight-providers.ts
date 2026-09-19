@@ -21,6 +21,7 @@ import {
 import { httpClientProvingProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import type { ProvingKeyMaterial, ProvingProvider } from "@midnightntwrk/ledger-v9";
 import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
+import { guaranteedOnlyProofProvider } from "@sig-net/midnight";
 import type { AccountKeys } from "@sig-net/midnight-contract-deploy";
 
 // Balancing recipes expire 30 min out (same TTL as submitUnprovenTransaction).
@@ -89,6 +90,9 @@ export function createWalletAndMidnightProvider(
  * circuit-name collisions across contracts. Pass one `ZKConfigProvider` per
  * compiled contract the call can reach (the caller plus every callee).
  *
+ * The returned provider refuses to prove a transaction the ledger's builder
+ * partitioned with a fallible contract call: Sig signs guaranteed calls only.
+ *
  * @param proofServerUrl - The proof server's HTTP endpoint.
  * @param zkConfigProviders - One provider per compiled contract in the call tree; must be non-empty.
  * @returns The proof provider to place in a contract's midnight-js provider set.
@@ -139,5 +143,8 @@ export function createCrossContractProofServerProvider(
   };
 
   const provingProvider: ProvingProvider = { ...base, lookupKey };
-  return createProofProvider(provingProvider);
+  // Sig signs guaranteed calls only: refuse, before proving, a transaction
+  // whose call the builder demoted to the fallible section (see
+  // `guaranteedOnlyProofProvider`).
+  return guaranteedOnlyProofProvider(createProofProvider(provingProvider));
 }
