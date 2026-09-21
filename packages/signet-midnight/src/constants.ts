@@ -50,8 +50,8 @@ export const SIGNET_DEFAULT_KEY_VERSION = 1n;
 
 /**
  * Encode text as zero-padded ASCII bytes, the Compact `pad(N, "text")`
- * convention every string-ish field of the request structs uses (consumers
- * NUL-trim on decode).
+ * convention every string-ish field of the request structs uses.
+ * {@link asciiUnpadded} is the inverse.
  *
  * @param text - The ASCII text to encode.
  * @param length - The fixed field width in bytes.
@@ -68,6 +68,22 @@ export function asciiPadded(text: string, length: number): Uint8Array {
   const out = new Uint8Array(length);
   out.set(encoded);
   return out;
+}
+
+/**
+ * Decode a zero-padded text field: the inverse of {@link asciiPadded} and of
+ * the Compact `pad(N, "text")` convention. Only the TRAILING zero bytes are
+ * padding: a zero byte inside the text is kept.
+ *
+ * @param bytes - The padded field bytes.
+ * @returns The text without its padding.
+ */
+export function asciiUnpadded(bytes: Uint8Array): string {
+  let end = bytes.length;
+  while (end > 0 && bytes[end - 1] === 0) {
+    end -= 1;
+  }
+  return new TextDecoder().decode(bytes.subarray(0, end));
 }
 
 /**

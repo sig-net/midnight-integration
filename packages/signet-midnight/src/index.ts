@@ -22,16 +22,21 @@ export * from "./constants.ts";
 export {
   deriveEpsilon,
   deriveEvmAddress,
+  deriveMidnightRequestSigningKey,
   deriveMidnightResponseKey,
+  deriveSignBidirectionalEventSignerEvmAddress,
+  deriveSignBidirectionalEventSigningKey,
   EPSILON_DERIVATION_PREFIX,
   MIDNIGHT_CAIP2_ID,
   MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
+  type SignBidirectionalEventKeySelector,
 } from "./epsilon-derivation.ts";
 export * from "./mpc-output-cache.ts";
 export { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";
 export * from "./signature-requests-state-reader.ts";
 export * from "./signature-response-verification.ts";
 export * from "./signet-contract-events.ts";
+export { decodeEvmType2SignBidirectionalEvent } from "./signet-evtype2tx-record-decoding.ts";
 export {
   abiWordToBool,
   abiWordToUint128,

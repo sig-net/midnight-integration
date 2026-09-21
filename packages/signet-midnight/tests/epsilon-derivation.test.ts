@@ -5,7 +5,7 @@
 // then root + epsilon*G with noble. Sharing no code with the implementation is
 // the point: these must not be regenerated from it.
 
-import { encodeBase58 } from "ethers";
+import { computeAddress, encodeBase58 } from "ethers";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -13,8 +13,12 @@ import {
   bytesToHex,
   deriveEpsilon,
   deriveEvmAddress,
+  deriveMidnightRequestSigningKey,
   deriveMidnightResponseKey,
+  deriveSignBidirectionalEventSignerEvmAddress,
+  deriveSignBidirectionalEventSigningKey,
   EPSILON_DERIVATION_PREFIX,
+  formatSecp256k1PublicKey,
   hexToBytes,
   MIDNIGHT_CAIP2_ID,
   MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH,
@@ -122,6 +126,75 @@ describe("deriveEvmAddress from record path bytes (MPC hex rendering)", () => {
     const pathHex = bytesToHex(pathBytes);
     expect(pathHex).toBe(expectedPathHex);
     expect(deriveEvmAddress(MPC_PUBKEY, CONTRACT_ADDRESS, pathHex)).toBe(expectedAddress);
+  });
+});
+
+// The key functions are pinned to the SAME independent golden addresses: an
+// EVM address is the keccak of its public key, so a key whose address matches
+// a golden vector is the key that vector was constructed from.
+describe("deriveMidnightRequestSigningKey", () => {
+  it.each(CASES)("$name: the key's EVM address is the golden address", ({ path, expected }) => {
+    const key = deriveMidnightRequestSigningKey(MPC_PUBKEY, CONTRACT_ADDRESS, path);
+    expect(key.identity).toBe(false);
+    expect(computeAddress(formatSecp256k1PublicKey(key))).toBe(expected);
+  });
+
+  it("round-trips through the published key spelling", () => {
+    const key = deriveMidnightRequestSigningKey(MPC_PUBKEY, CONTRACT_ADDRESS, "vault");
+    expect(parseSecp256k1PublicKey(formatSecp256k1PublicKey(key))).toEqual(key);
+  });
+
+  it("is a different key from the contract's response key", () => {
+    expect(deriveMidnightRequestSigningKey(MPC_PUBKEY, CONTRACT_ADDRESS, "vault")).not.toEqual(
+      deriveMidnightResponseKey(MPC_PUBKEY, CONTRACT_ADDRESS),
+    );
+  });
+});
+
+describe("deriveSignBidirectionalEventSigningKey / ...SignerEvmAddress", () => {
+  interface RecordCase {
+    name: string;
+    path: Uint8Array;
+    expectedAddress: string;
+  }
+
+  // The PATH_BYTES_CASES golden addresses, reached from a record: the
+  // functions under test render `sender` and `path` themselves.
+  const RECORD_CASES: RecordCase[] = [
+    {
+      name: "padded ascii literal pad(32, 'caller-path')",
+      path: asciiPadded("caller-path", 32),
+      expectedAddress: "0x26c05D12f8147C8428dcda4d263736062BDE5eA4",
+    },
+    {
+      name: "raw commitment bytes with interior and trailing NULs",
+      path: hexToBytes("a1b2c3d4e5f60718fffe005c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f00"),
+      expectedAddress: "0xA05732714EBC6c2366F2876CC817c9998efDc789",
+    },
+  ];
+  const SENDER = { bytes: hexToBytes(CONTRACT_ADDRESS) };
+
+  it.each(RECORD_CASES)("$name", ({ path, expectedAddress }) => {
+    expect(deriveSignBidirectionalEventSignerEvmAddress(MPC_PUBKEY, { sender: SENDER, path })).toBe(
+      expectedAddress,
+    );
+    expect(
+      computeAddress(
+        formatSecp256k1PublicKey(
+          deriveSignBidirectionalEventSigningKey(MPC_PUBKEY, { sender: SENDER, path }),
+        ),
+      ),
+    ).toBe(expectedAddress);
+  });
+
+  it("another sender derives another key for the same path", () => {
+    const path = asciiPadded("caller-path", 32);
+    expect(
+      deriveSignBidirectionalEventSigningKey(MPC_PUBKEY, {
+        sender: { bytes: new Uint8Array(32).fill(0x01) },
+        path,
+      }),
+    ).not.toEqual(deriveSignBidirectionalEventSigningKey(MPC_PUBKEY, { sender: SENDER, path }));
   });
 });
 
