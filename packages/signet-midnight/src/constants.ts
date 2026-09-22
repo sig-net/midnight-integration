@@ -179,7 +179,7 @@ export function getSignetContractAddress(networkId: DeployedNetwork): string {
 // that network.
 const mpcOutputCacheUrls: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Stagenet]:
-    "https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet",
+    "https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet",
   [MidnightNetwork.Preview]: "",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
