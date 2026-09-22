@@ -129,6 +129,7 @@ interface EvmMethodCase {
     requestId: Uint8Array,
     event: RespondBidirectionalEvent,
     serializedOutput: Uint8Array,
+    blockHeight: bigint,
   ): Promise<unknown>;
 }
 
@@ -145,8 +146,8 @@ const METHODS: EvmMethodCase[] = [
     resumeEnvVar: "CALLER_EVM_REQUEST_ID_ISEVEN",
     submit: (context, evmNonce, to, argWord) =>
       context.caller.callTx.submitIsEvenRequest(evmNonce, SIGNET_DEFAULT_KEY_VERSION, to, argWord),
-    verify: (context, requestId, event, serializedOutput) =>
-      context.caller.callTx.verifyResponse(requestId, event, serializedOutput),
+    verify: (context, requestId, event, serializedOutput, blockHeight) =>
+      context.caller.callTx.verifyResponse(requestId, event, serializedOutput, blockHeight),
   },
   {
     name: "checkAndDouble",
@@ -165,8 +166,13 @@ const METHODS: EvmMethodCase[] = [
         to,
         argWord,
       ),
-    verify: (context, requestId, event, serializedOutput) =>
-      context.caller.callTx.verifyCheckAndDoubleResponse(requestId, event, serializedOutput),
+    verify: (context, requestId, event, serializedOutput, blockHeight) =>
+      context.caller.callTx.verifyCheckAndDoubleResponse(
+        requestId,
+        event,
+        serializedOutput,
+        blockHeight,
+      ),
   },
 ];
 
@@ -432,6 +438,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           respondBytes,
           "the packed respond payload must have the schema's exact width",
         ).toHaveLength(method.packedWidth);
+        const blockHeight = BigInt(receipt.blockNumber);
 
         // Cache route: the bytes the fakenet wrote to its output cache before
         // posting, read exactly as a client without trace access reads a real
@@ -443,9 +450,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           signetContractAddress: requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
         });
         const cached = await fetchAttestedOutput(outputCache, requestId);
-        expect(cached, "the fakenet must cache exactly the bytes a client recomputes").toEqual(
-          respondBytes,
-        );
+        expect(cached, "the fakenet must cache exactly what a client recomputes").toEqual({
+          blockHeight,
+          serializedOutput: respondBytes,
+        });
 
         // The signature seals the round trip: the post attests a digest over
         // respond bytes only the fakenet's side produced, so it verifies
@@ -464,6 +472,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         while (attested === undefined && Date.now() < verifyDeadline) {
           attested = await reader.getVerifiedRespondBidirectionalEvent(
             requestId,
+            blockHeight,
             respondBytes,
             mpcResponseKey,
           );
@@ -486,7 +495,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           `  raw output: ${callResult} (from the fakenet /responses API)`,
           `  decoded:    ${JSON.stringify(decoded, (_, v: unknown) => (typeof v === "bigint" ? v.toString() : v))}`,
           `  payload:    0x${Buffer.from(respondBytes).toString("hex")} (${String(respondBytes.length)} bytes)`,
-          `  digest:     0x${Buffer.from(calculateSignetAttestationDigest(requestIdBytes(requestId), respondBytes)).toString("hex")}`,
+          `  block:      ${String(blockHeight)}`,
+          `  digest:     0x${Buffer.from(calculateSignetAttestationDigest(requestIdBytes(requestId), blockHeight, respondBytes)).toString("hex")}`,
           "",
           "deserializeEvmOutput and serializeRespondOutput ran on BOTH sides",
           "(fakenet and this suite) and agreed byte for byte.",
@@ -523,6 +533,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           requestIdBytes(requestId),
           respondBidirectionalEventToCircuitInput(attestedEvent),
           respondBytes,
+          BigInt(receipt.blockNumber),
         );
 
         const deadline = Date.now() + MINUTE;

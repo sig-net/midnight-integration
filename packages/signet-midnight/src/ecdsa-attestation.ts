@@ -319,21 +319,24 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
 
 /**
  * The attestation digest of a respond-bidirectional response:
- * `upgradeFromTransient(transientHash([requestId, outputLength, serializedOutput]))`, the
- * 32-byte digest the MPC ECDSA-signs to attest a remote execution. TS twin of
+ * `upgradeFromTransient(transientHash([requestId, blockHeight, outputLength, serializedOutput]))`,
+ * the 32-byte digest the MPC ECDSA-signs to attest a remote execution. TS twin of
  * the size-generic Compact circuit of the same name.
  *
  * @param requestId - The 32-byte request id the response answers.
+ * @param blockHeight - The destination block height the outcome is final at.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @returns The 32-byte attestation digest.
  */
 export function calculateSignetAttestationDigest(
   requestId: RequestId,
+  blockHeight: bigint,
   serializedOutput: Uint8Array,
 ): Uint8Array {
   return upgradeFromTransient(
     transientHash(attestationPreimageDescriptor(serializedOutput.length), [
       requestId,
+      blockHeight,
       BigInt(serializedOutput.length),
       serializedOutput,
     ]),
@@ -391,6 +394,7 @@ export function respondBidirectionalEventToCircuitInput(
  * throwing.
  *
  * @param requestId - The 32-byte request id the response answers.
+ * @param blockHeight - The destination block height the attestation names.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @param event - The posted record to check, as read off the ledger.
  * @param mpcResponseKey - The response key the requesting contract pinned
@@ -399,6 +403,7 @@ export function respondBidirectionalEventToCircuitInput(
  */
 export function verifyRespondBidirectionalSignature(
   requestId: RequestId,
+  blockHeight: bigint,
   serializedOutput: Uint8Array,
   event: RespondBidirectionalEvent,
   mpcResponseKey: Secp256k1Point,
@@ -409,7 +414,7 @@ export function verifyRespondBidirectionalSignature(
   } catch {
     return false;
   }
-  const digest = calculateSignetAttestationDigest(requestId, serializedOutput);
+  const digest = calculateSignetAttestationDigest(requestId, blockHeight, serializedOutput);
   // Compact form the verifier takes: r || s big-endian, and the key as
   // uncompressed SEC1 (0x04 || x || y).
   const compactSignature = new Uint8Array(64);

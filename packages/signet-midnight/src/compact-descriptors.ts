@@ -191,7 +191,7 @@ export function declaredWidths(cell: AlignedValue, what: string): number[] {
 }
 
 /**
- * Descriptor of the Compact tuple `[RequestId, Bytes<serializedOutputLength>]`
+ * Descriptor of the Compact tuple `[RequestId, Uint<64>, Uint<64>, Bytes<serializedOutputLength>]`
  * the attestation digest hashes, composed the way the compiler composes a
  * tuple: the elements' alignments and values concatenated in order. The output
  * width enters the descriptor, so it is fixed per call rather than a constant.
@@ -201,17 +201,24 @@ export function declaredWidths(cell: AlignedValue, what: string): number[] {
  */
 export function attestationPreimageDescriptor(
   serializedOutputLength: number,
-): CompactType<[Uint8Array, bigint, Uint8Array]> {
+): CompactType<[Uint8Array, bigint, bigint, Uint8Array]> {
   const output = new CompactTypeBytes(serializedOutputLength);
   return {
-    alignment: () => [...BYTES_32.alignment(), ...UINT_64.alignment(), ...output.alignment()],
-    toValue: ([requestId, outputLength, serializedOutput]) => [
+    alignment: () => [
+      ...BYTES_32.alignment(),
+      ...UINT_64.alignment(),
+      ...UINT_64.alignment(),
+      ...output.alignment(),
+    ],
+    toValue: ([requestId, blockHeight, outputLength, serializedOutput]) => [
       ...BYTES_32.toValue(requestId),
+      ...UINT_64.toValue(blockHeight),
       ...UINT_64.toValue(outputLength),
       ...output.toValue(serializedOutput),
     ],
     fromValue: (value) => [
       BYTES_32.fromValue(value),
+      UINT_64.fromValue(value),
       UINT_64.fromValue(value),
       output.fromValue(value),
     ],

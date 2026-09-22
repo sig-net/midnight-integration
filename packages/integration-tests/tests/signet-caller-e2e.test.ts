@@ -370,15 +370,16 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // A successful remote execution's serialised output: the caller's
       // respond schema is a single bool, whose exact unpadded packed payload
       // is ONE byte (0x01 = true), exactly what the MPC posts for a
-      // succeeded call.
+      // succeeded call, attested at the block it executed in.
       const serializedOutput = Uint8Array.from([1]);
+      const blockHeight = 1n;
 
       const responseSecretKey = deriveMidnightResponseSecretKey(
         hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
       );
       const signature = signAttestationDigest(
-        calculateSignetAttestationDigest(requestKey, serializedOutput),
+        calculateSignetAttestationDigest(requestKey, blockHeight, serializedOutput),
         responseSecretKey,
       );
 
@@ -393,6 +394,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
           signature: ecdsaSignatureToMpcSignature(signature),
         }),
         serializedOutput,
+        blockHeight,
       );
 
       // The consumption is the observable effect: present before (checked

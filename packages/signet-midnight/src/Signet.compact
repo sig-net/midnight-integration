@@ -289,7 +289,7 @@ module Signet {
   // RespondBidirectionalEvent: the MPC's attestation of a foreign execution, the
   // final step of the sign bidirectional flow.
   //
-  //    attestationDigest = upgradeFromTransient(transientHash([requestId, serializedOutputLength, serializedOutput]))
+  //    attestationDigest = upgradeFromTransient(transientHash([requestId, blockHeight, serializedOutputLength, serializedOutput]))
   //    signature = signSECP256k1(mpcResponseKey, attestationDigest)
   //
   // mpcResponseKey is derived like request signing keys, with the path set to the
@@ -306,15 +306,17 @@ module Signet {
     signature: Signature;
   }
 
-  // The 32-byte attestation digest of a remote execution output:
-  //    attestationDigest = upgradeFromTransient(transientHash([requestId, serializedOutputLength, serializedOutput]))
+  // The 32-byte attestation digest of a remote execution output, bound to the
+  // destination block height the outcome is final at:
+  //    attestationDigest = upgradeFromTransient(transientHash([requestId, blockHeight, serializedOutputLength, serializedOutput]))
   // Off-chain code uses the TypeScript twin:
   //    import { calculateSignetAttestationDigest } from "@sig-net/midnight";
   export pure circuit calculateSignetAttestationDigest<#serializedOutputLength>(
     requestId: RequestId,
+    blockHeight: Uint<64>,
     serializedOutput: Bytes<serializedOutputLength>,
   ): Bytes<32> {
-    return upgradeFromTransient(transientHash<[RequestId, Uint<64>, Bytes<serializedOutputLength>]>([requestId, serializedOutputLength, serializedOutput]));
+    return upgradeFromTransient(transientHash<[RequestId, Uint<64>, Uint<64>, Bytes<serializedOutputLength>]>([requestId, blockHeight, serializedOutputLength, serializedOutput]));
   }
 
   // Verifies a RespondBidirectionalEvent against its execution output and MPC
@@ -332,12 +334,14 @@ module Signet {
   // first (verifyRespondBidirectionalSignature).
   export pure circuit verifyRespondBidirectionalEvent<#serializedOutputLength>(
     requestId: RequestId,
+    blockHeight: Uint<64>,
     serializedOutput: Bytes<serializedOutputLength>,
     respondBidirectionalEvent: RespondBidirectionalEvent,
     mpcResponseKey: Secp256k1Point
   ): Boolean {
     const digest = calculateSignetAttestationDigest<serializedOutputLength>(
       requestId,
+      blockHeight,
       serializedOutput,
     );
 

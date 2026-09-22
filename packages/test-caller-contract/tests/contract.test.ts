@@ -558,6 +558,7 @@ const BOOL_RESPONSE = {
 // verifyResponse deserializes this into BoolResponse in-circuit and asserts
 // success, so only this value settles.
 const OUTPUT_SUCCESS = compactSerialize(BOOL_RESPONSE, { success: true }, 1);
+const BLOCK_HEIGHT = 9_401_212n;
 const OUTPUT_FAILURE = compactSerialize(BOOL_RESPONSE, { success: false }, 1);
 
 /**
@@ -577,7 +578,7 @@ const respond = (
   respondBidirectionalEventToCircuitInput({
     signature: ecdsaSignatureToMpcSignature(
       signAttestationDigest(
-        calculateSignetAttestationDigest(requestId, serializedOutput),
+        calculateSignetAttestationDigest(requestId, BLOCK_HEIGHT, serializedOutput),
         secretKey,
       ),
     ),
@@ -597,7 +598,7 @@ describe("verifyResponse", () => {
     const requestId = requestIdBytes(idHex);
     const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS),
+      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT),
     ).rejects.toThrow(/Not initialised/);
   });
 
@@ -605,8 +606,9 @@ describe("verifyResponse", () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
 
-    const next = (await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS))
-      .context;
+    const next = (
+      await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT)
+    ).context;
 
     const state = ledger(next.callContext.currentQueryContext.state);
     expect(state.signBidirectionalEventMap.isEmpty()).toBe(true);
@@ -616,7 +618,7 @@ describe("verifyResponse", () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(IMPOSTER_SECRET, requestId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS),
+      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -625,7 +627,7 @@ describe("verifyResponse", () => {
     const response = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
     const tamperedOutput = OUTPUT_FAILURE;
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, response, tamperedOutput),
+      contract.circuits.verifyResponse(ctx, requestId, response, tamperedOutput, BLOCK_HEIGHT),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -638,6 +640,7 @@ describe("verifyResponse", () => {
         requestId,
         { signature: { ...response.signature, s: bytes(32, 0x99) } },
         OUTPUT_SUCCESS,
+        BLOCK_HEIGHT,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
@@ -649,7 +652,7 @@ describe("verifyResponse", () => {
     // settlement is refused.
     const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_FAILURE);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_FAILURE),
+      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_FAILURE, BLOCK_HEIGHT),
     ).rejects.toThrow(/Foreign call reported failure/);
   });
 
@@ -661,7 +664,7 @@ describe("verifyResponse", () => {
     const nonCanonical = Uint8Array.from([2]);
     const event = respond(MPC_RESPONSE_SECRET, requestId, nonCanonical);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, nonCanonical),
+      contract.circuits.verifyResponse(ctx, requestId, event, nonCanonical, BLOCK_HEIGHT),
     ).rejects.toThrow(/Foreign call reported failure/);
   });
 
@@ -672,7 +675,7 @@ describe("verifyResponse", () => {
     const otherId = bytes(32, 0xab);
     const event = respond(MPC_RESPONSE_SECRET, otherId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS),
+      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -681,18 +684,19 @@ describe("verifyResponse", () => {
     const unknownId = bytes(32, 0xab);
     const event = respond(MPC_RESPONSE_SECRET, unknownId, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(ctx, unknownId, event, OUTPUT_SUCCESS),
+      contract.circuits.verifyResponse(ctx, unknownId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT),
     ).rejects.toThrow(/Request not found/);
   });
 
   it("a second verify of the SAME request rejects (the first consumed it)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
-    const next = (await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS))
-      .context;
+    const next = (
+      await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT)
+    ).context;
 
     await expect(
-      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS),
+      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT),
     ).rejects.toThrow(/Request not found/);
   });
 });
@@ -740,6 +744,7 @@ describe("verifyCheckAndDoubleResponse", () => {
         requestId,
         respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_BOOL_UINT),
         OUTPUT_BOOL_UINT,
+        BLOCK_HEIGHT,
       )
     ).context;
     expect(
@@ -753,7 +758,13 @@ describe("verifyCheckAndDoubleResponse", () => {
     const tampered = Uint8Array.from(OUTPUT_BOOL_UINT);
     tampered[1] = 13;
     await expect(
-      contract.circuits.verifyCheckAndDoubleResponse(ctx, requestId, response, tampered),
+      contract.circuits.verifyCheckAndDoubleResponse(
+        ctx,
+        requestId,
+        response,
+        tampered,
+        BLOCK_HEIGHT,
+      ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -771,6 +782,7 @@ describe("verifyCheckAndDoubleResponse", () => {
         requestId,
         boolOnlyResponse,
         paddedOutput,
+        BLOCK_HEIGHT,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
@@ -783,6 +795,7 @@ describe("verifyCheckAndDoubleResponse", () => {
         requestId,
         respond(IMPOSTER_SECRET, requestId, OUTPUT_BOOL_UINT),
         OUTPUT_BOOL_UINT,
+        BLOCK_HEIGHT,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });

@@ -171,10 +171,11 @@ const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
 const MPC_RESPONSE_SECRET = bytes(32, 0x11);
 const MPC_RESPONSE_KEY = secp256k1PublicKeyOf(MPC_RESPONSE_SECRET);
 const ATTESTED_OUTPUT = Uint8Array.from([1]);
+const ATTESTED_HEIGHT = 9_401_212n;
 const ATTESTED_RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
   signature: ecdsaSignatureToMpcSignature(
     signAttestationDigest(
-      calculateSignetAttestationDigest(REQUEST_ID, ATTESTED_OUTPUT),
+      calculateSignetAttestationDigest(REQUEST_ID, ATTESTED_HEIGHT, ATTESTED_OUTPUT),
       MPC_RESPONSE_SECRET,
     ),
   ),
@@ -454,6 +455,7 @@ describe("verification over decoded events already in hand", () => {
     expect(
       findVerifiedRespondBidirectionalEvent(
         REQUEST_ID_HEX,
+        ATTESTED_HEIGHT,
         ATTESTED_OUTPUT,
         MPC_RESPONSE_KEY,
         IN_HAND,
@@ -465,6 +467,7 @@ describe("verification over decoded events already in hand", () => {
     expect(
       findVerifiedRespondBidirectionalEvent(
         requestIdHex(FOREIGN_REQUEST_ID),
+        ATTESTED_HEIGHT,
         ATTESTED_OUTPUT,
         MPC_RESPONSE_KEY,
         IN_HAND,
@@ -555,6 +558,7 @@ describe("getVerifiedRespondBidirectionalEvent", () => {
     expect(
       await reader.getVerifiedRespondBidirectionalEvent(
         REQUEST_ID_HEX,
+        ATTESTED_HEIGHT,
         ATTESTED_OUTPUT,
         MPC_RESPONSE_KEY,
       ),
@@ -571,6 +575,7 @@ describe("getVerifiedRespondBidirectionalEvent", () => {
     expect(
       await reader.getVerifiedRespondBidirectionalEvent(
         REQUEST_ID_HEX,
+        ATTESTED_HEIGHT,
         ATTESTED_OUTPUT,
         MPC_RESPONSE_KEY,
       ),
@@ -582,6 +587,7 @@ describe("getVerifiedRespondBidirectionalEvent", () => {
     expect(
       await reader.getVerifiedRespondBidirectionalEvent(
         REQUEST_ID_HEX,
+        ATTESTED_HEIGHT,
         Uint8Array.from([0]),
         MPC_RESPONSE_KEY,
       ),
@@ -593,6 +599,7 @@ describe("getVerifiedRespondBidirectionalEvent", () => {
     expect(
       await reader.getVerifiedRespondBidirectionalEvent(
         REQUEST_ID_HEX,
+        ATTESTED_HEIGHT,
         ATTESTED_OUTPUT,
         MPC_RESPONSE_KEY,
       ),
