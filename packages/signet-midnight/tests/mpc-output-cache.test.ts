@@ -64,12 +64,12 @@ describe("MpcOutputCacheReader", () => {
     "locates the object under <prefix>/<network>/<signet>/<request>.bin from $name",
     ({ suffix }) => {
       const reader = new MpcOutputCacheReader({
-        cacheUrl: `https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet${suffix}`,
+        cacheUrl: `https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet${suffix}`,
         networkId: NETWORK_ID,
         signetContractAddress: SIGNET_CONTRACT_ADDRESS,
       });
       expect(reader.objectUrl(REQUEST_ID)).toBe(
-        `https://storage.googleapis.com/midnight-cache-storage-dev${EXPECTED_OBJECT_PATH}`,
+        `https://storage.googleapis.com/midnight-cache-storage-testnet${EXPECTED_OBJECT_PATH}`,
       );
     },
   );
@@ -80,7 +80,7 @@ describe("MpcOutputCacheReader", () => {
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     });
     expect(reader.objectUrl(REQUEST_ID)).toBe(
-      `https://storage.googleapis.com/midnight-cache-storage-dev${EXPECTED_OBJECT_PATH}`,
+      `https://storage.googleapis.com/midnight-cache-storage-testnet${EXPECTED_OBJECT_PATH}`,
     );
   });
 
