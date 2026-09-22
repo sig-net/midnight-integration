@@ -168,7 +168,7 @@ describe("getMpcRootPublicKey", () => {
 describe("getMpcOutputCacheUrl", () => {
   it("publishes the stagenet cache down to the MPC's object prefix", () => {
     expect(getMpcOutputCacheUrl(MidnightNetwork.Stagenet)).toBe(
-      "https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet",
+      "https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet",
     );
   });
 
