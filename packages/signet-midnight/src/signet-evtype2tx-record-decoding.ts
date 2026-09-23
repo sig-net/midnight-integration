@@ -13,7 +13,7 @@ import { signBidirectionalEventDescriptor } from "./signet-evtype2tx-requests.ts
 import type { SignBidirectionalEvent } from "./signet-requests.ts";
 
 // Atom layout of an evmType2 request record: the fixed atom count, the
-// fixed head before the calldata words, and the fixed tail (caip2Id + the
+// fixed head before the calldata words, and the fixed tail (executionDest + the
 // two schemas). A stored cell holds
 // EVM_TYPE2_FIXED_ATOMS + maxCalldataWords
 //   + maxAccessListEntries * (2 + maxStorageKeysPerEntry) atoms.
@@ -32,7 +32,7 @@ interface EvmType2Capacities {
  * Recover the sizing parameters the requester's contract was compiled with
  * (`#maxCalldataWords`, `#maxAccessListEntries`, `#maxStorageKeysPerEntry`)
  * from the declared widths alone. The tail anchors from the end: calldata
- * words, storage keys and `caip2Id` are all `Bytes<32>`, so no forward scan
+ * words, storage keys and `executionDest` are all `Bytes<32>`, so no forward scan
  * can find the boundaries.
  *
  * @param widths - The record's declared atom widths.

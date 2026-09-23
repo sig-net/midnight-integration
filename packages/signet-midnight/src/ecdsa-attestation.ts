@@ -162,14 +162,17 @@ export function signatureRespondedEventToSignature(response: SignatureRespondedE
  * it is exported through the `./testing` entry point with the other
  * posting-side helpers.
  *
+ * @param requestId - The 32-byte request id the signature answers.
  * @param signature - The signature to encode (`r`/`s` as 0x hex, `yParity` 0 or 1).
  * @returns The response record, ready to post.
  * @throws {Error} If `r` is not the x coordinate of a secp256k1 point.
  */
 export function signatureToSignatureRespondedEvent(
+  requestId: RequestId,
   signature: Pick<Signature, "r" | "s" | "yParity">,
 ): SignatureRespondedEvent {
   return {
+    requestId,
     signature: ecdsaSignatureToMpcSignature({
       r: BigInt(signature.r),
       s: BigInt(signature.s),
@@ -348,6 +351,51 @@ export function calculateSignetAttestationDigest(
   );
 }
 
+/** What a respond-bidirectional attestation commits to: the digest's inputs. */
+export interface RespondBidirectionalAttestation {
+  /** The 32-byte request id the response answers. */
+  requestId: RequestId;
+  /** Height of the finalised destination block holding the attested transaction. */
+  blockHeight: bigint;
+  /** The MPC's verdict on the execution. */
+  outputKind: OutputKind;
+  /** The serialised execution output, exact unpadded bytes (empty for a failure). */
+  serializedOutput: Uint8Array;
+}
+
+/**
+ * Mint the record the MPC posts for an outcome: the attestation digest over
+ * `attestation`, ECDSA-signed with `secretKey`, in the ledger shape the
+ * singleton emits (big-endian signature bytes). Responder-side and
+ * test-fixture side (the fakenet posts through this), so it is exported
+ * through the `./testing` entry point.
+ *
+ * @param attestation - What the attestation commits to.
+ * @param secretKey - The 32-byte secp256k1 response secret key of the requesting contract.
+ * @returns The record, ready to post or to serve as a fixture.
+ * @throws {Error} If no recovery id reproduces the signer's own public key.
+ */
+export function attestRespondBidirectional(
+  attestation: RespondBidirectionalAttestation,
+  secretKey: Uint8Array,
+): RespondBidirectionalEvent {
+  const { requestId, blockHeight, outputKind, serializedOutput } = attestation;
+  const digest = calculateSignetAttestationDigest(
+    requestId,
+    blockHeight,
+    outputKind,
+    serializedOutput,
+  );
+  return {
+    requestId,
+    blockHeight,
+    outputKind,
+    serializedOutputLength: BigInt(serializedOutput.length),
+    digest,
+    signature: ecdsaSignatureToMpcSignature(signAttestationDigest(digest, secretKey)),
+  };
+}
+
 /**
  * Reverse a 32-byte value between big- and little-endian byte order.
  *
@@ -380,13 +428,12 @@ export function respondBidirectionalEventToCircuitInput(
   event: RespondBidirectionalEvent,
 ): RespondBidirectionalEvent {
   return {
+    ...event,
     signature: {
       ...event.signature,
       bigR: { ...event.signature.bigR, x: reverseBytes32(event.signature.bigR.x) },
       s: reverseBytes32(event.signature.s),
     },
-    outputKind: event.outputKind,
-    blockHeight: event.blockHeight,
   };
 }
 

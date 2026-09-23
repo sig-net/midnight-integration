@@ -37,11 +37,9 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
     keyVersion: request.keyVersion,
     path: request.path,
     algo: request.algo,
-    dest: request.dest,
-    params: request.params,
     txParamType: request.txParamType,
     txParams: request.txParams,
-    caip2Id: request.caip2Id,
+    executionDest: request.executionDest,
   };
   return upgradeFromTransient(
     transientHash(

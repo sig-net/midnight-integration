@@ -77,7 +77,7 @@ module Signet {
     //   derivedSigningKey = f(mpcRootKey[keyVersion], caip2ChainId, sender, hex::encode(path))
     // where caip2ChainId is the CAIP-2 id of the ORIGINATING chain (the Midnight
     // variant for requests made from Midnight contracts), not this record's target
-    // caip2Id. The path is 32 opaque bytes of the client contract's choosing (e.g. a
+    // executionDest. The path is 32 opaque bytes of the client contract's choosing (e.g. a
     // fixed literal for a contract-owned account or a hash of a caller's secret for
     // per-user accounts): no format is enforced, any 32 bytes are valid.
     // CRITICAL: the MPC renders the path as hex::encode(path) for key derivation (lowercase hex
@@ -87,17 +87,17 @@ module Signet {
     path: Bytes<32>;          // Key derivation path: 32 opaque bytes, client contract's choice.
 
     // MPC Parameters.
-    algo: MPCSignatureAlgorithm;  // Signature algorithm scheme, e.g. ecdsa
-    dest: MPCDestination;         // Destination field reserved for future use. Set to unused.
-    params: Bytes<64>;            // Extra MPC parameters reserved for future use. Zero-fill.
+    algo: MPCSignatureAlgorithm;    // Signature algorithm scheme, e.g. ecdsa
+    signatureDest: MPCDestination;  // Destination field reserved for future use. Set to unused.
+    params: Bytes<64>;              // Extra MPC parameters reserved for future use. Zero-fill.
 
     // Specific destination chain Transaction parameters.
-    txParamType: TxParamType; // Off-chain tag indicating what type txParams is set to.
-    txParams: TxParams; // The generic transaction-param payload
-    caip2Id: Bytes<32>;       // The MPC's routing key for the target chain, in CAIP-2 form
-                              // (https://chainagnostic.org/CAIPs/caip-2). An Ethereum target
-                              // (mainnet, Sepolia or a local anvil) uses ethereumCaip2Id():
-                              // the network itself is txParams' chainId.
+    txParamType: TxParamType;  // Off-chain tag indicating what type txParams is set to.
+    txParams: TxParams;        // The generic transaction-param payload
+    executionDest: Bytes<32>;  // The MPC's routing key for the target chain, in CAIP-2 form
+                               // (https://chainagnostic.org/CAIPs/caip-2). An Ethereum target
+                               // (mainnet, Sepolia or a local anvil) uses ethereumCaip2Id():
+                               // the network itself is txParams' chainId.
 
     // Serialisation Schemas.
     // outputDeserializationSchema tells the MPC how to deserialise the destination chain's
@@ -137,26 +137,30 @@ module Signet {
     keyVersion: Uint<8>,
     path: Bytes<32>,
     algo: MPCSignatureAlgorithm,
-    dest: MPCDestination,
+    signatureDest: MPCDestination,
     params: Bytes<64>,
     txParamType: TxParamType,
     txParams: TxParams,
-    caip2Id: Bytes<32>,
+    executionDest: Bytes<32>,
     outputDeserializationSchema: Bytes<LenOutputDeserialization>,
     respondSerializationSchema: Bytes<LenRespondSerialization>,
   ): SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization> {
     assert(keyVersion >= 1, "keyVersion must be >= 1");
+    // The protocol reserves the "midnight response key" path for the MPC's
+    // attestation key of this contract (see RespondBidirectionalEvent), and the
+    // MPC refuses a request that names it.
+    assert(path != pad(32, "midnight response key"), "path is reserved for the MPC response key");
 
     return SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization> {
       sender,
       keyVersion,
       path,
       algo,
-      dest,
+      signatureDest,
       params,
       txParamType,
       txParams,
-      caip2Id,
+      executionDest,
       outputDeserializationSchema,
       respondSerializationSchema,
     };
@@ -168,13 +172,13 @@ module Signet {
   // transientHash of its RequestIdPreimage (see calculateRequestId).
   export new type RequestId = Bytes<32>;
 
-  // The fields of a SignBidirectionalEvent that name one execution: everything except the
-  // serialisation schemas. Two records mint the same RequestId exactly when they agree on
-  // the sender, key derivation, MPC parameters, transaction and target chain, so
-  // two requests for one transaction cannot both be outstanding whatever schemas they
-  // declare, and the id does not depend on the schemas' declared widths either.
+  // The fields of a SignBidirectionalEvent that name one execution: the requesting contract,
+  // the signing key (version, path, algorithm), the transaction and its execution destination.
+  // The serialisation schemas and the reserved MPC parameters (signatureDest, params) stay
+  // out, so two requests for one transaction cannot both be outstanding whatever schemas
+  // they declare, and the id does not depend on the schemas' declared widths either.
   //
-  // KEY: the field order matches SignBidirectionalEvent and is relied upon for consistent
+  // KEY: the field order follows SignBidirectionalEvent's and is relied upon for consistent
   //      hashing. The TS twin (requestIdPreimageDescriptorWith in signet-requests.ts)
   //      mirrors it field by field.
   export struct RequestIdPreimage<TxParams> {
@@ -182,11 +186,9 @@ module Signet {
     keyVersion: Uint<8>;
     path: Bytes<32>;
     algo: MPCSignatureAlgorithm;
-    dest: MPCDestination;
-    params: Bytes<64>;
     txParamType: TxParamType;
     txParams: TxParams;
-    caip2Id: Bytes<32>;
+    executionDest: Bytes<32>;
   }
 
   // transientHash (Poseidon over the preimage's field-aligned representation) upgraded
@@ -209,11 +211,9 @@ module Signet {
       keyVersion: request.keyVersion,
       path: request.path,
       algo: request.algo,
-      dest: request.dest,
-      params: request.params,
       txParamType: request.txParamType,
       txParams: request.txParams,
-      caip2Id: request.caip2Id,
+      executionDest: request.executionDest,
     };
     return upgradeFromTransient(transientHash<RequestIdPreimage<TxParams>>(preimage)) as RequestId;
   }
@@ -310,6 +310,9 @@ module Signet {
   // Posted by the MPC through the Signet singleton for clients to extract and build a
   // signed transaction from.
   export struct SignatureRespondedEvent {
+    // The request this signature answers. Routing data: the singleton emits it
+    // unverified, and a reader proves the signature against the request's own key.
+    requestId: RequestId;
     // The requested signature over the transaction the request describes.
     signature: Signature;
   }
@@ -330,14 +333,25 @@ module Signet {
   // distinguishes a genuine post from garbage: the singleton emits every post
   // unverified.
   export struct RespondBidirectionalEvent {
-    // The MPC's ECDSA signature over the attestation digest.
-    signature: Signature;
-    // The MPC's verdict on the execution, signed into the digest.
-    outputKind: OutputKind;
+    // The request this attestation answers. Routing data: the verifier hashes the
+    // id the client presents, so a post cannot settle another request.
+    requestId: RequestId;
     // Height of the finalised destination block holding the transaction the
     // attestation describes, in the destination chain's own numbering (a slot
     // on Solana). Signed into the digest.
     blockHeight: Uint<64>;
+    // The MPC's verdict on the execution, signed into the digest.
+    outputKind: OutputKind;
+    // Byte width of the serialised output the digest commits to (0 for a failed
+    // or unviable execution), so a client holding no output yet knows which
+    // width to settle at.
+    serializedOutputLength: Uint<64>;
+    // The attestation digest the signature is over (calculateSignetAttestationDigest),
+    // so a reader holding no output can check the signature. The verifying
+    // circuit recomputes it from the output and never reads this copy.
+    digest: Bytes<32>;
+    // The MPC's ECDSA signature over the attestation digest.
+    signature: Signature;
   }
 
   // OutputKind is the MPC's verdict on a request's execution, the kind half of
@@ -375,8 +389,10 @@ module Signet {
   // scalar casts below read little-endian bytes, and the wire/ledger records
   // are big-endian, so the reversal happens off-chain where it costs nothing
   // (the TS SDK's respondBidirectionalEventToCircuitInput does it). A wrong
-  // byte order fails verification, never a false accept. Of the signature only
-  // bigR.x and s enter verification. An s that reduces to 0 mod the curve order aborts the
+  // byte order fails verification, never a false accept. Of the event, only
+  // blockHeight, outputKind, signature.bigR.x and signature.s enter verification:
+  // requestId, serializedOutputLength and digest serve off-chain readers. An s
+  // that reduces to 0 mod the curve order aborts the
   // circuit rather than returning false, so sift candidate posts off chain
   // first (verifyRespondBidirectionalSignature).
   export pure circuit verifyRespondBidirectionalEvent<#serializedOutputLength>(

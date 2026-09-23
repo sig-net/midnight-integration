@@ -4,7 +4,9 @@
 // whose 256-byte payload packs the record:
 //   SignBidirectionalEvent    - version (1) ++ requestId (32) ++ notification payload (128) ++ zeros (95)
 //   SignatureRespondedEvent   - requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (127)
-//   RespondBidirectionalEvent - requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ outputKind (1) ++ blockHeight (8, little-endian) ++ zeros (118)
+//   RespondBidirectionalEvent - requestId (32) ++ blockHeight (8, little-endian) ++ outputKind (1)
+//                               ++ serializedOutputLength (8, little-endian) ++ digest (32)
+//                               ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (78)
 // The decoders here are the byte-plumbing twins of the emit literals in
 // signet-contract.compact: field order and offsets must match byte-for-byte
 // (the signet-contract simulator tests pin the lockstep against real emits).
@@ -393,36 +395,52 @@ export interface MpcSignature {
 
 /**
  * The MPC's signature over the requested EVM transaction (Compact
- * `SignatureRespondedEvent`), carried beside the request id it answers (see
- * {@link SignetEventPost}). Emitted UNVERIFIED: authenticity comes from
+ * `SignatureRespondedEvent`). Emitted UNVERIFIED: authenticity comes from
  * `SignetRequestResponseReader.getVerifiedSignatureRespondedEvent`.
  */
 export interface SignatureRespondedEvent {
+  /** The request this signature answers, 32 bytes. Routing data only. */
+  requestId: Uint8Array;
   /** The requested signature over the transaction the request describes. */
   signature: MpcSignature;
 }
 
 /**
  * The MPC's respond-bidirectional attestation of a request's remote EVM
- * execution (Compact `RespondBidirectionalEvent`): the ECDSA signature over
- * the attestation digest (`calculateSignetAttestationDigest`) with the
- * output kind and block height that digest commits to, carried beside the
- * request id it answers (see {@link SignetEventPost}). The output the digest
- * also commits to travels off chain. Emitted UNVERIFIED: verify in-circuit
- * via `verifyRespondBidirectionalEvent` or off chain via
- * `verifyRespondBidirectionalSignature`.
+ * execution (Compact `RespondBidirectionalEvent`, in declaration order): the
+ * ECDSA signature over the attestation digest
+ * (`calculateSignetAttestationDigest`) with everything that digest commits to
+ * except the output, which travels off chain. Emitted UNVERIFIED: verify
+ * in-circuit via `verifyRespondBidirectionalEvent` or off chain via
+ * `verifyRespondBidirectionalSignature`. Mint one with the
+ * `@sig-net/midnight/testing` entry point's `attestRespondBidirectional`.
  */
 export interface RespondBidirectionalEvent {
-  /** ECDSA signature over the attestation digest. */
-  signature: MpcSignature;
-  /** The MPC's verdict on the execution, signed into the digest. */
-  outputKind: OutputKind;
+  /**
+   * The request this attestation answers, 32 bytes. Routing data: a
+   * verifier hashes the id the client presents.
+   */
+  requestId: Uint8Array;
   /**
    * Height of the finalised destination block holding the attested
    * transaction, in the destination chain's own numbering (a slot on
    * Solana). Compact `Uint<64>`, signed into the digest.
    */
   blockHeight: bigint;
+  /** The MPC's verdict on the execution, signed into the digest. */
+  outputKind: OutputKind;
+  /**
+   * Byte width of the serialised output the digest commits to, 0 for a
+   * failed or unviable execution. Compact `Uint<64>`.
+   */
+  serializedOutputLength: bigint;
+  /**
+   * The attestation digest the signature is over, 32 bytes: lets a reader
+   * with no output in hand check the signature. A verifier recomputes it.
+   */
+  digest: Uint8Array;
+  /** ECDSA signature over the attestation digest. */
+  signature: MpcSignature;
 }
 
 /**
@@ -438,47 +456,38 @@ export interface SignetEventPost<TRecord> {
   event: TRecord;
 }
 
-/** Offsets of the leaves both respond payloads pack, in emit order. */
-const RESPOND_REQUEST_ID_OFFSET = 0;
-const SIGNATURE_BIG_R_X_OFFSET = 32;
-const SIGNATURE_BIG_R_Y_OFFSET = 64;
-const SIGNATURE_S_OFFSET = 96;
-const SIGNATURE_RECOVERY_ID_OFFSET = 128;
-
-/** The packed leaves of a respond payload: declared request id plus signature. */
-interface RespondPayloadLeaves {
-  requestId: Uint8Array;
-  signature: MpcSignature;
-}
+/** Byte width of a packed `Signature`: bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1). */
+const PACKED_SIGNATURE_LENGTH = 97;
 
 /**
- * Unpack the leaves both respond payloads lead with:
- * requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1).
- * Bytes beyond the recovery id are left to the caller.
+ * Unpack the `Signature` leaves both respond payloads carry, starting at
+ * `offset`: bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1).
  *
  * @param payload - The full event payload.
- * @returns The declared request id and the decoded signature.
- * @throws {Error} When the payload is too short to hold the packed leaves.
+ * @param offset - Where the packed signature starts.
+ * @returns The decoded signature.
+ * @throws {Error} When the payload is too short to hold the packed signature.
  */
-function decodeRespondPayload(payload: Uint8Array): RespondPayloadLeaves {
-  const recoveryId = payload[SIGNATURE_RECOVERY_ID_OFFSET];
+function decodeSignatureAt(payload: Uint8Array, offset: number): MpcSignature {
+  const recoveryId = payload[offset + PACKED_SIGNATURE_LENGTH - 1];
   if (recoveryId === undefined) {
     throw new Error(
       `signet event payload of ${String(payload.length)} bytes is too short for a packed respond record`,
     );
   }
   return {
-    requestId: payload.slice(RESPOND_REQUEST_ID_OFFSET, SIGNATURE_BIG_R_X_OFFSET),
-    signature: {
-      bigR: {
-        x: payload.slice(SIGNATURE_BIG_R_X_OFFSET, SIGNATURE_BIG_R_Y_OFFSET),
-        y: payload.slice(SIGNATURE_BIG_R_Y_OFFSET, SIGNATURE_S_OFFSET),
-      },
-      s: payload.slice(SIGNATURE_S_OFFSET, SIGNATURE_RECOVERY_ID_OFFSET),
-      recoveryId: BigInt(recoveryId),
+    bigR: {
+      x: payload.slice(offset, offset + 32),
+      y: payload.slice(offset + 32, offset + 64),
     },
+    s: payload.slice(offset + 64, offset + 96),
+    recoveryId: BigInt(recoveryId),
   };
 }
+
+/** Offsets of a signature response payload's leaves, in emit order. */
+const SIGNATURE_RESPONDED_REQUEST_ID_OFFSET = 0;
+const SIGNATURE_RESPONDED_SIGNATURE_OFFSET = 32;
 
 /**
  * Decode a {@link SignetEventName.SignatureRespondedEvent} payload: the
@@ -491,18 +500,24 @@ function decodeRespondPayload(payload: Uint8Array): RespondPayloadLeaves {
 export function decodeSignatureRespondedEventPayload(
   payload: Uint8Array,
 ): SignetEventPost<SignatureRespondedEvent> {
-  const { requestId, signature } = decodeRespondPayload(payload);
-  return { requestId, event: { signature } };
+  const signature = decodeSignatureAt(payload, SIGNATURE_RESPONDED_SIGNATURE_OFFSET);
+  const requestId = payload.slice(
+    SIGNATURE_RESPONDED_REQUEST_ID_OFFSET,
+    SIGNATURE_RESPONDED_SIGNATURE_OFFSET,
+  );
+  return { requestId, event: { requestId, signature } };
 }
 
-/** Offset of the output kind, packed after the recovery id. */
-const RESPOND_OUTPUT_KIND_OFFSET = 129;
+/** Offsets of a respond-bidirectional payload's leaves, in emit order. */
+const RESPOND_BIDIRECTIONAL_REQUEST_ID_OFFSET = 0;
+const RESPOND_BIDIRECTIONAL_BLOCK_HEIGHT_OFFSET = 32;
+const RESPOND_BIDIRECTIONAL_OUTPUT_KIND_OFFSET = 40;
+const RESPOND_BIDIRECTIONAL_OUTPUT_LENGTH_OFFSET = 41;
+const RESPOND_BIDIRECTIONAL_DIGEST_OFFSET = 49;
+const RESPOND_BIDIRECTIONAL_SIGNATURE_OFFSET = 81;
 
-/** Offset of the attested block height, packed after the output kind. */
-const RESPOND_BLOCK_HEIGHT_OFFSET = 130;
-
-/** Byte width of the packed block height (Compact `Uint<64>` cast to `Bytes<8>`). */
-const RESPOND_BLOCK_HEIGHT_LENGTH = 8;
+/** Byte width of a packed `Uint<64>` (Compact's `as Bytes<8>` cast, little-endian). */
+const PACKED_UINT_64_LENGTH = 8;
 
 /**
  * The output kinds by the variant index Compact's `as Uint<8>` cast of the
@@ -531,10 +546,9 @@ function outputKindOf(byte: number): OutputKind {
 
 /**
  * Decode a {@link SignetEventName.RespondBidirectionalEvent} payload: the
- * decode twin of the `respondBidirectional` circuit's emit literal. The
- * output kind follows the shared leaves as one byte, then the block height
- * as 8 little-endian bytes, the byte order of Compact's `Uint<64>` to
- * `Bytes<8>` cast.
+ * decode twin of the `respondBidirectional` circuit's emit literal. The two
+ * `Uint<64>` leaves are 8 little-endian bytes each, the byte order of
+ * Compact's `Uint<64>` to `Bytes<8>` cast.
  *
  * @param payload - The event's payload.
  * @returns The decoded post: declared request id plus record.
@@ -544,23 +558,37 @@ function outputKindOf(byte: number): OutputKind {
 export function decodeRespondBidirectionalEventPayload(
   payload: Uint8Array,
 ): SignetEventPost<RespondBidirectionalEvent> {
-  const { requestId, signature } = decodeRespondPayload(payload);
-  const kindByte = payload[RESPOND_OUTPUT_KIND_OFFSET];
-  const heightBytes = payload.subarray(
-    RESPOND_BLOCK_HEIGHT_OFFSET,
-    RESPOND_BLOCK_HEIGHT_OFFSET + RESPOND_BLOCK_HEIGHT_LENGTH,
-  );
-  if (kindByte === undefined || heightBytes.length !== RESPOND_BLOCK_HEIGHT_LENGTH) {
-    throw new Error(
-      `signet event payload of ${String(payload.length)} bytes is too short for a packed output kind and block height`,
-    );
+  const signature = decodeSignatureAt(payload, RESPOND_BIDIRECTIONAL_SIGNATURE_OFFSET);
+  const kindByte = payload[RESPOND_BIDIRECTIONAL_OUTPUT_KIND_OFFSET];
+  if (kindByte === undefined) {
+    throw new Error("the signature decode above proves this is unreachable");
   }
+  const requestId = payload.slice(
+    RESPOND_BIDIRECTIONAL_REQUEST_ID_OFFSET,
+    RESPOND_BIDIRECTIONAL_BLOCK_HEIGHT_OFFSET,
+  );
   return {
     requestId,
     event: {
-      signature,
+      requestId,
+      blockHeight: bytesToBigint(
+        payload.subarray(
+          RESPOND_BIDIRECTIONAL_BLOCK_HEIGHT_OFFSET,
+          RESPOND_BIDIRECTIONAL_BLOCK_HEIGHT_OFFSET + PACKED_UINT_64_LENGTH,
+        ),
+      ),
       outputKind: outputKindOf(kindByte),
-      blockHeight: bytesToBigint(heightBytes),
+      serializedOutputLength: bytesToBigint(
+        payload.subarray(
+          RESPOND_BIDIRECTIONAL_OUTPUT_LENGTH_OFFSET,
+          RESPOND_BIDIRECTIONAL_OUTPUT_LENGTH_OFFSET + PACKED_UINT_64_LENGTH,
+        ),
+      ),
+      digest: payload.slice(
+        RESPOND_BIDIRECTIONAL_DIGEST_OFFSET,
+        RESPOND_BIDIRECTIONAL_SIGNATURE_OFFSET,
+      ),
+      signature,
     },
   };
 }

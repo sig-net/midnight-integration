@@ -101,10 +101,12 @@ export const MPCDestination = {
 
 /**
  * The fields of a {@link SignBidirectionalEvent} that mint its
- * {@link RequestId} (Compact: `RequestIdPreimage<TxParams>`): everything
- * except the serialisation schemas, so two requests for one transaction share
- * an id whatever schemas they declare. Generic over the tx-params
- * decomposition, {@link EvmType2TxParams} by default.
+ * {@link RequestId} (Compact: `RequestIdPreimage<TxParams>`): the requesting
+ * contract, the signing key, the transaction and its execution destination.
+ * The serialisation schemas and the reserved MPC parameters stay out, so two
+ * requests for one transaction share an id whatever schemas they declare.
+ * Generic over the tx-params decomposition, {@link EvmType2TxParams} by
+ * default.
  */
 export interface RequestIdPreimage<TxParams = EvmType2TxParams> {
   /** Address of the client contract that stores this event (`kernel.self()`). */
@@ -115,29 +117,41 @@ export interface RequestIdPreimage<TxParams = EvmType2TxParams> {
   path: Uint8Array;
   /** An {@link MPCSignatureAlgorithm} value. */
   algo: number;
-  /** An {@link MPCDestination} value. */
-  dest: number;
-  /** Extra MPC parameters: 64 opaque bytes, reserved, zero-filled. */
-  params: Uint8Array;
   /** A {@link TxParamType} value tagging the txParams decomposition. */
   txParamType: number;
   /** The transaction decomposition. */
   txParams: TxParams;
-  /** Target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 32 bytes. */
-  caip2Id: Uint8Array;
+  /** Execution destination: the target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 32 bytes. */
+  executionDest: Uint8Array;
 }
 
 /**
  * Canonical signet request record (Compact:
  * `SignBidirectionalEvent<TxParams, #LenOutputDeserialization,
  * #LenRespondSerialization>`), stored per {@link RequestId} in a requesting
- * contract's `SignBidirectionalEventMap`: the {@link RequestIdPreimage}
- * fields followed by the two serialisation schemas. The schema fields carry
- * their contract-declared byte widths in their array lengths.
+ * contract's `SignBidirectionalEventMap`, in Compact declaration order. The
+ * {@link RequestIdPreimage} fields mint its id; the schema fields carry their
+ * contract-declared byte widths in their array lengths.
  */
-export interface SignBidirectionalEvent<
-  TxParams = EvmType2TxParams,
-> extends RequestIdPreimage<TxParams> {
+export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
+  /** Address of the client contract that stores this event (`kernel.self()`). */
+  sender: ContractAddress;
+  /** MPC root-key version to derive from (>= 1). */
+  keyVersion: bigint;
+  /** Key-derivation path: 32 opaque bytes of the client contract's choosing. */
+  path: Uint8Array;
+  /** An {@link MPCSignatureAlgorithm} value. */
+  algo: number;
+  /** An {@link MPCDestination} value: the signature destination, reserved. */
+  signatureDest: number;
+  /** Extra MPC parameters: 64 opaque bytes, reserved, zero-filled. */
+  params: Uint8Array;
+  /** A {@link TxParamType} value tagging the txParams decomposition. */
+  txParamType: number;
+  /** The transaction decomposition. */
+  txParams: TxParams;
+  /** Execution destination: the target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 32 bytes. */
+  executionDest: Uint8Array;
   /** MPC output_deserialization_schema (destination chain -> MPC), contract-declared width. */
   outputDeserializationSchema: Uint8Array;
   /** MPC respond_serialization_schema (MPC -> Midnight), contract-declared width. */
@@ -167,34 +181,10 @@ const MPC_SIGNATURE_ALGORITHM = new CompactTypeEnum(1, 1);
 const MPC_DESTINATION = new CompactTypeEnum(1, 1);
 
 /**
- * Per-field descriptors of {@link RequestIdPreimage}, in Compact declaration
- * order: the one place that order lives, shared by the preimage and the event
- * record descriptors.
- *
- * @param txParams - Descriptor of the tx-params decomposition, already at
- *   its capacity instantiation.
- * @returns The preimage's field descriptors.
- */
-function requestIdPreimageFields<TxParams>(txParams: CompactType<TxParams>): {
-  readonly [K in keyof RequestIdPreimage<TxParams>]-?: CompactType<RequestIdPreimage<TxParams>[K]>;
-} {
-  return {
-    sender: CONTRACT_ADDRESS,
-    keyVersion: UINT_8,
-    path: BYTES_32,
-    algo: MPC_SIGNATURE_ALGORITHM,
-    dest: MPC_DESTINATION,
-    params: BYTES_64,
-    txParamType: TX_PARAM_TYPE,
-    txParams,
-    caip2Id: BYTES_32,
-  };
-}
-
-/**
  * Descriptor of {@link RequestIdPreimage} over ANY tx-params decomposition:
  * the TS analogue of Compact's generic `RequestIdPreimage`, what
- * `calculateRequestId` (signet-request-id.ts) hashes.
+ * `calculateRequestId` (signet-request-id.ts) hashes. Field order is the
+ * Compact struct's, a subsequence of {@link signBidirectionalEventDescriptorWith}'s.
  *
  * @param txParams - Descriptor of the tx-params decomposition, already at
  *   its capacity instantiation.
@@ -203,7 +193,15 @@ function requestIdPreimageFields<TxParams>(txParams: CompactType<TxParams>): {
 export function requestIdPreimageDescriptorWith<TxParams>(
   txParams: CompactType<TxParams>,
 ): CompactType<RequestIdPreimage<TxParams>> {
-  return compactStructDescriptor<RequestIdPreimage<TxParams>>(requestIdPreimageFields(txParams));
+  return compactStructDescriptor<RequestIdPreimage<TxParams>>({
+    sender: CONTRACT_ADDRESS,
+    keyVersion: UINT_8,
+    path: BYTES_32,
+    algo: MPC_SIGNATURE_ALGORITHM,
+    txParamType: TX_PARAM_TYPE,
+    txParams,
+    executionDest: BYTES_32,
+  });
 }
 
 /**
@@ -227,7 +225,15 @@ export function signBidirectionalEventDescriptorWith<TxParams>(
   lenRespondSerialization: number,
 ): CompactType<SignBidirectionalEvent<TxParams>> {
   return compactStructDescriptor<SignBidirectionalEvent<TxParams>>({
-    ...requestIdPreimageFields(txParams),
+    sender: CONTRACT_ADDRESS,
+    keyVersion: UINT_8,
+    path: BYTES_32,
+    algo: MPC_SIGNATURE_ALGORITHM,
+    signatureDest: MPC_DESTINATION,
+    params: BYTES_64,
+    txParamType: TX_PARAM_TYPE,
+    txParams,
+    executionDest: BYTES_32,
     outputDeserializationSchema: new CompactTypeBytes(lenOutputDeserialization),
     respondSerializationSchema: new CompactTypeBytes(lenRespondSerialization),
   });

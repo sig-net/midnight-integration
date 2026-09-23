@@ -17,9 +17,9 @@ import {
   asciiPadded,
   boolAbiWord,
   bytesToHex,
-  CAIP2_ID_BYTES,
   decodeSignBidirectionalNotification,
   evmAddressAbiWord,
+  EXECUTION_DEST_BYTES,
   hexToBytes,
   numericAbiWord,
   pureCircuits,
@@ -75,10 +75,10 @@ describe("constructSignBidirectionalEventNotificationV1 (compiled packer)", () =
 });
 
 describe("ethereumCaip2Id (MPC routing key)", () => {
-  it("is eip155:1 zero-padded to the caip2Id width", () => {
+  it("is eip155:1 zero-padded to the executionDest width", () => {
     // Lockstep with Chain::Ethereum.caip2_chain_id() in sig-net/mpc
     // signet-primitives/src/chain.rs: the MPC rejects any other value.
-    expect(pureCircuits.ethereumCaip2Id()).toEqual(asciiPadded("eip155:1", CAIP2_ID_BYTES));
+    expect(pureCircuits.ethereumCaip2Id()).toEqual(asciiPadded("eip155:1", EXECUTION_DEST_BYTES));
   });
 });
 

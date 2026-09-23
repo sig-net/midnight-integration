@@ -73,6 +73,7 @@ const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill
 const REQUEST_A = bytes(32, 0xaa);
 const REQUEST_B = bytes(32, 0xbb);
 const SIG_1: SignatureRespondedEvent = {
+  requestId: REQUEST_A,
   signature: {
     bigR: { x: bytes(32, 0x01), y: bytes(32, 0x02) },
     s: bytes(32, 0x03),
@@ -80,33 +81,41 @@ const SIG_1: SignatureRespondedEvent = {
   },
 };
 const SIG_2: SignatureRespondedEvent = {
+  requestId: REQUEST_A,
   signature: {
     bigR: { x: bytes(32, 0x04), y: bytes(32, 0x05) },
     s: bytes(32, 0x06),
     recoveryId: 1n,
   },
 };
+const SIG_2_FOR_B: SignatureRespondedEvent = { ...SIG_2, requestId: REQUEST_B };
 
-// Respond-bidirectional records: SYNTHETIC signatures, deliberately not
-// verifiable. The contract must emit them anyway (verification is the
-// reader's job).
+// Respond-bidirectional records: SYNTHETIC signatures and digests,
+// deliberately not verifiable. The contract must emit them anyway
+// (verification is the reader's job).
 const RESPOND_1: RespondBidirectionalEvent = {
+  requestId: REQUEST_A,
+  blockHeight: 0x0102030405060708n,
+  outputKind: OutputKind.failed,
+  serializedOutputLength: 0x1112131415161718n,
+  digest: bytes(32, 0x0d),
   signature: {
     bigR: { x: bytes(32, 0x07), y: bytes(32, 0x08) },
     s: bytes(32, 0x09),
     recoveryId: 0n,
   },
-  outputKind: OutputKind.failed,
-  blockHeight: 0x0102030405060708n,
 };
 const RESPOND_2: RespondBidirectionalEvent = {
+  requestId: REQUEST_A,
+  blockHeight: 2n ** 64n - 1n,
+  outputKind: OutputKind.unviable,
+  serializedOutputLength: 33n,
+  digest: bytes(32, 0x0e),
   signature: {
     bigR: { x: bytes(32, 0x0a), y: bytes(32, 0x0b) },
     s: bytes(32, 0x0c),
     recoveryId: 1n,
   },
-  outputKind: OutputKind.unviable,
-  blockHeight: 2n ** 64n - 1n,
 };
 
 // A caller contract address as the packer consumes it (raw 32 bytes). The
@@ -207,23 +216,17 @@ describe("signBidirectional", () => {
   });
 });
 
-/** One posted (requestId, signature) pair, applied in row order. */
-interface Post {
-  requestId: Uint8Array;
-  signature: SignatureRespondedEvent;
-}
-
 /**
  * One row of the post table: a post sequence → the exact expected event log.
- * Each emitted event packs the declared request id beside the signature, so
+ * Each emitted event packs the record's request id beside the signature, so
  * the expected log is the ordered (requestId, record) post list, exactly as
  * the decoder returns it.
  */
 interface PostCase {
   /** Test name, completing the sentence "emits <name>". */
   name: string;
-  /** Posts applied in order, each through respond. */
-  posts: Post[];
+  /** Records posted in order, each through respond. */
+  posts: SignatureRespondedEvent[];
   /** The FULL expected decoded event log, in emission order. */
   expectedPosts: { requestId: Uint8Array; event: SignatureRespondedEvent }[];
 }
@@ -231,15 +234,12 @@ interface PostCase {
 const POST_CASES: PostCase[] = [
   {
     name: "a single post as a single event",
-    posts: [{ requestId: REQUEST_A, signature: SIG_1 }],
+    posts: [SIG_1],
     expectedPosts: [{ requestId: REQUEST_A, event: SIG_1 }],
   },
   {
     name: "a second post for the same request APPENDED, the first untouched",
-    posts: [
-      { requestId: REQUEST_A, signature: SIG_1 },
-      { requestId: REQUEST_A, signature: SIG_2 },
-    ],
+    posts: [SIG_1, SIG_2],
     expectedPosts: [
       { requestId: REQUEST_A, event: SIG_1 },
       { requestId: REQUEST_A, event: SIG_2 },
@@ -247,10 +247,7 @@ const POST_CASES: PostCase[] = [
   },
   {
     name: "an identical re-post as its own event (no dedup, no error)",
-    posts: [
-      { requestId: REQUEST_A, signature: SIG_1 },
-      { requestId: REQUEST_A, signature: SIG_1 },
-    ],
+    posts: [SIG_1, SIG_1],
     expectedPosts: [
       { requestId: REQUEST_A, event: SIG_1 },
       { requestId: REQUEST_A, event: SIG_1 },
@@ -258,14 +255,10 @@ const POST_CASES: PostCase[] = [
   },
   {
     name: "interleaved posts for different requests in emission order, each under its own id",
-    posts: [
-      { requestId: REQUEST_A, signature: SIG_1 },
-      { requestId: REQUEST_B, signature: SIG_2 },
-      { requestId: REQUEST_A, signature: SIG_2 },
-    ],
+    posts: [SIG_1, SIG_2_FOR_B, SIG_2],
     expectedPosts: [
       { requestId: REQUEST_A, event: SIG_1 },
-      { requestId: REQUEST_B, event: SIG_2 },
+      { requestId: REQUEST_B, event: SIG_2_FOR_B },
       { requestId: REQUEST_A, event: SIG_2 },
     ],
   },
@@ -276,8 +269,8 @@ describe("respond", () => {
     const { contract, ctx, contractAddress } = await deployContract("respond");
 
     let finalCtx = ctx;
-    for (const { requestId, signature } of posts) {
-      finalCtx = (await contract.circuits.respond(finalCtx, requestId, signature)).context;
+    for (const post of posts) {
+      finalCtx = (await contract.circuits.respond(finalCtx, post)).context;
     }
 
     // The event log holds EXACTLY the posts, in order, each decoding back
@@ -294,7 +287,7 @@ describe("respond", () => {
 
   it("packs the emit literal as requestId ++ bigR.x ++ bigR.y ++ s ++ recoveryId ++ zeros", async () => {
     const { contract, ctx, contractAddress } = await deployContract("respond");
-    const { context } = await contract.circuits.respond(ctx, REQUEST_A, SIG_2);
+    const { context } = await contract.circuits.respond(ctx, SIG_2);
 
     const event = eventAt(decodeSignetLogEvents(context.events, contractAddress));
     expect(event.payload.slice(0, 32)).toEqual(REQUEST_A);
@@ -310,35 +303,40 @@ describe("respondBidirectional", () => {
   it("emits a post as a RespondBidirectionalEvent event, UNVERIFIED by design", async () => {
     const { contract, ctx, contractAddress } = await deployContract("respondBidirectional");
 
-    const { context } = await contract.circuits.respondBidirectional(ctx, REQUEST_A, RESPOND_1);
+    const { context } = await contract.circuits.respondBidirectional(ctx, RESPOND_1);
 
     const events = decodeSignetLogEvents(context.events, contractAddress);
     expect(events).toHaveLength(1);
     expect(eventAt(events).name).toBe(SignetEventName.RespondBidirectionalEvent);
-    // The declared request id, the synthetic (unverifiable) signature, the
-    // output kind and the block height landed verbatim: the contract emits,
-    // the reader verifies. The kind's wire byte (failed is variant 1) and the
-    // height's little-endian order are pinned raw.
+    // Every leaf landed verbatim: the contract emits, the reader verifies.
+    // The emit order, the two Uint<64> leaves' little-endian byte order and
+    // the kind's wire byte (failed is variant 1) are pinned raw.
     expect(decodeRespondBidirectionalEventPayload(eventAt(events).payload)).toEqual({
       requestId: REQUEST_A,
       event: RESPOND_1,
     });
-    expect(eventAt(events).payload.at(129)).toBe(1);
-    expect(eventAt(events).payload.slice(130, 138)).toEqual(
+    const payload = eventAt(events).payload;
+    expect(payload.slice(0, 32)).toEqual(REQUEST_A);
+    expect(payload.slice(32, 40)).toEqual(
       Uint8Array.from([0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]),
     );
-    expectZeroPadding(eventAt(events).payload, 138);
+    expect(payload.at(40)).toBe(1);
+    expect(payload.slice(41, 49)).toEqual(
+      Uint8Array.from([0x18, 0x17, 0x16, 0x15, 0x14, 0x13, 0x12, 0x11]),
+    );
+    expect(payload.slice(49, 81)).toEqual(RESPOND_1.digest);
+    expect(payload.slice(81, 113)).toEqual(RESPOND_1.signature.bigR.x);
+    expect(payload.slice(113, 145)).toEqual(RESPOND_1.signature.bigR.y);
+    expect(payload.slice(145, 177)).toEqual(RESPOND_1.signature.s);
+    expect(payload.at(177)).toBe(0);
+    expectZeroPadding(payload, 178);
   });
 
   it("emits a second post for the same request as its own event, nothing replaced", async () => {
     const { contract, ctx, contractAddress } = await deployContract("respondBidirectional");
 
-    const first = await contract.circuits.respondBidirectional(ctx, REQUEST_A, RESPOND_1);
-    const second = await contract.circuits.respondBidirectional(
-      first.context,
-      REQUEST_A,
-      RESPOND_2,
-    );
+    const first = await contract.circuits.respondBidirectional(ctx, RESPOND_1);
+    const second = await contract.circuits.respondBidirectional(first.context, RESPOND_2);
 
     const events = decodeSignetLogEvents(second.context.events, contractAddress);
     expect(events.map((event) => decodeRespondBidirectionalEventPayload(event.payload))).toEqual([
@@ -351,7 +349,7 @@ describe("respondBidirectional", () => {
     // One circuit of each kind through the same threaded context: the log
     // holds three differently-named events a reader can partition.
     const { contract, ctx, contractAddress } = await deployContract("respond");
-    const afterRespond = await contract.circuits.respond(ctx, REQUEST_A, SIG_1);
+    const afterRespond = await contract.circuits.respond(ctx, SIG_1);
     const afterNotify = await contract.circuits.signBidirectional(
       afterRespond.context,
       REQUEST_A,
@@ -364,7 +362,6 @@ describe("respondBidirectional", () => {
     );
     const { context } = await contract.circuits.respondBidirectional(
       afterNotify.context,
-      REQUEST_A,
       RESPOND_1,
     );
 

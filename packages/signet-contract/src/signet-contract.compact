@@ -50,13 +50,12 @@ export circuit signBidirectional(
 // when its signature recovers to the caller's derived key over that request's
 // transaction.
 export circuit respond(
-    requestId: RequestId,
     signatureRespondedEvent: SignatureRespondedEvent,
 ): [] {
     emit (Misc {
         name: pad(32, "SignatureRespondedEvent"),
         payload: Bytes[
-            ...disclose(requestId),                                 //  32
+            ...disclose(signatureRespondedEvent.requestId),         //  32
             ...disclose(signatureRespondedEvent.signature.bigR.x),  // +32
             ...disclose(signatureRespondedEvent.signature.bigR.y),  // +32
             ...disclose(signatureRespondedEvent.signature.s),       // +32
@@ -68,8 +67,9 @@ export circuit respond(
 
 // respondBidirectional emits the MPC's respond-bidirectional response as a
 // RespondBidirectionalEvent contract event: the ECDSA signature that attests
-// the foreign transaction execution, with the output kind and destination
-// block height it signs over (never the digest or the output itself).
+// the foreign transaction execution, with the block height, output kind and
+// output width it signs over and the digest it is over (never the output
+// itself).
 // The payload leads with the request id the post answers. The id is
 // unauthenticated routing data, and the post is emitted unverified: callers
 // read their request's posts by id and verify each candidate themselves
@@ -77,20 +77,21 @@ export circuit respond(
 // + the fixed path "midnight response key", see
 // verifyRespondBidirectionalEvent in Signet.compact).
 export circuit respondBidirectional(
-    requestId: RequestId,
     respondBidirectionalEvent: RespondBidirectionalEvent
 ): [] {
     emit (Misc {
         name: pad(32, "RespondBidirectionalEvent"),
         payload: Bytes[
-            ...disclose(requestId),                                   //  32
-            ...disclose(respondBidirectionalEvent.signature.bigR.x),  // +32
-            ...disclose(respondBidirectionalEvent.signature.bigR.y),  // +32
-            ...disclose(respondBidirectionalEvent.signature.s),       // +32
-            disclose(respondBidirectionalEvent.signature.recoveryId), // +1
-            disclose(respondBidirectionalEvent.outputKind) as Uint<8>, // +1, the enum's variant index
-            ...(disclose(respondBidirectionalEvent.blockHeight) as Bytes<8>), // +8, little-endian
-            ...default<Bytes<118>>,                                   // +118
-        ],                                                            // = 256 bytes
+            ...disclose(respondBidirectionalEvent.requestId),                            //  32
+            ...(disclose(respondBidirectionalEvent.blockHeight) as Bytes<8>),            // +8, little-endian
+            disclose(respondBidirectionalEvent.outputKind) as Uint<8>,                   // +1, the enum's variant index
+            ...(disclose(respondBidirectionalEvent.serializedOutputLength) as Bytes<8>), // +8, little-endian
+            ...disclose(respondBidirectionalEvent.digest),                               // +32
+            ...disclose(respondBidirectionalEvent.signature.bigR.x),                     // +32
+            ...disclose(respondBidirectionalEvent.signature.bigR.y),                     // +32
+            ...disclose(respondBidirectionalEvent.signature.s),                          // +32
+            disclose(respondBidirectionalEvent.signature.recoveryId),                    // +1
+            ...default<Bytes<78>>,                                                       // +78
+        ],                                                                               // = 256 bytes
     });
 }

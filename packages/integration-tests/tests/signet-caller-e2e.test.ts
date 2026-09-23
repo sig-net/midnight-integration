@@ -36,10 +36,8 @@ import {
 } from "@sig-net/midnight";
 import { signBidirectionalEventToSignedEvmTransaction } from "@sig-net/midnight";
 import {
-  calculateSignetAttestationDigest,
+  attestRespondBidirectional,
   deriveMidnightResponseSecretKey,
-  ecdsaSignatureToMpcSignature,
-  signAttestationDigest,
 } from "@sig-net/midnight/testing";
 import { getAddress, type Transaction } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
@@ -382,28 +380,19 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // whatever it claims: the circuit checks the height is signed, not
       // that it is real.
       const blockHeight = 1n;
-      const signature = signAttestationDigest(
-        calculateSignetAttestationDigest(
-          requestKey,
-          blockHeight,
-          OutputKind.executed,
-          serializedOutput,
-        ),
+      const attestation = attestRespondBidirectional(
+        { requestId: requestKey, blockHeight, outputKind: OutputKind.executed, serializedOutput },
         responseSecretKey,
       );
 
       // No key argument: verifyResponse reads the stored MPC response key
       // straight from the ledger (the initialise leg put it there), and takes
       // the response record in the shape the singleton emits it. The record
-      // carries the signature, the output kind and the block height: the
-      // circuit recomputes the digest from the output handed in beside it.
+      // never carries the output: the circuit recomputes the digest from the
+      // output handed in beside it.
       await context.caller.callTx.verifyResponse(
         requestKey,
-        respondBidirectionalEventToCircuitInput({
-          signature: ecdsaSignatureToMpcSignature(signature),
-          outputKind: OutputKind.executed,
-          blockHeight,
-        }),
+        respondBidirectionalEventToCircuitInput(attestation),
         serializedOutput,
       );
 

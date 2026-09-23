@@ -30,6 +30,7 @@ import {
   verifyRespondBidirectionalSignature,
 } from "../src/index.ts";
 import {
+  attestRespondBidirectional,
   calculateSignetAttestationDigest,
   type EcdsaSignature,
   ecdsaSignatureToMpcSignature,
@@ -70,16 +71,11 @@ const respond = (
   secretKey: Uint8Array,
   requestId: Uint8Array,
   outputKind: OutputKind,
-): RespondBidirectionalEvent => ({
-  signature: ecdsaSignatureToMpcSignature(
-    signAttestationDigest(
-      calculateSignetAttestationDigest(requestId, BLOCK_HEIGHT, outputKind, OUTPUT_32),
-      secretKey,
-    ),
-  ),
-  outputKind,
-  blockHeight: BLOCK_HEIGHT,
-});
+): RespondBidirectionalEvent =>
+  attestRespondBidirectional(
+    { requestId, blockHeight: BLOCK_HEIGHT, outputKind, serializedOutput: OUTPUT_32 },
+    secretKey,
+  );
 
 const OUTPUT_KINDS = [OutputKind.executed, OutputKind.failed, OutputKind.unviable];
 
@@ -391,8 +387,11 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
     expect(flipped.signature.s).toEqual(Uint8Array.from(valid.signature.s).reverse());
     expect(flipped.signature.bigR.y).toEqual(valid.signature.bigR.y);
     expect(flipped.signature.recoveryId).toBe(valid.signature.recoveryId);
-    expect(flipped.outputKind).toBe(valid.outputKind);
+    expect(flipped.requestId).toEqual(valid.requestId);
     expect(flipped.blockHeight).toBe(valid.blockHeight);
+    expect(flipped.outputKind).toBe(valid.outputKind);
+    expect(flipped.serializedOutputLength).toBe(valid.serializedOutputLength);
+    expect(flipped.digest).toEqual(valid.digest);
   });
 
   // The off-chain sifting check must answer exactly what the circuit answers:
@@ -434,16 +433,15 @@ describe("verifyRespondBidirectionalEvent0 (compiled circuit): a failure's empty
   const EMPTY = new Uint8Array(0);
   // What the MPC posts for a reverted transaction: the failed kind over no
   // output bytes at all.
-  const failed: RespondBidirectionalEvent = {
-    signature: ecdsaSignatureToMpcSignature(
-      signAttestationDigest(
-        calculateSignetAttestationDigest(REQUEST_ID, BLOCK_HEIGHT, OutputKind.failed, EMPTY),
-        MPC_SECRET,
-      ),
-    ),
-    outputKind: OutputKind.failed,
-    blockHeight: BLOCK_HEIGHT,
-  };
+  const failed = attestRespondBidirectional(
+    {
+      requestId: REQUEST_ID,
+      blockHeight: BLOCK_HEIGHT,
+      outputKind: OutputKind.failed,
+      serializedOutput: EMPTY,
+    },
+    MPC_SECRET,
+  );
 
   it("verifies at width 0 over the empty output", () => {
     expect(

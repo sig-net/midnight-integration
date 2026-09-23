@@ -483,6 +483,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         expect(attested.blockHeight, "the attested block height must be the receipt's block").toBe(
           BigInt(receipt.blockNumber),
         );
+        expect(attested.serializedOutputLength, "the posted output width").toBe(
+          BigInt(respondBytes.length),
+        );
+        expect(attested.digest, "the posted digest must be the one recomputed here").toEqual(
+          calculateSignetAttestationDigest(
+            requestIdBytes(requestId),
+            attested.blockHeight,
+            attested.outputKind,
+            respondBytes,
+          ),
+        );
 
         banner([
           `${method.name} attestation verifies over the recomputed respond bytes:`,

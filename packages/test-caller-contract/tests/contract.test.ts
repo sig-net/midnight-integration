@@ -31,12 +31,7 @@ import {
   toSignBidirectionalEventIndex,
   TxParamType,
 } from "@sig-net/midnight";
-import {
-  calculateSignetAttestationDigest,
-  ecdsaSignatureToMpcSignature,
-  secp256k1PublicKeyOf,
-  signAttestationDigest,
-} from "@sig-net/midnight/testing";
+import { attestRespondBidirectional, secp256k1PublicKeyOf } from "@sig-net/midnight/testing";
 import { compactSerialize, type CompactType } from "@sig-net/midnight-serde";
 import { describe, expect, it } from "vitest";
 
@@ -372,10 +367,10 @@ describe("submitSignatureRequest round-trip", () => {
     expect(record.keyVersion).toBe(KEY_VERSION);
     expect(record.path).toEqual(EXPECTED_PATH);
     expect(record.algo).toBe(MPCSignatureAlgorithm.ecdsa);
-    expect(record.dest).toBe(MPCDestination.unused);
+    expect(record.signatureDest).toBe(MPCDestination.unused);
     expect(record.params).toEqual(new Uint8Array(64));
     expect(record.txParamType).toBe(TxParamType.evmType2);
-    expect(record.caip2Id).toEqual(EXPECTED_CAIP2);
+    expect(record.executionDest).toEqual(EXPECTED_CAIP2);
     expect(record.outputDeserializationSchema).toEqual(EXPECTED_SCHEMA);
     expect(record.respondSerializationSchema).toEqual(EXPECTED_SCHEMA);
 
@@ -460,7 +455,7 @@ describe("EVM target submit circuits round-trip", () => {
         accessList: [],
       });
       expect(record.path).toEqual(EXPECTED_PATH);
-      expect(record.caip2Id).toEqual(EXPECTED_CAIP2);
+      expect(record.executionDest).toEqual(EXPECTED_CAIP2);
       expect(record.outputDeserializationSchema).toEqual(schema);
       expect(record.respondSerializationSchema).toEqual(schema);
 
@@ -556,16 +551,12 @@ const respond = (
   outputKind: OutputKind,
   serializedOutput: Uint8Array,
 ): RespondBidirectionalEvent =>
-  respondBidirectionalEventToCircuitInput({
-    signature: ecdsaSignatureToMpcSignature(
-      signAttestationDigest(
-        calculateSignetAttestationDigest(requestId, BLOCK_HEIGHT, outputKind, serializedOutput),
-        secretKey,
-      ),
+  respondBidirectionalEventToCircuitInput(
+    attestRespondBidirectional(
+      { requestId, blockHeight: BLOCK_HEIGHT, outputKind, serializedOutput },
+      secretKey,
     ),
-    outputKind,
-    blockHeight: BLOCK_HEIGHT,
-  });
+  );
 
 // ---- Verify-response tests ----
 

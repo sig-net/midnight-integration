@@ -7,8 +7,8 @@
 // The routing constants belong in github.com/sig-net/signet.js, kept here
 // until upstreamed.
 
-/** Width of `SignBidirectionalEvent.caip2Id` (`Bytes<32>`). */
-export const CAIP2_ID_BYTES = 32;
+/** Width of `SignBidirectionalEvent.executionDest` (`Bytes<32>`): a zero-padded CAIP-2 id. */
+export const EXECUTION_DEST_BYTES = 32;
 
 /** Width of `SignBidirectionalEvent.params` (`Bytes<64>`). */
 export const MPC_PARAMS_BYTES = 64;
