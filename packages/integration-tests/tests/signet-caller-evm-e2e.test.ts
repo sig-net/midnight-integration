@@ -127,7 +127,6 @@ interface EvmMethodCase {
   /** Drive the method's verify circuit. */
   verify(
     context: CallerContext,
-    requestId: Uint8Array,
     event: RespondBidirectionalEvent,
     serializedOutput: Uint8Array,
   ): Promise<unknown>;
@@ -146,8 +145,8 @@ const METHODS: EvmMethodCase[] = [
     resumeEnvVar: "CALLER_EVM_REQUEST_ID_ISEVEN",
     submit: (context, evmNonce, to, argWord) =>
       context.caller.callTx.submitIsEvenRequest(evmNonce, SIGNET_DEFAULT_KEY_VERSION, to, argWord),
-    verify: (context, requestId, event, serializedOutput) =>
-      context.caller.callTx.verifyResponse(requestId, event, serializedOutput),
+    verify: (context, event, serializedOutput) =>
+      context.caller.callTx.verifyResponse(event, serializedOutput),
   },
   {
     name: "checkAndDouble",
@@ -166,8 +165,8 @@ const METHODS: EvmMethodCase[] = [
         to,
         argWord,
       ),
-    verify: (context, requestId, event, serializedOutput) =>
-      context.caller.callTx.verifyCheckAndDoubleResponse(requestId, event, serializedOutput),
+    verify: (context, event, serializedOutput) =>
+      context.caller.callTx.verifyCheckAndDoubleResponse(event, serializedOutput),
   },
 ];
 
@@ -537,7 +536,6 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         // digest the MPC never signed.
         await method.verify(
           context,
-          requestIdBytes(requestId),
           respondBidirectionalEventToCircuitInput(attestedEvent),
           respondBytes,
         );

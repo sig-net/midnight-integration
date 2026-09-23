@@ -72,13 +72,11 @@ export pure circuit calculateSignetAttestationDigest100(
 }
 
 export pure circuit verifyRespondBidirectionalEvent0(
-  requestId: RequestId,
   serializedOutput: Bytes<0>,
   respondBidirectionalEvent: RespondBidirectionalEvent,
   mpcResponseKey: Secp256k1Point
 ): Boolean {
   return verifyRespondBidirectionalEvent<0>(
-    requestId,
     serializedOutput,
     respondBidirectionalEvent,
     mpcResponseKey
@@ -86,13 +84,11 @@ export pure circuit verifyRespondBidirectionalEvent0(
 }
 
 export pure circuit verifyRespondBidirectionalEvent32(
-  requestId: RequestId,
   serializedOutput: Bytes<32>,
   respondBidirectionalEvent: RespondBidirectionalEvent,
   mpcResponseKey: Secp256k1Point
 ): Boolean {
   return verifyRespondBidirectionalEvent<32>(
-    requestId,
     serializedOutput,
     respondBidirectionalEvent,
     mpcResponseKey

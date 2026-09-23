@@ -333,8 +333,9 @@ module Signet {
   // distinguishes a genuine post from garbage: the singleton emits every post
   // unverified.
   export struct RespondBidirectionalEvent {
-    // The request this attestation answers. Routing data: the verifier hashes the
-    // id the client presents, so a post cannot settle another request.
+    // The request this attestation answers. Signed into the digest: a verified
+    // post settles exactly the request it names, so a client consumes this id
+    // and never one taken from elsewhere.
     requestId: RequestId;
     // Height of the finalised destination block holding the transaction the
     // attestation describes, in the destination chain's own numbering (a slot
@@ -389,20 +390,20 @@ module Signet {
   // scalar casts below read little-endian bytes, and the wire/ledger records
   // are big-endian, so the reversal happens off-chain where it costs nothing
   // (the TS SDK's respondBidirectionalEventToCircuitInput does it). A wrong
-  // byte order fails verification, never a false accept. Of the event, only
+  // byte order fails verification, never a false accept. Of the event, requestId,
   // blockHeight, outputKind, signature.bigR.x and signature.s enter verification:
-  // requestId, serializedOutputLength and digest serve off-chain readers. An s
+  // serializedOutputLength and digest serve off-chain readers. The digest binds
+  // the event's requestId, so a client MUST consume that request and no other. An s
   // that reduces to 0 mod the curve order aborts the
   // circuit rather than returning false, so sift candidate posts off chain
   // first (verifyRespondBidirectionalSignature).
   export pure circuit verifyRespondBidirectionalEvent<#serializedOutputLength>(
-    requestId: RequestId,
     serializedOutput: Bytes<serializedOutputLength>,
     respondBidirectionalEvent: RespondBidirectionalEvent,
     mpcResponseKey: Secp256k1Point
   ): Boolean {
     const digest = calculateSignetAttestationDigest<serializedOutputLength>(
-      requestId,
+      respondBidirectionalEvent.requestId,
       respondBidirectionalEvent.blockHeight,
       respondBidirectionalEvent.outputKind,
       serializedOutput,

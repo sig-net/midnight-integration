@@ -119,7 +119,7 @@ The same derivation, but with the path fixed to the literal `"midnight response 
 A failed foreign transaction (one that reverted on chain, or whose nonce another transaction consumed) still completes the flow, through the same steps as a success: the MPC attests an **empty output** under a failure `outputKind` in step **4.**, the dApp submits it in step **5.**, and the integrating contract settles against it in-circuit.
 
 - **The output kind is the signal.** Every attestation digest `upgradeFromTransient(transientHash([requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]))` commits to the MPC's verdict, `outputKind`: `executed`, `failed` (the transaction was finalised and reverted) or `unviable` (a finalised transaction carrying other bytes took the transaction's nonce, so it can never execute). The **RespondBidirectionalEvent** carries the kind beside the signature, and [`verifyRespondBidirectionalEvent`](./packages/signet-midnight/src/Signet.compact) recomputes the digest over it, so a post cannot present a failure as a success or a success as a failure.
-- **A failure's output is empty.** Under `failed` and `unviable` the serialised output is zero bytes, and the digest commits to the output's length, so an empty output never verifies over a success attestation of any width. Give the failure settle circuit a `Bytes<0>` output argument and verify at width 0: `verifyRespondBidirectionalEvent<0>(requestId, serializedOutput, respondBidirectionalEvent, mpcResponseKey)`.
+- **A failure's output is empty.** Under `failed` and `unviable` the serialised output is zero bytes, and the digest commits to the output's length, so an empty output never verifies over a success attestation of any width. Give the failure settle circuit a `Bytes<0>` output argument and verify at width 0: `verifyRespondBidirectionalEvent<0>(serializedOutput, respondBidirectionalEvent, mpcResponseKey)`.
 - **Settlement routes on the verified kind.** After verification, assert `respondBidirectionalEvent.outputKind == OutputKind.executed` before deserialising the output, and settle a refund only under `OutputKind.failed` or `OutputKind.unviable`. Compact's fixed-width `Bytes<n>` arguments keep the two paths apart by type as well: a success attestation only type-fits the schema's packed width, a failure only `Bytes<0>`.
 
 # Integrator Guide
@@ -335,14 +335,14 @@ const expectedSigner = deriveEvmAddress(
    // undefined: no attestation of that output posted yet, poll again.
    ```
 
-5. Deliver the response and the serialised output to your contract, which recomputes the attestation digest, verifies the event in-circuit against the response key pinned in Setup step 4, and consumes the request. The width argument is the exact packed size of your respond serialisation schema (a single bool packs to 1 byte):
+5. Deliver the response and the serialised output to your contract, which recomputes the attestation digest, verifies the event in-circuit against the response key pinned in Setup step 4, and consumes the request the event names. The digest binds that request id, so consume it from the verified event and never an id taken from elsewhere. The width argument is the exact packed size of your respond serialisation schema (a single bool packs to 1 byte):
 
    ```compact
    assert(
-      verifyRespondBidirectionalEvent<1>(requestId, serializedOutput, respondBidirectionalEvent, mpcResponseKey),
+      verifyRespondBidirectionalEvent<1>(serializedOutput, respondBidirectionalEvent, mpcResponseKey),
       "Invalid attestation signature"
    );
-   signBidirectionalEventMap.remove(requestId);
+   signBidirectionalEventMap.remove(respondBidirectionalEvent.requestId);
    ```
 
    A foreign transaction that never executed settles through the same verification at width 0, with an empty output and a `failed` or `unviable` output kind. Route on the verified kind: see [Handling Failure](#handling-failure).

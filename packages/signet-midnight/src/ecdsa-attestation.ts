@@ -440,23 +440,22 @@ export function respondBidirectionalEventToCircuitInput(
 /**
  * Off-chain twin of the in-circuit `verifyRespondBidirectionalEvent`: checks
  * a posted respond-bidirectional attestation against the execution output
- * and the contract's pinned MPC response key, over the block height and
- * output kind the post declares. Clients run it to sift candidate posts
+ * and the contract's pinned MPC response key, over the request id, block
+ * height and output kind the post declares. Clients run it to sift candidate posts
  * before calling a contract: a post this accepts verifies in-circuit (once
  * flipped to circuit-input form, see
  * {@link respondBidirectionalEventToCircuitInput}). Takes the record as read
  * off the ledger (big-endian). Malformed records return `false` rather than
  * throwing.
  *
- * @param requestId - The 32-byte request id the response answers.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @param event - The posted record to check, as read off the ledger.
  * @param mpcResponseKey - The response key the requesting contract pinned
  *   (see {@link deriveMidnightResponseKey}).
- * @returns Whether the post is a genuine attestation of that output.
+ * @returns Whether the post is a genuine attestation of that output for the
+ *   request it names.
  */
 export function verifyRespondBidirectionalSignature(
-  requestId: RequestId,
   serializedOutput: Uint8Array,
   event: RespondBidirectionalEvent,
   mpcResponseKey: Secp256k1Point,
@@ -468,7 +467,7 @@ export function verifyRespondBidirectionalSignature(
     return false;
   }
   const digest = calculateSignetAttestationDigest(
-    requestId,
+    event.requestId,
     event.blockHeight,
     event.outputKind,
     serializedOutput,

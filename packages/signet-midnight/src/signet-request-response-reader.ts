@@ -26,12 +26,7 @@ import {
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
 } from "./signet-evtype2tx-requests.ts";
-import {
-  requestIdBytes,
-  type RequestIdHex,
-  type SignBidirectionalEvent,
-  TxParamType,
-} from "./signet-requests.ts";
+import { type RequestIdHex, type SignBidirectionalEvent, TxParamType } from "./signet-requests.ts";
 
 /**
  * The least of midnight-js's `PublicDataProvider` the reader needs: raw
@@ -113,25 +108,18 @@ function assertEvmType2Request(request: SignBidirectionalEvent): void {
  * The first (oldest) of a request's respond-bidirectional posts whose
  * signature verifies over `serializedOutput` against `mpcResponseKey`.
  *
- * @param requestId - The request id the attestation must commit to.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @param mpcResponseKey - The MPC response key the requesting contract pinned.
  * @param posts - The request's posts, in emission order.
  * @returns The first verifying post, or `undefined` when none verifies.
  */
 function firstVerifiedRespondBidirectionalEvent(
-  requestId: RequestIdHex,
   serializedOutput: Uint8Array,
   mpcResponseKey: Secp256k1Point,
   posts: readonly RespondBidirectionalEvent[],
 ): RespondBidirectionalEvent | undefined {
   return posts.find((post) =>
-    verifyRespondBidirectionalSignature(
-      requestIdBytes(requestId),
-      serializedOutput,
-      post,
-      mpcResponseKey,
-    ),
+    verifyRespondBidirectionalSignature(serializedOutput, post, mpcResponseKey),
   );
 }
 
@@ -158,7 +146,6 @@ export function findVerifiedRespondBidirectionalEvent(
   events: readonly DecodedSignetEvent[],
 ): RespondBidirectionalEvent | undefined {
   return firstVerifiedRespondBidirectionalEvent(
-    requestId,
     serializedOutput,
     mpcResponseKey,
     signetEventRecordsOf(events, SignetEventName.RespondBidirectionalEvent, requestId),
@@ -431,7 +418,6 @@ export class SignetRequestResponseReader {
     mpcResponseKey: Secp256k1Point,
   ): Promise<RespondBidirectionalEvent | undefined> {
     return firstVerifiedRespondBidirectionalEvent(
-      requestId,
       serializedOutput,
       mpcResponseKey,
       await this.getRespondBidirectionalEvents(requestId),

@@ -571,17 +571,16 @@ describe("verifyResponse", () => {
     const idHex = onlyRequestId(index);
     const requestId = requestIdBytes(idHex);
     const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
-    await expect(
-      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS),
-    ).rejects.toThrow(/Not initialised/);
+    await expect(contract.circuits.verifyResponse(next, event, OUTPUT_SUCCESS)).rejects.toThrow(
+      /Not initialised/,
+    );
   });
 
   it("a genuine response verifies and consumes the request", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
 
-    const next = (await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS))
-      .context;
+    const next = (await contract.circuits.verifyResponse(ctx, event, OUTPUT_SUCCESS)).context;
 
     const state = ledger(next.callContext.currentQueryContext.state);
     expect(state.signBidirectionalEventMap.isEmpty()).toBe(true);
@@ -590,18 +589,18 @@ describe("verifyResponse", () => {
   it("rejects an imposter's signature (verified against the STORED key)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(IMPOSTER_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
-    await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS),
-    ).rejects.toThrow(/Invalid attestation signature/);
+    await expect(contract.circuits.verifyResponse(ctx, event, OUTPUT_SUCCESS)).rejects.toThrow(
+      /Invalid attestation signature/,
+    );
   });
 
   it("rejects a tampered response (output differs from what was signed)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const response = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
     const tamperedOutput = OUTPUT_FAILURE;
-    await expect(
-      contract.circuits.verifyResponse(ctx, requestId, response, tamperedOutput),
-    ).rejects.toThrow(/Invalid attestation signature/);
+    await expect(contract.circuits.verifyResponse(ctx, response, tamperedOutput)).rejects.toThrow(
+      /Invalid attestation signature/,
+    );
   });
 
   it("rejects a tampered signature scalar", async () => {
@@ -610,7 +609,6 @@ describe("verifyResponse", () => {
     await expect(
       contract.circuits.verifyResponse(
         ctx,
-        requestId,
         { ...response, signature: { ...response.signature, s: bytes(32, 0x99) } },
         OUTPUT_SUCCESS,
       ),
@@ -623,7 +621,6 @@ describe("verifyResponse", () => {
     await expect(
       contract.circuits.verifyResponse(
         ctx,
-        requestId,
         { ...response, blockHeight: BLOCK_HEIGHT + 1n },
         OUTPUT_SUCCESS,
       ),
@@ -636,7 +633,6 @@ describe("verifyResponse", () => {
     await expect(
       contract.circuits.verifyResponse(
         ctx,
-        requestId,
         { ...response, outputKind: OutputKind.failed },
         OUTPUT_SUCCESS,
       ),
@@ -649,9 +645,9 @@ describe("verifyResponse", () => {
     // verifies, then the in-circuit deserialize decodes success=false and
     // settlement is refused.
     const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_FAILURE);
-    await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_FAILURE),
-    ).rejects.toThrow(/Foreign call reported failure/);
+    await expect(contract.circuits.verifyResponse(ctx, event, OUTPUT_FAILURE)).rejects.toThrow(
+      /Foreign call reported failure/,
+    );
   });
 
   it("decodes any non-0x01 byte as false, per the circuit's Boolean rule", async () => {
@@ -661,19 +657,22 @@ describe("verifyResponse", () => {
     // on purpose: the serialize twin can never produce this byte.
     const nonCanonical = Uint8Array.from([2]);
     const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, nonCanonical);
-    await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, nonCanonical),
-    ).rejects.toThrow(/Foreign call reported failure/);
+    await expect(contract.circuits.verifyResponse(ctx, event, nonCanonical)).rejects.toThrow(
+      /Foreign call reported failure/,
+    );
   });
 
-  it("rejects a genuine response presented under a different request id", async () => {
+  it("rejects a tampered request id: the digest binds the id the event names", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    // Signed for some OTHER id: the digest binds the request id, so the
-    // signature cannot be replayed onto this pending request.
-    const otherId = bytes(32, 0xab);
-    const event = respond(MPC_RESPONSE_SECRET, otherId, OutputKind.executed, OUTPUT_SUCCESS);
+    // Signed for this request, then relabelled: the signature cannot be
+    // replayed under another id.
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS),
+      contract.circuits.verifyResponse(
+        ctx,
+        { ...event, requestId: bytes(32, 0xab) },
+        OUTPUT_SUCCESS,
+      ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -681,20 +680,19 @@ describe("verifyResponse", () => {
     const { contract, ctx } = await requestSubmitted();
     const unknownId = bytes(32, 0xab);
     const event = respond(MPC_RESPONSE_SECRET, unknownId, OutputKind.executed, OUTPUT_SUCCESS);
-    await expect(
-      contract.circuits.verifyResponse(ctx, unknownId, event, OUTPUT_SUCCESS),
-    ).rejects.toThrow(/Request not found/);
+    await expect(contract.circuits.verifyResponse(ctx, event, OUTPUT_SUCCESS)).rejects.toThrow(
+      /Request not found/,
+    );
   });
 
   it("a second verify of the SAME request rejects (the first consumed it)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
-    const next = (await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS))
-      .context;
+    const next = (await contract.circuits.verifyResponse(ctx, event, OUTPUT_SUCCESS)).context;
 
-    await expect(
-      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS),
-    ).rejects.toThrow(/Request not found/);
+    await expect(contract.circuits.verifyResponse(next, event, OUTPUT_SUCCESS)).rejects.toThrow(
+      /Request not found/,
+    );
   });
 });
 
@@ -738,7 +736,6 @@ describe("verifyCheckAndDoubleResponse", () => {
     const next = (
       await contract.circuits.verifyCheckAndDoubleResponse(
         ctx,
-        requestId,
         respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_BOOL_UINT),
         OUTPUT_BOOL_UINT,
       )
@@ -754,7 +751,7 @@ describe("verifyCheckAndDoubleResponse", () => {
     const tampered = Uint8Array.from(OUTPUT_BOOL_UINT);
     tampered[1] = 13;
     await expect(
-      contract.circuits.verifyCheckAndDoubleResponse(ctx, requestId, response, tampered),
+      contract.circuits.verifyCheckAndDoubleResponse(ctx, response, tampered),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -772,12 +769,7 @@ describe("verifyCheckAndDoubleResponse", () => {
     const paddedOutput = new Uint8Array(33);
     paddedOutput.set(OUTPUT_SUCCESS.subarray(0, 1), 0);
     await expect(
-      contract.circuits.verifyCheckAndDoubleResponse(
-        ctx,
-        requestId,
-        boolOnlyResponse,
-        paddedOutput,
-      ),
+      contract.circuits.verifyCheckAndDoubleResponse(ctx, boolOnlyResponse, paddedOutput),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -786,7 +778,6 @@ describe("verifyCheckAndDoubleResponse", () => {
     await expect(
       contract.circuits.verifyCheckAndDoubleResponse(
         ctx,
-        requestId,
         respond(IMPOSTER_SECRET, requestId, OutputKind.executed, OUTPUT_BOOL_UINT),
         OUTPUT_BOOL_UINT,
       ),

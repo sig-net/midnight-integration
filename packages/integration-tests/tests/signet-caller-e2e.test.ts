@@ -391,7 +391,6 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // never carries the output: the circuit recomputes the digest from the
       // output handed in beside it.
       await context.caller.callTx.verifyResponse(
-        requestKey,
         respondBidirectionalEventToCircuitInput(attestation),
         serializedOutput,
       );

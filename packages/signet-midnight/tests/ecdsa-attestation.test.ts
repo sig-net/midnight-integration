@@ -263,7 +263,6 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
     name: string;
     event: RespondBidirectionalEvent;
     serializedOutput: Uint8Array;
-    requestId: Uint8Array;
     pk: typeof MPC_PUBLIC;
     expected: boolean;
   }
@@ -273,7 +272,6 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
       name: "a genuine response verifies against the signing key",
       event: valid,
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: true,
     },
@@ -287,7 +285,6 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
         }),
       },
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: true,
     },
@@ -295,15 +292,13 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
       name: "fails against a different public key",
       event: valid,
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: IMPOSTER_PUBLIC,
       expected: false,
     },
     {
-      name: "fails under a different request id",
-      event: valid,
+      name: "fails when the posted request id was tampered with",
+      event: { ...valid, requestId: bytes(32, 0xab) },
       serializedOutput: OUTPUT_32,
-      requestId: bytes(32, 0xab),
       pk: MPC_PUBLIC,
       expected: false,
     },
@@ -315,7 +310,6 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
         out[7] = 0xff;
         return out;
       })(),
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: false,
     },
@@ -323,7 +317,6 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
       name: "fails when the posted block height was tampered with",
       event: { ...valid, blockHeight: BLOCK_HEIGHT + 1n },
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: false,
     },
@@ -331,7 +324,6 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
       name: "fails when the posted output kind was tampered with",
       event: { ...valid, outputKind: OutputKind.failed },
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: false,
     },
@@ -345,7 +337,6 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
         }),
       },
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: false,
     },
@@ -353,18 +344,16 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
       name: "fails for an imposter's signature over the same content",
       event: respond(IMPOSTER_SECRET, REQUEST_ID, OutputKind.executed),
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: false,
     },
   ];
 
-  it.each(CASES)("$name", ({ event, serializedOutput, requestId, pk, expected }) => {
+  it.each(CASES)("$name", ({ event, serializedOutput, pk, expected }) => {
     // The client's exact claim path: the record as read, flipped to the
     // circuit-input form at the circuit call.
     expect(
       signetCircuits.verifyRespondBidirectionalEvent32(
-        requestId,
         serializedOutput,
         respondBidirectionalEventToCircuitInput(event),
         pk,
@@ -376,9 +365,9 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
     // Pins the circuit-input convention itself: the circuit reads the
     // signature scalars little-endian, so the big-endian wire record must be
     // passed through respondBidirectionalEventToCircuitInput first.
-    expect(
-      signetCircuits.verifyRespondBidirectionalEvent32(REQUEST_ID, OUTPUT_32, valid, MPC_PUBLIC),
-    ).toBe(false);
+    expect(signetCircuits.verifyRespondBidirectionalEvent32(OUTPUT_32, valid, MPC_PUBLIC)).toBe(
+      false,
+    );
   });
 
   it("the circuit-input flip touches only bigR.x and s", () => {
@@ -399,17 +388,14 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
   // disagreement either drops a provable post or forwards an unprovable one.
   it.each(CASES)(
     "$name (off chain, verifyRespondBidirectionalSignature)",
-    ({ event, serializedOutput, requestId, pk, expected }) => {
-      expect(verifyRespondBidirectionalSignature(requestId, serializedOutput, event, pk)).toBe(
-        expected,
-      );
+    ({ event, serializedOutput, pk, expected }) => {
+      expect(verifyRespondBidirectionalSignature(serializedOutput, event, pk)).toBe(expected);
     },
   );
 
   it("returns false for a malformed stored signature rather than throwing", () => {
     expect(
       verifyRespondBidirectionalSignature(
-        REQUEST_ID,
         OUTPUT_32,
         { ...valid, signature: { ...valid.signature, recoveryId: 2n } },
         MPC_PUBLIC,
@@ -446,19 +432,17 @@ describe("verifyRespondBidirectionalEvent0 (compiled circuit): a failure's empty
   it("verifies at width 0 over the empty output", () => {
     expect(
       signetCircuits.verifyRespondBidirectionalEvent0(
-        REQUEST_ID,
         EMPTY,
         respondBidirectionalEventToCircuitInput(failed),
         MPC_PUBLIC,
       ),
     ).toBe(true);
-    expect(verifyRespondBidirectionalSignature(REQUEST_ID, EMPTY, failed, MPC_PUBLIC)).toBe(true);
+    expect(verifyRespondBidirectionalSignature(EMPTY, failed, MPC_PUBLIC)).toBe(true);
   });
 
   it("cannot be presented as an executed success", () => {
     expect(
       signetCircuits.verifyRespondBidirectionalEvent0(
-        REQUEST_ID,
         EMPTY,
         respondBidirectionalEventToCircuitInput({ ...failed, outputKind: OutputKind.executed }),
         MPC_PUBLIC,
@@ -467,9 +451,9 @@ describe("verifyRespondBidirectionalEvent0 (compiled circuit): a failure's empty
   });
 
   it("the empty output is distinct from a one-byte zero output: the digest commits to the width", () => {
-    expect(
-      verifyRespondBidirectionalSignature(REQUEST_ID, Uint8Array.from([0]), failed, MPC_PUBLIC),
-    ).toBe(false);
+    expect(verifyRespondBidirectionalSignature(Uint8Array.from([0]), failed, MPC_PUBLIC)).toBe(
+      false,
+    );
   });
 });
 
