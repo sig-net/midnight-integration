@@ -68,7 +68,7 @@ export interface CallerE2eSession {
    * The shared MPC-style request/response reader for one of the caller's
    * request maps; see {@link createCallerE2eSession}. The caller contract
    * keeps one map per schema width, so the reader is keyed by the map's
-   * ledger field position (default 4, the bool-schema map).
+   * ledger field position (default 3, the bool-schema map).
    */
   responseReader(requestsIndexField?: number): SignetRequestResponseReader;
   /** Stop the wallet facade (call from afterAll); safe when never started. */
@@ -131,7 +131,7 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
 
     // Default field 3: the bool-schema map every submit circuit's
     // notification names except submitCheckAndDoubleRequest's (field 6).
-    responseReader(requestsIndexField = 4): SignetRequestResponseReader {
+    responseReader(requestsIndexField = 3): SignetRequestResponseReader {
       let reader = sharedReaders.get(requestsIndexField);
       if (!reader) {
         const nodeConfig = getMidnightNodeConfig(env);
