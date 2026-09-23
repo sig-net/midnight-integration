@@ -19,7 +19,8 @@
 //
 //  Key types at a glance (each declaration below carries the full contract):
 //  - SignBidirectionalEvent: a client contract's structured request for a signature on a transaction.
-//  - RequestId: 32-byte id of a request, the transientHash of the whole SignBidirectionalEvent record.
+//  - RequestId: 32-byte id of a request, the transientHash of its RequestIdPreimage (the record
+//    minus the serialisation schemas).
 //  - SignBidirectionalEventMap: the RequestId -> SignBidirectionalEvent map a client contract
 //    declares in its own ledger for the MPC to read requests from.
 //  - SignetSigner: the contract interface client contracts call to notify the Signet singleton.
@@ -163,14 +164,35 @@ module Signet {
 
   // ---- SignBidirectionalEvent RequestId --------------------------------------------------------------
 
-  // 32 byte chain agnostic nominal id, calculated as the transientHash of the whole
-  // SignBidirectionalEvent record (see calculateRequestId).
+  // 32 byte chain agnostic nominal id of a SignBidirectionalEvent, calculated as the
+  // transientHash of its RequestIdPreimage (see calculateRequestId).
   export new type RequestId = Bytes<32>;
 
-  // transientHash (Poseidon over the record's field-aligned representation) upgraded
-  // to Bytes<32>: the id commits to every field, including the sender, and carries no
-  // domain-separation tag. Off-chain twins must reproduce the field-aligned layout
-  // exactly.
+  // The fields of a SignBidirectionalEvent that name one execution: everything except the
+  // serialisation schemas. Two records mint the same RequestId exactly when they agree on
+  // the sender, key derivation, MPC parameters, transaction and target chain, so
+  // two requests for one transaction cannot both be outstanding whatever schemas they
+  // declare, and the id does not depend on the schemas' declared widths either.
+  //
+  // KEY: the field order matches SignBidirectionalEvent and is relied upon for consistent
+  //      hashing. The TS twin (requestIdPreimageDescriptorWith in signet-requests.ts)
+  //      mirrors it field by field.
+  export struct RequestIdPreimage<TxParams> {
+    sender: ContractAddress;
+    keyVersion: Uint<8>;
+    path: Bytes<32>;
+    algo: MPCSignatureAlgorithm;
+    dest: MPCDestination;
+    params: Bytes<64>;
+    txParamType: TxParamType;
+    txParams: TxParams;
+    caip2Id: Bytes<32>;
+  }
+
+  // transientHash (Poseidon over the preimage's field-aligned representation) upgraded
+  // to Bytes<32>: the id commits to every preimage field, including the sender, and
+  // carries no domain-separation tag. Off-chain twins must reproduce the field-aligned
+  // layout exactly.
   //
   // Two properties follow from the field-aligned representation and matter to anyone
   // reasoning about these ids:
@@ -182,7 +204,18 @@ module Signet {
   export pure circuit calculateRequestId<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
     request: SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>
   ): RequestId {
-    return upgradeFromTransient(transientHash<SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>>(request)) as RequestId;
+    const preimage = RequestIdPreimage<TxParams> {
+      sender: request.sender,
+      keyVersion: request.keyVersion,
+      path: request.path,
+      algo: request.algo,
+      dest: request.dest,
+      params: request.params,
+      txParamType: request.txParamType,
+      txParams: request.txParams,
+      caip2Id: request.caip2Id,
+    };
+    return upgradeFromTransient(transientHash<RequestIdPreimage<TxParams>>(preimage)) as RequestId;
   }
 
   // ---- Client Contract: SignBidirectionalEvent Map ---------------------------------------------------

@@ -55,12 +55,34 @@ describe("calculateRequestId", () => {
     expect(calculateRequestId(SAMPLE_REQUEST)).toEqual(calculateRequestId(SAMPLE_REQUEST));
   });
 
-  it("changes when any field of the record changes", () => {
+  it("changes when a preimage field of the record changes", () => {
     const changed: SignBidirectionalEvent = {
       ...SAMPLE_REQUEST,
       keyVersion: 2n,
     };
     expect(calculateRequestId(changed)).not.toEqual(calculateRequestId(SAMPLE_REQUEST));
+  });
+
+  const SCHEMA_ONLY_DELTAS: { name: string; delta: Partial<SignBidirectionalEvent> }[] = [
+    {
+      name: "different schema contents at the same widths",
+      delta: {
+        outputDeserializationSchema: bytes(34, 0x17),
+        respondSerializationSchema: bytes(34, 0x18),
+      },
+    },
+    {
+      name: "different schema widths",
+      delta: {
+        outputDeserializationSchema: bytes(69, 0x07),
+        respondSerializationSchema: bytes(100, 0x08),
+      },
+    },
+  ];
+
+  it.each(SCHEMA_ONLY_DELTAS)("ignores the serialisation schemas: $name", ({ delta }) => {
+    const changed: SignBidirectionalEvent = { ...SAMPLE_REQUEST, ...delta };
+    expect(calculateRequestId(changed)).toEqual(calculateRequestId(SAMPLE_REQUEST));
   });
 
   it("rejects a decomposition it has no descriptor for", () => {

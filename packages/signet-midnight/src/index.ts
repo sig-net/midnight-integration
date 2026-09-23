@@ -64,6 +64,7 @@ export {
   requestIdBytes,
   type RequestIdHex,
   requestIdHex,
+  type RequestIdPreimage,
   type SignBidirectionalEvent,
   type SignBidirectionalEventIndex,
   type SignBidirectionalEventLedgerMap,

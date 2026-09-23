@@ -9,14 +9,16 @@ import { transientHash, upgradeFromTransient } from "@midnight-ntwrk/compact-run
 import { evmType2TxParamsDescriptorOf } from "./signet-evtype2tx-requests.ts";
 import {
   type RequestId,
+  type RequestIdPreimage,
+  requestIdPreimageDescriptorWith,
   type SignBidirectionalEvent,
-  signBidirectionalEventDescriptorWith,
   TxParamType,
 } from "./signet-requests.ts";
 
 /**
  * Canonical id of a signet request: the transientHash (Poseidon) of the
- * entire event record over its field-aligned representation.
+ * record's {@link RequestIdPreimage} (every field except the serialisation
+ * schemas) over its field-aligned representation.
  *
  * @param request - The full event record (contract-shaped, all slots).
  * @returns The 32-byte request id, the record's ledger map key.
@@ -30,14 +32,21 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
         `understands evmType2 (${String(TxParamType.evmType2)})`,
     );
   }
+  const preimage: RequestIdPreimage = {
+    sender: request.sender,
+    keyVersion: request.keyVersion,
+    path: request.path,
+    algo: request.algo,
+    dest: request.dest,
+    params: request.params,
+    txParamType: request.txParamType,
+    txParams: request.txParams,
+    caip2Id: request.caip2Id,
+  };
   return upgradeFromTransient(
     transientHash(
-      signBidirectionalEventDescriptorWith(
-        evmType2TxParamsDescriptorOf(request.txParams),
-        request.outputDeserializationSchema.length,
-        request.respondSerializationSchema.length,
-      ),
-      request,
+      requestIdPreimageDescriptorWith(evmType2TxParamsDescriptorOf(request.txParams)),
+      preimage,
     ),
   );
 }

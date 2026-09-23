@@ -133,8 +133,8 @@ describe("chunked ledger raw parsing (20 fields, REAL compiler output)", () => {
     const [idHex, record] = entry;
     expect(lookupSignetRequestAt(state, REQUESTS_INDEX_PATH, idHex)).toEqual(record);
 
-    // The map key is the domain-separated hash of the record: the TS twin
-    // recomputes it from the raw-read record.
+    // The map key is the record's request id: the TS twin recomputes it from
+    // the raw-read record.
     expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
   });
 });

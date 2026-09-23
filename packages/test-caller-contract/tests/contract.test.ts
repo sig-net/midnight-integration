@@ -385,8 +385,8 @@ describe("submitSignatureRequest round-trip", () => {
     expect(calldata.value.words).toHaveLength(1);
     expect(calldata.value.words[0]).toEqual(EXPECTED_WORD);
 
-    // The map key IS the persistent hash of the record, recomputed
-    // off-chain with the library's TS twin of the request-id circuit.
+    // The map key IS the record's request id, recomputed off-chain with the
+    // library's TS twin of the request-id circuit.
     expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
   });
 
