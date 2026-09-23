@@ -182,6 +182,8 @@ jobs:
   publish-crate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # User reviewer-gated environment
+    environment: crates-io-publish
     permissions:
       contents: read
       id-token: write # OIDC trusted publishing (crates.io)
