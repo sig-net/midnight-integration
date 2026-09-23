@@ -17,6 +17,7 @@ import {
   type CallerProviders,
   type Contract as CallerContract,
   createCallerPrivateState,
+  type Ledger as CallerLedger,
   ledger as callerContractLedger,
 } from "@midnight-protocol/test-caller-contract";
 import {
@@ -171,6 +172,25 @@ const MINUTE = 60_000;
 export type CallerRequestMap = "signBidirectionalEventMap" | "signBidirectionalEventMap69";
 
 /**
+ * Read the caller contract's current ledger, decoded with its generated
+ * `ledger` reader: the request maps and the settlement records the verify
+ * circuits write.
+ *
+ * @param context - The session's caller context.
+ * @returns The decoded ledger.
+ * @throws {Error} When the contract has no state on-chain.
+ */
+export async function readCallerLedger(context: CallerContext): Promise<CallerLedger> {
+  const contractState = await context.providers.publicDataProvider.queryContractState(
+    context.contractAddress,
+  );
+  if (!contractState) {
+    throw new Error(`no contract state found at ${context.contractAddress}`);
+  }
+  return callerContractLedger(contractState.data);
+}
+
+/**
  * Read one caller request map's keys, presented as hex request ids.
  *
  * @param context - The session's caller context.
@@ -182,15 +202,7 @@ export async function readCallerRequestIds(
   context: CallerContext,
   map: CallerRequestMap = "signBidirectionalEventMap",
 ): Promise<Set<RequestIdHex>> {
-  const contractState = await context.providers.publicDataProvider.queryContractState(
-    context.contractAddress,
-  );
-  if (!contractState) {
-    throw new Error(`no contract state found at ${context.contractAddress}`);
-  }
-  return new Set(
-    toSignBidirectionalEventIndex(callerContractLedger(contractState.data)[map]).keys(),
-  );
+  return new Set(toSignBidirectionalEventIndex((await readCallerLedger(context))[map]).keys());
 }
 
 /**
@@ -210,13 +222,7 @@ export async function ensureMpcResponseKeyStored(
   mpcResponseKey: Secp256k1Point,
 ): Promise<"stored" | "already-stored"> {
   const readKeyState = async () => {
-    const state = await context.providers.publicDataProvider.queryContractState(
-      context.contractAddress,
-    );
-    if (!state) {
-      throw new Error(`no contract state found at ${context.contractAddress}`);
-    }
-    const decoded = callerContractLedger(state.data);
+    const decoded = await readCallerLedger(context);
     return { initialised: decoded.initialised, storedKey: decoded.mpcResponseKey };
   };
 

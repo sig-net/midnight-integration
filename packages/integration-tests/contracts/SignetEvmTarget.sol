@@ -28,4 +28,14 @@ contract SignetEvmTarget {
     ) external pure returns (bool success, uint256 amount) {
         return (value != 0, value * 2);
     }
+
+    /// Stage 1c: the revert path. Called with `true` the transaction mines
+    /// with status 0, so the MPC attests it `failed` over an EMPTY output
+    /// (packed respond width 0). Called with `false` it is a plain
+    /// single-bool method like isEven. Still pure: the outcome depends on
+    /// the argument alone.
+    function revertIf(bool shouldRevert) external pure returns (bool success) {
+        require(!shouldRevert, "SignetEvmTarget: reverted on request");
+        return true;
+    }
 }

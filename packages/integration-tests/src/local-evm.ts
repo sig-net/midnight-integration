@@ -167,6 +167,47 @@ export async function getEvmNonce(rpcUrl: string, address: string): Promise<bigi
 }
 
 /**
+ * The first block at which `address` had spent `nonce`: the block holding
+ * the transaction that took the nonce from a signed-but-never-broadcast
+ * request, found by bisecting the account's transaction count over the
+ * chain height. An independent oracle for the height the MPC attests an
+ * unviable request at.
+ *
+ * @param rpcUrl - The JSON-RPC endpoint.
+ * @param address - The sending account.
+ * @param nonce - The nonce whose spending block to find.
+ * @returns The block number that spent the nonce.
+ * @throws {Error} When the account has not spent the nonce yet.
+ */
+export async function findNonceConsumedBlock(
+  rpcUrl: string,
+  address: string,
+  nonce: bigint,
+): Promise<bigint> {
+  const provider = new JsonRpcProvider(rpcUrl);
+  try {
+    let low = 0;
+    let high = await provider.getBlockNumber();
+    if (BigInt(await provider.getTransactionCount(address, high)) <= nonce) {
+      throw new Error(
+        `${address} has not spent nonce ${String(nonce)} as of block ${String(high)}`,
+      );
+    }
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (BigInt(await provider.getTransactionCount(address, mid)) > nonce) {
+        high = mid;
+      } else {
+        low = mid + 1;
+      }
+    }
+    return BigInt(low);
+  } finally {
+    provider.destroy();
+  }
+}
+
+/**
  * Read a string property off an unknown thrown value. A cast would assert a
  * shape the runtime has not checked, and the optional chain that guards it
  * then reads as dead code.
@@ -203,17 +244,19 @@ function isAlreadySubmitted(err: unknown): boolean {
 
 /**
  * Broadcast an MPC-signed EVM transaction and wait for one confirmation,
- * returning the RECEIPT (the recompute stage needs its block number).
- * Idempotent: a signed tx is content-addressed, so it can only mine once.
- * An existing receipt short-circuits, an already-submitted error is
- * swallowed, and a burned nonce (a different tx took the slot) fails fast.
+ * returning the RECEIPT whatever its status: a reverted transaction
+ * (status 0) is a mined outcome the MPC attests as a failure, so the caller
+ * checks the status against the outcome it expects. Idempotent: a signed tx
+ * is content-addressed, so it can only mine once. An existing receipt
+ * short-circuits, an already-submitted error is swallowed, and a burned
+ * nonce (a different tx took the slot) fails fast.
  *
  * @param rpcUrl - The JSON-RPC endpoint.
  * @param transaction - The signed transaction (e.g. from
  *   `signBidirectionalEventToSignedEvmTransaction`).
- * @returns The mined receipt (status 1).
- * @throws {Error} When the transaction reverted on-chain (status 0), or its
- *   nonce was consumed by a different transaction.
+ * @returns The mined receipt, status 1 or 0.
+ * @throws {Error} When the transaction's nonce was consumed by a different
+ *   transaction.
  */
 export async function broadcastSignedTx(
   rpcUrl: string,
@@ -229,7 +272,7 @@ export async function broadcastSignedTx(
     const mined = await provider.getTransactionReceipt(hash);
     if (mined !== null) {
       console.log(`already mined at block ${String(mined.blockNumber)}`);
-      return assertMinedOk(mined, hash);
+      return mined;
     }
 
     try {
@@ -251,7 +294,7 @@ export async function broadcastSignedTx(
         receipt = null;
       }
       if (receipt !== null) {
-        return assertMinedOk(receipt, hash);
+        return receipt;
       }
       const latestNonce = await provider.getTransactionCount(from, "latest");
       if (latestNonce > nonce) {
@@ -260,7 +303,7 @@ export async function broadcastSignedTx(
         // slot. Only the receipt distinguishes the two.
         const latestReceipt = await provider.getTransactionReceipt(hash);
         if (latestReceipt !== null) {
-          return assertMinedOk(latestReceipt, hash);
+          return latestReceipt;
         }
         throw new Error(
           `nonce ${String(nonce)} for ${from} was consumed by a different transaction, ` +
@@ -302,22 +345,4 @@ export async function traceTopCallOutput(rpcUrl: string, txHash: string): Promis
   } finally {
     provider.destroy();
   }
-}
-
-/**
- * A mined receipt with `status: 0` means the tx was included but reverted
- * (nonce consumed, gas burned, state rolled back): a failure, not a result.
- *
- * @param receipt - The mined receipt to check.
- * @param hash - The transaction hash, used in the error message.
- * @returns The receipt unchanged, once proven successful.
- * @throws {Error} If the transaction reverted on-chain.
- */
-function assertMinedOk(receipt: TransactionReceipt, hash: string): TransactionReceipt {
-  if (receipt.status === 0) {
-    throw new Error(
-      `transaction ${hash} reverted on-chain (mined in block ${String(receipt.blockNumber)}, status 0)`,
-    );
-  }
-  return receipt;
 }

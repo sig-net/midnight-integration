@@ -2,12 +2,14 @@
 // @midnight-ntwrk/compact-runtime (no ledger, no network, no proving).
 
 import {
+  type CircuitContext,
   createCircuitContext,
   createConstructorContext,
   sampleContractAddress,
 } from "@midnight-ntwrk/compact-runtime";
 import {
   asciiPadded,
+  boolAbiWord,
   bytesToHex,
   calculateRequestId,
   decodeSignBidirectionalEventNotificationPayload,
@@ -189,6 +191,7 @@ const ARG_WORD = (() => {
 // Solidity signatures, pinned here and re-derived from ethers in the e2e.
 const SELECTOR_IS_EVEN = new Uint8Array([0x2a, 0x2e, 0x13, 0x20]); // isEven(uint256)
 const SELECTOR_CHECK_AND_DOUBLE = new Uint8Array([0xe6, 0xcf, 0x21, 0x87]); // checkAndDouble(uint256)
+const SELECTOR_REVERT_IF = new Uint8Array([0xd4, 0x60, 0xc5, 0x1a]); // revertIf(bool)
 
 // ---- Harness ----
 
@@ -404,13 +407,16 @@ describe("submitSignatureRequest round-trip", () => {
 });
 
 describe("EVM target submit circuits round-trip", () => {
-  // Per-circuit lockstep expectations: the selector and schema literals the
-  // contract fixes for each SignetEvmTarget method, plus which per-width
-  // request map the request lands in.
+  // Per-circuit lockstep expectations: the circuit call with its typed
+  // argument, the ABI word that argument must land as, the selector and
+  // schema literals the contract fixes for each SignetEvmTarget method, and
+  // which per-width request map the request lands in.
   const CASES = [
     {
       name: "submitIsEvenRequest",
-      submit: "submitIsEvenRequest" as const,
+      submit: (contract: Contract<CallerPrivateState>, ctx: CircuitContext<CallerPrivateState>) =>
+        contract.circuits.submitIsEvenRequest(ctx, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, ARG_WORD),
+      expectedWord: ARG_WORD,
       selector: SELECTOR_IS_EVEN,
       schema: EXPECTED_SCHEMA,
       map: "signBidirectionalEventMap" as const,
@@ -418,22 +424,40 @@ describe("EVM target submit circuits round-trip", () => {
     },
     {
       name: "submitCheckAndDoubleRequest",
-      submit: "submitCheckAndDoubleRequest" as const,
+      submit: (contract: Contract<CallerPrivateState>, ctx: CircuitContext<CallerPrivateState>) =>
+        contract.circuits.submitCheckAndDoubleRequest(
+          ctx,
+          EVM_NONCE,
+          KEY_VERSION,
+          EVM_TARGET_TO,
+          ARG_WORD,
+        ),
+      expectedWord: ARG_WORD,
       selector: SELECTOR_CHECK_AND_DOUBLE,
       schema: EXPECTED_SCHEMA_BOOL_UINT,
       map: "signBidirectionalEventMap69" as const,
       requestsPath: [6],
     },
+    {
+      // The Boolean argument is composed into its ABI word in-circuit
+      // (boolAbiWord), so the stored word is the TS twin's rendering of true.
+      name: "submitRevertIfRequest",
+      submit: (contract: Contract<CallerPrivateState>, ctx: CircuitContext<CallerPrivateState>) =>
+        contract.circuits.submitRevertIfRequest(ctx, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, true),
+      expectedWord: boolAbiWord(true),
+      selector: SELECTOR_REVERT_IF,
+      schema: EXPECTED_SCHEMA,
+      map: "signBidirectionalEventMap" as const,
+      requestsPath: [3],
+    },
   ];
 
   it.each(CASES)(
     "$name stores the caller-supplied target and word inside the fixed envelope",
-    async ({ submit, selector, schema, map, requestsPath }) => {
+    async ({ submit, expectedWord, selector, schema, map, requestsPath }) => {
       const { contract, ctx } = await deployContract();
 
-      const next = (
-        await contract.circuits[submit](ctx, EVM_NONCE, KEY_VERSION, EVM_TARGET_TO, ARG_WORD)
-      ).context;
+      const next = (await submit(contract, ctx)).context;
       const state = next.callContext.currentQueryContext.state;
 
       const typedIndex = toSignBidirectionalEventIndex(ledger(state)[map]);
@@ -462,7 +486,7 @@ describe("EVM target submit circuits round-trip", () => {
       expect(calldata.is_some).toBe(true);
       expect(calldata.value.selector).toEqual(selector);
       expect(calldata.value.noWords).toBe(1n);
-      expect(calldata.value.words[0]).toEqual(ARG_WORD);
+      expect(calldata.value.words[0]).toEqual(expectedWord);
 
       // Map key = the request-id TS twin, same as the base circuit.
       expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
@@ -481,7 +505,7 @@ describe("EVM target submit circuits round-trip", () => {
     },
   );
 
-  it("all three submit circuits share the nonce counter and mint distinct ids", async () => {
+  it("all four submit circuits share the nonce counter and mint distinct ids", async () => {
     const { contract, ctx } = await deployContract();
     const afterFirst = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION))
       .context;
@@ -503,10 +527,19 @@ describe("EVM target submit circuits round-trip", () => {
         ARG_WORD,
       )
     ).context;
+    const afterFourth = (
+      await contract.circuits.submitRevertIfRequest(
+        afterThird,
+        EVM_NONCE,
+        KEY_VERSION,
+        EVM_TARGET_TO,
+        true,
+      )
+    ).context;
 
-    const state = afterThird.callContext.currentQueryContext.state;
+    const state = afterFourth.callContext.currentQueryContext.state;
     // Bool-schema requests share field 3, the 69-byte schema lives at field 6.
-    expect(toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap).size).toBe(2);
+    expect(toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap).size).toBe(3);
     expect(toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap69).size).toBe(1);
   });
 });
@@ -641,14 +674,28 @@ describe("verifyResponse", () => {
 
   it("rejects a genuinely attested FAILURE output (deserialized success is false)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    // The MPC honestly attests a failed foreign call. The signature
-    // verifies, then the in-circuit deserialize decodes success=false and
-    // settlement is refused.
+    // The MPC honestly attests an executed foreign call that returned
+    // false. The signature verifies, then the in-circuit deserialize
+    // decodes success=false and settlement is refused.
     const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_FAILURE);
     await expect(contract.circuits.verifyResponse(ctx, event, OUTPUT_FAILURE)).rejects.toThrow(
       /Foreign call reported failure/,
     );
   });
+
+  it.each([OutputKind.failed, OutputKind.unviable])(
+    "rejects an honestly signed attestation under kind %s: settlement routes on the verified kind",
+    async (outputKind) => {
+      const { contract, ctx, requestId } = await requestSubmitted();
+      // Signed by the genuine key over a 1-byte output under a failure
+      // kind (a protocol violation the signature alone would accept): the
+      // kind gate refuses to treat it as return data.
+      const event = respond(MPC_RESPONSE_SECRET, requestId, outputKind, OUTPUT_SUCCESS);
+      await expect(contract.circuits.verifyResponse(ctx, event, OUTPUT_SUCCESS)).rejects.toThrow(
+        /Attestation is not an execution/,
+      );
+    },
+  );
 
   it("decodes any non-0x01 byte as false, per the circuit's Boolean rule", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
@@ -711,6 +758,12 @@ describe("verifyCheckAndDoubleResponse", () => {
   // A successful checkAndDouble execution's packed respond payload, encoded
   // with the serialize twin: bool true followed by uint256 12.
   const OUTPUT_BOOL_UINT = compactSerialize(BOOL_UINT_RESPONSE, { success: true, amount: 12n }, 33);
+  // checkAndDouble(0): the call executed and reported success=false.
+  const OUTPUT_BOOL_UINT_FAILURE = compactSerialize(
+    BOOL_UINT_RESPONSE,
+    { success: false, amount: 0n },
+    33,
+  );
 
   /** Deploy + submitCheckAndDoubleRequest: the arrange step. */
   const checkAndDoubleSubmitted = async () => {
@@ -731,7 +784,7 @@ describe("verifyCheckAndDoubleResponse", () => {
     return { contract, ctx: next, requestId: requestIdBytes(idHex) };
   };
 
-  it("a genuine 33-byte response verifies and consumes the request", async () => {
+  it("a genuine 33-byte response verifies, consumes the request and records the amount", async () => {
     const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
     const next = (
       await contract.circuits.verifyCheckAndDoubleResponse(
@@ -740,9 +793,33 @@ describe("verifyCheckAndDoubleResponse", () => {
         OUTPUT_BOOL_UINT,
       )
     ).context;
-    expect(
-      ledger(next.callContext.currentQueryContext.state).signBidirectionalEventMap69.isEmpty(),
-    ).toBe(true);
+    const state = ledger(next.callContext.currentQueryContext.state);
+    expect(state.signBidirectionalEventMap69.isEmpty()).toBe(true);
+    // The in-circuit deserialize read the 32-byte little-endian Field the
+    // serialize twin packed: the recorded amount is the attested one.
+    expect(state.checkAndDoubleAmounts.lookup(requestId)).toBe(12n);
+  });
+
+  it("rejects a genuinely attested success=false output without recording an amount", async () => {
+    const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
+    await expect(
+      contract.circuits.verifyCheckAndDoubleResponse(
+        ctx,
+        respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_BOOL_UINT_FAILURE),
+        OUTPUT_BOOL_UINT_FAILURE,
+      ),
+    ).rejects.toThrow(/Foreign call reported failure/);
+  });
+
+  it("rejects an honestly signed attestation under a failure kind", async () => {
+    const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
+    await expect(
+      contract.circuits.verifyCheckAndDoubleResponse(
+        ctx,
+        respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_BOOL_UINT),
+        OUTPUT_BOOL_UINT,
+      ),
+    ).rejects.toThrow(/Attestation is not an execution/);
   });
 
   it("rejects when the presented output differs from what was signed", async () => {
@@ -782,5 +859,149 @@ describe("verifyCheckAndDoubleResponse", () => {
         OUTPUT_BOOL_UINT,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
+  });
+});
+
+describe("verifyFailureResponse", () => {
+  // A failed or unviable execution is attested over an EMPTY output, so the
+  // settle circuit takes a Bytes<0> argument and verifies at width 0.
+  const OUTPUT_EMPTY = new Uint8Array(0);
+
+  /** Deploy + submitCheckAndDoubleRequest: a pending request in the field-6 map. */
+  const checkAndDoubleSubmitted = async () => {
+    const { contract, ctx } = await deployContract();
+    const next = (
+      await contract.circuits.submitCheckAndDoubleRequest(
+        ctx,
+        EVM_NONCE,
+        KEY_VERSION,
+        EVM_TARGET_TO,
+        ARG_WORD,
+      )
+    ).context;
+    const index = toSignBidirectionalEventIndex(
+      ledger(next.callContext.currentQueryContext.state).signBidirectionalEventMap69,
+    );
+    const idHex = onlyRequestId(index);
+    return { contract, ctx: next, requestId: requestIdBytes(idHex) };
+  };
+
+  it.each([OutputKind.failed, OutputKind.unviable])(
+    "a genuine %s attestation verifies at width 0, consumes the field-3 request and records the verdict",
+    async (outputKind) => {
+      const { contract, ctx, requestId } = await requestSubmitted();
+      const event = respond(MPC_RESPONSE_SECRET, requestId, outputKind, OUTPUT_EMPTY);
+
+      const next = (await contract.circuits.verifyFailureResponse(ctx, event, OUTPUT_EMPTY))
+        .context;
+
+      const state = ledger(next.callContext.currentQueryContext.state);
+      expect(state.signBidirectionalEventMap.isEmpty()).toBe(true);
+      expect(state.failureVerdicts.lookup(requestId)).toBe(outputKind);
+    },
+  );
+
+  it("consumes a field-6 request too: a failure answers a request of any schema width", async () => {
+    const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.unviable, OUTPUT_EMPTY);
+
+    const next = (await contract.circuits.verifyFailureResponse(ctx, event, OUTPUT_EMPTY)).context;
+
+    const state = ledger(next.callContext.currentQueryContext.state);
+    expect(state.signBidirectionalEventMap69.isEmpty()).toBe(true);
+    expect(state.checkAndDoubleAmounts.isEmpty()).toBe(true);
+    expect(state.failureVerdicts.lookup(requestId)).toBe(OutputKind.unviable);
+  });
+
+  it("rejects while uninitialised (no stored key yet)", async () => {
+    const { contract, ctx } = await deployUninitialised();
+    const next = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION))
+      .context;
+    const requestId = requestIdBytes(
+      onlyRequestId(
+        toSignBidirectionalEventIndex(
+          ledger(next.callContext.currentQueryContext.state).signBidirectionalEventMap,
+        ),
+      ),
+    );
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
+    await expect(
+      contract.circuits.verifyFailureResponse(next, event, OUTPUT_EMPTY),
+    ).rejects.toThrow(/Not initialised/);
+  });
+
+  it("rejects an honestly signed EXECUTED attestation over an empty output", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    // An executed call with no return data verifies at width 0 too, but it
+    // is not a failure and must not settle as one.
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_EMPTY);
+    await expect(contract.circuits.verifyFailureResponse(ctx, event, OUTPUT_EMPTY)).rejects.toThrow(
+      /Attestation is not a failure/,
+    );
+  });
+
+  it("rejects an imposter's signature", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    const event = respond(IMPOSTER_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
+    await expect(contract.circuits.verifyFailureResponse(ctx, event, OUTPUT_EMPTY)).rejects.toThrow(
+      /Invalid attestation signature/,
+    );
+  });
+
+  it("rejects a tampered kind: a failed attestation relabelled unviable", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
+    await expect(
+      contract.circuits.verifyFailureResponse(
+        ctx,
+        { ...event, outputKind: OutputKind.unviable },
+        OUTPUT_EMPTY,
+      ),
+    ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects a cross-width replay: a 1-byte-output attestation cannot verify at width 0", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    // The digest commits to the output's length, so the 1-byte success
+    // attestation relabelled as a failure never matches the empty output.
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    await expect(
+      contract.circuits.verifyFailureResponse(
+        ctx,
+        { ...event, outputKind: OutputKind.failed },
+        OUTPUT_EMPTY,
+      ),
+    ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects a genuinely signed id that has no pending request in either map", async () => {
+    const { contract, ctx } = await requestSubmitted();
+    const unknownId = bytes(32, 0xab);
+    const event = respond(MPC_RESPONSE_SECRET, unknownId, OutputKind.failed, OUTPUT_EMPTY);
+    await expect(contract.circuits.verifyFailureResponse(ctx, event, OUTPUT_EMPTY)).rejects.toThrow(
+      /Request not found/,
+    );
+  });
+
+  it("a second settle of the SAME request rejects (the first consumed it)", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
+    const next = (await contract.circuits.verifyFailureResponse(ctx, event, OUTPUT_EMPTY)).context;
+
+    await expect(
+      contract.circuits.verifyFailureResponse(next, event, OUTPUT_EMPTY),
+    ).rejects.toThrow(/Request not found/);
+  });
+
+  it("the executed verify of a settled failure rejects: one settlement per request", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    const failure = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
+    const next = (await contract.circuits.verifyFailureResponse(ctx, failure, OUTPUT_EMPTY))
+      .context;
+
+    const success = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    await expect(contract.circuits.verifyResponse(next, success, OUTPUT_SUCCESS)).rejects.toThrow(
+      /Request not found/,
+    );
   });
 });
