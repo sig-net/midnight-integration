@@ -21,7 +21,7 @@ The protocol and integration documentation lives in the [sig-net/midnight-integr
 
 - [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow): the 5-step protocol this contract relays, with diagram, failure handling and output recovery: which circuit each step calls and which event it emits.
 - [Integrator Guide](https://github.com/sig-net/midnight-integration/blob/main/README.md#integrator-guide): how client contracts and dApps drive this contract's circuits and events per request.
-- [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure): how a failed foreign transaction still completes the flow through this contract's `respondBidirectional` circuit, attested as a fixed 5-byte payload.
+- [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure): how a failed foreign transaction still completes the flow through this contract's `respondBidirectional` circuit, attested as an empty output under a failure output kind.
 
 ## Related packages
 

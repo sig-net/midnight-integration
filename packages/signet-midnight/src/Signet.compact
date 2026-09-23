@@ -344,9 +344,9 @@ module Signet {
   // the protocol's outcome (kind, data). The block height the attestation
   // commits to is the finalised destination block that settled the verdict.
   export enum OutputKind {
-    executed, // the transaction was finalised and succeeded
-    failed,   // the transaction was finalised and reverted
-    unviable, // a finalised transaction carrying other bytes took the transaction's nonce
+    executed, // finalised and succeeded: the attested output is the return data, serialised per the respond schema
+    failed,   // finalised and reverted: the attested output is empty (Bytes<0>)
+    unviable, // a finalised transaction carrying other bytes took the nonce: the attested output is empty (Bytes<0>)
   }
 
   // The 32-byte attestation digest of a remote execution output:

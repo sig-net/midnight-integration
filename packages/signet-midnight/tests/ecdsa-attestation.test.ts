@@ -90,6 +90,11 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
   // align the preimage the same way).
   const oracles = [
     {
+      width: 0,
+      oracle: (id: Uint8Array, kind: OutputKind, out: Uint8Array) =>
+        signetCircuits.calculateSignetAttestationDigest0(id, BLOCK_HEIGHT, kind, out),
+    },
+    {
       width: 1,
       oracle: (id: Uint8Array, kind: OutputKind, out: Uint8Array) =>
         signetCircuits.calculateSignetAttestationDigest1(id, BLOCK_HEIGHT, kind, out),
@@ -422,6 +427,51 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
     );
     const sig = signAttestationDigest(digest, MPC_SECRET);
     expect([0, 1]).toContain(sig.recoveryId);
+  });
+});
+
+describe("verifyRespondBidirectionalEvent0 (compiled circuit): a failure's empty output", () => {
+  const EMPTY = new Uint8Array(0);
+  // What the MPC posts for a reverted transaction: the failed kind over no
+  // output bytes at all.
+  const failed: RespondBidirectionalEvent = {
+    signature: ecdsaSignatureToMpcSignature(
+      signAttestationDigest(
+        calculateSignetAttestationDigest(REQUEST_ID, BLOCK_HEIGHT, OutputKind.failed, EMPTY),
+        MPC_SECRET,
+      ),
+    ),
+    outputKind: OutputKind.failed,
+    blockHeight: BLOCK_HEIGHT,
+  };
+
+  it("verifies at width 0 over the empty output", () => {
+    expect(
+      signetCircuits.verifyRespondBidirectionalEvent0(
+        REQUEST_ID,
+        EMPTY,
+        respondBidirectionalEventToCircuitInput(failed),
+        MPC_PUBLIC,
+      ),
+    ).toBe(true);
+    expect(verifyRespondBidirectionalSignature(REQUEST_ID, EMPTY, failed, MPC_PUBLIC)).toBe(true);
+  });
+
+  it("cannot be presented as an executed success", () => {
+    expect(
+      signetCircuits.verifyRespondBidirectionalEvent0(
+        REQUEST_ID,
+        EMPTY,
+        respondBidirectionalEventToCircuitInput({ ...failed, outputKind: OutputKind.executed }),
+        MPC_PUBLIC,
+      ),
+    ).toBe(false);
+  });
+
+  it("the empty output is distinct from a one-byte zero output: the digest commits to the width", () => {
+    expect(
+      verifyRespondBidirectionalSignature(REQUEST_ID, Uint8Array.from([0]), failed, MPC_PUBLIC),
+    ).toBe(false);
   });
 });
 

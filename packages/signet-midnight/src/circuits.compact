@@ -22,9 +22,18 @@ export {
 // ---- Fixed-width attestation oracles (tests only) --------------------------
 // The size-generic digest and verify circuits cannot appear in the export
 // list above. These fixed-width instantiations exist solely to pin the TS
-// twin in ecdsa-attestation.ts against the compiled circuits (widths 1, 2, 32
-// and 100). Client contracts instantiate the generic circuits at their own
-// width.
+// twin in ecdsa-attestation.ts against the compiled circuits (widths 0, 1, 2,
+// 32 and 100, where 0 is the empty output of a failed or unviable execution).
+// Client contracts instantiate the generic circuits at their own width.
+
+export pure circuit calculateSignetAttestationDigest0(
+  requestId: RequestId,
+  blockHeight: Uint<64>,
+  outputKind: OutputKind,
+  serializedOutput: Bytes<0>
+): Bytes<32> {
+  return calculateSignetAttestationDigest<0>(requestId, blockHeight, outputKind, serializedOutput);
+}
 
 export pure circuit calculateSignetAttestationDigest1(
   requestId: RequestId,
@@ -60,6 +69,20 @@ export pure circuit calculateSignetAttestationDigest100(
   serializedOutput: Bytes<100>
 ): Bytes<32> {
   return calculateSignetAttestationDigest<100>(requestId, blockHeight, outputKind, serializedOutput);
+}
+
+export pure circuit verifyRespondBidirectionalEvent0(
+  requestId: RequestId,
+  serializedOutput: Bytes<0>,
+  respondBidirectionalEvent: RespondBidirectionalEvent,
+  mpcResponseKey: Secp256k1Point
+): Boolean {
+  return verifyRespondBidirectionalEvent<0>(
+    requestId,
+    serializedOutput,
+    respondBidirectionalEvent,
+    mpcResponseKey
+  );
 }
 
 export pure circuit verifyRespondBidirectionalEvent32(

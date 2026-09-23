@@ -5,12 +5,7 @@ import { createServer, type Server } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  MidnightNetwork,
-  MPC_FAILURE_OUTPUT,
-  MpcOutputCacheReader,
-  parseRequestIdHex,
-} from "../src/index.ts";
+import { MidnightNetwork, MpcOutputCacheReader, parseRequestIdHex } from "../src/index.ts";
 
 const REQUEST_ID = parseRequestIdHex("5c".repeat(32));
 const NETWORK_ID = "stagenet";
@@ -106,9 +101,9 @@ describe("MpcOutputCacheReader", () => {
       expected: new Uint8Array([0x01]),
     },
     {
-      name: "the failure output verbatim",
-      reply: { status: 200, body: MPC_FAILURE_OUTPUT },
-      expected: MPC_FAILURE_OUTPUT,
+      name: "a multi-byte packed output verbatim",
+      reply: { status: 200, body: Uint8Array.from([0x01, 0x02, 0x03, 0x04, 0x05]) },
+      expected: Uint8Array.from([0x01, 0x02, 0x03, 0x04, 0x05]),
     },
     {
       name: "an empty object",
