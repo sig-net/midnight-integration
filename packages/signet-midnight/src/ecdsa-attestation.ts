@@ -23,6 +23,7 @@ import { decodeBase58, Signature, toBeHex } from "ethers";
 
 import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codecs.ts";
 import { attestationPreimageDescriptor } from "./compact-descriptors.ts";
+import type { OutputKind } from "./managed/contract/index.js";
 import type {
   MpcSignature,
   RespondBidirectionalEvent,
@@ -319,24 +320,28 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
 
 /**
  * The attestation digest of a respond-bidirectional response:
- * `upgradeFromTransient(transientHash([requestId, blockHeight, outputLength, serializedOutput]))`,
- * the 32-byte digest the MPC ECDSA-signs to attest a remote execution. TS twin of
- * the size-generic Compact circuit of the same name.
+ * `upgradeFromTransient(transientHash([requestId, blockHeight, outputKind, outputLength, serializedOutput]))`,
+ * the 32-byte digest the MPC ECDSA-signs to attest a remote execution. TS
+ * twin of the size-generic Compact circuit of the same name.
  *
  * @param requestId - The 32-byte request id the response answers.
- * @param blockHeight - The destination block height the outcome is final at.
+ * @param blockHeight - Height of the finalised destination block holding the
+ *   attested transaction, in the destination chain's own numbering.
+ * @param outputKind - The MPC's verdict on the execution.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @returns The 32-byte attestation digest.
  */
 export function calculateSignetAttestationDigest(
   requestId: RequestId,
   blockHeight: bigint,
+  outputKind: OutputKind,
   serializedOutput: Uint8Array,
 ): Uint8Array {
   return upgradeFromTransient(
     transientHash(attestationPreimageDescriptor(serializedOutput.length), [
       requestId,
       blockHeight,
+      outputKind,
       BigInt(serializedOutput.length),
       serializedOutput,
     ]),
@@ -380,21 +385,23 @@ export function respondBidirectionalEventToCircuitInput(
       bigR: { ...event.signature.bigR, x: reverseBytes32(event.signature.bigR.x) },
       s: reverseBytes32(event.signature.s),
     },
+    outputKind: event.outputKind,
+    blockHeight: event.blockHeight,
   };
 }
 
 /**
  * Off-chain twin of the in-circuit `verifyRespondBidirectionalEvent`: checks
  * a posted respond-bidirectional attestation against the execution output
- * and the contract's pinned MPC response key. Clients run it to sift
- * candidate posts before calling a contract: a post this accepts verifies
- * in-circuit (once flipped to circuit-input form, see
+ * and the contract's pinned MPC response key, over the block height and
+ * output kind the post declares. Clients run it to sift candidate posts
+ * before calling a contract: a post this accepts verifies in-circuit (once
+ * flipped to circuit-input form, see
  * {@link respondBidirectionalEventToCircuitInput}). Takes the record as read
  * off the ledger (big-endian). Malformed records return `false` rather than
  * throwing.
  *
  * @param requestId - The 32-byte request id the response answers.
- * @param blockHeight - The destination block height the attestation names.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @param event - The posted record to check, as read off the ledger.
  * @param mpcResponseKey - The response key the requesting contract pinned
@@ -403,7 +410,6 @@ export function respondBidirectionalEventToCircuitInput(
  */
 export function verifyRespondBidirectionalSignature(
   requestId: RequestId,
-  blockHeight: bigint,
   serializedOutput: Uint8Array,
   event: RespondBidirectionalEvent,
   mpcResponseKey: Secp256k1Point,
@@ -414,7 +420,12 @@ export function verifyRespondBidirectionalSignature(
   } catch {
     return false;
   }
-  const digest = calculateSignetAttestationDigest(requestId, blockHeight, serializedOutput);
+  const digest = calculateSignetAttestationDigest(
+    requestId,
+    event.blockHeight,
+    event.outputKind,
+    serializedOutput,
+  );
   // Compact form the verifier takes: r || s big-endian, and the key as
   // uncompressed SEC1 (0x04 || x || y).
   const compactSignature = new Uint8Array(64);

@@ -6,7 +6,6 @@
 // bucket. What it returns is UNTRUSTED until the attestation signature
 // verifies over it.
 
-import type { AttestedOutput } from "@sig-net/midnight";
 import type { MpcOutputCacheReader, RequestIdHex } from "@sig-net/midnight";
 
 /**
@@ -40,12 +39,12 @@ export async function fetchAttestedOutput(
   reader: MpcOutputCacheReader,
   requestId: RequestIdHex,
   timeoutMs = 30_000,
-): Promise<AttestedOutput> {
+): Promise<Uint8Array> {
   const deadline = Date.now() + timeoutMs;
   let lastFailure: string;
   do {
     try {
-      const cached = await reader.fetchAttestedOutput(requestId);
+      const cached = await reader.fetchSerializedOutput(requestId);
       if (cached !== undefined) {
         return cached;
       }

@@ -9,6 +9,7 @@ import CompactStandardLibrary;
 import "./Signet";
 
 export {
+  OutputKind,
   constructSignBidirectionalEventNotificationV1,
   ethereumCaip2Id,
   evmAddressAbiWord,
@@ -28,45 +29,47 @@ export {
 export pure circuit calculateSignetAttestationDigest1(
   requestId: RequestId,
   blockHeight: Uint<64>,
+  outputKind: OutputKind,
   serializedOutput: Bytes<1>
 ): Bytes<32> {
-  return calculateSignetAttestationDigest<1>(requestId, blockHeight, serializedOutput);
+  return calculateSignetAttestationDigest<1>(requestId, blockHeight, outputKind, serializedOutput);
 }
 
 export pure circuit calculateSignetAttestationDigest2(
   requestId: RequestId,
   blockHeight: Uint<64>,
+  outputKind: OutputKind,
   serializedOutput: Bytes<2>
 ): Bytes<32> {
-  return calculateSignetAttestationDigest<2>(requestId, blockHeight, serializedOutput);
+  return calculateSignetAttestationDigest<2>(requestId, blockHeight, outputKind, serializedOutput);
 }
 
 export pure circuit calculateSignetAttestationDigest32(
   requestId: RequestId,
   blockHeight: Uint<64>,
+  outputKind: OutputKind,
   serializedOutput: Bytes<32>
 ): Bytes<32> {
-  return calculateSignetAttestationDigest<32>(requestId, blockHeight, serializedOutput);
+  return calculateSignetAttestationDigest<32>(requestId, blockHeight, outputKind, serializedOutput);
 }
 
 export pure circuit calculateSignetAttestationDigest100(
   requestId: RequestId,
   blockHeight: Uint<64>,
+  outputKind: OutputKind,
   serializedOutput: Bytes<100>
 ): Bytes<32> {
-  return calculateSignetAttestationDigest<100>(requestId, blockHeight, serializedOutput);
+  return calculateSignetAttestationDigest<100>(requestId, blockHeight, outputKind, serializedOutput);
 }
 
 export pure circuit verifyRespondBidirectionalEvent32(
   requestId: RequestId,
-  blockHeight: Uint<64>,
   serializedOutput: Bytes<32>,
   respondBidirectionalEvent: RespondBidirectionalEvent,
   mpcResponseKey: Secp256k1Point
 ): Boolean {
   return verifyRespondBidirectionalEvent<32>(
     requestId,
-    blockHeight,
     serializedOutput,
     respondBidirectionalEvent,
     mpcResponseKey

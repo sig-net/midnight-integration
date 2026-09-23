@@ -4,7 +4,7 @@
 // whose 256-byte payload packs the record:
 //   SignBidirectionalEvent    - version (1) ++ requestId (32) ++ notification payload (128) ++ zeros (95)
 //   SignatureRespondedEvent   - requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (127)
-//   RespondBidirectionalEvent - requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (127)
+//   RespondBidirectionalEvent - requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ outputKind (1) ++ blockHeight (8, little-endian) ++ zeros (118)
 // The decoders here are the byte-plumbing twins of the emit literals in
 // signet-contract.compact: field order and offsets must match byte-for-byte
 // (the signet-contract simulator tests pin the lockstep against real emits).
@@ -14,9 +14,10 @@
 
 import { CompactTypeBytes, type LogEvent } from "@midnight-ntwrk/compact-runtime";
 
-import { bytesToHex, hexToBytes } from "./byte-codecs.ts";
+import { bytesToBigint, bytesToHex, hexToBytes } from "./byte-codecs.ts";
 import { decodeExactly } from "./compact-descriptors.ts";
 import { asciiUnpadded } from "./constants.ts";
+import { OutputKind } from "./managed/contract/index.js";
 import { contractAddressFromHex, type RequestIdHex, requestIdHex } from "./signet-requests.ts";
 
 /**
@@ -404,14 +405,24 @@ export interface SignatureRespondedEvent {
 /**
  * The MPC's respond-bidirectional attestation of a request's remote EVM
  * execution (Compact `RespondBidirectionalEvent`): the ECDSA signature over
- * the attestation digest (`calculateSignetAttestationDigest`), carried
- * beside the request id it answers (see {@link SignetEventPost}). Emitted
- * UNVERIFIED: verify in-circuit via `verifyRespondBidirectionalEvent` or off
- * chain via `verifyRespondBidirectionalSignature`.
+ * the attestation digest (`calculateSignetAttestationDigest`) with the
+ * output kind and block height that digest commits to, carried beside the
+ * request id it answers (see {@link SignetEventPost}). The output the digest
+ * also commits to travels off chain. Emitted UNVERIFIED: verify in-circuit
+ * via `verifyRespondBidirectionalEvent` or off chain via
+ * `verifyRespondBidirectionalSignature`.
  */
 export interface RespondBidirectionalEvent {
   /** ECDSA signature over the attestation digest. */
   signature: MpcSignature;
+  /** The MPC's verdict on the execution, signed into the digest. */
+  outputKind: OutputKind;
+  /**
+   * Height of the finalised destination block holding the attested
+   * transaction, in the destination chain's own numbering (a slot on
+   * Solana). Compact `Uint<64>`, signed into the digest.
+   */
+  blockHeight: bigint;
 }
 
 /**
@@ -443,7 +454,7 @@ interface RespondPayloadLeaves {
 /**
  * Unpack the leaves both respond payloads lead with:
  * requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1).
- * Bytes beyond the recovery id are padding and are ignored.
+ * Bytes beyond the recovery id are left to the caller.
  *
  * @param payload - The full event payload.
  * @returns The declared request id and the decoded signature.
@@ -484,19 +495,74 @@ export function decodeSignatureRespondedEventPayload(
   return { requestId, event: { signature } };
 }
 
+/** Offset of the output kind, packed after the recovery id. */
+const RESPOND_OUTPUT_KIND_OFFSET = 129;
+
+/** Offset of the attested block height, packed after the output kind. */
+const RESPOND_BLOCK_HEIGHT_OFFSET = 130;
+
+/** Byte width of the packed block height (Compact `Uint<64>` cast to `Bytes<8>`). */
+const RESPOND_BLOCK_HEIGHT_LENGTH = 8;
+
+/**
+ * The output kinds by the variant index Compact's `as Uint<8>` cast of the
+ * enum emits, in declaration order: the wire byte is the position here.
+ */
+const OUTPUT_KIND_BY_VARIANT_INDEX: readonly OutputKind[] = [
+  OutputKind.executed,
+  OutputKind.failed,
+  OutputKind.unviable,
+];
+
+/**
+ * Narrow a payload byte to an {@link OutputKind}.
+ *
+ * @param byte - The packed output kind byte.
+ * @returns The output kind.
+ * @throws {Error} When the byte names no variant.
+ */
+function outputKindOf(byte: number): OutputKind {
+  const kind = OUTPUT_KIND_BY_VARIANT_INDEX[byte];
+  if (kind === undefined) {
+    throw new Error(`signet event payload carries an unknown output kind ${String(byte)}`);
+  }
+  return kind;
+}
+
 /**
  * Decode a {@link SignetEventName.RespondBidirectionalEvent} payload: the
- * decode twin of the `respondBidirectional` circuit's emit literal.
+ * decode twin of the `respondBidirectional` circuit's emit literal. The
+ * output kind follows the shared leaves as one byte, then the block height
+ * as 8 little-endian bytes, the byte order of Compact's `Uint<64>` to
+ * `Bytes<8>` cast.
  *
  * @param payload - The event's payload.
  * @returns The decoded post: declared request id plus record.
- * @throws {Error} When the payload is too short to hold the packed leaves.
+ * @throws {Error} When the payload is too short to hold the packed leaves or
+ *   its output kind byte names no variant.
  */
 export function decodeRespondBidirectionalEventPayload(
   payload: Uint8Array,
 ): SignetEventPost<RespondBidirectionalEvent> {
   const { requestId, signature } = decodeRespondPayload(payload);
-  return { requestId, event: { signature } };
+  const kindByte = payload[RESPOND_OUTPUT_KIND_OFFSET];
+  const heightBytes = payload.subarray(
+    RESPOND_BLOCK_HEIGHT_OFFSET,
+    RESPOND_BLOCK_HEIGHT_OFFSET + RESPOND_BLOCK_HEIGHT_LENGTH,
+  );
+  if (kindByte === undefined || heightBytes.length !== RESPOND_BLOCK_HEIGHT_LENGTH) {
+    throw new Error(
+      `signet event payload of ${String(payload.length)} bytes is too short for a packed output kind and block height`,
+    );
+  }
+  return {
+    requestId,
+    event: {
+      signature,
+      outputKind: outputKindOf(kindByte),
+      blockHeight: bytesToBigint(heightBytes),
+    },
+  };
 }
 
 /**

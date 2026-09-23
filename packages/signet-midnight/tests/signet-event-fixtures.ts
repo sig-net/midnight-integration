@@ -7,6 +7,7 @@
 // fixtures shows up there, not here.
 
 import {
+  bigintToBytes32,
   type RespondBidirectionalEvent,
   type SignatureRespondedEvent,
   type SignBidirectionalNotificationRecord,
@@ -84,7 +85,9 @@ export function signatureRespondedEventOf(
 /**
  * The event the `respondBidirectional` circuit emits for an attestation:
  * the same packed requestId ++ `Signature` layout as
- * {@link signatureRespondedEventOf} under its own name.
+ * {@link signatureRespondedEventOf} under its own name, followed by the
+ * output kind as one byte (the enum's variant index) and the block height as
+ * 8 little-endian bytes (Compact's `Uint<64>` to `Bytes<8>` cast).
  *
  * @param requestId - The request id the post declares it answers, 32 bytes.
  * @param record - The attestation record.
@@ -102,6 +105,8 @@ export function respondBidirectionalEventOf(
       record.signature.bigR.y,
       record.signature.s,
       Number(record.signature.recoveryId),
+      record.outputKind,
+      bigintToBytes32(record.blockHeight).subarray(0, 8),
     ),
   };
 }

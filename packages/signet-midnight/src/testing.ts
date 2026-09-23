@@ -10,7 +10,7 @@
 // The canonical fixture chain:
 //   ecdsaSignatureToMpcSignature(
 //     signAttestationDigest(
-//       calculateSignetAttestationDigest(requestId, blockHeight, serializedOutput),
+//       calculateSignetAttestationDigest(requestId, blockHeight, outputKind, serializedOutput),
 //       secretKey,
 //     ),
 //   )

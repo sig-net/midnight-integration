@@ -25,6 +25,7 @@ import {
   calculateRequestId,
   deriveEvmAddress,
   hexToBytes,
+  OutputKind,
   parseSecp256k1PublicKey,
   requestIdBytes,
   type RequestIdHex,
@@ -372,29 +373,38 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // is ONE byte (0x01 = true), exactly what the MPC posts for a
       // succeeded call, attested at the block it executed in.
       const serializedOutput = Uint8Array.from([1]);
-      const blockHeight = 1n;
 
       const responseSecretKey = deriveMidnightResponseSecretKey(
         hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
       );
+      // This suite plays the MPC, so the attested destination height is
+      // whatever it claims: the circuit checks the height is signed, not
+      // that it is real.
+      const blockHeight = 1n;
       const signature = signAttestationDigest(
-        calculateSignetAttestationDigest(requestKey, blockHeight, serializedOutput),
+        calculateSignetAttestationDigest(
+          requestKey,
+          blockHeight,
+          OutputKind.executed,
+          serializedOutput,
+        ),
         responseSecretKey,
       );
 
       // No key argument: verifyResponse reads the stored MPC response key
       // straight from the ledger (the initialise leg put it there), and takes
       // the response record in the shape the singleton emits it. The record
-      // never carries the output: the circuit recomputes the digest from the
-      // output handed in beside it.
+      // carries the signature, the output kind and the block height: the
+      // circuit recomputes the digest from the output handed in beside it.
       await context.caller.callTx.verifyResponse(
         requestKey,
         respondBidirectionalEventToCircuitInput({
           signature: ecdsaSignatureToMpcSignature(signature),
+          outputKind: OutputKind.executed,
+          blockHeight,
         }),
         serializedOutput,
-        blockHeight,
       );
 
       // The consumption is the observable effect: present before (checked

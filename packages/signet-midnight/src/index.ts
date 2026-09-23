@@ -87,8 +87,8 @@ export {
 } from "./ecdsa-attestation.ts";
 
 /**
- * Compiled pure circuits of Signet.compact (run `yarn compile` first).
- * Off-chain code MUST use these instead of re-porting the algorithms:
- * they are the same compiled logic the contracts prove.
+ * Compiled pure circuits of Signet.compact and its `OutputKind` enum (run
+ * `yarn compile` first). Off-chain code MUST use these instead of re-porting
+ * the algorithms: they are the same compiled logic the contracts prove.
  */
-export { type PureCircuits, pureCircuits } from "./managed/contract/index.js";
+export { OutputKind, type PureCircuits, pureCircuits } from "./managed/contract/index.js";

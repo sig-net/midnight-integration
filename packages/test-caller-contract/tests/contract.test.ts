@@ -15,6 +15,7 @@ import {
   decodeSignetLogEvents,
   MPCDestination,
   MPCSignatureAlgorithm,
+  OutputKind,
   pureCircuits as signetCircuits,
   readSignetRequestsLedgerFromState,
   requestIdBytes,
@@ -535,14 +536,16 @@ const BOOL_RESPONSE = {
 // verifyResponse deserializes this into BoolResponse in-circuit and asserts
 // success, so only this value settles.
 const OUTPUT_SUCCESS = compactSerialize(BOOL_RESPONSE, { success: true }, 1);
-const BLOCK_HEIGHT = 9_401_212n;
 const OUTPUT_FAILURE = compactSerialize(BOOL_RESPONSE, { success: false }, 1);
 
+/** The destination block height every attestation below claims. */
+const BLOCK_HEIGHT = 21_000_000n;
+
 /**
- * Sign a REAL respond-bidirectional response for (requestId, output) with
- * `secretKey`: the digest comes from the TS twin (pinned against the
- * compiled oracle circuits), exactly like the MPC. The wire event (full R
- * point, big-endian bytes) is flipped to
+ * Sign a REAL respond-bidirectional response for (requestId, BLOCK_HEIGHT,
+ * outputKind, output) with `secretKey`: the digest comes from the TS twin
+ * (pinned against the compiled oracle circuits), exactly like the MPC. The
+ * wire event (full R point, big-endian bytes) is flipped to
  * verifyRespondBidirectionalEvent's circuit-input form, which is what a
  * client hands to verifyResponse (the flip lockstep itself is pinned in
  * signet-midnight's ecdsa-attestation tests).
@@ -550,15 +553,18 @@ const OUTPUT_FAILURE = compactSerialize(BOOL_RESPONSE, { success: false }, 1);
 const respond = (
   secretKey: Uint8Array,
   requestId: Uint8Array,
+  outputKind: OutputKind,
   serializedOutput: Uint8Array,
 ): RespondBidirectionalEvent =>
   respondBidirectionalEventToCircuitInput({
     signature: ecdsaSignatureToMpcSignature(
       signAttestationDigest(
-        calculateSignetAttestationDigest(requestId, BLOCK_HEIGHT, serializedOutput),
+        calculateSignetAttestationDigest(requestId, BLOCK_HEIGHT, outputKind, serializedOutput),
         secretKey,
       ),
     ),
+    outputKind,
+    blockHeight: BLOCK_HEIGHT,
   });
 
 // ---- Verify-response tests ----
@@ -573,19 +579,18 @@ describe("verifyResponse", () => {
     );
     const idHex = onlyRequestId(index);
     const requestId = requestIdBytes(idHex);
-    const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT),
+      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Not initialised/);
   });
 
   it("a genuine response verifies and consumes the request", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
 
-    const next = (
-      await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT)
-    ).context;
+    const next = (await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS))
+      .context;
 
     const state = ledger(next.callContext.currentQueryContext.state);
     expect(state.signBidirectionalEventMap.isEmpty()).toBe(true);
@@ -593,31 +598,56 @@ describe("verifyResponse", () => {
 
   it("rejects an imposter's signature (verified against the STORED key)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    const event = respond(IMPOSTER_SECRET, requestId, OUTPUT_SUCCESS);
+    const event = respond(IMPOSTER_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT),
+      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
   it("rejects a tampered response (output differs from what was signed)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    const response = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
+    const response = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
     const tamperedOutput = OUTPUT_FAILURE;
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, response, tamperedOutput, BLOCK_HEIGHT),
+      contract.circuits.verifyResponse(ctx, requestId, response, tamperedOutput),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
   it("rejects a tampered signature scalar", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    const response = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
+    const response = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
     await expect(
       contract.circuits.verifyResponse(
         ctx,
         requestId,
-        { signature: { ...response.signature, s: bytes(32, 0x99) } },
+        { ...response, signature: { ...response.signature, s: bytes(32, 0x99) } },
         OUTPUT_SUCCESS,
-        BLOCK_HEIGHT,
+      ),
+    ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects a tampered block height", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    const response = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    await expect(
+      contract.circuits.verifyResponse(
+        ctx,
+        requestId,
+        { ...response, blockHeight: BLOCK_HEIGHT + 1n },
+        OUTPUT_SUCCESS,
+      ),
+    ).rejects.toThrow(/Invalid attestation signature/);
+  });
+
+  it("rejects a tampered output kind", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    const response = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    await expect(
+      contract.circuits.verifyResponse(
+        ctx,
+        requestId,
+        { ...response, outputKind: OutputKind.failed },
+        OUTPUT_SUCCESS,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
@@ -627,9 +657,9 @@ describe("verifyResponse", () => {
     // The MPC honestly attests a failed foreign call. The signature
     // verifies, then the in-circuit deserialize decodes success=false and
     // settlement is refused.
-    const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_FAILURE);
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_FAILURE);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_FAILURE, BLOCK_HEIGHT),
+      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_FAILURE),
     ).rejects.toThrow(/Foreign call reported failure/);
   });
 
@@ -639,9 +669,9 @@ describe("verifyResponse", () => {
     // rejected, they decode to false and hit the same failure assert. Raw
     // on purpose: the serialize twin can never produce this byte.
     const nonCanonical = Uint8Array.from([2]);
-    const event = respond(MPC_RESPONSE_SECRET, requestId, nonCanonical);
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, nonCanonical);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, nonCanonical, BLOCK_HEIGHT),
+      contract.circuits.verifyResponse(ctx, requestId, event, nonCanonical),
     ).rejects.toThrow(/Foreign call reported failure/);
   });
 
@@ -650,30 +680,29 @@ describe("verifyResponse", () => {
     // Signed for some OTHER id: the digest binds the request id, so the
     // signature cannot be replayed onto this pending request.
     const otherId = bytes(32, 0xab);
-    const event = respond(MPC_RESPONSE_SECRET, otherId, OUTPUT_SUCCESS);
+    const event = respond(MPC_RESPONSE_SECRET, otherId, OutputKind.executed, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT),
+      contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
   it("rejects a genuinely signed id that has no pending request", async () => {
     const { contract, ctx } = await requestSubmitted();
     const unknownId = bytes(32, 0xab);
-    const event = respond(MPC_RESPONSE_SECRET, unknownId, OUTPUT_SUCCESS);
+    const event = respond(MPC_RESPONSE_SECRET, unknownId, OutputKind.executed, OUTPUT_SUCCESS);
     await expect(
-      contract.circuits.verifyResponse(ctx, unknownId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT),
+      contract.circuits.verifyResponse(ctx, unknownId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Request not found/);
   });
 
   it("a second verify of the SAME request rejects (the first consumed it)", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    const event = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
-    const next = (
-      await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT)
-    ).context;
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    const next = (await contract.circuits.verifyResponse(ctx, requestId, event, OUTPUT_SUCCESS))
+      .context;
 
     await expect(
-      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS, BLOCK_HEIGHT),
+      contract.circuits.verifyResponse(next, requestId, event, OUTPUT_SUCCESS),
     ).rejects.toThrow(/Request not found/);
   });
 });
@@ -719,9 +748,8 @@ describe("verifyCheckAndDoubleResponse", () => {
       await contract.circuits.verifyCheckAndDoubleResponse(
         ctx,
         requestId,
-        respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_BOOL_UINT),
+        respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_BOOL_UINT),
         OUTPUT_BOOL_UINT,
-        BLOCK_HEIGHT,
       )
     ).context;
     expect(
@@ -731,17 +759,11 @@ describe("verifyCheckAndDoubleResponse", () => {
 
   it("rejects when the presented output differs from what was signed", async () => {
     const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
-    const response = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_BOOL_UINT);
+    const response = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_BOOL_UINT);
     const tampered = Uint8Array.from(OUTPUT_BOOL_UINT);
     tampered[1] = 13;
     await expect(
-      contract.circuits.verifyCheckAndDoubleResponse(
-        ctx,
-        requestId,
-        response,
-        tampered,
-        BLOCK_HEIGHT,
-      ),
+      contract.circuits.verifyCheckAndDoubleResponse(ctx, requestId, response, tampered),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
 
@@ -750,7 +772,12 @@ describe("verifyCheckAndDoubleResponse", () => {
     // over the 1-byte bool payload can never match a 33-byte presentation,
     // even with the honest first byte and zero padding.
     const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
-    const boolOnlyResponse = respond(MPC_RESPONSE_SECRET, requestId, OUTPUT_SUCCESS);
+    const boolOnlyResponse = respond(
+      MPC_RESPONSE_SECRET,
+      requestId,
+      OutputKind.executed,
+      OUTPUT_SUCCESS,
+    );
     const paddedOutput = new Uint8Array(33);
     paddedOutput.set(OUTPUT_SUCCESS.subarray(0, 1), 0);
     await expect(
@@ -759,7 +786,6 @@ describe("verifyCheckAndDoubleResponse", () => {
         requestId,
         boolOnlyResponse,
         paddedOutput,
-        BLOCK_HEIGHT,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });
@@ -770,9 +796,8 @@ describe("verifyCheckAndDoubleResponse", () => {
       contract.circuits.verifyCheckAndDoubleResponse(
         ctx,
         requestId,
-        respond(IMPOSTER_SECRET, requestId, OUTPUT_BOOL_UINT),
+        respond(IMPOSTER_SECRET, requestId, OutputKind.executed, OUTPUT_BOOL_UINT),
         OUTPUT_BOOL_UINT,
-        BLOCK_HEIGHT,
       ),
     ).rejects.toThrow(/Invalid attestation signature/);
   });

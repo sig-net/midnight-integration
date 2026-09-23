@@ -21,6 +21,7 @@ import {
   decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
   decodeSignetLogEvents,
+  OutputKind,
   pureCircuits as signetCircuits,
   type RespondBidirectionalEvent,
   type SignatureRespondedEvent,
@@ -95,6 +96,8 @@ const RESPOND_1: RespondBidirectionalEvent = {
     s: bytes(32, 0x09),
     recoveryId: 0n,
   },
+  outputKind: OutputKind.failed,
+  blockHeight: 0x0102030405060708n,
 };
 const RESPOND_2: RespondBidirectionalEvent = {
   signature: {
@@ -102,6 +105,8 @@ const RESPOND_2: RespondBidirectionalEvent = {
     s: bytes(32, 0x0c),
     recoveryId: 1n,
   },
+  outputKind: OutputKind.unviable,
+  blockHeight: 2n ** 64n - 1n,
 };
 
 // A caller contract address as the packer consumes it (raw 32 bytes). The
@@ -310,13 +315,19 @@ describe("respondBidirectional", () => {
     const events = decodeSignetLogEvents(context.events, contractAddress);
     expect(events).toHaveLength(1);
     expect(eventAt(events).name).toBe(SignetEventName.RespondBidirectionalEvent);
-    // The declared request id and the synthetic (unverifiable) signature
-    // landed verbatim: the contract emits, the reader verifies.
+    // The declared request id, the synthetic (unverifiable) signature, the
+    // output kind and the block height landed verbatim: the contract emits,
+    // the reader verifies. The kind's wire byte (failed is variant 1) and the
+    // height's little-endian order are pinned raw.
     expect(decodeRespondBidirectionalEventPayload(eventAt(events).payload)).toEqual({
       requestId: REQUEST_A,
       event: RESPOND_1,
     });
-    expectZeroPadding(eventAt(events).payload, 129);
+    expect(eventAt(events).payload.at(129)).toBe(1);
+    expect(eventAt(events).payload.slice(130, 138)).toEqual(
+      Uint8Array.from([0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]),
+    );
+    expectZeroPadding(eventAt(events).payload, 138);
   });
 
   it("emits a second post for the same request as its own event, nothing replaced", async () => {

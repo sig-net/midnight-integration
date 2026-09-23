@@ -31,6 +31,7 @@ import {
   type CompactType,
   CompactTypeBoolean,
   CompactTypeBytes,
+  CompactTypeEnum,
   CompactTypeUnsignedInteger,
 } from "@midnight-ntwrk/compact-runtime";
 
@@ -191,34 +192,46 @@ export function declaredWidths(cell: AlignedValue, what: string): number[] {
 }
 
 /**
- * Descriptor of the Compact tuple `[RequestId, Uint<64>, Uint<64>, Bytes<serializedOutputLength>]`
- * the attestation digest hashes, composed the way the compiler composes a
- * tuple: the elements' alignments and values concatenated in order. The output
- * width enters the descriptor, so it is fixed per call rather than a constant.
+ * Descriptor of Signet.compact's three-variant `OutputKind` enum, at the
+ * literal the compiler emits (highest variant index 2, one byte). Adding a
+ * variant to the Compact enum means raising the index here in lockstep.
+ */
+const OUTPUT_KIND = new CompactTypeEnum(2, 1);
+
+/**
+ * Descriptor of the Compact tuple
+ * `[RequestId, Uint<64>, OutputKind, Uint<64>, Bytes<serializedOutputLength>]`
+ * the attestation digest hashes (request id, block height, output kind,
+ * output length, output), composed the way the compiler composes a tuple:
+ * the elements' alignments and values concatenated in order. The output
+ * width enters the descriptor, so it is built per call.
  *
  * @param serializedOutputLength - Declared width of the output element, in bytes.
- * @returns The triple descriptor for {@link calculateSignetAttestationDigest}.
+ * @returns The tuple descriptor for {@link calculateSignetAttestationDigest}.
  */
 export function attestationPreimageDescriptor(
   serializedOutputLength: number,
-): CompactType<[Uint8Array, bigint, bigint, Uint8Array]> {
+): CompactType<[Uint8Array, bigint, number, bigint, Uint8Array]> {
   const output = new CompactTypeBytes(serializedOutputLength);
   return {
     alignment: () => [
       ...BYTES_32.alignment(),
       ...UINT_64.alignment(),
+      ...OUTPUT_KIND.alignment(),
       ...UINT_64.alignment(),
       ...output.alignment(),
     ],
-    toValue: ([requestId, blockHeight, outputLength, serializedOutput]) => [
+    toValue: ([requestId, blockHeight, outputKind, outputLength, serializedOutput]) => [
       ...BYTES_32.toValue(requestId),
       ...UINT_64.toValue(blockHeight),
+      ...OUTPUT_KIND.toValue(outputKind),
       ...UINT_64.toValue(outputLength),
       ...output.toValue(serializedOutput),
     ],
     fromValue: (value) => [
       BYTES_32.fromValue(value),
       UINT_64.fromValue(value),
+      OUTPUT_KIND.fromValue(value),
       UINT_64.fromValue(value),
       output.fromValue(value),
     ],

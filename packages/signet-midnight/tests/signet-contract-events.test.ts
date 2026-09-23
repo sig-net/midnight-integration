@@ -24,6 +24,7 @@ import {
   decodeSignetEventNamed,
   decodeSignetLogEvents,
   type IndexedSignetMiscEvent,
+  OutputKind,
   pureCircuits,
   requestIdHex,
   type RespondBidirectionalEvent,
@@ -91,6 +92,8 @@ const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
     s: bytes(32, 0x5e),
     recoveryId: 1n,
   },
+  outputKind: OutputKind.unviable,
+  blockHeight: 0x0102030405060708n,
 };
 
 describe("decodeSignetEventName", () => {

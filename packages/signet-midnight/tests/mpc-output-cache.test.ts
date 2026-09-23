@@ -6,8 +6,6 @@ import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  decodeAttestedOutput,
-  encodeAttestedOutput,
   MidnightNetwork,
   MPC_FAILURE_OUTPUT,
   MpcOutputCacheReader,
@@ -57,24 +55,6 @@ async function serveBucket(reply: BucketReply, paths: string[]): Promise<string>
   return `http://127.0.0.1:${String(address.port)}`;
 }
 
-describe("encodeAttestedOutput / decodeAttestedOutput", () => {
-  it("stores the block height as a packed little-endian Uint<64> ahead of the output", () => {
-    const encoded = encodeAttestedOutput({
-      blockHeight: 0x0102030405060708n,
-      serializedOutput: Uint8Array.from([0xaa, 0xbb]),
-    });
-    expect(encoded).toEqual(Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1, 0xaa, 0xbb]));
-    expect(decodeAttestedOutput(encoded)).toEqual({
-      blockHeight: 0x0102030405060708n,
-      serializedOutput: Uint8Array.from([0xaa, 0xbb]),
-    });
-  });
-
-  it("rejects an object shorter than a block height", () => {
-    expect(() => decodeAttestedOutput(Uint8Array.from([1, 2, 3]))).toThrow(/shorter/);
-  });
-});
-
 describe("MpcOutputCacheReader", () => {
   it.each([
     { name: "a bare cache URL", suffix: "" },
@@ -122,27 +102,18 @@ describe("MpcOutputCacheReader", () => {
   it.each([
     {
       name: "a one-byte packed transfer result",
-      reply: {
-        status: 200,
-        body: encodeAttestedOutput({ blockHeight: 12n, serializedOutput: new Uint8Array([0x01]) }),
-      },
-      expected: { blockHeight: 12n, serializedOutput: new Uint8Array([0x01]) },
+      reply: { status: 200, body: new Uint8Array([0x01]) },
+      expected: new Uint8Array([0x01]),
     },
     {
-      name: "the failure output with its height",
-      reply: {
-        status: 200,
-        body: encodeAttestedOutput({ blockHeight: 7n, serializedOutput: MPC_FAILURE_OUTPUT }),
-      },
-      expected: { blockHeight: 7n, serializedOutput: MPC_FAILURE_OUTPUT },
+      name: "the failure output verbatim",
+      reply: { status: 200, body: MPC_FAILURE_OUTPUT },
+      expected: MPC_FAILURE_OUTPUT,
     },
     {
-      name: "an empty output",
-      reply: {
-        status: 200,
-        body: encodeAttestedOutput({ blockHeight: 0n, serializedOutput: new Uint8Array() }),
-      },
-      expected: { blockHeight: 0n, serializedOutput: new Uint8Array() },
+      name: "an empty object",
+      reply: { status: 200, body: new Uint8Array() },
+      expected: new Uint8Array(),
     },
     {
       name: "no object yet",
@@ -160,7 +131,7 @@ describe("MpcOutputCacheReader", () => {
       networkId: NETWORK_ID,
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     });
-    const fetched = await reader.fetchAttestedOutput(REQUEST_ID);
+    const fetched = await reader.fetchSerializedOutput(REQUEST_ID);
     expect(fetched).toEqual(expected);
     expect(paths).toEqual([EXPECTED_OBJECT_PATH]);
   });
@@ -176,7 +147,7 @@ describe("MpcOutputCacheReader", () => {
       networkId: NETWORK_ID,
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     });
-    await expect(reader.fetchAttestedOutput(REQUEST_ID)).rejects.toThrow(
+    await expect(reader.fetchSerializedOutput(REQUEST_ID)).rejects.toThrow(
       `MPC output cache answered HTTP ${String(status)} for ${baseUrl}${EXPECTED_OBJECT_PATH}: ${body}`,
     );
   });
@@ -187,6 +158,6 @@ describe("MpcOutputCacheReader", () => {
       networkId: NETWORK_ID,
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     });
-    await expect(reader.fetchAttestedOutput(REQUEST_ID)).rejects.toThrow();
+    await expect(reader.fetchSerializedOutput(REQUEST_ID)).rejects.toThrow();
   });
 });

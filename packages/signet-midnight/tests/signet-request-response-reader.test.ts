@@ -18,6 +18,7 @@ import {
   MPCDestination,
   MPCSignatureAlgorithm,
   numericAbiWord,
+  OutputKind,
   pureCircuits,
   requestIdHex,
   type RespondBidirectionalEvent,
@@ -161,6 +162,8 @@ const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
     s: bytes(32, 0x5e),
     recoveryId: 1n,
   },
+  outputKind: OutputKind.executed,
+  blockHeight: 500n,
 };
 
 // The MPC response key of the requesting contract, and a genuinely signed
@@ -170,14 +173,21 @@ const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
 const MPC_RESPONSE_SECRET = bytes(32, 0x11);
 const MPC_RESPONSE_KEY = secp256k1PublicKeyOf(MPC_RESPONSE_SECRET);
 const ATTESTED_OUTPUT = Uint8Array.from([1]);
-const ATTESTED_HEIGHT = 9_401_212n;
+const ATTESTED_BLOCK_HEIGHT = 7_654_321n;
 const ATTESTED_RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
   signature: ecdsaSignatureToMpcSignature(
     signAttestationDigest(
-      calculateSignetAttestationDigest(REQUEST_ID, ATTESTED_HEIGHT, ATTESTED_OUTPUT),
+      calculateSignetAttestationDigest(
+        REQUEST_ID,
+        ATTESTED_BLOCK_HEIGHT,
+        OutputKind.executed,
+        ATTESTED_OUTPUT,
+      ),
       MPC_RESPONSE_SECRET,
     ),
   ),
+  outputKind: OutputKind.executed,
+  blockHeight: ATTESTED_BLOCK_HEIGHT,
 };
 
 // ---- Harness ----
@@ -454,7 +464,6 @@ describe("verification over decoded events already in hand", () => {
     expect(
       findVerifiedRespondBidirectionalEvent(
         REQUEST_ID_HEX,
-        ATTESTED_HEIGHT,
         ATTESTED_OUTPUT,
         MPC_RESPONSE_KEY,
         IN_HAND,
@@ -466,7 +475,6 @@ describe("verification over decoded events already in hand", () => {
     expect(
       findVerifiedRespondBidirectionalEvent(
         requestIdHex(FOREIGN_REQUEST_ID),
-        ATTESTED_HEIGHT,
         ATTESTED_OUTPUT,
         MPC_RESPONSE_KEY,
         IN_HAND,
@@ -557,7 +565,6 @@ describe("getVerifiedRespondBidirectionalEvent", () => {
     expect(
       await reader.getVerifiedRespondBidirectionalEvent(
         REQUEST_ID_HEX,
-        ATTESTED_HEIGHT,
         ATTESTED_OUTPUT,
         MPC_RESPONSE_KEY,
       ),
@@ -574,7 +581,6 @@ describe("getVerifiedRespondBidirectionalEvent", () => {
     expect(
       await reader.getVerifiedRespondBidirectionalEvent(
         REQUEST_ID_HEX,
-        ATTESTED_HEIGHT,
         ATTESTED_OUTPUT,
         MPC_RESPONSE_KEY,
       ),
@@ -586,7 +592,6 @@ describe("getVerifiedRespondBidirectionalEvent", () => {
     expect(
       await reader.getVerifiedRespondBidirectionalEvent(
         REQUEST_ID_HEX,
-        ATTESTED_HEIGHT,
         Uint8Array.from([0]),
         MPC_RESPONSE_KEY,
       ),
@@ -598,7 +603,6 @@ describe("getVerifiedRespondBidirectionalEvent", () => {
     expect(
       await reader.getVerifiedRespondBidirectionalEvent(
         REQUEST_ID_HEX,
-        ATTESTED_HEIGHT,
         ATTESTED_OUTPUT,
         MPC_RESPONSE_KEY,
       ),
