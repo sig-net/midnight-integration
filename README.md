@@ -187,10 +187,6 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    // Used to verify RespondBidirectionalEvents attesting the serialised output of foreign chain execution.
    export ledger mpcResponseKey: Secp256k1Point;
 
-   // Recommended: contract-local source of request nonces, so identical
-   // requests hash to distinct request ids. Nothing off-chain reads it.
-   export ledger signetRequestNonce: Counter;
-
    // Recommended: used in step 4 to ensure initialisation runs only once.
    export ledger initialised: Counter;
 
@@ -241,7 +237,7 @@ Do not derive the path by hand: the compiler records it in your compiled artifac
 
 The two caller contracts in this repository are worked examples of each case:
 
-- [`packages/test-caller-contract`](packages/test-caller-contract): the flat case, where its 8-field ledger stores the map at field 4, so notifications carry depth `1` and path `[4, 0, 0, 0]`.
+- [`packages/test-caller-contract`](packages/test-caller-contract): the flat case, where its 7-field ledger stores the map at field 3, so notifications carry depth `1` and path `[4, 0, 0, 0]`.
 - [`packages/test-caller-contract-20-field`](packages/test-caller-contract-20-field): the chunked case, where its 20 fields split 5 + 15, so the map at field 19 packs as depth `2` and path `[1, 14, 0, 0]`.
 
 ## Runtime
@@ -308,7 +304,6 @@ const expectedSigner = deriveEvmAddress(
    const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
    // Store the signature request in your signBidirectionalEventMap for MPC to discover
-   signetRequestNonce.increment(1);
    signBidirectionalEventMap.insert(requestId, disclose(request));
 
    // Notify the MPC of the SignBidirectionalEvent and the location of your signBidirectionalEventMap.

@@ -20,11 +20,9 @@ import "@sig-net/midnight/src/Signet";
 // field 0: log of every submitted request id, newest first.
 export ledger requestLog: List<Bytes<32>>;
 
-// field 1: contract-local request counter, sources each request's nonce.
-export ledger signetRequestNonce: Counter;
-
-// fields 2..18: filler counters pushing the contract past the 15-field
+// fields 1..18: filler counters pushing the contract past the 15-field
 // chunking threshold.
+export ledger pad01: Counter;
 export ledger pad02: Counter;
 export ledger pad03: Counter;
 export ledger pad04: Counter;
@@ -74,10 +72,8 @@ export circuit submitSignatureRequest(
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
-  const requestNonce = signetRequestNonce as Uint<64>;
   const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(
     kernel.self(),
-    requestNonce,
     keyVersion,
     pad(32, "caller-path"),
     MPCSignatureAlgorithm.ecdsa,
@@ -92,7 +88,6 @@ export circuit submitSignatureRequest(
   const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
-  signetRequestNonce.increment(1);
   signBidirectionalEventMap.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 }

@@ -11,7 +11,7 @@
 
 import type { AlignedValue } from "@midnight-ntwrk/compact-runtime";
 
-import { decodeExactly, UINT_64 } from "./compact-descriptors.ts";
+import { decodeExactly } from "./compact-descriptors.ts";
 import { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";
 import { decodeEvmType2SignBidirectionalEvent } from "./signet-evtype2tx-record-decoding.ts";
 import { calculateRequestId } from "./signet-request-id.ts";
@@ -27,9 +27,9 @@ import {
 
 // Atom position of `txParamType` in a stored record: the chain-agnostic head
 // of SignBidirectionalEvent (sender through txParamType) occupies the first
-// 8 atoms whatever the decomposition, so the tag sits at the same index in
+// 7 atoms whatever the decomposition, so the tag sits at the same index in
 // every record.
-const TX_PARAM_TYPE_ATOM = 7;
+const TX_PARAM_TYPE_ATOM = 6;
 
 /**
  * Decode a stored request record: read the `txParamType` tag and hand the
@@ -63,22 +63,16 @@ function decodeSignBidirectionalEvent(cell: AlignedValue): SignBidirectionalEven
   }
 }
 
-/**
- * The decoded signet ledger fields of a requesting contract: its request
- * index and its contract-local request counter (Compact `Counter`), the
- * source of each request's `requestNonce`.
- */
+/** The decoded signet ledger field of a requesting contract: its request index. */
 export interface SignetRequestsLedger {
-  /** The request counter (`Counter`). */
-  nonce: bigint;
   /** The request index, keyed by hex request id. */
   requestsIndex: SignBidirectionalEventIndex;
 }
 
 /**
- * MPC-style read: parse the signet ledger fields out of raw contract state
- * by caller-supplied field positions. A contract chooses its own layout, so
- * the caller must know where the fields sit.
+ * MPC-style read: parse the signet request index out of raw contract state
+ * by its caller-supplied field position. A contract chooses its own layout, so
+ * the caller must know where the field sits.
  *
  * Records are decoded, not verified against the ids they are filed under:
  * {@link lookupSignetRequestAt} is the verified lookup.
@@ -86,15 +80,13 @@ export interface SignetRequestsLedger {
  * @param raw - Raw contract state, e.g. `queryContractState(address).data`
  *   from the indexer or `ctx.currentQueryContext.state` from the simulator.
  * @param requestsIndexPath - Resolved ledger-tree path of the request index.
- * @param noncePath - Resolved ledger-tree path of the request counter.
  * @returns The decoded {@link SignetRequestsLedger}.
- * @throws {Error} If a field is missing, has the wrong state-value shape, or a
+ * @throws {Error} If the field is missing, has the wrong state-value shape, or a
  *   record is not a decodable evmType2 request record.
  */
 export function readSignetRequestsLedgerFromState(
   raw: RawContractState,
   requestsIndexPath: readonly number[],
-  noncePath: readonly number[],
 ): SignetRequestsLedger {
   const map = signetFieldNodeByPath(raw, requestsIndexPath).asMap();
   if (map === undefined) {
@@ -108,13 +100,7 @@ export function readSignetRequestsLedgerFromState(
     requestsIndex.set(requestId, decodeSignBidirectionalEvent(cell));
   }
 
-  const nonceField = signetFieldNodeByPath(raw, noncePath);
-  if (nonceField.type() !== "cell") {
-    throw new Error(`Ledger field at path ${JSON.stringify(noncePath)} is not a Cell`);
-  }
-  const nonce = decodeExactly(UINT_64, nonceField.asCell().value, "request counter");
-
-  return { nonce, requestsIndex };
+  return { requestsIndex };
 }
 
 /**
