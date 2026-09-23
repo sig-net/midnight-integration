@@ -96,26 +96,16 @@ stack and no MPC:
 
 ```ts
 import { verifyRespondBidirectionalSignature } from "@sig-net/midnight"; // runtime
-import {
-  calculateSignetAttestationDigest,
-  ecdsaSignatureToMpcSignature,
-  secp256k1PublicKeyOf,
-  signAttestationDigest,
-} from "@sig-net/midnight/testing"; // tests only
+import { attestRespondBidirectional, secp256k1PublicKeyOf } from "@sig-net/midnight/testing"; // tests only
 
 // A real RespondBidirectionalEvent for (requestId, blockHeight, outputKind,
-// output), signed by secretKey. It verifies, in-circuit and off chain, against
-// secp256k1PublicKeyOf(secretKey).
-const event = {
-  signature: ecdsaSignatureToMpcSignature(
-    signAttestationDigest(
-      calculateSignetAttestationDigest(requestId, blockHeight, outputKind, serializedOutput),
-      secretKey,
-    ),
-  ),
-  outputKind,
-  blockHeight,
-};
+// serializedOutput), signed by secretKey: the request id, block height, kind,
+// output width, attestation digest and signature the MPC would post. It
+// verifies, in-circuit and off chain, against secp256k1PublicKeyOf(secretKey).
+const event = attestRespondBidirectional(
+  { requestId, blockHeight, outputKind, serializedOutput },
+  secretKey,
+);
 ```
 
 ## Related packages

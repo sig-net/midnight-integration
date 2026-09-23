@@ -25,7 +25,7 @@ The protocol and integration documentation lives in the [sig-net/midnight-integr
 
 ## Related packages
 
-- [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): deploys this contract (constructor argument: the MPC attestation key).
+- [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): deploys this contract (it takes no constructor arguments: the MPC derives a response key per client contract, and each client pins its own).
 - [`@sig-net/midnight`](https://www.npmjs.com/package/@sig-net/midnight): the client-agnostic protocol library for reading this contract's state and verifying responses.
 
 Developed in [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration). Example applications live in [sig-net/midnight-examples](https://github.com/sig-net/midnight-examples).

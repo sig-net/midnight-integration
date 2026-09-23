@@ -19,8 +19,12 @@ node-modules`). Its members live under `packages/`:
 - **`packages/signet-contract-deploy`** — the published, self-contained deploy
   tooling: the signet-contract deploy flow plus the generic deploy/wallet/config
   plumbing (`src/plumbing/`) every contract package's deploy script composes.
+- **`packages/midnight-serde`** — the published TypeScript twin of Compact's
+  builtin `serialize<T, N>` / `deserialize<T, N>` byte layout, pinned against
+  compiled fixture circuits, with zero runtime dependencies. `@sig-net/midnight`
+  depends on it.
 - **`packages/integration-tests`** — everything that needs a running stack:
-  the generic signet-caller e2e and its setup pipeline.
+  the signet-caller e2e flows (generic and real-EVM) and their setup pipeline.
 Example applications built on these packages (e.g. the ERC20 vault) live in
 `sig-net/midnight-examples`, consuming the published `@sig-net/*` packages
 from npm.
@@ -35,8 +39,8 @@ Member-specific rules live in that member's own `AGENTS.md`.
 
 # Running the integration e2e suite
 
-The operational runbook for `yarn test:integration-tests` — the generic
-signet-caller e2e — lives in
+The operational runbook for `yarn test:integration-tests` — the
+signet-caller e2e flows — lives in
 [`.claude/skills/e2e/SKILL.md`](.claude/skills/e2e/SKILL.md) — read it BEFORE
 running or re-deploying the e2e stack. It covers what the test pipeline docs
 (`packages/integration-tests/README.md`) do not: the fresh-clone path, clean

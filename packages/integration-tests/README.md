@@ -112,7 +112,7 @@ run offline under plain `yarn test`; the flow file gates itself with
 # All three from the repo root. Run 'yarn compile' first.
 yarn test:integration-tests                            # both flow files
 yarn test:integration-tests:signet-caller-e2e          # just the generic (EVM-free) caller flow file
-yarn test:integration-tests:signet-caller-evm-e2e      # just the real-EVM flow file (broadcast, attestation, /responses fetch)
+yarn test:integration-tests:signet-caller-evm-e2e      # just the real-EVM flow file (broadcast, attestation, output cache, settlement)
 ```
 
 Either way the globalSetup pipeline runs first — setup is never skipped by
@@ -164,7 +164,7 @@ the value to save — and for the fakenet hand-off pair
 human between deploy and the flow. A fresh deployment is ONE run:
 globalSetup zk-compiles both contracts (~10+ min: background it), deploys
 them, hands off to the responder mid-setup, and the flow files run to the
-end (5 tests in the generic flow, 15 in the real-EVM flow).
+end (5 tests in the generic flow, 30 in the real-EVM flow).
 
 **Redeploying after a circuit change?** Any `.compact` edit that alters a
 circuit, struct layout, or the request-id hash domain needs fresh deploys:
