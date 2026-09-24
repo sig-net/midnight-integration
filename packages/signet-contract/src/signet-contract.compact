@@ -22,7 +22,7 @@ import "@sig-net/midnight/src/Signet";
 
 // signBidirectional should be called (cross-contract) by clients to notify the MPC
 // that a SignBidirectionalEvent has been written to their canonical
-// SignBidirectionalEventMap state map. The MPC does not trust the notification's
+// SignBidirectionalEventMapV1 state map. The MPC does not trust the notification's
 // content. It authenticates by:
 //   (a) reading the event back from the named caller's own ledger and refusing entries
 //       whose recomputed request id or sender does not match, and

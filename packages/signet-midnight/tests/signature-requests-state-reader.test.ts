@@ -443,7 +443,7 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
 
   it("lookupSignetRequestAt returns undefined for a stored cell that is not a decodable record", () => {
     const { value, alignment } = cellsOf();
-    value[6] = Uint8Array.of(1); // the reserved txParamType variant
+    value[4] = Uint8Array.of(1); // the reserved txParamType variant
     const id = bytes(32, 0x43);
     const state = StateValue.newArray().arrayPush(
       StateValue.newMap(

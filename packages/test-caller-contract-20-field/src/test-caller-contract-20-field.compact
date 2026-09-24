@@ -73,15 +73,15 @@ export circuit submitSignatureRequest(
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
   const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
-    kernel.self(),
     keyVersion,
+    kernel.self(),
     pad(32, "caller-path"),
     MPCSignatureAlgorithm.ecdsa,
-    MPCDestination.unused,
-    pad(64, ""),
     TxParamType.evmType2,
     txParams,
     ethereumCaip2Id(),
+    MPCDestination.unused,
+    pad(64, ""),
     schema,
     schema
   );

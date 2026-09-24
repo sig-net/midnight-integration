@@ -574,7 +574,7 @@ const BLOCK_HEIGHT = 21_000_000n;
  * outputKind, output) with `secretKey`: the digest comes from the TS twin
  * (pinned against the compiled oracle circuits), exactly like the MPC. The
  * wire event (full R point, big-endian bytes) is flipped to
- * verifyRespondBidirectionalEvent's circuit-input form, which is what a
+ * verifyRespondBidirectionalEventV1's circuit-input form, which is what a
  * client hands to verifyResponse (the flip lockstep itself is pinned in
  * signet-midnight's ecdsa-attestation tests).
  */

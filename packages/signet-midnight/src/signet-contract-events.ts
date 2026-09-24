@@ -395,7 +395,7 @@ export interface MpcSignature {
 
 /**
  * The MPC's signature over the requested EVM transaction (Compact
- * `SignatureRespondedEvent`). Emitted UNVERIFIED: authenticity comes from
+ * `SignatureRespondedEventV1`). Emitted UNVERIFIED: authenticity comes from
  * `SignetRequestResponseReader.getVerifiedSignatureRespondedEvent`.
  */
 export interface SignatureRespondedEvent {
@@ -407,7 +407,7 @@ export interface SignatureRespondedEvent {
 
 /**
  * The MPC's respond-bidirectional attestation of a request's remote EVM
- * execution (Compact `RespondBidirectionalEvent`, in declaration order): the
+ * execution (Compact `RespondBidirectionalEventV1`, in declaration order): the
  * ECDSA signature over the attestation digest
  * (`calculateSignetAttestationDigest`) with everything that digest commits to
  * except the output, which travels off chain. Emitted UNVERIFIED: verify

@@ -1,5 +1,5 @@
 //                                          💡 NOTE 💡
-// This contract drives the Signet Contract @sig-net/contract for integration purposes.
+// This contract drives the Signet Contract @sig-net/midnight-contract for integration purposes.
 // While informative, for better full integration examples (such as an ERC20 cross chain vault example) see
 // the Midnight Examples repository at: https://github.com/sig-net/midnight-examples.
 //
@@ -126,15 +126,15 @@ export circuit submitSignatureRequest(
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
   const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
-    kernel.self(),
     keyVersion,
+    kernel.self(),
     pad(32, "caller-path"),
     MPCSignatureAlgorithm.ecdsa,
-    MPCDestination.unused,
-    pad(64, ""),
     TxParamType.evmType2,
     txParams,
     ethereumCaip2Id(),
+    MPCDestination.unused,
+    pad(64, ""),
     schema,
     schema
   );
@@ -194,15 +194,15 @@ export circuit submitIsEvenRequest(
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
   const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
-    kernel.self(),
     keyVersion,
+    kernel.self(),
     pad(32, "caller-path"),
     MPCSignatureAlgorithm.ecdsa,
-    MPCDestination.unused,
-    pad(64, ""),
     TxParamType.evmType2,
     txParams,
     ethereumCaip2Id(),
+    MPCDestination.unused,
+    pad(64, ""),
     schema,
     schema
   );
@@ -257,15 +257,15 @@ export circuit submitCheckAndDoubleRequest(
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"},{\"name\":\"amount\",\"type\":\"uint256\"}]" as Bytes<69>;
   const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 69, 69>(
-    kernel.self(),
     keyVersion,
+    kernel.self(),
     pad(32, "caller-path"),
     MPCSignatureAlgorithm.ecdsa,
-    MPCDestination.unused,
-    pad(64, ""),
     TxParamType.evmType2,
     txParams,
     ethereumCaip2Id(),
+    MPCDestination.unused,
+    pad(64, ""),
     schema,
     schema
   );
@@ -321,15 +321,15 @@ export circuit submitRevertIfRequest(
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
   const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
-    kernel.self(),
     keyVersion,
+    kernel.self(),
     pad(32, "caller-path"),
     MPCSignatureAlgorithm.ecdsa,
-    MPCDestination.unused,
-    pad(64, ""),
     TxParamType.evmType2,
     txParams,
     ethereumCaip2Id(),
+    MPCDestination.unused,
+    pad(64, ""),
     schema,
     schema
   );

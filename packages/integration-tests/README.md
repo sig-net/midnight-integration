@@ -37,8 +37,9 @@ and two flow files:
      signet contract and verifies against the caller's epsilon-derived
      account.
   5. `verifyResponse`: verify an ECDSA respond-bidirectional attestation
-     (the MPC's signature over the digest of the request id and serialised
-     output) in-circuit and consume the request. The event never carries the
+     (the MPC's signature over the digest of the request id, block height,
+     output kind, output width and serialised output) in-circuit and consume
+     the request. The event never carries the
      output, so the circuit takes the output bytes as an argument
      and re-hashes them into the digest the signature must cover. The
      fakenet only attests after observing a broadcast on the destination

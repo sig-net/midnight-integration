@@ -200,7 +200,7 @@ export const requestIdPreimageDescriptor: CompactType<RequestIdPreimage> =
 /**
  * Descriptor of {@link SignBidirectionalEvent} over ANY tx-params
  * decomposition: the TS analogue of Compact's generic
- * `SignBidirectionalEvent`. Each decomposition wraps this with its own
+ * `SignBidirectionalEventV1`. Each decomposition wraps this with its own
  * capacity-parameterised convenience (see `signBidirectionalEventDescriptor`
  * in signet-evtype2tx-requests.ts for the EVM Type-2 one).
  *
@@ -233,9 +233,9 @@ export function signBidirectionalEventDescriptorWith<TxParams>(
 }
 
 /**
- * The generated ledger shape of `Map<RequestId, SignBidirectionalEvent>`:
- * what a contract's `ledger(state).signetRequestsIndex` provides. Structural,
- * so any contract exposing the index satisfies it.
+ * The generated ledger shape of a `SignBidirectionalEventMapV1`: what a
+ * contract's `ledger(state).signBidirectionalEventMap` provides. Structural,
+ * so any contract exposing such a map satisfies it.
  */
 export interface SignBidirectionalEventLedgerMap extends Iterable<
   [RequestId, SignBidirectionalEvent]

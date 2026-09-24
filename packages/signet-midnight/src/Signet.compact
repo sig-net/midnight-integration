@@ -142,15 +142,15 @@ module Signet {
 
   // Construction helper for the canonical Signet SignBidirectionalEventV1.
   export pure circuit constructSignBidirectionalEventV1<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
-    sender: ContractAddress,
     keyVersion: Uint<8>,
+    sender: ContractAddress,
     path: Bytes<32>,
     algo: MPCSignatureAlgorithm,
-    signatureDest: MPCDestination,
-    params: Bytes<64>,
     txParamType: TxParamType,
     txParams: TxParams,
     executionDest: Bytes<32>,
+    signatureDest: MPCDestination,
+    params: Bytes<64>,
     outputDeserializationSchema: Bytes<LenOutputDeserialization>,
     respondSerializationSchema: Bytes<LenRespondSerialization>,
   ): SignBidirectionalEventV1<TxParams, LenOutputDeserialization, LenRespondSerialization> {
@@ -234,7 +234,7 @@ module Signet {
   export contract SignetSigner {
     // Called by client contracts to notify the MPC of a SignBidirectionalEvent.
     circuit signBidirectional(
-      // Canonical id of the SignBidirectionalEvent (calculate with calculateRequestId).
+      // Canonical id of the SignBidirectionalEvent (calculateEvmType2RequestIdV1 for evmType2).
       // Disclosed in the emitted notification event: the MPC looks this id up in the
       // caller's own request map.
       requestId: RequestId,
@@ -371,7 +371,7 @@ module Signet {
   // transaction the attestation describes, in the destination chain's own
   // numbering (a slot on Solana).
   // Off-chain code uses the TypeScript twin:
-  //    import { calculateSignetAttestationDigest } from "@sig-net/midnight";
+  //    import { calculateSignetAttestationDigest } from "@sig-net/midnight/testing";
   export pure circuit calculateSignetAttestationDigestV1<#serializedOutputLength>(
     requestId: RequestId,
     blockHeight: Uint<64>,
@@ -495,7 +495,7 @@ module Signet {
   // contributes only its absence, so one transaction has one digest whatever
   // capacities the requester compiled its struct with and whatever bytes sit in
   // unused slots. The counts must fit their capacities. Off-chain code uses the
-  // TypeScript twin of the same name in @sig-net/midnight.
+  // TypeScript twin calculateEvmType2TxParamsDigest in @sig-net/midnight.
   //
   // The slot walks are folds carrying the slot index and a running hash: a `for`
   // over `0..n` has no index type at n = 0, and a zero capacity is the common case.

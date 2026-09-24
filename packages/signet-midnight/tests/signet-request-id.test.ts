@@ -1,7 +1,7 @@
 // Unit tests for the request id computation: determinism, sensitivity to the
 // record's contents, and the unsupported-decomposition rejection. The
-// lockstep with the compiled `calculateRequestId` circuit is pinned by
-// test-caller-contract's round-trip test, not duplicated here.
+// lockstep with the compiled calculateRequestIdV1 and
+// calculateEvmType2RequestIdV1 circuits is pinned in circuits.test.ts.
 
 import { describe, expect, it } from "vitest";
 

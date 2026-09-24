@@ -89,6 +89,21 @@ export pure circuit calculateEvmType2TxParamsDigestV1_2_1_2(
   return calculateEvmType2TxParamsDigestV1<2, 1, 2>(txParams);
 }
 
+// Pin the TS twin calculateRequestId against the composed request id circuit
+// at the same two shapes, and its tag assert.
+
+export pure circuit calculateEvmType2RequestIdV1_1_0_0_34_34(
+  request: SignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>
+): RequestId {
+  return calculateEvmType2RequestIdV1<1, 0, 0, 34, 34>(request);
+}
+
+export pure circuit calculateEvmType2RequestIdV1_2_1_2_34_34(
+  request: SignBidirectionalEventV1<EvmType2TxParams<2, 1, 2>, 34, 34>
+): RequestId {
+  return calculateEvmType2RequestIdV1<2, 1, 2, 34, 34>(request);
+}
+
 export pure circuit verifyRespondBidirectionalEvent0(
   serializedOutput: Bytes<0>,
   respondBidirectionalEvent: RespondBidirectionalEventV1,

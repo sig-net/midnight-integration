@@ -335,7 +335,13 @@ const expectedSigner = deriveEvmAddress(
    // undefined: no attestation of that output posted yet, poll again.
    ```
 
-5. Deliver the response and the serialised output to your contract, which recomputes the attestation digest, verifies the event in-circuit against the response key pinned in Setup step 4, and consumes the request the event names. The digest binds that request id, so consume it from the verified event and never an id taken from elsewhere. The width argument is the exact packed size of your respond serialisation schema (a single bool packs to 1 byte):
+5. Deliver the response and the serialised output to your contract, which recomputes the attestation digest, verifies the event in-circuit against the response key pinned in Setup step 4, and consumes the request the event names. The digest binds that request id, so consume it from the verified event and never an id taken from elsewhere. The wire event carries `bigR.x` and `s` big-endian and the circuit reads them little-endian, so hand the circuit the flipped record:
+
+   ```ts
+   const circuitInput = respondBidirectionalEventToCircuitInput(respondBidirectionalEvent);
+   ```
+
+   The width argument is the exact packed size of your respond serialisation schema (a single bool packs to 1 byte):
 
    ```compact
    assert(

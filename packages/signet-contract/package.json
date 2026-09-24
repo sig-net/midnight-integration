@@ -7,7 +7,7 @@
     "directory": "packages/signet-contract"
   },
   "type": "module",
-  "description": "The central signet Compact contract on Midnight: the MPC posts signature responses (unauthenticated counted log, verified off-chain) and remote execution responses (Schnorr attestations, verified in-circuit at post time) here; clients poll it. src/index.ts is the curated export surface.",
+  "description": "The central signet Compact contract on Midnight: the MPC posts signature responses and remote execution attestations (ECDSA, emitted unverified for clients to verify in-circuit) here as contract events; clients poll it. src/index.ts is the curated export surface.",
   "exports": {
     ".": "./src/index.ts",
     "./managed/*": "./src/managed/*"

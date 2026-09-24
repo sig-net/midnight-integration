@@ -292,6 +292,24 @@ describe("calculateEvmType2TxParamsDigestV1 (circuit/TS lockstep)", () => {
     );
   });
 
+  it("an unused entry's storageKeyCount is ignored even past its capacity, on both sides", () => {
+    const unusedOverCapacity: EvmType2TxParams = {
+      ...AT_2_1_2_GARBAGE,
+      accessList: [
+        {
+          address: bytes(20, 0x99),
+          storageKeyCount: 3n,
+          storageKeys: [bytes(32, 0x99), bytes(32, 0x99)],
+        },
+      ],
+    };
+    const at100 = bytesToHex(pureCircuits.calculateEvmType2TxParamsDigestV1_1_0_0(AT_1_0_0));
+    expect(
+      bytesToHex(pureCircuits.calculateEvmType2TxParamsDigestV1_2_1_2(unusedOverCapacity)),
+    ).toBe(at100);
+    expect(bytesToHex(calculateEvmType2TxParamsDigest(unusedOverCapacity))).toBe(at100);
+  });
+
   it("an absent calldata contributes only its absence: its value arm never enters", () => {
     const absentZero: EvmType2TxParams = {
       ...AT_2_1_2,
@@ -433,5 +451,54 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
       executionDest: RECORD.executionDest,
     });
     expect(bytesToHex(calculateRequestId(RECORD))).toBe(bytesToHex(circuit));
+  });
+
+  /** RECORD at <2, 1, 2> with every capacity used. */
+  const RECORD_2_1_2: SignBidirectionalEvent = {
+    ...RECORD,
+    txParams: {
+      ...RECORD.txParams,
+      calldata: {
+        is_some: true,
+        value: { selector: bytes(4, 0xab), noWords: 2n, words: [bytes(32, 0x11), bytes(32, 0x12)] },
+      },
+      accessListEntryCount: 1n,
+      accessList: [
+        {
+          address: bytes(20, 0xcc),
+          storageKeyCount: 2n,
+          storageKeys: [bytes(32, 0x22), bytes(32, 0x23)],
+        },
+      ],
+    },
+  };
+
+  it.each([
+    {
+      name: "<1, 0, 0>",
+      oracle: (r: SignBidirectionalEvent) =>
+        pureCircuits.calculateEvmType2RequestIdV1_1_0_0_34_34(r),
+      record: RECORD,
+    },
+    {
+      name: "<2, 1, 2> with a used access list",
+      oracle: (r: SignBidirectionalEvent) =>
+        pureCircuits.calculateEvmType2RequestIdV1_2_1_2_34_34(r),
+      record: RECORD_2_1_2,
+    },
+  ])(
+    "the TS request id equals the compiled calculateEvmType2RequestIdV1 at $name",
+    ({ oracle, record }) => {
+      expect(bytesToHex(calculateRequestId(record))).toBe(bytesToHex(oracle(record)));
+    },
+  );
+
+  it("the circuit refuses a request whose tag is not evmType2", () => {
+    expect(() =>
+      pureCircuits.calculateEvmType2RequestIdV1_1_0_0_34_34({
+        ...RECORD,
+        txParamType: TxParamType.reserved,
+      }),
+    ).toThrow(/must tag txParams as evmType2/);
   });
 });

@@ -106,7 +106,7 @@ exception for that specific case.
   ask — a build step is a defect in this workspace, not a missing feature.
   **The one exception is publishing:** the npm-published packages
   (`@sig-net/midnight`, `@sig-net/midnight-contract`,
-  `@sig-net/midnight-contract-deploy`) additionally emit `dist/` via a
+  `@sig-net/midnight-contract-deploy`, `@sig-net/midnight-serde`) additionally emit `dist/` via a
   `tsconfig.build.json`, ship ONLY `dist/` (`files: ["dist"]`), and swap their
   entry to it through `publishConfig.exports` at pack time — the monorepo itself
   still resolves their raw `src/index.ts`, never `dist/`.

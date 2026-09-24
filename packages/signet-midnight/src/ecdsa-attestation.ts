@@ -325,7 +325,7 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
  * The attestation digest of a respond-bidirectional response:
  * `upgradeFromTransient(transientHash([requestId, blockHeight, outputKind, outputLength, serializedOutput]))`,
  * the 32-byte digest the MPC ECDSA-signs to attest a remote execution. TS
- * twin of the size-generic Compact circuit of the same name.
+ * twin of the size-generic Compact circuit `calculateSignetAttestationDigestV1`.
  *
  * @param requestId - The 32-byte request id the response answers.
  * @param blockHeight - Height of the finalised destination block holding the

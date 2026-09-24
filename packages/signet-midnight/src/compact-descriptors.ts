@@ -39,7 +39,6 @@ import {
 // Runtime descriptors of the Compact base types, at the same literals the
 // compiler emits.
 
-/** Descriptor of a Compact `Bytes<4>`. */
 /** `Boolean`. */
 export const BOOLEAN = CompactTypeBoolean;
 /** `Field`: the accumulator of the transaction digest folds. */
