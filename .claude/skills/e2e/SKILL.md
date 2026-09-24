@@ -146,6 +146,17 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   edit (classic yarn caches `file:` tarballs by name@version and pins their
   checksum):
   `yarn cache clean @sig-net/midnight @sig-net/midnight-contract && rm -rf node_modules/@sig-net && yarn install --update-checksums --check-files`.
+  That refresh can silently keep the OLD tarball (yarn 1 reuses its
+  `npm-@sig-net-<name>-<version>-<hash>` cache entry under an unchanged
+  name@version, and the responder then runs the stale SDK with no error, its
+  feed just never finds a request). Before `yarn install`, delete
+  `"$(yarn cache dir)"/npm-@sig-net-*` and `"$(yarn cache dir)"/.tmp` and check
+  `ls "$(yarn cache dir)" | grep sig-net` prints nothing. After it, confirm the
+  installed copy is the one you packed:
+  `diff -rq node_modules/@sig-net/midnight/dist <this-repo>/packages/signet-midnight/dist`
+  (only `.map` files may differ). A rerun after a failed generic flow dies in
+  submit with `Request already exists`: resume with
+  `CALLER_REQUEST_ID=<id from the failed run>` instead.
   The tarball also gives prover/verifier parity for free: the responder
   proves with the same keys the deploy used.
 - Prover/verifier parity: the image carries the signet zk keys from the
