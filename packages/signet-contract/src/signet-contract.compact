@@ -50,7 +50,7 @@ export circuit signBidirectional(
 // when its signature recovers to the caller's derived key over that request's
 // transaction.
 export circuit respond(
-    signatureRespondedEvent: SignatureRespondedEvent,
+    signatureRespondedEvent: SignatureRespondedEventV1,
 ): [] {
     emit (Misc {
         name: pad(32, "SignatureRespondedEvent"),
@@ -75,9 +75,9 @@ export circuit respond(
 // read their request's posts by id and verify each candidate themselves
 // against their MPC response key (derived from the caller contract's address
 // + the fixed path "midnight response key", see
-// verifyRespondBidirectionalEvent in Signet.compact).
+// verifyRespondBidirectionalEventV1 in Signet.compact).
 export circuit respondBidirectional(
-    respondBidirectionalEvent: RespondBidirectionalEvent
+    respondBidirectionalEvent: RespondBidirectionalEventV1
 ): [] {
     emit (Misc {
         name: pad(32, "RespondBidirectionalEvent"),

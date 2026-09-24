@@ -32,7 +32,7 @@ export pure circuit calculateSignetAttestationDigest0(
   outputKind: OutputKind,
   serializedOutput: Bytes<0>
 ): Bytes<32> {
-  return calculateSignetAttestationDigest<0>(requestId, blockHeight, outputKind, serializedOutput);
+  return calculateSignetAttestationDigestV1<0>(requestId, blockHeight, outputKind, serializedOutput);
 }
 
 export pure circuit calculateSignetAttestationDigest1(
@@ -41,7 +41,7 @@ export pure circuit calculateSignetAttestationDigest1(
   outputKind: OutputKind,
   serializedOutput: Bytes<1>
 ): Bytes<32> {
-  return calculateSignetAttestationDigest<1>(requestId, blockHeight, outputKind, serializedOutput);
+  return calculateSignetAttestationDigestV1<1>(requestId, blockHeight, outputKind, serializedOutput);
 }
 
 export pure circuit calculateSignetAttestationDigest2(
@@ -50,7 +50,7 @@ export pure circuit calculateSignetAttestationDigest2(
   outputKind: OutputKind,
   serializedOutput: Bytes<2>
 ): Bytes<32> {
-  return calculateSignetAttestationDigest<2>(requestId, blockHeight, outputKind, serializedOutput);
+  return calculateSignetAttestationDigestV1<2>(requestId, blockHeight, outputKind, serializedOutput);
 }
 
 export pure circuit calculateSignetAttestationDigest32(
@@ -59,7 +59,7 @@ export pure circuit calculateSignetAttestationDigest32(
   outputKind: OutputKind,
   serializedOutput: Bytes<32>
 ): Bytes<32> {
-  return calculateSignetAttestationDigest<32>(requestId, blockHeight, outputKind, serializedOutput);
+  return calculateSignetAttestationDigestV1<32>(requestId, blockHeight, outputKind, serializedOutput);
 }
 
 export pure circuit calculateSignetAttestationDigest100(
@@ -68,15 +68,15 @@ export pure circuit calculateSignetAttestationDigest100(
   outputKind: OutputKind,
   serializedOutput: Bytes<100>
 ): Bytes<32> {
-  return calculateSignetAttestationDigest<100>(requestId, blockHeight, outputKind, serializedOutput);
+  return calculateSignetAttestationDigestV1<100>(requestId, blockHeight, outputKind, serializedOutput);
 }
 
 export pure circuit verifyRespondBidirectionalEvent0(
   serializedOutput: Bytes<0>,
-  respondBidirectionalEvent: RespondBidirectionalEvent,
+  respondBidirectionalEvent: RespondBidirectionalEventV1,
   mpcResponseKey: Secp256k1Point
 ): Boolean {
-  return verifyRespondBidirectionalEvent<0>(
+  return verifyRespondBidirectionalEventV1<0>(
     serializedOutput,
     respondBidirectionalEvent,
     mpcResponseKey
@@ -85,10 +85,10 @@ export pure circuit verifyRespondBidirectionalEvent0(
 
 export pure circuit verifyRespondBidirectionalEvent32(
   serializedOutput: Bytes<32>,
-  respondBidirectionalEvent: RespondBidirectionalEvent,
+  respondBidirectionalEvent: RespondBidirectionalEventV1,
   mpcResponseKey: Secp256k1Point
 ): Boolean {
-  return verifyRespondBidirectionalEvent<32>(
+  return verifyRespondBidirectionalEventV1<32>(
     serializedOutput,
     respondBidirectionalEvent,
     mpcResponseKey

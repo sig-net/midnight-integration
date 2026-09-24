@@ -411,7 +411,7 @@ export interface SignatureRespondedEvent {
  * ECDSA signature over the attestation digest
  * (`calculateSignetAttestationDigest`) with everything that digest commits to
  * except the output, which travels off chain. Emitted UNVERIFIED: verify
- * in-circuit via `verifyRespondBidirectionalEvent` or off chain via
+ * in-circuit via `verifyRespondBidirectionalEventV1` or off chain via
  * `verifyRespondBidirectionalSignature`. Mint one with the
  * `@sig-net/midnight/testing` entry point's `attestRespondBidirectional`.
  */
@@ -691,7 +691,7 @@ export interface SignBidirectionalNotification {
    */
   callerAddress: string;
   /**
-   * Resolved ledger-tree path of the `SignBidirectionalEventMap` in
+   * Resolved ledger-tree path of the `SignBidirectionalEventMapV1` in
    * {@link callerAddress}, as compactc records it in that contract's
    * `contract-info.json` (`"index"`): `[4]` for a flat contract's field 4,
    * `[1, 14]` once chunking applies. Followed node for node by

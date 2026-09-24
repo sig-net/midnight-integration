@@ -3,7 +3,7 @@
 // parsing/formatting, the signature-record codecs both respond events
 // share, and the attestation digest's TS twin.
 // Everything provable stays in Compact where possible: in-circuit
-// verification is `verifyRespondBidirectionalEvent`. The digest circuit is
+// verification is `verifyRespondBidirectionalEventV1`. The digest circuit is
 // size-generic and the compiler cannot export size-generic circuits
 // top-level, so the digest is
 // the ONE sanctioned TS twin here, pinned byte-for-byte against the
@@ -414,7 +414,7 @@ function reverseBytes32(bytes: Uint8Array): Uint8Array {
  * Produce the circuit-input form of a posted respond-bidirectional
  * attestation: `signature.bigR.x` and `signature.s` byte-reversed into
  * little-endian, everything else verbatim. The in-circuit
- * `verifyRespondBidirectionalEvent` reads those two scalars through
+ * `verifyRespondBidirectionalEventV1` reads those two scalars through
  * little-endian casts (the reversal is free off-chain and costly
  * in-circuit), while the wire and ledger records stay big-endian: pass every
  * event through this exactly once, at the circuit call. A record passed
@@ -438,7 +438,7 @@ export function respondBidirectionalEventToCircuitInput(
 }
 
 /**
- * Off-chain twin of the in-circuit `verifyRespondBidirectionalEvent`: checks
+ * Off-chain twin of the in-circuit `verifyRespondBidirectionalEventV1`: checks
  * a posted respond-bidirectional attestation against the execution output
  * and the contract's pinned MPC response key, over the request id, block
  * height and output kind the post declares. Clients run it to sift candidate posts

@@ -51,11 +51,11 @@ What your contract imports with `import "@sig-net/midnight/src/Signet"`:
 
 | Task | Exports |
 |---|---|
-| Declare the protocol ledger state (setup step 3) | `SignBidirectionalEventMap` (the request map the MPC reads) and `SignetSigner` (the Signet singleton's cross-contract-call interface, pinned at deploy). |
-| Build and store a signature request (runtime step 1) | `constructSignBidirectionalEvent` and `calculateRequestId`, over the request structs `EvmType2TxParams`, `EvmCalldata` and `EvmAccessListEntry`. |
+| Declare the protocol ledger state (setup step 3) | `SignBidirectionalEventMapV1` (the request map the MPC reads) and `SignetSigner` (the Signet singleton's cross-contract-call interface, pinned at deploy). |
+| Build and store a signature request (runtime step 1) | `constructSignBidirectionalEventV1` and `calculateRequestIdV1`, over the request structs `EvmType2TxParams`, `EvmCalldata` and `EvmAccessListEntry`. |
 | Notify the MPC of the request (runtime step 1) | `constructSignBidirectionalEventNotificationV1`: packs your contract's address and the request map's ledger-tree path. |
 | Build and read calldata words in-circuit | The builders `evmAddressAbiWord`, `numericAbiWord` and `boolAbiWord`, and the readers `abiWordToUint128` and `abiWordToBool` (see [EVM Type 2 transactions and ABI calldata words](https://github.com/sig-net/midnight-integration/blob/main/README.md#evm-type-2-transactions-and-abi-calldata-words)). |
-| Verify the execution attestation (runtime step 5) | `verifyRespondBidirectionalEvent`: recomputes the attestation digest from the output bytes and the posted request id, output kind and block height, and checks the MPC's signature against your pinned response key. |
+| Verify the execution attestation (runtime step 5) | `verifyRespondBidirectionalEventV1`: recomputes the attestation digest from the output bytes and the posted request id, output kind and block height, and checks the MPC's signature against your pinned response key. |
 
 ### TypeScript library
 

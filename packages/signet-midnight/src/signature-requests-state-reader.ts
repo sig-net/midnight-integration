@@ -26,10 +26,10 @@ import {
 } from "./signet-requests.ts";
 
 // Atom position of `txParamType` in a stored record: the chain-agnostic head
-// of SignBidirectionalEvent (sender through txParamType) occupies the first
-// 7 atoms whatever the decomposition, so the tag sits at the same index in
+// of SignBidirectionalEventV1 (keyVersion through txParamType) occupies the first
+// 5 atoms whatever the decomposition, so the tag sits at the same index in
 // every record.
-const TX_PARAM_TYPE_ATOM = 6;
+const TX_PARAM_TYPE_ATOM = 4;
 
 /**
  * Decode a stored request record: read the `txParamType` tag and hand the

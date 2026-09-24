@@ -43,7 +43,7 @@ sealed ledger signetSigner: SignetSigner;
 // (never NUL-padded: the MPC's raw reader recovers the width from the
 // stored bytes, and trailing zeros would be trimmed), so a request with a
 // different schema length needs its own map: see field 6.
-export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EvmType2TxParams<1, 0, 0>, 34, 34>;
+export ledger signBidirectionalEventMap: SignBidirectionalEventMapV1<EvmType2TxParams<1, 0, 0>, 34, 34>;
 
 // field 4: identity commitment of the deployer, gating initialise().
 sealed ledger deployer: Bytes<32>;
@@ -56,7 +56,7 @@ export ledger initialised: Counter;
 // pattern: the notification names each map's field position, so the MPC
 // locates whichever map a request lives in. New fields append AFTER this
 // one, existing positions stay fixed.
-export ledger signBidirectionalEventMap69: SignBidirectionalEventMap<EvmType2TxParams<1, 0, 0>, 69, 69>;
+export ledger signBidirectionalEventMap69: SignBidirectionalEventMapV1<EvmType2TxParams<1, 0, 0>, 69, 69>;
 
 // field 7: the amount each verified checkAndDouble response returned, keyed
 // by the request it settled: what a real client does with an attested
@@ -125,7 +125,7 @@ export circuit submitSignatureRequest(
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
-  const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(
+  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
     kernel.self(),
     keyVersion,
     pad(32, "caller-path"),
@@ -138,7 +138,7 @@ export circuit submitSignatureRequest(
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
+  const requestId = disclose(calculateRequestIdV1<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signBidirectionalEventMap.insert(requestId, disclose(request));
@@ -193,7 +193,7 @@ export circuit submitIsEvenRequest(
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
-  const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(
+  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
     kernel.self(),
     keyVersion,
     pad(32, "caller-path"),
@@ -206,7 +206,7 @@ export circuit submitIsEvenRequest(
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
+  const requestId = disclose(calculateRequestIdV1<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signBidirectionalEventMap.insert(requestId, disclose(request));
@@ -256,7 +256,7 @@ export circuit submitCheckAndDoubleRequest(
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"},{\"name\":\"amount\",\"type\":\"uint256\"}]" as Bytes<69>;
-  const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 69, 69>(
+  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 69, 69>(
     kernel.self(),
     keyVersion,
     pad(32, "caller-path"),
@@ -269,7 +269,7 @@ export circuit submitCheckAndDoubleRequest(
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 69, 69>(request));
+  const requestId = disclose(calculateRequestIdV1<EvmType2TxParams<1, 0, 0>, 69, 69>(request));
 
   assert(!signBidirectionalEventMap69.member(requestId), "Request already exists");
   signBidirectionalEventMap69.insert(requestId, disclose(request));
@@ -320,7 +320,7 @@ export circuit submitRevertIfRequest(
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
-  const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(
+  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
     kernel.self(),
     keyVersion,
     pad(32, "caller-path"),
@@ -333,7 +333,7 @@ export circuit submitRevertIfRequest(
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
+  const requestId = disclose(calculateRequestIdV1<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signBidirectionalEventMap.insert(requestId, disclose(request));
@@ -366,7 +366,7 @@ struct BoolResponse {
 // submitIsEvenRequest and submitRevertIfRequest) packs to exactly 1 byte (no padding: the digest
 // hashes the output at its exact length, and the destination block height
 // beside it). The caller hands the event over in
-// verifyRespondBidirectionalEvent's circuit-input form (signature scalars
+// verifyRespondBidirectionalEventV1's circuit-input form (signature scalars
 // byte-reversed off-chain, see that circuit's contract): the attested bytes
 // deserialize into BoolResponse in-circuit and the decoded value gates
 // settlement, the way a real client would react to a foreign call's return
@@ -374,7 +374,7 @@ struct BoolResponse {
 // attestation carries return data, a failure settles through
 // verifyFailureResponse.
 export circuit verifyResponse(
-  respondBidirectionalEvent: RespondBidirectionalEvent,
+  respondBidirectionalEvent: RespondBidirectionalEventV1,
   serializedOutput: Bytes<1>
 ): [] {
   const disclosedRequestId = disclose(respondBidirectionalEvent.requestId);
@@ -385,7 +385,7 @@ export circuit verifyResponse(
   );
 
   assert(
-    verifyRespondBidirectionalEvent<1>(
+    verifyRespondBidirectionalEventV1<1>(
       serializedOutput,
       disclose(respondBidirectionalEvent),
       mpcResponseKey
@@ -425,7 +425,7 @@ struct CheckAndDoubleResponse {
 // Duplicated per width: contract-level circuits cannot be generic over
 // the output width.
 export circuit verifyCheckAndDoubleResponse(
-  respondBidirectionalEvent: RespondBidirectionalEvent,
+  respondBidirectionalEvent: RespondBidirectionalEventV1,
   serializedOutput: Bytes<33>
 ): [] {
   const disclosedRequestId = disclose(respondBidirectionalEvent.requestId);
@@ -436,7 +436,7 @@ export circuit verifyCheckAndDoubleResponse(
   );
 
   assert(
-    verifyRespondBidirectionalEvent<33>(
+    verifyRespondBidirectionalEventV1<33>(
       serializedOutput,
       disclose(respondBidirectionalEvent),
       mpcResponseKey
@@ -464,7 +464,7 @@ export circuit verifyCheckAndDoubleResponse(
 // is consumed from whichever map holds it (a failure can answer a request
 // of any schema width) and the verdict is recorded under the request.
 export circuit verifyFailureResponse(
-  respondBidirectionalEvent: RespondBidirectionalEvent,
+  respondBidirectionalEvent: RespondBidirectionalEventV1,
   serializedOutput: Bytes<0>
 ): [] {
   const disclosedRequestId = disclose(respondBidirectionalEvent.requestId);
@@ -475,7 +475,7 @@ export circuit verifyFailureResponse(
   );
 
   assert(
-    verifyRespondBidirectionalEvent<0>(
+    verifyRespondBidirectionalEventV1<0>(
       serializedOutput,
       disclose(respondBidirectionalEvent),
       mpcResponseKey

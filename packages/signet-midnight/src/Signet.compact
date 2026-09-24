@@ -18,16 +18,22 @@
 //   import "@sig-net/midnight/src/Signet";
 //
 //  Key types at a glance (each declaration below carries the full contract):
-//  - SignBidirectionalEvent: a client contract's structured request for a signature on a transaction.
-//  - RequestId: 32-byte id of a request, the transientHash of its RequestIdPreimage (the record
-//    minus the serialisation schemas).
-//  - SignBidirectionalEventMap: the RequestId -> SignBidirectionalEvent map a client contract
+//  - SignBidirectionalEventV1: a client contract's structured request for a signature on a transaction.
+//  - RequestId: 32-byte id of a request, the transientHash of its RequestIdPreimageV1 (the fields
+//    that name one execution: key, sender, path, transaction and destination).
+//  - SignBidirectionalEventMapV1: the RequestId -> SignBidirectionalEventV1 map a client contract
 //    declares in its own ledger for the MPC to read requests from.
 //  - SignetSigner: the contract interface client contracts call to notify the Signet singleton.
-//  - SignBidirectionalEventNotification: the versioned notification delivered through that call.
-//  - SignatureRespondedEvent: the MPC's posted signature answering a request.
-//  - RespondBidirectionalEvent: the MPC's posted attestation that the foreign chain executed the
+//  - SignBidirectionalEventNotification: the notification delivered through that call, versioned by
+//    the version byte it carries.
+//  - SignatureRespondedEventV1: the MPC's posted signature answering a request.
+//  - RespondBidirectionalEventV1: the MPC's posted attestation that the foreign chain executed the
 //    signed transaction.
+//
+//  The V1 suffix marks the wire and hash-domain artefacts of protocol version 1 (the structs the
+//  ledger stores and the singleton emits, and the circuits that hash or verify them). Vocabulary
+//  shared across versions (RequestId, OutputKind, Signature, the enums, the transaction parameter
+//  structs, which TxParamType tags) and the version-tagged notification carry no suffix.
 //
 // These key types are best understood within the sign bidirectional flow that they enable:
 // 1. Client contract stores a SignBidirectionalEvent in a SignBidirectionalEventMap in its own ledger
@@ -67,10 +73,8 @@ module Signet {
   //
   // KEY: texual order of the fields in this structure must remain fixed as is as their order
   //      is relied upon for consistent hashing and decoding from ledger state.
-  export struct SignBidirectionalEvent<TxParams, #LenOutputDeserialization, #LenRespondSerialization> {
-    // Address of the client contract that stores and notifies of this SignBidirectionalEvent.
-    // Set with kernel.self().
-    sender: ContractAddress;
+  export struct SignBidirectionalEventV1<TxParams, #LenOutputDeserialization, #LenRespondSerialization> {
+    // ---- RequestIdPreimageV1 fields: hashed into the request id, in this order ----
 
     // MPC Key Derivation Parameters.
     // Every key the MPC signs with is scoped by the requesting contract:
@@ -83,13 +87,13 @@ module Signet {
     // CRITICAL: the MPC renders the path as hex::encode(path) for key derivation (lowercase hex
     // of the full 32 bytes, no trimming, no 0x prefix). The sender is always part
     // of the derivation, so no contract can reach another contract's derived keys.
-    keyVersion: Uint<8>;      // MPC root-key version to derive from. Currently 1.
-    path: Bytes<32>;          // Key derivation path: 32 opaque bytes, client contract's choice.
+    keyVersion: Uint<8>;        // MPC root-key version to derive from. Currently 1.
+    sender: ContractAddress;    // Address of the client contract that stores and notifies of this
+                                // request. Set with kernel.self().
+    path: Bytes<32>;            // Key derivation path: 32 opaque bytes, client contract's choice.
 
     // MPC Parameters.
     algo: MPCSignatureAlgorithm;    // Signature algorithm scheme, e.g. ecdsa
-    signatureDest: MPCDestination;  // Destination field reserved for future use. Set to unused.
-    params: Bytes<64>;              // Extra MPC parameters reserved for future use. Zero-fill.
 
     // Specific destination chain Transaction parameters.
     txParamType: TxParamType;  // Off-chain tag indicating what type txParams is set to.
@@ -98,6 +102,11 @@ module Signet {
                                // (https://chainagnostic.org/CAIPs/caip-2). An Ethereum target
                                // (mainnet, Sepolia or a local anvil) uses ethereumCaip2Id():
                                // the network itself is txParams' chainId.
+
+    // ---- Protocol-only fields: outside the request id ----
+
+    signatureDest: MPCDestination;  // Destination field reserved for future use. Set to unused.
+    params: Bytes<64>;              // Extra MPC parameters reserved for future use. Zero-fill.
 
     // Serialisation Schemas.
     // outputDeserializationSchema tells the MPC how to deserialise the destination chain's
@@ -131,8 +140,8 @@ module Signet {
     reserved, // Reserved for future use. Exists to keep enum >= 2 (proof server bug).
   }
 
-  // Construction helper for the canonical Signet SignBidirectionalEvent.
-  export pure circuit constructSignBidirectionalEvent<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
+  // Construction helper for the canonical Signet SignBidirectionalEventV1.
+  export pure circuit constructSignBidirectionalEventV1<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
     sender: ContractAddress,
     keyVersion: Uint<8>,
     path: Bytes<32>,
@@ -144,23 +153,24 @@ module Signet {
     executionDest: Bytes<32>,
     outputDeserializationSchema: Bytes<LenOutputDeserialization>,
     respondSerializationSchema: Bytes<LenRespondSerialization>,
-  ): SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization> {
+  ): SignBidirectionalEventV1<TxParams, LenOutputDeserialization, LenRespondSerialization> {
     assert(keyVersion >= 1, "keyVersion must be >= 1");
     // The protocol reserves the "midnight response key" path for the MPC's
-    // attestation key of this contract (see RespondBidirectionalEvent), and the
+    // attestation key of this contract (see RespondBidirectionalEventV1), and the
     // MPC refuses a request that names it.
     assert(path != pad(32, "midnight response key"), "path is reserved for the MPC response key");
 
-    return SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization> {
-      sender,
+    // Shorthand struct fields bind positionally: this list follows the declaration order.
+    return SignBidirectionalEventV1<TxParams, LenOutputDeserialization, LenRespondSerialization> {
       keyVersion,
+      sender,
       path,
       algo,
-      signatureDest,
-      params,
       txParamType,
       txParams,
       executionDest,
+      signatureDest,
+      params,
       outputDeserializationSchema,
       respondSerializationSchema,
     };
@@ -178,12 +188,12 @@ module Signet {
   // out, so two requests for one transaction cannot both be outstanding whatever schemas
   // they declare, and the id does not depend on the schemas' declared widths either.
   //
-  // KEY: the field order follows SignBidirectionalEvent's and is relied upon for consistent
+  // KEY: the field order follows SignBidirectionalEventV1's and is relied upon for consistent
   //      hashing. The TS twin (requestIdPreimageDescriptorWith in signet-requests.ts)
   //      mirrors it field by field.
-  export struct RequestIdPreimage<TxParams> {
-    sender: ContractAddress;
+  export struct RequestIdPreimageV1<TxParams> {
     keyVersion: Uint<8>;
+    sender: ContractAddress;
     path: Bytes<32>;
     algo: MPCSignatureAlgorithm;
     txParamType: TxParamType;
@@ -203,19 +213,19 @@ module Signet {
   //  - a Bytes<N> field packs into ceil(N/31) field elements, so trailing zero bytes
   //    within a chunk do not change the hash. Widths here are fixed at compile time
   //    and every id commits to its sender, so requests cannot collide in practice.
-  export pure circuit calculateRequestId<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
-    request: SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>
+  export pure circuit calculateRequestIdV1<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
+    request: SignBidirectionalEventV1<TxParams, LenOutputDeserialization, LenRespondSerialization>
   ): RequestId {
-    const preimage = RequestIdPreimage<TxParams> {
-      sender: request.sender,
+    const preimage = RequestIdPreimageV1<TxParams> {
       keyVersion: request.keyVersion,
+      sender: request.sender,
       path: request.path,
       algo: request.algo,
       txParamType: request.txParamType,
       txParams: request.txParams,
       executionDest: request.executionDest,
     };
-    return upgradeFromTransient(transientHash<RequestIdPreimage<TxParams>>(preimage)) as RequestId;
+    return upgradeFromTransient(transientHash<RequestIdPreimageV1<TxParams>>(preimage)) as RequestId;
   }
 
   // ---- Client Contract: SignBidirectionalEvent Map ---------------------------------------------------
@@ -224,7 +234,7 @@ module Signet {
   // in their ledger. Client contract tells MPC field location of this map when making a cross
   // contract call, via SignetSigner, to the Signet singleton. The MPC looks here to find
   // SignBidirectionalEvents.
-  export new type SignBidirectionalEventMap<TxParams, #LenOutputDeserialization, #LenRespondSerialization> = Map<RequestId, SignBidirectionalEvent<TxParams, LenOutputDeserialization, LenRespondSerialization>>;
+  export new type SignBidirectionalEventMapV1<TxParams, #LenOutputDeserialization, #LenRespondSerialization> = Map<RequestId, SignBidirectionalEventV1<TxParams, LenOutputDeserialization, LenRespondSerialization>>;
 
   // ---- Cross Contract SignBidirectionalEventNotification ---------------------------------------------
 
@@ -256,7 +266,7 @@ module Signet {
   // Construction helper for the V1 SignBidirectionalEventNotification.
   //
   // The payload is a pointer for the MPC: the contract that holds the
-  // SignBidirectionalEventMap (callerAddress) and the position of that map in
+  // SignBidirectionalEventMapV1 (callerAddress) and the position of that map in
   // the contract's raw ledger state tree (requestsPathDepth + requestsPath).
   //
   // Read the path from your contract's compiled artifacts, never derive it by
@@ -272,7 +282,7 @@ module Signet {
     // Number of meaningful entries in requestsPath: 1 for a flat (15 or fewer
     // field) contract, one more per chunk level after that (max 4).
     requestsPathDepth: Uint<8>,
-    // Resolved ledger-tree path of the caller's SignBidirectionalEventMap, from
+    // Resolved ledger-tree path of the caller's SignBidirectionalEventMapV1, from
     // its contract-info.json "index". Entries at and beyond requestsPathDepth
     // are zero.
     requestsPath: Vector<4, Uint<8>>
@@ -309,7 +319,7 @@ module Signet {
   // Counterpart to SignBidirectionalEvent: the MPC generated signature a request asked for.
   // Posted by the MPC through the Signet singleton for clients to extract and build a
   // signed transaction from.
-  export struct SignatureRespondedEvent {
+  export struct SignatureRespondedEventV1 {
     // The request this signature answers. Routing data: the singleton emits it
     // unverified, and a reader proves the signature against the request's own key.
     requestId: RequestId;
@@ -329,10 +339,10 @@ module Signet {
   //  mpcResponseKey = f(mpcRootKey[keyVersion], caip2ChainId, sender, "midnight response key")
   //
   // The output travels off chain and the digest is recomputed at verification
-  // time (verifyRespondBidirectionalEvent). The signature is the ONLY thing that
+  // time (verifyRespondBidirectionalEventV1). The signature is the ONLY thing that
   // distinguishes a genuine post from garbage: the singleton emits every post
   // unverified.
-  export struct RespondBidirectionalEvent {
+  export struct RespondBidirectionalEventV1 {
     // The request this attestation answers. Signed into the digest: a verified
     // post settles exactly the request it names, so a client consumes this id
     // and never one taken from elsewhere.
@@ -347,7 +357,7 @@ module Signet {
     // or unviable execution), so a client holding no output yet knows which
     // width to settle at.
     serializedOutputLength: Uint<64>;
-    // The attestation digest the signature is over (calculateSignetAttestationDigest),
+    // The attestation digest the signature is over (calculateSignetAttestationDigestV1),
     // so a reader holding no output can check the signature. The verifying
     // circuit recomputes it from the output and never reads this copy.
     digest: Bytes<32>;
@@ -371,7 +381,7 @@ module Signet {
   // numbering (a slot on Solana).
   // Off-chain code uses the TypeScript twin:
   //    import { calculateSignetAttestationDigest } from "@sig-net/midnight";
-  export pure circuit calculateSignetAttestationDigest<#serializedOutputLength>(
+  export pure circuit calculateSignetAttestationDigestV1<#serializedOutputLength>(
     requestId: RequestId,
     blockHeight: Uint<64>,
     outputKind: OutputKind,
@@ -397,12 +407,12 @@ module Signet {
   // that reduces to 0 mod the curve order aborts the
   // circuit rather than returning false, so sift candidate posts off chain
   // first (verifyRespondBidirectionalSignature).
-  export pure circuit verifyRespondBidirectionalEvent<#serializedOutputLength>(
+  export pure circuit verifyRespondBidirectionalEventV1<#serializedOutputLength>(
     serializedOutput: Bytes<serializedOutputLength>,
-    respondBidirectionalEvent: RespondBidirectionalEvent,
+    respondBidirectionalEvent: RespondBidirectionalEventV1,
     mpcResponseKey: Secp256k1Point
   ): Boolean {
-    const digest = calculateSignetAttestationDigest<serializedOutputLength>(
+    const digest = calculateSignetAttestationDigestV1<serializedOutputLength>(
       respondBidirectionalEvent.requestId,
       respondBidirectionalEvent.blockHeight,
       respondBidirectionalEvent.outputKind,
@@ -464,7 +474,7 @@ module Signet {
   // raw 32-byte values, copied verbatim into the RLP encoding.
   //
   // KEY: texual order of the fields in this structure must remain fixed as is as their order
-  //      is relied upon for consistent hashing and decoding from ledger state.  
+  //      is relied upon for consistent hashing and decoding from ledger state.
   export struct EvmAccessListEntry<#maxStorageKeys> {
     address: Bytes<20>;
     storageKeyCount: Uint<8>; // how many leading storageKeys are real
@@ -479,7 +489,7 @@ module Signet {
   // canonical ABI words for common types.
   //
   // KEY: texual order of the fields in this structure must remain fixed as is as their order
-  //      is relied upon for consistent hashing and decoding from ledger state.  
+  //      is relied upon for consistent hashing and decoding from ledger state.
   export struct EvmCalldata<#maxWords> {
     selector: Bytes<4>;  // the literal first 4 calldata bytes
     noWords: Uint<16>;   // No. of used words in the words list

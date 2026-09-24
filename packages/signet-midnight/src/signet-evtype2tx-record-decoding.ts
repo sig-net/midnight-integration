@@ -13,13 +13,14 @@ import { signBidirectionalEventDescriptor } from "./signet-evtype2tx-requests.ts
 import type { SignBidirectionalEvent } from "./signet-requests.ts";
 
 // Atom layout of an evmType2 request record: the fixed atom count, the
-// fixed head before the calldata words, and the fixed tail (executionDest + the
-// two schemas). A stored cell holds
+// fixed head before the calldata words (keyVersion through calldata.noWords)
+// and the fixed tail (executionDest, signatureDest, params and the two
+// schemas). A stored cell holds
 // EVM_TYPE2_FIXED_ATOMS + maxCalldataWords
 //   + maxAccessListEntries * (2 + maxStorageKeysPerEntry) atoms.
 const EVM_TYPE2_FIXED_ATOMS = 21;
-const EVM_TYPE2_HEAD_ATOMS = 17;
-const EVM_TYPE2_TAIL_ATOMS = 3;
+const EVM_TYPE2_HEAD_ATOMS = 15;
+const EVM_TYPE2_TAIL_ATOMS = 5;
 
 /** A record's capacity instantiation, recovered from declared widths. */
 interface EvmType2Capacities {

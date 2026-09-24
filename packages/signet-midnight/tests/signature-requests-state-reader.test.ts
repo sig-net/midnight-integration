@@ -407,8 +407,8 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
     expect(() =>
       readSignetRequestsLedgerFromState(
         indexStateWithCell({
-          value: value.slice(0, 6),
-          alignment: alignment.slice(0, 6),
+          value: value.slice(0, 4),
+          alignment: alignment.slice(0, 4),
         }),
         [0],
       ),
@@ -419,8 +419,8 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
     const { value, alignment } = cellsOf();
     // A 2-byte atom needs a matching 2-byte alignment for the state layer to
     // accept the cell; the decoder's width check then rejects it.
-    value[6] = Uint8Array.of(0, 1);
-    alignment[6] = { tag: "atom", value: { tag: "bytes", length: 2 } };
+    value[4] = Uint8Array.of(0, 1);
+    alignment[4] = { tag: "atom", value: { tag: "bytes", length: 2 } };
     expect(() =>
       readSignetRequestsLedgerFromState(indexStateWithCell({ value, alignment }), [0]),
     ).toThrow(/txParamType atom holds 2 bytes/);
@@ -428,7 +428,7 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
 
   it("rejects the reserved txParamType variant", () => {
     const { value, alignment } = cellsOf();
-    value[6] = Uint8Array.of(1);
+    value[4] = Uint8Array.of(1);
     expect(() =>
       readSignetRequestsLedgerFromState(indexStateWithCell({ value, alignment }), [0]),
     ).toThrow(/unsupported txParamType 1/);

@@ -101,18 +101,18 @@ export const MPCDestination = {
 
 /**
  * The fields of a {@link SignBidirectionalEvent} that mint its
- * {@link RequestId} (Compact: `RequestIdPreimage<TxParams>`): the requesting
- * contract, the signing key, the transaction and its execution destination.
- * The serialisation schemas and the reserved MPC parameters stay out, so two
- * requests for one transaction share an id whatever schemas they declare.
- * Generic over the tx-params decomposition, {@link EvmType2TxParams} by
- * default.
+ * {@link RequestId} (Compact: `RequestIdPreimageV1<TxParams>`), in Compact
+ * declaration order: the signing key, the requesting contract, the
+ * transaction and its execution destination. The serialisation schemas and
+ * the reserved MPC parameters stay out, so two requests for one transaction
+ * share an id whatever schemas they declare. Generic over the tx-params
+ * decomposition, {@link EvmType2TxParams} by default.
  */
 export interface RequestIdPreimage<TxParams = EvmType2TxParams> {
-  /** Address of the client contract that stores this event (`kernel.self()`). */
-  sender: ContractAddress;
   /** MPC root-key version to derive from (>= 1). */
   keyVersion: bigint;
+  /** Address of the client contract that stores this event (`kernel.self()`). */
+  sender: ContractAddress;
   /** Key-derivation path: 32 opaque bytes of the client contract's choosing. */
   path: Uint8Array;
   /** An {@link MPCSignatureAlgorithm} value. */
@@ -127,31 +127,32 @@ export interface RequestIdPreimage<TxParams = EvmType2TxParams> {
 
 /**
  * Canonical signet request record (Compact:
- * `SignBidirectionalEvent<TxParams, #LenOutputDeserialization,
+ * `SignBidirectionalEventV1<TxParams, #LenOutputDeserialization,
  * #LenRespondSerialization>`), stored per {@link RequestId} in a requesting
- * contract's `SignBidirectionalEventMap`, in Compact declaration order. The
- * {@link RequestIdPreimage} fields mint its id; the schema fields carry their
+ * contract's `SignBidirectionalEventMapV1`, in Compact declaration order. The
+ * {@link RequestIdPreimage} fields come first and mint its id, the
+ * protocol-only fields follow, and the schema fields carry their
  * contract-declared byte widths in their array lengths.
  */
 export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
-  /** Address of the client contract that stores this event (`kernel.self()`). */
-  sender: ContractAddress;
   /** MPC root-key version to derive from (>= 1). */
   keyVersion: bigint;
+  /** Address of the client contract that stores this event (`kernel.self()`). */
+  sender: ContractAddress;
   /** Key-derivation path: 32 opaque bytes of the client contract's choosing. */
   path: Uint8Array;
   /** An {@link MPCSignatureAlgorithm} value. */
   algo: number;
-  /** An {@link MPCDestination} value: the signature destination, reserved. */
-  signatureDest: number;
-  /** Extra MPC parameters: 64 opaque bytes, reserved, zero-filled. */
-  params: Uint8Array;
   /** A {@link TxParamType} value tagging the txParams decomposition. */
   txParamType: number;
   /** The transaction decomposition. */
   txParams: TxParams;
   /** Execution destination: the target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 32 bytes. */
   executionDest: Uint8Array;
+  /** An {@link MPCDestination} value: the signature destination, reserved. */
+  signatureDest: number;
+  /** Extra MPC parameters: 64 opaque bytes, reserved, zero-filled. */
+  params: Uint8Array;
   /** MPC output_deserialization_schema (destination chain -> MPC), contract-declared width. */
   outputDeserializationSchema: Uint8Array;
   /** MPC respond_serialization_schema (MPC -> Midnight), contract-declared width. */
@@ -194,8 +195,8 @@ export function requestIdPreimageDescriptorWith<TxParams>(
   txParams: CompactType<TxParams>,
 ): CompactType<RequestIdPreimage<TxParams>> {
   return compactStructDescriptor<RequestIdPreimage<TxParams>>({
-    sender: CONTRACT_ADDRESS,
     keyVersion: UINT_8,
+    sender: CONTRACT_ADDRESS,
     path: BYTES_32,
     algo: MPC_SIGNATURE_ALGORITHM,
     txParamType: TX_PARAM_TYPE,
@@ -225,15 +226,15 @@ export function signBidirectionalEventDescriptorWith<TxParams>(
   lenRespondSerialization: number,
 ): CompactType<SignBidirectionalEvent<TxParams>> {
   return compactStructDescriptor<SignBidirectionalEvent<TxParams>>({
-    sender: CONTRACT_ADDRESS,
     keyVersion: UINT_8,
+    sender: CONTRACT_ADDRESS,
     path: BYTES_32,
     algo: MPC_SIGNATURE_ALGORITHM,
-    signatureDest: MPC_DESTINATION,
-    params: BYTES_64,
     txParamType: TX_PARAM_TYPE,
     txParams,
     executionDest: BYTES_32,
+    signatureDest: MPC_DESTINATION,
+    params: BYTES_64,
     outputDeserializationSchema: new CompactTypeBytes(lenOutputDeserialization),
     respondSerializationSchema: new CompactTypeBytes(lenRespondSerialization),
   });
