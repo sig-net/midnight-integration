@@ -237,18 +237,18 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       const callerAddress = requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS");
 
       // callerAddress points at the caller (the contract whose authenticated
-      // ledger holds the request), and the event map is at field 4, which for
-      // this flat caller is path [4] (see test-caller-contract.compact).
+      // ledger holds the request), and the event map is at field 3, which for
+      // this flat caller is path [3] (see test-caller-contract.compact).
       const decoded = await pollSignetNotification({
         env,
         callerAddress,
-        requestsPath: [4],
+        requestsPath: [3],
         requestId: signatureRequestId,
         description: `declaring request ${signatureRequestId} for caller ${callerAddress} at path [4]`,
       });
       expect(decoded.version).toBe(1);
       expect(decoded.callerAddress).toBe(stripHexPrefix(callerAddress).toLowerCase());
-      expect(decoded.requestsPath).toEqual([4]);
+      expect(decoded.requestsPath).toEqual([3]);
 
       banner([
         "Golden SignBidirectionalEvent notification decoded from the live indexer:",
@@ -370,15 +370,16 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // A successful remote execution's serialised output: the caller's
       // respond schema is a single bool, whose exact unpadded packed payload
       // is ONE byte (0x01 = true), exactly what the MPC posts for a
-      // succeeded call.
+      // succeeded call, attested at the block it executed in.
       const serializedOutput = Uint8Array.from([1]);
+      const blockHeight = 1n;
 
       const responseSecretKey = deriveMidnightResponseSecretKey(
         hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
       );
       const signature = signAttestationDigest(
-        calculateSignetAttestationDigest(requestKey, serializedOutput),
+        calculateSignetAttestationDigest(requestKey, blockHeight, serializedOutput),
         responseSecretKey,
       );
 
@@ -393,6 +394,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
           signature: ecdsaSignatureToMpcSignature(signature),
         }),
         serializedOutput,
+        blockHeight,
       );
 
       // The consumption is the observable effect: present before (checked

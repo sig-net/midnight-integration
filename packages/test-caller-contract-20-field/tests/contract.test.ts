@@ -58,7 +58,6 @@ const fieldPath = (name: string): number[] => {
 // stores these as chunks of [5, 15], so fields 0..4 live in chunk 0 and fields
 // 5..19 in chunk 1.
 const REQUEST_LOG_PATH = fieldPath("requestLog");
-const NONCE_PATH = fieldPath("signetRequestNonce");
 const LAST_CHUNK0_PATH = fieldPath("pad04"); // last slot of chunk 0
 const FIRST_CHUNK1_PATH = fieldPath("pad05"); // first slot of chunk 1
 const REQUESTS_INDEX_PATH = fieldPath("signBidirectionalEventMap");
@@ -103,19 +102,13 @@ describe("chunked ledger raw parsing (20 fields, REAL compiler output)", () => {
     // The List at [0, 0] is itself array-typed: path-following never mistakes
     // it for a chunk level.
     expect(signetFieldNodeByPath(raw, REQUEST_LOG_PATH).type()).toBe("array");
-    expect(signetFieldNodeByPath(raw, NONCE_PATH).type()).toBe("cell");
     expect(signetFieldNodeByPath(raw, LAST_CHUNK0_PATH).type()).toBe("cell");
     expect(signetFieldNodeByPath(raw, FIRST_CHUNK1_PATH).type()).toBe("cell");
     expect(signetFieldNodeByPath(raw, REQUESTS_INDEX_PATH).type()).toBe("map");
     // Chunk 1 holds 15 slots (0..14), so slot 15 is past the end.
     expect(() => signetFieldNodeByPath(raw, [1, 15])).toThrow(/out of range/);
 
-    const { nonce, requestsIndex } = readSignetRequestsLedgerFromState(
-      raw,
-      REQUESTS_INDEX_PATH,
-      NONCE_PATH,
-    );
-    expect(nonce).toBe(0n);
+    const { requestsIndex } = readSignetRequestsLedgerFromState(raw, REQUESTS_INDEX_PATH);
     expect(requestsIndex.size).toBe(0);
   });
 
@@ -129,11 +122,10 @@ describe("chunked ledger raw parsing (20 fields, REAL compiler output)", () => {
     // Read 1: generated ledger() (knows the chunk tree at compile time).
     const typedIndex = toSignBidirectionalEventIndex(ledger(state).signBidirectionalEventMap);
     // Read 2: MPC-style raw read by the compiler's resolved path alone.
-    const rawLedger = readSignetRequestsLedgerFromState(state, REQUESTS_INDEX_PATH, NONCE_PATH);
+    const rawLedger = readSignetRequestsLedgerFromState(state, REQUESTS_INDEX_PATH);
 
     expect(typedIndex.size).toBe(1);
     expect(rawLedger.requestsIndex).toEqual(typedIndex);
-    expect(rawLedger.nonce).toBe(ledger(state).signetRequestNonce);
 
     // Read 3: the discovery path's single-record lookup at the notified path.
     const entry = [...typedIndex.entries()][0];

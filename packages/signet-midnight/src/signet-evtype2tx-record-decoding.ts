@@ -17,8 +17,8 @@ import type { SignBidirectionalEvent } from "./signet-requests.ts";
 // two schemas). A stored cell holds
 // EVM_TYPE2_FIXED_ATOMS + maxCalldataWords
 //   + maxAccessListEntries * (2 + maxStorageKeysPerEntry) atoms.
-const EVM_TYPE2_FIXED_ATOMS = 22;
-const EVM_TYPE2_HEAD_ATOMS = 18;
+const EVM_TYPE2_FIXED_ATOMS = 21;
+const EVM_TYPE2_HEAD_ATOMS = 17;
 const EVM_TYPE2_TAIL_ATOMS = 3;
 
 /** A record's capacity instantiation, recovered from declared widths. */
