@@ -440,10 +440,11 @@ module Signet {
   //
   // Every variable-length part is a compile-time CAPACITY (a generic size
   // parameter the requesting contract fixes) plus a runtime count of how many
-  // leading slots are real. Unused capacity is hashed as part of the record
-  // (zero-fill) but never reaches the assembled transaction. Field order is
-  // the canonical EIP-1559 RLP order and the request-id hash order: part of
-  // the wire contract, each count directly before the slot it bounds.
+  // leading slots are real. Unused capacity sits in the ledger record but
+  // reaches neither the request id (calculateEvmType2TxParamsDigestV1 walks
+  // the used slots only) nor the assembled transaction. Field order is the
+  // canonical EIP-1559 RLP order and the digest order: part of the wire
+  // contract, each count directly before the slot it bounds.
   //
   // KEY: texual order of the fields in this structure must remain fixed as is as their order
   //      is relied upon for consistent hashing and decoding from ledger state.
