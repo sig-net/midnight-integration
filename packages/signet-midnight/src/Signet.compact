@@ -20,7 +20,7 @@
 //  Key types at a glance (each declaration below carries the full contract):
 //  - SignBidirectionalEventV1: a client contract's structured request for a signature on a transaction.
 //  - RequestId: 32-byte id of a request, the transientHash of its RequestIdPreimageV1 (the fields
-//    that name one execution: key, sender, path, transaction and destination).
+//    that name one execution: key, sender, path, a digest of the transaction and its destination).
 //  - SignBidirectionalEventMapV1: the RequestId -> SignBidirectionalEventV1 map a client contract
 //    declares in its own ledger for the MPC to read requests from.
 //  - SignetSigner: the contract interface client contracts call to notify the Signet singleton.
@@ -179,25 +179,27 @@ module Signet {
   // ---- SignBidirectionalEvent RequestId --------------------------------------------------------------
 
   // 32 byte chain agnostic nominal id of a SignBidirectionalEvent, calculated as the
-  // transientHash of its RequestIdPreimage (see calculateRequestId).
+  // transientHash of its RequestIdPreimageV1 (see calculateRequestIdV1).
   export new type RequestId = Bytes<32>;
 
-  // The fields of a SignBidirectionalEvent that name one execution: the requesting contract,
-  // the signing key (version, path, algorithm), the transaction and its execution destination.
-  // The serialisation schemas and the reserved MPC parameters (signatureDest, params) stay
-  // out, so two requests for one transaction cannot both be outstanding whatever schemas
-  // they declare, and the id does not depend on the schemas' declared widths either.
+  // The fields of a SignBidirectionalEventV1 that name one execution: the signing key
+  // (keyVersion, path, algo), the requesting contract, the transaction and its execution
+  // destination. Fields the execution does not depend on (the serialisation schemas and
+  // the reserved MPC parameters signatureDest and params) stay out. The transaction
+  // enters as a digest computed per TxParamType over its USED entries only
+  // (calculateEvmType2TxParamsDigestV1 for evmType2), so one execution has one id
+  // whatever capacities the requester compiled with and whatever sits in unused slots.
   //
   // KEY: the field order follows SignBidirectionalEventV1's and is relied upon for consistent
-  //      hashing. The TS twin (requestIdPreimageDescriptorWith in signet-requests.ts)
-  //      mirrors it field by field.
-  export struct RequestIdPreimageV1<TxParams> {
+  //      hashing. The TS twin (requestIdPreimageDescriptor in signet-requests.ts) mirrors it
+  //      field by field.
+  export struct RequestIdPreimageV1 {
     keyVersion: Uint<8>;
     sender: ContractAddress;
     path: Bytes<32>;
     algo: MPCSignatureAlgorithm;
     txParamType: TxParamType;
-    txParams: TxParams;
+    txParamsDigest: Bytes<32>;
     executionDest: Bytes<32>;
   }
 
@@ -211,21 +213,10 @@ module Signet {
   //  - byte 31 is always zero. upgradeFromTransient writes the field element's 31
   //    little-endian bytes into bytes 0..30, so an id carries ~248 bits of entropy.
   //  - a Bytes<N> field packs into ceil(N/31) field elements, so trailing zero bytes
-  //    within a chunk do not change the hash. Widths here are fixed at compile time
-  //    and every id commits to its sender, so requests cannot collide in practice.
-  export pure circuit calculateRequestIdV1<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
-    request: SignBidirectionalEventV1<TxParams, LenOutputDeserialization, LenRespondSerialization>
-  ): RequestId {
-    const preimage = RequestIdPreimageV1<TxParams> {
-      keyVersion: request.keyVersion,
-      sender: request.sender,
-      path: request.path,
-      algo: request.algo,
-      txParamType: request.txParamType,
-      txParams: request.txParams,
-      executionDest: request.executionDest,
-    };
-    return upgradeFromTransient(transientHash<RequestIdPreimageV1<TxParams>>(preimage)) as RequestId;
+  //    within a chunk do not change the hash. Every id commits to its sender, so
+  //    requests cannot collide in practice.
+  export pure circuit calculateRequestIdV1(preimage: RequestIdPreimageV1): RequestId {
+    return upgradeFromTransient(transientHash<RequestIdPreimageV1>(preimage)) as RequestId;
   }
 
   // ---- Client Contract: SignBidirectionalEvent Map ---------------------------------------------------
@@ -494,6 +485,113 @@ module Signet {
     selector: Bytes<4>;  // the literal first 4 calldata bytes
     noWords: Uint<16>;   // No. of used words in the words list
     words: Vector<maxWords, Bytes<32>>; // canonical ABI words (big-endian)
+  }
+
+  // Digest of an EvmType2TxParams over the bytes that reach the signed transaction:
+  // the scalar fields, then the calldata words, access-list entries and storage keys
+  // up to their declared counts, each count hashed beside its entries so the encoding
+  // commits to its length. Slots past a count are skipped, and an absent calldata
+  // contributes only its absence, so one transaction has one digest whatever
+  // capacities the requester compiled its struct with and whatever bytes sit in
+  // unused slots. The counts must fit their capacities. Off-chain code uses the
+  // TypeScript twin of the same name in @sig-net/midnight.
+  //
+  // The slot walks are folds carrying the slot index and a running hash: a `for`
+  // over `0..n` has no index type at n = 0, and a zero capacity is the common case.
+  export pure circuit calculateEvmType2TxParamsDigestV1<#maxCalldataWords, #maxAccessListEntries, #maxStorageKeysPerEntry>(
+    txParams: EvmType2TxParams<maxCalldataWords, maxAccessListEntries, maxStorageKeysPerEntry>
+  ): Bytes<32> {
+    // An absent calldata contributes is_some = false, a zero selector and a zero word count.
+    const calldata = txParams.calldata;
+    const noWords = calldata.is_some ? calldata.value.noWords : 0 as Uint<16>;
+    const selector = calldata.is_some ? calldata.value.selector : default<Bytes<4>>;
+
+    assert(noWords <= maxCalldataWords, "calldata noWords exceeds capacity");
+    assert(txParams.accessListEntryCount <= maxAccessListEntries, "accessListEntryCount exceeds capacity");
+
+    // For every used access-list entry, confirm its storageKeyCount fits
+    // maxStorageKeysPerEntry. A Compact loop needs a compile-time bound, so the walk
+    // is a fold over every slot carrying [slot index, all fit so far], and the index
+    // picks out the used entries.
+    const keyCountsFit = fold(
+      (acc: [Uint<8>, Boolean], entry: EvmAccessListEntry<maxStorageKeysPerEntry>): [Uint<8>, Boolean] =>
+        [(acc[0] + 1) as Uint<8>, acc[1] && (acc[0] >= txParams.accessListEntryCount || entry.storageKeyCount <= maxStorageKeysPerEntry)],
+      [0 as Uint<8>, true],
+      txParams.accessList
+    );
+    assert(keyCountsFit[1], "a used entry's storageKeyCount exceeds capacity");
+
+    // The scalar fields and the counts, hashed as one field-aligned tuple.
+    const head = transientHash<[Uint<64>, Uint<64>, Uint<128>, Uint<128>, Uint<64>, Bytes<20>, Uint<128>, Boolean, Bytes<4>, Uint<16>, Uint<8>]>([
+      txParams.chainId,
+      txParams.nonce,
+      txParams.maxPriorityFeePerGas,
+      txParams.maxFeePerGas,
+      txParams.gasLimit,
+      txParams.to,
+      txParams.value,
+      calldata.is_some,
+      selector,
+      noWords,
+      txParams.accessListEntryCount
+    ]);
+
+    // The calldata words below noWords, chained onto the head one word at a time.
+    // calldata.value is read whether or not the calldata is present: with noWords
+    // at zero every step passes the head through.
+    const wordsScan = fold(
+      (acc: [Uint<16>, Field], word: Bytes<32>): [Uint<16>, Field] =>
+        [(acc[0] + 1) as Uint<16>, acc[0] < noWords ? transientHash<[Field, Bytes<32>]>([acc[1], word]) : acc[1]],
+      [0 as Uint<16>, head],
+      calldata.value.words
+    );
+
+    // The access-list entries below accessListEntryCount, each chained on as its
+    // address, its key count and a digest of its storage keys below that count
+    // (the inner fold, started from a zero Field).
+    const listScan = fold(
+      (acc: [Uint<8>, Field], entry: EvmAccessListEntry<maxStorageKeysPerEntry>): [Uint<8>, Field] =>
+        [
+          (acc[0] + 1) as Uint<8>,
+          acc[0] < txParams.accessListEntryCount
+            ? transientHash<[Field, Bytes<20>, Uint<8>, Field]>([
+                acc[1],
+                entry.address,
+                entry.storageKeyCount,
+                fold(
+                  (keyAcc: [Uint<8>, Field], key: Bytes<32>): [Uint<8>, Field] =>
+                    [(keyAcc[0] + 1) as Uint<8>, keyAcc[0] < entry.storageKeyCount ? transientHash<[Field, Bytes<32>]>([keyAcc[1], key]) : keyAcc[1]],
+                  [0 as Uint<8>, 0 as Field],
+                  entry.storageKeys
+                )[1]
+              ])
+            : acc[1]
+        ],
+      [0 as Uint<8>, wordsScan[1]],
+      txParams.accessList
+    );
+
+    // The running hash is a Field. upgradeFromTransient writes it out as Bytes<32>.
+    return upgradeFromTransient(listScan[1]);
+  }
+
+  // The request id of an EVM type-2 request: its preimage with the transaction digested
+  // by calculateEvmType2TxParamsDigestV1. Off-chain code uses the TypeScript twin:
+  //    import { calculateRequestId } from "@sig-net/midnight";
+  export pure circuit calculateEvmType2RequestIdV1<#maxCalldataWords, #maxAccessListEntries, #maxStorageKeysPerEntry, #LenOutputDeserialization, #LenRespondSerialization>(
+    request: SignBidirectionalEventV1<EvmType2TxParams<maxCalldataWords, maxAccessListEntries, maxStorageKeysPerEntry>, LenOutputDeserialization, LenRespondSerialization>
+  ): RequestId {
+    assert(request.txParamType == TxParamType.evmType2, "txParamType must tag txParams as evmType2");
+    const preimage = RequestIdPreimageV1 {
+      keyVersion: request.keyVersion,
+      sender: request.sender,
+      path: request.path,
+      algo: request.algo,
+      txParamType: request.txParamType,
+      txParamsDigest: calculateEvmType2TxParamsDigestV1<maxCalldataWords, maxAccessListEntries, maxStorageKeysPerEntry>(request.txParams),
+      executionDest: request.executionDest,
+    };
+    return calculateRequestIdV1(preimage);
   }
 
   // ---- ABI Calldata Word Construction Utilities ------------------------------------------------------

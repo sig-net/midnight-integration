@@ -10,6 +10,7 @@ import "./Signet";
 
 export {
   OutputKind,
+  calculateRequestIdV1,
   constructSignBidirectionalEventNotificationV1,
   ethereumCaip2Id,
   evmAddressAbiWord,
@@ -69,6 +70,23 @@ export pure circuit calculateSignetAttestationDigest100(
   serializedOutput: Bytes<100>
 ): Bytes<32> {
   return calculateSignetAttestationDigestV1<100>(requestId, blockHeight, outputKind, serializedOutput);
+}
+
+// ---- Fixed-width transaction digest oracles (tests only) --------------------
+// Pin the TS twin calculateEvmType2TxParamsDigest against the compiled circuit
+// at the caller contracts' <1, 0, 0> shape and at a shape with unused
+// capacity in every dimension.
+
+export pure circuit calculateEvmType2TxParamsDigestV1_1_0_0(
+  txParams: EvmType2TxParams<1, 0, 0>
+): Bytes<32> {
+  return calculateEvmType2TxParamsDigestV1<1, 0, 0>(txParams);
+}
+
+export pure circuit calculateEvmType2TxParamsDigestV1_2_1_2(
+  txParams: EvmType2TxParams<2, 1, 2>
+): Bytes<32> {
+  return calculateEvmType2TxParamsDigestV1<2, 1, 2>(txParams);
 }
 
 export pure circuit verifyRespondBidirectionalEvent0(

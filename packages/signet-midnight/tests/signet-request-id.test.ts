@@ -85,6 +85,41 @@ describe("calculateRequestId", () => {
     expect(calculateRequestId(changed)).toEqual(calculateRequestId(SAMPLE_REQUEST));
   });
 
+  it("ignores the record's capacities and the bytes in its unused slots", () => {
+    // The same transaction with a third, unused word slot holding garbage:
+    // the id hashes a digest over the used entries, so it is unchanged.
+    const { calldata } = SAMPLE_REQUEST.txParams;
+    const padded: SignBidirectionalEvent = {
+      ...SAMPLE_REQUEST,
+      txParams: {
+        ...SAMPLE_REQUEST.txParams,
+        calldata: {
+          is_some: true,
+          value: { ...calldata.value, words: [...calldata.value.words, bytes(32, 0x99)] },
+        },
+      },
+    };
+    expect(calculateRequestId(padded)).toEqual(calculateRequestId(SAMPLE_REQUEST));
+  });
+
+  it("changes when a used calldata word changes", () => {
+    const { calldata } = SAMPLE_REQUEST.txParams;
+    const changed: SignBidirectionalEvent = {
+      ...SAMPLE_REQUEST,
+      txParams: {
+        ...SAMPLE_REQUEST.txParams,
+        calldata: {
+          is_some: true,
+          value: {
+            ...calldata.value,
+            words: [calldata.value.words[0] ?? bytes(32, 0), bytes(32, 0x99)],
+          },
+        },
+      },
+    };
+    expect(calculateRequestId(changed)).not.toEqual(calculateRequestId(SAMPLE_REQUEST));
+  });
+
   it("rejects a decomposition it has no descriptor for", () => {
     expect(() =>
       calculateRequestId({

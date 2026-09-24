@@ -42,6 +42,7 @@ export {
   abiWordToUint128,
   assembleCalldata,
   boolAbiWord,
+  calculateEvmType2TxParamsDigest,
   type EvmAccessListEntry,
   evmAddressAbiWord,
   type EvmCalldata,

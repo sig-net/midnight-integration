@@ -1,29 +1,31 @@
 // The signet request id computation: the TS twin of Signet.compact's
-// `calculateRequestId` circuit (see the deviation note in
-// signet-requests.ts). Chain-agnostic entry point that resolves each
-// record's tx-params descriptor by its `txParamType` tag, so every
-// decomposition mints ids through this one function.
+// `calculateEvmType2RequestIdV1` circuit (see the deviation note in
+// signet-requests.ts). Chain-agnostic entry point that digests each record's
+// transaction by its `txParamType` tag, so every decomposition mints ids
+// through this one function.
 
 import { transientHash, upgradeFromTransient } from "@midnight-ntwrk/compact-runtime";
 
-import { evmType2TxParamsDescriptorOf } from "./signet-evtype2tx-requests.ts";
+import { calculateEvmType2TxParamsDigest } from "./signet-evtype2tx-requests.ts";
 import {
   type RequestId,
   type RequestIdPreimage,
-  requestIdPreimageDescriptorWith,
+  requestIdPreimageDescriptor,
   type SignBidirectionalEvent,
   TxParamType,
 } from "./signet-requests.ts";
 
 /**
  * Canonical id of a signet request: the transientHash (Poseidon) of the
- * record's {@link RequestIdPreimage} (every field except the serialisation
- * schemas) over its field-aligned representation.
+ * record's {@link RequestIdPreimage} over its field-aligned representation,
+ * with the transaction entering as its decomposition's digest
+ * ({@link calculateEvmType2TxParamsDigest} for evmType2), so the id ignores
+ * the record's capacities and unused slots.
  *
  * @param request - The full event record (contract-shaped, all slots).
  * @returns The 32-byte request id, the record's ledger map key.
  * @throws {Error} If the record's `txParamType` names a decomposition this
- *   computation has no descriptor for.
+ *   computation has no digest for, or a count overruns its capacity.
  */
 export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
   if (request.txParamType !== TxParamType.evmType2) {
@@ -33,18 +35,13 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
     );
   }
   const preimage: RequestIdPreimage = {
-    sender: request.sender,
     keyVersion: request.keyVersion,
+    sender: request.sender,
     path: request.path,
     algo: request.algo,
     txParamType: request.txParamType,
-    txParams: request.txParams,
+    txParamsDigest: calculateEvmType2TxParamsDigest(request.txParams),
     executionDest: request.executionDest,
   };
-  return upgradeFromTransient(
-    transientHash(
-      requestIdPreimageDescriptorWith(evmType2TxParamsDescriptorOf(request.txParams)),
-      preimage,
-    ),
-  );
+  return upgradeFromTransient(transientHash(requestIdPreimageDescriptor, preimage));
 }

@@ -32,6 +32,7 @@ import {
   CompactTypeBoolean,
   CompactTypeBytes,
   CompactTypeEnum,
+  CompactTypeField,
   CompactTypeUnsignedInteger,
 } from "@midnight-ntwrk/compact-runtime";
 
@@ -39,6 +40,11 @@ import {
 // compiler emits.
 
 /** Descriptor of a Compact `Bytes<4>`. */
+/** `Boolean`. */
+export const BOOLEAN = CompactTypeBoolean;
+/** `Field`: the accumulator of the transaction digest folds. */
+export const FIELD = CompactTypeField;
+/** `Bytes<4>`. */
 export const BYTES_4 = new CompactTypeBytes(4);
 /** Descriptor of a Compact `Bytes<20>`. */
 export const BYTES_20 = new CompactTypeBytes(20);
@@ -199,12 +205,29 @@ export function declaredWidths(cell: AlignedValue, what: string): number[] {
 const OUTPUT_KIND = new CompactTypeEnum(2, 1);
 
 /**
+ * Descriptor of a Compact tuple, composed the way the compiler composes one:
+ * the elements' alignments and values concatenated in order.
+ *
+ * @param elements - One descriptor per tuple element, in order.
+ * @returns The tuple's descriptor.
+ */
+export function compactTupleDescriptor<T extends unknown[]>(elements: {
+  [K in keyof T]: CompactType<T[K]>;
+}): CompactType<T> {
+  return {
+    alignment: () => elements.flatMap((element) => element.alignment()),
+    toValue: (values) =>
+      elements.flatMap((element: CompactType<unknown>, index) => element.toValue(values[index])),
+    fromValue: (value) => elements.map((element) => element.fromValue(value)) as T,
+  };
+}
+
+/**
  * Descriptor of the Compact tuple
  * `[RequestId, Uint<64>, OutputKind, Uint<64>, Bytes<serializedOutputLength>]`
  * the attestation digest hashes (request id, block height, output kind,
- * output length, output), composed the way the compiler composes a tuple:
- * the elements' alignments and values concatenated in order. The output
- * width enters the descriptor, so it is built per call.
+ * output length, output). The output width enters the descriptor, so it is
+ * built per call.
  *
  * @param serializedOutputLength - Declared width of the output element, in bytes.
  * @returns The tuple descriptor for {@link calculateSignetAttestationDigest}.
@@ -212,28 +235,11 @@ const OUTPUT_KIND = new CompactTypeEnum(2, 1);
 export function attestationPreimageDescriptor(
   serializedOutputLength: number,
 ): CompactType<[Uint8Array, bigint, number, bigint, Uint8Array]> {
-  const output = new CompactTypeBytes(serializedOutputLength);
-  return {
-    alignment: () => [
-      ...BYTES_32.alignment(),
-      ...UINT_64.alignment(),
-      ...OUTPUT_KIND.alignment(),
-      ...UINT_64.alignment(),
-      ...output.alignment(),
-    ],
-    toValue: ([requestId, blockHeight, outputKind, outputLength, serializedOutput]) => [
-      ...BYTES_32.toValue(requestId),
-      ...UINT_64.toValue(blockHeight),
-      ...OUTPUT_KIND.toValue(outputKind),
-      ...UINT_64.toValue(outputLength),
-      ...output.toValue(serializedOutput),
-    ],
-    fromValue: (value) => [
-      BYTES_32.fromValue(value),
-      UINT_64.fromValue(value),
-      OUTPUT_KIND.fromValue(value),
-      UINT_64.fromValue(value),
-      output.fromValue(value),
-    ],
-  };
+  return compactTupleDescriptor<[Uint8Array, bigint, number, bigint, Uint8Array]>([
+    BYTES_32,
+    UINT_64,
+    OUTPUT_KIND,
+    UINT_64,
+    new CompactTypeBytes(serializedOutputLength),
+  ]);
 }

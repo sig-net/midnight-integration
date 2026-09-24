@@ -101,14 +101,15 @@ export const MPCDestination = {
 
 /**
  * The fields of a {@link SignBidirectionalEvent} that mint its
- * {@link RequestId} (Compact: `RequestIdPreimageV1<TxParams>`), in Compact
- * declaration order: the signing key, the requesting contract, the
- * transaction and its execution destination. The serialisation schemas and
- * the reserved MPC parameters stay out, so two requests for one transaction
- * share an id whatever schemas they declare. Generic over the tx-params
- * decomposition, {@link EvmType2TxParams} by default.
+ * {@link RequestId} (Compact: `RequestIdPreimageV1`), in Compact declaration
+ * order: the signing key, the requesting contract, a digest of the
+ * transaction and its execution destination. The transaction enters as the
+ * digest its decomposition's own function computes over the used entries
+ * only, so the id is the same whatever capacities the requester compiled its
+ * struct with and whatever bytes sit in unused slots. The serialisation
+ * schemas and the reserved MPC parameters stay out.
  */
-export interface RequestIdPreimage<TxParams = EvmType2TxParams> {
+export interface RequestIdPreimage {
   /** MPC root-key version to derive from (>= 1). */
   keyVersion: bigint;
   /** Address of the client contract that stores this event (`kernel.self()`). */
@@ -119,8 +120,8 @@ export interface RequestIdPreimage<TxParams = EvmType2TxParams> {
   algo: number;
   /** A {@link TxParamType} value tagging the txParams decomposition. */
   txParamType: number;
-  /** The transaction decomposition. */
-  txParams: TxParams;
+  /** The 32-byte digest of the transaction decomposition over its used entries. */
+  txParamsDigest: Uint8Array;
   /** Execution destination: the target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 32 bytes. */
   executionDest: Uint8Array;
 }
@@ -182,28 +183,19 @@ const MPC_SIGNATURE_ALGORITHM = new CompactTypeEnum(1, 1);
 const MPC_DESTINATION = new CompactTypeEnum(1, 1);
 
 /**
- * Descriptor of {@link RequestIdPreimage} over ANY tx-params decomposition:
- * the TS analogue of Compact's generic `RequestIdPreimage`, what
- * `calculateRequestId` (signet-request-id.ts) hashes. Field order is the
- * Compact struct's, a subsequence of {@link signBidirectionalEventDescriptorWith}'s.
- *
- * @param txParams - Descriptor of the tx-params decomposition, already at
- *   its capacity instantiation.
- * @returns The preimage descriptor.
+ * Descriptor of {@link RequestIdPreimage}: what {@link calculateRequestId}
+ * hashes, in Compact declaration order.
  */
-export function requestIdPreimageDescriptorWith<TxParams>(
-  txParams: CompactType<TxParams>,
-): CompactType<RequestIdPreimage<TxParams>> {
-  return compactStructDescriptor<RequestIdPreimage<TxParams>>({
+export const requestIdPreimageDescriptor: CompactType<RequestIdPreimage> =
+  compactStructDescriptor<RequestIdPreimage>({
     keyVersion: UINT_8,
     sender: CONTRACT_ADDRESS,
     path: BYTES_32,
     algo: MPC_SIGNATURE_ALGORITHM,
     txParamType: TX_PARAM_TYPE,
-    txParams,
+    txParamsDigest: BYTES_32,
     executionDest: BYTES_32,
   });
-}
 
 /**
  * Descriptor of {@link SignBidirectionalEvent} over ANY tx-params

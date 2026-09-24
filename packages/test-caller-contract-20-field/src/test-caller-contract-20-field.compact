@@ -85,7 +85,7 @@ export circuit submitSignatureRequest(
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestIdV1<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
+  const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signBidirectionalEventMap.insert(requestId, disclose(request));
