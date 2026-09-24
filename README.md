@@ -64,10 +64,10 @@ Step **5.** needs the exact serialised output the MPC attested, and only the att
 
 - **Output recovery is chain-specific.** For EVM chains the output is the mined call's return data, read with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. The client decodes it per the request's `outputDeserializationSchema` and re-serialises it per its `respondSerializationSchema` (see [`deserializeEvmOutput`](./packages/signet-midnight/src/abi-serde.ts) and [`serializeRespondOutput`](./packages/signet-midnight/src/abi-serde.ts)), the two conversions step **4.** ran.
 - **Getting the output yourself is the most trustless route.** The dApp broadcast the transaction in step **3.**, so it can read the result from a node of its own choosing, with no third party in the loop.
-- **An MPC _may_ publish the attested bytes into a cache.** MPC nodes read the output to attest it and can be configured to upload the output to a public bucket. If configured to do this, then BEFORE the attestation is posted to chain the associated serialised output is written to an object at the path `<prefix>/<networkId>/<signetContractAddress>/<requestId>.bin`.
+- **An MPC _may_ publish the attested bytes into a cache.** MPC nodes read the output to attest it and can be configured to upload the output to a public bucket. If configured to do this, then BEFORE the attestation is posted to chain the destination block height (8 bytes, little-endian) followed by the serialised output is written to an object at the path `<prefix>/<networkId>/<signetContractAddress>/<requestId>.bin`.
 - **A default cache is available where a tracing RPC is not.** Hosted EVM providers often gate `debug_traceTransaction` behind a paid tier. An application without one may read the attested bytes from the cache this package publishes for its network:
   - [`MpcOutputCacheReader`](./packages/signet-midnight/src/mpc-output-cache.ts) is the client. Construct it with the network id and the signet contract address. The cache URL defaults to the one [`getMpcOutputCacheUrl`](./packages/signet-midnight/src/constants.ts) publishes for that network (stagenet: `https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet`).
-  - `fetchSerializedOutput(requestId)` returns the attested bytes. It returns `undefined` while the MPC has not written them yet, so poll it beside the attestation events.
+  - `fetchAttestedOutput(requestId)` returns the block height and the attested bytes. It returns `undefined` while the MPC has not written them yet, so poll it beside the attestation events.
   - The local fakenet responder simulates the same bucket on port 3040 under the prefix `v1/fakenet`. Pass `cacheUrl: "http://127.0.0.1:3040/v1/fakenet"` and the same reader works against the local stack.
 
 Whichever route supplies them, the bytes are UNTRUSTED until step **5.**'s in-circuit signature verification: a wrong or forged output merely fails to verify.
@@ -237,7 +237,7 @@ Do not derive the path by hand: the compiler records it in your compiled artifac
 
 The two caller contracts in this repository are worked examples of each case:
 
-- [`packages/test-caller-contract`](packages/test-caller-contract): the flat case, where its 7-field ledger stores the map at field 3, so notifications carry depth `1` and path `[4, 0, 0, 0]`.
+- [`packages/test-caller-contract`](packages/test-caller-contract): the flat case, where its 7-field ledger stores the map at field 3, so notifications carry depth `1` and path `[3, 0, 0, 0]`.
 - [`packages/test-caller-contract-20-field`](packages/test-caller-contract-20-field): the chunked case, where its 20 fields split 5 + 15, so the map at field 19 packs as depth `2` and path `[1, 14, 0, 0]`.
 
 ## Runtime
@@ -337,22 +337,23 @@ const expectedSigner = deriveEvmAddress(
    await new JsonRpcProvider(foreignChainRpcUrl).broadcastTransaction(signedTx.serialized);
    ```
 
-4. Poll the Signet singleton for the MPC's attestation of the remote execution output. The MPC posts it once it observes the transaction execute on the foreign chain, and the singleton emits it as a contract event that carries the request id beside the MPC's signature. Both the attestation digest and the serialised output travel off chain (you broadcast the transaction in step 3, so you can read its result). The event log is unauthenticated, so use the verifying getter, as in step 2. It reads your request's posts by id, recomputes the digest over the output that you present, and only returns a post whose signature verifies against the response key of your contract.
+4. Poll the Signet singleton for the MPC's attestation of the remote execution output. The MPC posts it once it observes the transaction execute on the foreign chain, and the singleton emits it as a contract event that carries the request id beside the MPC's signature. Both the attestation digest and the serialised output travel off chain (you broadcast the transaction in step 3, so you can read its receipt: the block height is the receipt's block number and the output is the call's return data). The event log is unauthenticated, so use the verifying getter, as in step 2. It reads your request's posts by id, recomputes the digest over the block height and the output that you present, and only returns a post whose signature verifies against the response key of your contract.
 
    ```ts
    const respondBidirectionalEvent = await reader.getVerifiedRespondBidirectionalEvent(
       requestId,
+      blockHeight,
       serializedOutput,
       mpcResponseKey,
    );
    // undefined: no attestation of that output posted yet, poll again.
    ```
 
-5. Deliver the response and the serialised output to your contract, which recomputes the attestation digest, verifies the event in-circuit against the response key pinned in Setup step 4, and consumes the request. The width argument is the exact packed size of your respond serialisation schema (a single bool packs to 1 byte):
+5. Deliver the response, the block height and the serialised output to your contract, which recomputes the attestation digest, verifies the event in-circuit against the response key pinned in Setup step 4, and consumes the request. The width argument is the exact packed size of your respond serialisation schema (a single bool packs to 1 byte):
 
    ```compact
    assert(
-      verifyRespondBidirectionalEvent<1>(requestId, serializedOutput, respondBidirectionalEvent, mpcResponseKey),
+      verifyRespondBidirectionalEvent<1>(requestId, blockHeight, serializedOutput, respondBidirectionalEvent, mpcResponseKey),
       "Invalid attestation signature"
    );
    signBidirectionalEventMap.remove(requestId);
