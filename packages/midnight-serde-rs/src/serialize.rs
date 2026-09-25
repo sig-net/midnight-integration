@@ -9,7 +9,9 @@
 //! Compact compile error.
 
 use crate::error::Error;
-use crate::types::{Descriptor, FIELD_MODULUS, Value};
+use crate::types::{
+    Descriptor, FIELD_MODULUS, SECP256K1_BASE_MODULUS, SECP256K1_SCALAR_MODULUS, Value,
+};
 use crate::u256::U256;
 use crate::validate::validate;
 
@@ -35,7 +37,7 @@ pub(crate) fn packed_size(descriptor: &Descriptor, path: &str) -> Result<usize, 
         Descriptor::UintBits { .. } | Descriptor::UintBound { .. } => {
             Ok(width_of_bound(uint_bound(descriptor)))
         }
-        Descriptor::Field => Ok(32),
+        Descriptor::Field | Descriptor::Secp256k1Base | Descriptor::Secp256k1Scalar => Ok(32),
         Descriptor::Bytes { length } => Ok(*length),
         Descriptor::Enum { variants } => Ok(width_of_bound(U256::from_u64(*variants))),
         Descriptor::Vector { length, element } => {
@@ -138,17 +140,24 @@ fn encode_into(
             v.write_le(&mut out[offset..offset + size]);
             Ok(offset + size)
         }
-        Descriptor::Field => {
-            let Value::Field(v) = value else {
-                return Err(Error::ValueShape {
-                    path: path.to_string(),
-                    expected: "field",
-                });
+        Descriptor::Field | Descriptor::Secp256k1Base | Descriptor::Secp256k1Scalar => {
+            let v = match (descriptor, value) {
+                (Descriptor::Field, Value::Field(v))
+                | (Descriptor::Secp256k1Base, Value::Secp256k1Base(v))
+                | (Descriptor::Secp256k1Scalar, Value::Secp256k1Scalar(v)) => v,
+                _ => {
+                    return Err(Error::ValueShape {
+                        path: path.to_string(),
+                        expected: "matching field variant",
+                    });
+                }
             };
-            if *v >= FIELD_MODULUS {
+            let modulus = field_modulus(descriptor);
+            if *v >= modulus {
                 return Err(Error::FieldOutOfRange {
                     path: path.to_string(),
                     value: *v,
+                    modulus,
                 });
             }
             v.write_le(&mut out[offset..offset + 32]);
@@ -265,5 +274,14 @@ fn encode_into(
             }
             Ok(cursor)
         }
+    }
+}
+
+pub(crate) fn field_modulus(descriptor: &Descriptor) -> U256 {
+    match descriptor {
+        Descriptor::Field => FIELD_MODULUS,
+        Descriptor::Secp256k1Base => SECP256K1_BASE_MODULUS,
+        Descriptor::Secp256k1Scalar => SECP256K1_SCALAR_MODULUS,
+        _ => unreachable!("field_modulus requires a field descriptor"),
     }
 }

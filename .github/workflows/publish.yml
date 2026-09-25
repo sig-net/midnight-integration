@@ -226,7 +226,7 @@ jobs:
       - name: Authenticate with crates.io (OIDC, no stored secret)
         if: steps.version.outputs.skip != 'true'
         id: auth
-        uses: rust-lang/crates-io-auth-action@v1
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
       - name: Publish signet-midnight-serde to crates.io
         if: steps.version.outputs.skip != 'true'
         run: cargo publish --locked

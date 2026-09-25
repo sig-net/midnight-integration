@@ -13,6 +13,8 @@ const KIND_KEYS: Record<string, readonly string[]> = {
   boolean: ["kind"],
   uint: ["kind", "bits", "bound"],
   field: ["kind"],
+  "secp256k1-base": ["kind"],
+  "secp256k1-scalar": ["kind"],
   bytes: ["kind", "length"],
   enum: ["kind", "variants"],
   vector: ["kind", "length", "element"],
@@ -76,6 +78,8 @@ export function assertCompactType(type: unknown, label = "type"): asserts type i
   switch (kind) {
     case "boolean":
     case "field":
+    case "secp256k1-base":
+    case "secp256k1-scalar":
       return;
 
     case "uint": {

@@ -308,3 +308,16 @@ export pure circuit serSomeU64(x: Uint<64>): Bytes<9> {
 export pure circuit serNoneU64(): Bytes<9> {
   return serialize<Maybe<Uint<64>>, 9>(none<Uint<64>>());
 }
+
+export pure circuit serSecp256k1Base(v: Secp256k1Base): Bytes<32> {
+  return serialize<Secp256k1Base, 32>(v);
+}
+export pure circuit deSecp256k1Base(b: Bytes<32>): Secp256k1Base {
+  return deserialize<Secp256k1Base, 32>(b);
+}
+export pure circuit serSecp256k1Scalar(v: Secp256k1Scalar): Bytes<32> {
+  return serialize<Secp256k1Scalar, 32>(v);
+}
+export pure circuit deSecp256k1Scalar(b: Bytes<32>): Secp256k1Scalar {
+  return deserialize<Secp256k1Scalar, 32>(b);
+}

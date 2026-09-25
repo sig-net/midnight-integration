@@ -52,19 +52,19 @@ const RAW_DATA = (() => {
  */
 export const SCHEMA_CASES: SchemaCase[] = [
   {
-    name: 'schema-bool',
+    name: "schema-bool",
     schema: '[{"name":"success","type":"bool"}]',
     abiValue: { success: true },
     compactValue: { success: true },
   },
   {
-    name: 'schema-bool-uint256',
+    name: "schema-bool-uint256",
     schema: '[{"name":"success","type":"bool"},{"name":"amount","type":"uint256"}]',
     abiValue: { success: true, amount: (1n << 200n) + 12345n },
     compactValue: { success: true, amount: (1n << 200n) + 12345n },
   },
   {
-    name: 'schema-fixed-widths',
+    name: "schema-fixed-widths",
     schema:
       '[{"name":"who","type":"address"},{"name":"tag","type":"bytes32"},{"name":"n","type":"uint128"}]',
     abiValue: {
@@ -79,17 +79,17 @@ export const SCHEMA_CASES: SchemaCase[] = [
     },
   },
   {
-    name: 'schema-dynamic',
+    name: "schema-dynamic",
     schema:
       '[{"name":"msg","type":"string","maxBytes":32},{"name":"raw","type":"bytes","maxBytes":16}]',
-    abiValue: { msg: 'hi signet', raw: Uint8Array.of(0xde, 0xad, 0xbe, 0xef) },
+    abiValue: { msg: "hi signet", raw: Uint8Array.of(0xde, 0xad, 0xbe, 0xef) },
     compactValue: {
       msg: { len: 9n, data: MSG_DATA },
       raw: { len: 4n, data: RAW_DATA },
     },
   },
   {
-    name: 'schema-array',
+    name: "schema-array",
     schema: '[{"name":"vals","type":"uint64[]","maxItems":3}]',
     abiValue: { vals: [7n, 8n] },
     compactValue: { vals: { len: 2n, items: [7n, 8n, 0n] } },
@@ -97,8 +97,8 @@ export const SCHEMA_CASES: SchemaCase[] = [
   {
     // The NUL-padded on-chain form: fixed-width Bytes<N> wider than the
     // schema text. Consumers must cut at the first NUL before JSON-parsing.
-    name: 'schema-bool-nul-padded',
-    schema: '[{"name":"success","type":"bool"}]' + '\u0000'.repeat(30),
+    name: "schema-bool-nul-padded",
+    schema: '[{"name":"success","type":"bool"}]' + "\u0000".repeat(30),
     abiValue: { success: false },
     compactValue: { success: false },
   },

@@ -73,6 +73,8 @@ fn random_value(rng: &mut Rng, descriptor: &Descriptor) -> Value {
             assert!(v < FIELD_MODULUS);
             Value::Field(v)
         }
+        Descriptor::Secp256k1Base => Value::Secp256k1Base(U256::from_u64(rng.next_u64())),
+        Descriptor::Secp256k1Scalar => Value::Secp256k1Scalar(U256::from_u64(rng.next_u64())),
         Descriptor::UintBits { bits } => {
             // Boundary-biased: 0, max, or a small value.
             let max = U256::pow2(*bits).minus_one();

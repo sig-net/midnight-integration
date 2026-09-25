@@ -18,7 +18,7 @@
 // type system.
 
 import type { CompactType, CompactUintType, CompactValue, CompactValueOf } from "./types.ts";
-import { FIELD_MODULUS } from "./types.ts";
+import { FIELD_MODULUS, SECP256K1_BASE_MODULUS, SECP256K1_SCALAR_MODULUS } from "./types.ts";
 import { assertCompactType, assertUnreachable, isUint8Array } from "./validate.ts";
 
 /**
@@ -92,6 +92,8 @@ export function packedSize(type: CompactType): number {
     case "uint":
       return widthOfBound(uintBound(type));
     case "field":
+    case "secp256k1-base":
+    case "secp256k1-scalar":
       return 32;
     case "bytes":
       return type.length;
@@ -199,9 +201,11 @@ function encodeInto(
       writeUintLE(out, offset, value, size, label);
       return offset + size;
     }
-    case "field": {
+    case "field":
+    case "secp256k1-base":
+    case "secp256k1-scalar": {
       if (typeof value !== "bigint") throw new Error(`${label}: expected bigint`);
-      if (value >= FIELD_MODULUS) {
+      if (value >= fieldModulus(type)) {
         throw new Error(`${label}: value ${String(value)} is not below the Field modulus`);
       }
       writeUintLE(out, offset, value, 32, label);
@@ -239,9 +243,13 @@ function encodeInto(
         );
       }
       let cursor = offset;
-      value.forEach((element, i) => {
+      for (let i = 0; i < type.length; i++) {
+        const element = value[i];
+        if (!Object.hasOwn(value, i) || element === undefined) {
+          throw new Error(`${label}[${String(i)}]: missing element`);
+        }
         cursor = encodeInto(out, cursor, type.element, element, `${label}[${String(i)}]`);
-      });
+      }
       return cursor;
     }
     case "tuple": {
@@ -330,5 +338,24 @@ function writeUintLE(
   for (let i = 0; i < size; i++) {
     out[offset + i] = Number(v & 0xffn);
     v >>= 8n;
+  }
+}
+
+/**
+ * Exclusive modulus of a Compact field descriptor.
+ *
+ * @param type - The field descriptor.
+ * @returns Its exclusive numeric bound.
+ */
+export function fieldModulus(
+  type: Extract<CompactType, { kind: "field" | "secp256k1-base" | "secp256k1-scalar" }>,
+): bigint {
+  switch (type.kind) {
+    case "field":
+      return FIELD_MODULUS;
+    case "secp256k1-base":
+      return SECP256K1_BASE_MODULUS;
+    case "secp256k1-scalar":
+      return SECP256K1_SCALAR_MODULUS;
   }
 }

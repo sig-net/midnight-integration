@@ -41,15 +41,26 @@ padding region the circuit ignores, `lenient_booleans` for the bytes above
 0x01 the circuit decodes as false). Rejections carry language-neutral
 category slugs via `Error::category`, shared with the conformance corpus.
 
+`Descriptor::Secp256k1Base` and `Descriptor::Secp256k1Scalar` use matching
+`Value` variants and exported modulus constants. Both occupy 32 bytes.
+Encoding rejects values at or above the modulus, while decoding reduces the
+input modulo that modulus, matching compiled Compact. Native `Field` decoding
+rejects out-of-range inputs. `JubjubScalar` is unsupported: the pinned
+compiler crashes on its serialisation and deserialisation.
+
 ## Testing
 
 `cargo test --locked` replays every record of the COMMITTED golden corpus in
 [`../midnight-serde-conformance/corpus/serde-corpus.jsonl`](../midnight-serde-conformance/corpus/serde-corpus.jsonl),
 which is generated from compiled Compact circuits, Midnight's `toBinaryRepr`
 oracle and the TypeScript twin, and guarded against staleness on the TS side.
-A green run therefore proves this crate agrees with the compiled circuits
-byte for byte, without Node or compactc anywhere near `cargo test`. A native
-seeded sweep adds fresh randomised roundtrip coverage on top.
+Each record identifies its authority: compiler-generated JavaScript, FAB
+oracle, twin policy or production mapping. A green run establishes agreement
+with those recorded expectations. A native seeded sweep adds randomised
+roundtrip coverage, and malformed-input tables check descriptor and value
+validation. The compiler-backed suite generates an additional corpus that
+CI replays through Rust when one of the three serde packages changes.
+Proof and Impact VM execution remain outside this evidence.
 
 From the repo root: `yarn test:midnight-serde-rs` / `yarn build:midnight-serde-rs`.
 

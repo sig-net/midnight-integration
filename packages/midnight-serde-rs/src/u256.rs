@@ -1,7 +1,5 @@
 //! A crate-local 256-bit unsigned integer: four u64 limbs, little-endian.
-//! Compact values top out at 255 bits (`Field` is below the BLS12-381 scalar
-//! modulus, `Uint` at 248 bits), so 256 bits cover every representable value
-//! and every legal bound (up to 2^248 inclusive) with zero dependencies.
+//! Covers native and secp256k1 fields, Uint values and their exclusive bounds.
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -106,6 +104,23 @@ impl U256 {
                 *limb -= 1;
                 break;
             }
+        }
+        U256 { limbs }
+    }
+
+    // Foreign-field moduli exceed 2^255, so at most one subtraction reduces a U256.
+    pub(crate) fn reduce_once(self, modulus: U256) -> U256 {
+        assert!(modulus.limbs[3] >> 63 == 1);
+        if self < modulus {
+            return self;
+        }
+        let mut limbs = self.limbs;
+        let mut borrow = false;
+        for (limb, subtrahend) in limbs.iter_mut().zip(modulus.limbs) {
+            let (difference, first_borrow) = limb.overflowing_sub(subtrahend);
+            let (difference, second_borrow) = difference.overflowing_sub(u64::from(borrow));
+            *limb = difference;
+            borrow = first_borrow || second_borrow;
         }
         U256 { limbs }
     }

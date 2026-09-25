@@ -29,8 +29,12 @@ pub enum Error {
         value: u64,
         variants: u64,
     },
-    /// A Field value or encoding at or above the BLS12-381 scalar modulus.
-    FieldOutOfRange { path: String, value: U256 },
+    /// A field value or encoding at or above its modulus.
+    FieldOutOfRange {
+        path: String,
+        value: U256,
+        modulus: U256,
+    },
     /// A strict-mode boolean byte above 0x01 (the circuit decodes these as
     /// false: pass `lenient_booleans` to mirror it).
     InvalidBooleanByte { path: String, byte: u8 },
@@ -111,8 +115,15 @@ impl fmt::Display for Error {
                     variants - 1
                 )
             }
-            Error::FieldOutOfRange { path, value } => {
-                write!(f, "{path}: value {value} is not below the Field modulus")
+            Error::FieldOutOfRange {
+                path,
+                value,
+                modulus,
+            } => {
+                write!(
+                    f,
+                    "{path}: value {value} is not below the field modulus {modulus}"
+                )
             }
             Error::InvalidBooleanByte { path, byte } => {
                 write!(f, "{path}: invalid boolean byte 0x{byte:02x}")

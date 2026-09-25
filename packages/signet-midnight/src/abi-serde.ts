@@ -223,9 +223,6 @@ export function serializeRespondOutput(
   return compactSerialize(descriptor, value);
 }
 
-// Helpers from here down. The exports above are the whole public surface:
-// everything below serves them.
-=======
 /**
  * The Compact descriptor a respond schema maps to: the exact
  * {@link CompactType} that {@link serializeRespondOutput} serializes with,
@@ -234,7 +231,7 @@ export function serializeRespondOutput(
  *
  * @param schema - The respondSerializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
  * @returns The struct descriptor covering every schema field in order.
- * @throws If the schema is malformed or uses a type outside the respond vocabulary.
+ * @throws {Error} If the schema is malformed or uses a type outside the respond vocabulary.
  */
 export function respondSchemaDescriptor(schema: AbiSchemaInput): CompactType {
   return respondSchemaToCompactType(normalizeRespondSchema(schema));
@@ -494,7 +491,10 @@ export function evmTraceOutputFromCallFrame(frame: JsonValue): EvmTraceOutput {
   return { kind: EvmTraceOutputKind.Output, returnData: ethers.getBytes(`0x${digits}`) };
 }
 
-// ====================================================================// ===========================================================================
+// ===========================================================================
+// Helpers from here down. The exports above are the whole public surface:
+// everything below serves them.
+// ===========================================================================
 
 // ---------------------------------------------------------------------------
 // Field-kind guards

@@ -32,7 +32,7 @@
     }
   },
   "devDependencies": {
-    "@midnight-protocol/midnight-serde-conformance": "*",
+    "@midnight-protocol/midnight-serde-conformance": "workspace:*",
     "@types/node": "^26.1.0",
     "@vitest/coverage-v8": "^5.0.0",
     "typescript": "^7.0.2",

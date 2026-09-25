@@ -21,10 +21,7 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # Nightly full run: a no-commit canary for infra drift, and it keeps the
-    # compact-toolchain and zk-keys caches warm (GitHub evicts caches unused
-    # for 7 days, and a cold zk-keys cache costs a PR ~10 minutes of keygen).
-    - cron: "17 3 * * *"
+    - cron: "17 3 * * *" # nightly: integration suite
   workflow_dispatch:
 
 permissions:
@@ -37,12 +34,20 @@ concurrency:
 jobs:
   unit:
     name: format → compile (skip-zk) → lint → build → unit tests
+    if: github.event_name != 'schedule' || github.event.schedule == '17 3 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Detect serde package changes
+        id: serde
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: bash packages/midnight-serde-conformance/ci-changes.sh "$BASE" HEAD >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: lts/*
@@ -122,6 +127,15 @@ jobs:
         run: yarn build
       - name: Unit tests (simulator-only, the integration suites self-skip without RUN_INTEGRATION_TESTS)
         run: yarn test
+      - name: Compiler-backed serde conformance
+        if: steps.serde.outputs.changed == 'true'
+        run: yarn workspace @midnight-protocol/midnight-serde-conformance test:compiler
+      - name: Rust replay of compiler-backed serde conformance
+        if: steps.serde.outputs.changed == 'true'
+        working-directory: packages/midnight-serde-rs
+        env:
+          MIDNIGHT_SERDE_COMPILER_CORPUS: ${{ github.workspace }}/packages/midnight-serde-conformance/managed-sweep/compiler-corpus.jsonl
+        run: cargo test --locked --test conformance compiler_sweep_conformance -- --ignored
 
   rust:
     name: rust (fmt → clippy → test against the committed corpus)
@@ -131,11 +145,13 @@ jobs:
       run:
         working-directory: packages/midnight-serde-rs
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # rustup reads rust-toolchain.toml and installs the pinned toolchain
       # (with rustfmt + clippy) on first use.
       - name: Cache cargo registry and build output
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -151,6 +167,7 @@ jobs:
 
   integration:
     name: integration (compose stack + fakenet + signet-caller e2e)
+    if: github.event_name != 'schedule' || github.event.schedule == '17 3 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:

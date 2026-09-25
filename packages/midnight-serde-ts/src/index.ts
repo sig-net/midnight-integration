@@ -6,6 +6,8 @@ export {
   type CompactBytesType,
   type CompactEnumType,
   type CompactFieldType,
+  type CompactSecp256k1BaseType,
+  type CompactSecp256k1ScalarType,
   type CompactSizedUintType,
   type CompactStructType,
   type CompactTupleType,
@@ -17,5 +19,7 @@ export {
   FIELD_MODULUS,
   MAX_UINT_BITS,
   MAX_UINT_BOUND,
+  SECP256K1_BASE_MODULUS,
+  SECP256K1_SCALAR_MODULUS,
 } from "./types.ts";
 export { assertCompactType, isCompactType } from "./validate.ts";
