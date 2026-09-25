@@ -1,5 +1,7 @@
 # Unit and integration testing.
 #   unit         format + compile + lint + build + test
+#   rust         the signet-midnight-serde crate: fmt + clippy + cargo test
+#                against the COMMITTED conformance corpus (no Node, no compactc)
 #   integration  compose stack + signet-caller e2e, whose setup deploys the
 #                contracts and starts the fakenet responder
 #
@@ -39,6 +41,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Detect serde package changes
+        id: serde
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: bash packages/midnight-serde-conformance/ci-changes.sh "$BASE" HEAD >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: lts/*
@@ -118,6 +127,43 @@ jobs:
         run: yarn build
       - name: Unit tests (simulator-only, the integration suites self-skip without RUN_INTEGRATION_TESTS)
         run: yarn test
+      - name: Compiler-backed serde conformance
+        if: steps.serde.outputs.changed == 'true'
+        run: yarn workspace @midnight-protocol/midnight-serde-conformance test:compiler
+      - name: Rust replay of compiler-backed serde conformance
+        if: steps.serde.outputs.changed == 'true'
+        working-directory: packages/midnight-serde-rs
+        env:
+          MIDNIGHT_SERDE_COMPILER_CORPUS: ${{ github.workspace }}/packages/midnight-serde-conformance/managed-sweep/compiler-corpus.jsonl
+        run: cargo test --locked --test conformance compiler_sweep_conformance -- --ignored
+
+  rust:
+    name: rust (fmt → clippy → test against the committed corpus)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: packages/midnight-serde-rs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # rustup reads rust-toolchain.toml and installs the pinned toolchain
+      # (with rustfmt + clippy) on first use.
+      - name: Cache cargo registry and build output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/midnight-serde-rs/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('packages/midnight-serde-rs/Cargo.lock', 'packages/midnight-serde-rs/rust-toolchain.toml') }}
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Tests (conformance corpus + native sweep, frozen deps)
+        run: cargo test --locked
 
   integration:
     name: integration (compose stack + fakenet + signet-caller e2e)
