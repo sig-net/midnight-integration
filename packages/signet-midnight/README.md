@@ -35,7 +35,7 @@ The protocol and integration documentation lives in the [sig-net/midnight-integr
 
 - [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow): the 5-step protocol this package speaks, with diagram, failure handling and output recovery.
 - [Derived keys](https://github.com/sig-net/midnight-integration/blob/main/README.md#derived-keys): the request signing key and the response key, and how the MPC derives them.
-- [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure): the fixed 5-byte failure payload the MPC attests for a failed foreign transaction, how a contract tells it apart from a success, and which respond schemas cannot.
+- [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure): the empty output and failure output kind the MPC attests for a failed foreign transaction, and how a contract routes on the verified kind.
 - [Integrator Guide](https://github.com/sig-net/midnight-integration/blob/main/README.md#integrator-guide): the once-off setup and the per-request runtime steps, built on this package's exports.
 - [EVM Type 2 transactions and ABI calldata words](https://github.com/sig-net/midnight-integration/blob/main/README.md#evm-type-2-transactions-and-abi-calldata-words): building calldata words in-circuit and deserialising respond payloads.
 
@@ -51,11 +51,11 @@ What your contract imports with `import "@sig-net/midnight/src/Signet"`:
 
 | Task | Exports |
 |---|---|
-| Declare the protocol ledger state (setup step 3) | `SignBidirectionalEventMap` (the request map the MPC reads) and `SignetSigner` (the Signet singleton's cross-contract-call interface, pinned at deploy). |
-| Build and store a signature request (runtime step 1) | `constructSignBidirectionalEvent` and `calculateRequestId`, over the request structs `EvmType2TxParams`, `EvmCalldata` and `EvmAccessListEntry`. |
+| Declare the protocol ledger state (setup step 3) | `SignBidirectionalEventMapV1` (the request map the MPC reads) and `SignetSigner` (the Signet singleton's cross-contract-call interface, pinned at deploy). |
+| Build and store a signature request (runtime step 1) | `constructSignBidirectionalEventV1` and `calculateEvmType2RequestIdV1`, over the request structs `EvmType2TxParams`, `EvmCalldata` and `EvmAccessListEntry`. The id hashes `calculateEvmType2TxParamsDigestV1`, a digest over the transaction's used entries only, so it ignores your struct's capacities and unused slots. |
 | Notify the MPC of the request (runtime step 1) | `constructSignBidirectionalEventNotificationV1`: packs your contract's address and the request map's ledger-tree path. |
 | Build and read calldata words in-circuit | The builders `evmAddressAbiWord`, `numericAbiWord` and `boolAbiWord`, and the readers `abiWordToUint128` and `abiWordToBool` (see [EVM Type 2 transactions and ABI calldata words](https://github.com/sig-net/midnight-integration/blob/main/README.md#evm-type-2-transactions-and-abi-calldata-words)). |
-| Verify the execution attestation (runtime step 5) | `verifyRespondBidirectionalEvent`: recomputes the attestation digest from the output bytes and checks the MPC's signature against your pinned response key. |
+| Verify the execution attestation (runtime step 5) | `verifyRespondBidirectionalEventV1`: recomputes the attestation digest from the output bytes and the posted request id, output kind and block height, and checks the MPC's signature against your pinned response key. |
 
 ### TypeScript library
 
@@ -69,12 +69,14 @@ What clients import from `@sig-net/midnight`:
 | Derive the response key your deploy pins | `deriveMidnightResponseKey`: the key `initialise` stores (setup step 4), derived from your contract's address. |
 | Look up published counterparty values | `MidnightNetwork`, `getMpcRootPublicKey` and `getSignetContractAddress`: the fixed per-network values (see the notes in [Runtime](https://github.com/sig-net/midnight-integration/blob/main/README.md#runtime)). |
 | Accept an MPC public key in any published spelling | `parseSecp256k1PublicKey` (to a Compact `Secp256k1Point`) and `normaliseSecp256k1PublicKey` (to the canonical `0x04…` uncompressed SEC1 hex): both take SEC1 hex, compressed or uncompressed with an optional `0x`, and NEAR's `secp256k1:<base58>`. |
-| Read a text field of a request record | `asciiUnpadded`: the inverse of `asciiPadded`, for the zero-padded text fields (`caip2Id`, the two schemas). |
+| Read a text field of a request record | `asciiUnpadded`: the inverse of `asciiPadded`, for the zero-padded text fields (`executionDest`, the two schemas). |
 | Compute a request id off chain | `calculateRequestId`: the TS twin of the on-chain circuit, plus `requestIdHex` and `parseRequestIdHex` for the hex form. |
 | Compose expected calldata words off chain (UIs, expected-record builders, tests) | The builders `numericAbiWord`, `evmAddressAbiWord` and `boolAbiWord`, and the readers `abiWordToUint128` and `abiWordToBool`: TS twins of the circuits under identical names. |
+| Digest a transaction decomposition off chain | `calculateEvmType2TxParamsDigest`: the TS twin of the circuit, what `calculateRequestId` hashes in place of the parameters. |
 | Convert a foreign execution output into respond bytes | `deserializeEvmOutput` (raw EVM return data to named values) and `serializeRespondOutput` (named values to the packed respond payload the MPC attests): together they rebuild the `serializedOutput` of steps 4 and 5. |
-| Recognise a failed remote execution | `MPC_FAILURE_OUTPUT` and `isMpcFailureOutput`: the MPC's fixed 5-byte failure payload for reverted or replaced transactions (see [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure)). |
-| Read the attested output from the MPC's output cache | `MpcOutputCacheReader` (`fetchAttestedOutput` returns the block height and the output; `encodeAttestedOutput` / `decodeAttestedOutput` are the object format): one reader per network and Signet singleton pair, over the public bucket an MPC configured with output storage writes each request's block height and exact attested bytes to before posting, defaulting to the bucket `getMpcOutputCacheUrl` publishes for the network. `fetchAttestedOutput` yields the height and the bytes step 5 verifies, `undefined` while the object is not written yet. |
+| Recognise a failed remote execution | `OutputKind` on the verified `RespondBidirectionalEvent`: `failed` or `unviable` beside an empty output (see [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure)). |
+| Read the attested output bytes from the MPC's output cache | `MpcOutputCacheReader`: one reader per network and Signet singleton pair, over the public bucket an MPC configured with output storage writes each request's exact attested bytes to before posting, defaulting to the bucket `getMpcOutputCacheUrl` publishes for the network. `fetchSerializedOutput` yields the bytes step 5 verifies, `undefined` while the object is not written yet. |
+| Hand a verified attestation to your verify circuit (runtime step 5) | `respondBidirectionalEventToCircuitInput`: flips the wire event's big-endian `bigR.x` and `s` into the little-endian record `verifyRespondBidirectionalEventV1` reads. |
 | Verify attestations without the reader | `verifyRespondBidirectionalSignature`: the check the reader runs internally, exposed for custom pipelines. |
 | Mint attestations in your contract's unit tests | The `@sig-net/midnight/testing` entry point, see [Testing entry point](#testing-entry-point). |
 | Discover requests MPC-side (responders, background workers) | The discovery primitives: decode the signet contract's emitted notification events with `decodeSignetEventNamed(event, SignetEventName.SignBidirectionalEvent)` (or every kind at once with `decodeSignetEvent`, which throws on an undecodable payload anyone can emit, or its non-throwing sibling `tryDecodeSignetEvent`), then resolve each pointer against the named caller's own request map with `lookupSignetRequestAt` (the authenticated read). The polling loop belongs to the responder. |
@@ -96,23 +98,16 @@ stack and no MPC:
 
 ```ts
 import { verifyRespondBidirectionalSignature } from "@sig-net/midnight"; // runtime
-import {
-  calculateSignetAttestationDigest,
-  ecdsaSignatureToMpcSignature,
-  secp256k1PublicKeyOf,
-  signAttestationDigest,
-} from "@sig-net/midnight/testing"; // tests only
+import { attestRespondBidirectional, secp256k1PublicKeyOf } from "@sig-net/midnight/testing"; // tests only
 
-// A real RespondBidirectionalEvent for (requestId, output), signed by secretKey.
-// It verifies, in-circuit and off chain, against secp256k1PublicKeyOf(secretKey).
-const event = {
-  signature: ecdsaSignatureToMpcSignature(
-    signAttestationDigest(
-      calculateSignetAttestationDigest(requestId, serializedOutput),
-      secretKey,
-    ),
-  ),
-};
+// A real RespondBidirectionalEvent for (requestId, blockHeight, outputKind,
+// serializedOutput), signed by secretKey: the request id, block height, kind,
+// output width, attestation digest and signature the MPC would post. It
+// verifies, in-circuit and off chain, against secp256k1PublicKeyOf(secretKey).
+const event = attestRespondBidirectional(
+  { requestId, blockHeight, outputKind, serializedOutput },
+  secretKey,
+);
 ```
 
 ## Related packages
@@ -121,3 +116,16 @@ const event = {
 - [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): deploy tooling for that contract plus generic Midnight deploy/wallet plumbing.
 
 Developed in [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration).
+
+## Protocol hash domains
+
+`HashDomain` is the shared append-only enum exported by the Compact module
+and the TypeScript SDK. Its indices are `requestId = 0`,
+`attestationDigest = 1`, `evmType2TxHeader = 2`, `evmType2TxWord = 3`,
+`evmType2TxAccessEntry = 4` and `evmType2TxStorageKey = 5`. Each protocol
+hash input starts with its domain tag. Off-chain recomputation must use
+the same tags and field order as the circuits.
+
+`constructSignBidirectionalEventV1` rejects a `signatureDest` other than
+`MPCDestination.unused` and any non-zero byte in `params`. Both fields
+are reserved and remain outside the request id.

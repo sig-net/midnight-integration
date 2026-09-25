@@ -2,58 +2,13 @@
 // MPC attests for a bidirectional request, stored as one object per request
 // id in a public bucket BEFORE the attestation is posted on chain. A Compact
 // circuit fixes its byte-payload width at compile time while serialised
-// outputs vary in size across requests, so the signet contract carries the
-// signature alone and the cache carries the bytes. An object holds nothing
+// outputs vary in size across requests, so the attestation event carries the
+// output's digest and width and the cache carries the bytes. An object holds nothing
 // but the packed output, and is UNTRUSTED until the attestation signature
 // verifies over it (`verifyRespondBidirectionalSignature`).
 
-import { compactSerialize } from "@sig-net/midnight-serde";
-
 import { type DeployedNetwork, getMpcOutputCacheUrl, MidnightNetwork } from "./constants.ts";
 import type { RequestIdHex } from "./signet-requests.ts";
-
-/** Width of the block height a cached attested output starts with: a packed `Uint<64>`. */
-export const CACHED_BLOCK_HEIGHT_BYTES = 8;
-
-/** An attested output as the cache stores it: the block height and the serialised output. */
-export interface AttestedOutput {
-  readonly blockHeight: bigint;
-  readonly serializedOutput: Uint8Array;
-}
-
-/**
- * The cache object for an attestation: the destination block height as a packed
- * little-endian `Uint<64>` followed by the serialised output the digest covers.
- *
- * @param attested - The block height and the serialised output.
- * @returns The bytes the cache stores.
- */
-export function encodeAttestedOutput(attested: AttestedOutput): Uint8Array {
-  const out = new Uint8Array(CACHED_BLOCK_HEIGHT_BYTES + attested.serializedOutput.length);
-  out.set(compactSerialize({ kind: "uint", bits: 64 }, attested.blockHeight));
-  out.set(attested.serializedOutput, CACHED_BLOCK_HEIGHT_BYTES);
-  return out;
-}
-
-/**
- * Splits a cache object into the block height and the serialised output.
- *
- * @param bytes - The bytes the cache stores.
- * @returns The block height and the serialised output.
- * @throws {Error} If the bytes are shorter than the block height alone.
- */
-export function decodeAttestedOutput(bytes: Uint8Array): AttestedOutput {
-  if (bytes.length < CACHED_BLOCK_HEIGHT_BYTES) {
-    throw new Error(
-      `cached attested output of ${String(bytes.length)} bytes is shorter than its ${String(CACHED_BLOCK_HEIGHT_BYTES)}-byte block height`,
-    );
-  }
-  const view = new DataView(bytes.buffer, bytes.byteOffset, CACHED_BLOCK_HEIGHT_BYTES);
-  return {
-    blockHeight: view.getBigUint64(0, true),
-    serializedOutput: bytes.slice(CACHED_BLOCK_HEIGHT_BYTES),
-  };
-}
 
 /** Where the MPC's output cache lives and which of its namespaces to read. */
 export interface MpcOutputCacheConfig {
@@ -128,17 +83,16 @@ export class MpcOutputCacheReader {
   }
 
   /**
-   * Download the attested output the MPC cached for `requestId`: the block
-   * height and the serialised output, see {@link decodeAttestedOutput}.
-   * UNTRUSTED: verify the attestation signature over the returned pair.
+   * Download the serialised output the MPC cached for `requestId`, verbatim.
+   * UNTRUSTED: verify the attestation signature over the returned bytes.
    *
    * @param requestId - The request whose attested output to fetch.
-   * @returns The cached block height and serialised output, or `undefined`
-   *   when the cache holds no object for the request (the MPC has not written it yet).
+   * @returns The cached bytes, or `undefined` when the cache holds no object
+   *   for the request (the MPC has not written it yet).
    * @throws {Error} If the cache cannot be reached or answers with a status
    *   other than 200 or 404.
    */
-  async fetchAttestedOutput(requestId: RequestIdHex): Promise<AttestedOutput | undefined> {
+  async fetchSerializedOutput(requestId: RequestIdHex): Promise<Uint8Array | undefined> {
     const url = this.objectUrl(requestId);
     const response = await fetch(url);
     if (response.status === 404) {
@@ -149,6 +103,6 @@ export class MpcOutputCacheReader {
         `MPC output cache answered HTTP ${String(response.status)} for ${url}: ${await response.text()}`,
       );
     }
-    return decodeAttestedOutput(new Uint8Array(await response.arrayBuffer()));
+    return new Uint8Array(await response.arrayBuffer());
   }
 }

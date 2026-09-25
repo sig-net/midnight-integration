@@ -25,6 +25,7 @@ import {
   calculateRequestId,
   deriveEvmAddress,
   hexToBytes,
+  OutputKind,
   parseSecp256k1PublicKey,
   requestIdBytes,
   type RequestIdHex,
@@ -35,10 +36,8 @@ import {
 } from "@sig-net/midnight";
 import { signBidirectionalEventToSignedEvmTransaction } from "@sig-net/midnight";
 import {
-  calculateSignetAttestationDigest,
+  attestRespondBidirectional,
   deriveMidnightResponseSecretKey,
-  ecdsaSignatureToMpcSignature,
-  signAttestationDigest,
 } from "@sig-net/midnight/testing";
 import { getAddress, type Transaction } from "ethers";
 import { afterAll, describe, expect, it } from "vitest";
@@ -372,14 +371,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // is ONE byte (0x01 = true), exactly what the MPC posts for a
       // succeeded call, attested at the block it executed in.
       const serializedOutput = Uint8Array.from([1]);
-      const blockHeight = 1n;
 
       const responseSecretKey = deriveMidnightResponseSecretKey(
         hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
       );
-      const signature = signAttestationDigest(
-        calculateSignetAttestationDigest(requestKey, blockHeight, serializedOutput),
+      // This suite plays the MPC, so the attested destination height is
+      // whatever it claims: the circuit checks the height is signed, not
+      // that it is real.
+      const blockHeight = 1n;
+      const attestation = attestRespondBidirectional(
+        { requestId: requestKey, blockHeight, outputKind: OutputKind.executed, serializedOutput },
         responseSecretKey,
       );
 
@@ -389,12 +391,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // never carries the output: the circuit recomputes the digest from the
       // output handed in beside it.
       await context.caller.callTx.verifyResponse(
-        requestKey,
-        respondBidirectionalEventToCircuitInput({
-          signature: ecdsaSignatureToMpcSignature(signature),
-        }),
+        respondBidirectionalEventToCircuitInput(attestation),
         serializedOutput,
-        blockHeight,
       );
 
       // The consumption is the observable effect: present before (checked

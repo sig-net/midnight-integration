@@ -1,27 +1,38 @@
 // The signet request id computation: the TS twin of Signet.compact's
-// `calculateRequestId` circuit (see the deviation note in
-// signet-requests.ts). Chain-agnostic entry point that resolves each
-// record's tx-params descriptor by its `txParamType` tag, so every
-// decomposition mints ids through this one function.
+// `calculateEvmType2RequestIdV1` circuit (see the deviation note in
+// signet-requests.ts). Chain-agnostic entry point that digests each record's
+// transaction by its `txParamType` tag, so every decomposition mints ids
+// through this one function.
 
 import { transientHash, upgradeFromTransient } from "@midnight-ntwrk/compact-runtime";
 
-import { evmType2TxParamsDescriptorOf } from "./signet-evtype2tx-requests.ts";
+import { compactTupleDescriptor, HASH_DOMAIN } from "./compact-descriptors.ts";
+import { HashDomain } from "./managed/contract/index.js";
+import { calculateEvmType2TxParamsDigest } from "./signet-evtype2tx-requests.ts";
 import {
   type RequestId,
+  type RequestIdPreimage,
+  requestIdPreimageDescriptor,
   type SignBidirectionalEvent,
-  signBidirectionalEventDescriptorWith,
   TxParamType,
 } from "./signet-requests.ts";
 
+const REQUEST_ID_HASH_PREIMAGE = compactTupleDescriptor<[HashDomain, RequestIdPreimage]>([
+  HASH_DOMAIN,
+  requestIdPreimageDescriptor,
+]);
+
 /**
  * Canonical id of a signet request: the transientHash (Poseidon) of the
- * entire event record over its field-aligned representation.
+ * record's {@link RequestIdPreimage} prefixed with {@link HashDomain.requestId},
+ * with the transaction entering as its decomposition's digest
+ * ({@link calculateEvmType2TxParamsDigest} for evmType2), so the id ignores
+ * the record's capacities and unused slots.
  *
  * @param request - The full event record (contract-shaped, all slots).
  * @returns The 32-byte request id, the record's ledger map key.
  * @throws {Error} If the record's `txParamType` names a decomposition this
- *   computation has no descriptor for.
+ *   computation has no digest for, or a count overruns its capacity.
  */
 export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
   if (request.txParamType !== TxParamType.evmType2) {
@@ -30,14 +41,16 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
         `understands evmType2 (${String(TxParamType.evmType2)})`,
     );
   }
+  const preimage: RequestIdPreimage = {
+    keyVersion: request.keyVersion,
+    sender: request.sender,
+    path: request.path,
+    algo: request.algo,
+    txParamType: request.txParamType,
+    txParamsDigest: calculateEvmType2TxParamsDigest(request.txParams),
+    executionDest: request.executionDest,
+  };
   return upgradeFromTransient(
-    transientHash(
-      signBidirectionalEventDescriptorWith(
-        evmType2TxParamsDescriptorOf(request.txParams),
-        request.outputDeserializationSchema.length,
-        request.respondSerializationSchema.length,
-      ),
-      request,
-    ),
+    transientHash(REQUEST_ID_HASH_PREIMAGE, [HashDomain.requestId, preimage]),
   );
 }

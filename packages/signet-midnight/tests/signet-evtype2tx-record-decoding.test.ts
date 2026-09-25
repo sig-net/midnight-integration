@@ -26,7 +26,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
   keyVersion: 1n,
   path: bytes(32, 0x03),
   algo: MPCSignatureAlgorithm.ecdsa,
-  dest: MPCDestination.unused,
+  signatureDest: MPCDestination.unused,
   params: bytes(64, 0x06),
   txParamType: TxParamType.evmType2,
   txParams: {
@@ -48,7 +48,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
       },
     },
   },
-  caip2Id: bytes(32, 0x02),
+  executionDest: bytes(32, 0x02),
   outputDeserializationSchema: bytes(34, 0x07),
   respondSerializationSchema: bytes(34, 0x08),
 };
@@ -170,8 +170,8 @@ describe("decodeEvmType2SignBidirectionalEvent", () => {
   it("rejects a cell missing the Bytes<1> access-list entry count", () => {
     expect(() =>
       decodeEvmType2SignBidirectionalEvent(
-        // Atom 19 is the entry count after 2 calldata words: widen it to 2.
-        withAlignment(cellOf(SAMPLE_REQUEST, [2, 0, 0]), 19, {
+        // Atom 17 is the entry count after 2 calldata words: widen it to 2.
+        withAlignment(cellOf(SAMPLE_REQUEST, [2, 0, 0]), 17, {
           tag: "atom",
           value: { tag: "bytes", length: 2 },
         }),
@@ -183,8 +183,8 @@ describe("decodeEvmType2SignBidirectionalEvent", () => {
   it("rejects a non-empty access-list region with no Bytes<20> address", () => {
     expect(() =>
       decodeEvmType2SignBidirectionalEvent(
-        // Atom 20 is the entry address: widen it away from 20 bytes.
-        withAlignment(cellOf(ACCESS_LIST_REQUEST, [2, 1, 2]), 20, {
+        // Atom 18 is the entry address: widen it away from 20 bytes.
+        withAlignment(cellOf(ACCESS_LIST_REQUEST, [2, 1, 2]), 18, {
           tag: "atom",
           value: { tag: "bytes", length: 21 },
         }),
@@ -210,7 +210,7 @@ describe("decodeEvmType2SignBidirectionalEvent", () => {
       decodeEvmType2SignBidirectionalEvent(
         // Drop both per-entry key-count atoms: two addresses with no counts,
         // an even region the measurement still refuses.
-        withoutAtoms(cellOf(TWO_ENTRY_REQUEST, [2, 2, 0]), [21, 23]),
+        withoutAtoms(cellOf(TWO_ENTRY_REQUEST, [2, 2, 0]), [19, 21]),
         "test record",
       ),
     ).toThrow(/each access-list entry needs at least an address and a key count/);

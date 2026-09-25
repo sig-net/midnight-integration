@@ -100,32 +100,60 @@ export const MPCDestination = {
 } as const;
 
 /**
- * Canonical signet request record (Compact:
- * `SignBidirectionalEvent<TxParams, #LenOutputDeserialization,
- * #LenRespondSerialization>`), stored per {@link RequestId} in a requesting
- * contract's `SignBidirectionalEventMap`. Generic over the tx-params
- * decomposition, {@link EvmType2TxParams} by default. The schema fields
- * carry their contract-declared byte widths in their array lengths.
+ * The fields of a {@link SignBidirectionalEvent} that mint its
+ * {@link RequestId} (Compact: `RequestIdPreimageV1`), in Compact declaration
+ * order: the signing key, the requesting contract, a digest of the
+ * transaction and its execution destination. The transaction enters as the
+ * digest its decomposition's own function computes over the used entries
+ * only, so the id is the same whatever capacities the requester compiled its
+ * struct with and whatever bytes sit in unused slots. The serialisation
+ * schemas and the reserved MPC parameters stay out.
  */
-export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
-  /** Address of the client contract that stores this event (`kernel.self()`). */
-  sender: ContractAddress;
+export interface RequestIdPreimage {
   /** MPC root-key version to derive from (>= 1). */
   keyVersion: bigint;
+  /** Address of the client contract that stores this event (`kernel.self()`). */
+  sender: ContractAddress;
   /** Key-derivation path: 32 opaque bytes of the client contract's choosing. */
   path: Uint8Array;
   /** An {@link MPCSignatureAlgorithm} value. */
   algo: number;
-  /** An {@link MPCDestination} value. */
-  dest: number;
-  /** Extra MPC parameters: 64 opaque bytes, reserved, zero-filled. */
-  params: Uint8Array;
+  /** A {@link TxParamType} value tagging the txParams decomposition. */
+  txParamType: number;
+  /** The 32-byte digest of the transaction decomposition over its used entries. */
+  txParamsDigest: Uint8Array;
+  /** Execution destination: the target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 32 bytes. */
+  executionDest: Uint8Array;
+}
+
+/**
+ * Canonical signet request record (Compact:
+ * `SignBidirectionalEventV1<TxParams, #LenOutputDeserialization,
+ * #LenRespondSerialization>`), stored per {@link RequestId} in a requesting
+ * contract's `SignBidirectionalEventMapV1`, in Compact declaration order. The
+ * {@link RequestIdPreimage} fields come first and mint its id, the
+ * protocol-only fields follow, and the schema fields carry their
+ * contract-declared byte widths in their array lengths.
+ */
+export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
+  /** MPC root-key version to derive from (>= 1). */
+  keyVersion: bigint;
+  /** Address of the client contract that stores this event (`kernel.self()`). */
+  sender: ContractAddress;
+  /** Key-derivation path: 32 opaque bytes of the client contract's choosing. */
+  path: Uint8Array;
+  /** An {@link MPCSignatureAlgorithm} value. */
+  algo: number;
   /** A {@link TxParamType} value tagging the txParams decomposition. */
   txParamType: number;
   /** The transaction decomposition. */
   txParams: TxParams;
-  /** Target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 32 bytes. */
-  caip2Id: Uint8Array;
+  /** Execution destination: the target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 32 bytes. */
+  executionDest: Uint8Array;
+  /** An {@link MPCDestination} value: the signature destination, reserved. */
+  signatureDest: number;
+  /** Extra MPC parameters: 64 opaque bytes, reserved, zero-filled. */
+  params: Uint8Array;
   /** MPC output_deserialization_schema (destination chain -> MPC), contract-declared width. */
   outputDeserializationSchema: Uint8Array;
   /** MPC respond_serialization_schema (MPC -> Midnight), contract-declared width. */
@@ -155,10 +183,24 @@ const MPC_SIGNATURE_ALGORITHM = new CompactTypeEnum(1, 1);
 const MPC_DESTINATION = new CompactTypeEnum(1, 1);
 
 /**
- 
+ * Descriptor of {@link RequestIdPreimage}: what {@link calculateRequestId}
+ * hashes, in Compact declaration order.
+ */
+export const requestIdPreimageDescriptor: CompactType<RequestIdPreimage> =
+  compactStructDescriptor<RequestIdPreimage>({
+    keyVersion: UINT_8,
+    sender: CONTRACT_ADDRESS,
+    path: BYTES_32,
+    algo: MPC_SIGNATURE_ALGORITHM,
+    txParamType: TX_PARAM_TYPE,
+    txParamsDigest: BYTES_32,
+    executionDest: BYTES_32,
+  });
+
+/**
  * Descriptor of {@link SignBidirectionalEvent} over ANY tx-params
  * decomposition: the TS analogue of Compact's generic
- * `SignBidirectionalEvent`. Each decomposition wraps this with its own
+ * `SignBidirectionalEventV1`. Each decomposition wraps this with its own
  * capacity-parameterised convenience (see `signBidirectionalEventDescriptor`
  * in signet-evtype2tx-requests.ts for the EVM Type-2 one).
  *
@@ -176,24 +218,24 @@ export function signBidirectionalEventDescriptorWith<TxParams>(
   lenRespondSerialization: number,
 ): CompactType<SignBidirectionalEvent<TxParams>> {
   return compactStructDescriptor<SignBidirectionalEvent<TxParams>>({
-    sender: CONTRACT_ADDRESS,
     keyVersion: UINT_8,
+    sender: CONTRACT_ADDRESS,
     path: BYTES_32,
     algo: MPC_SIGNATURE_ALGORITHM,
-    dest: MPC_DESTINATION,
-    params: BYTES_64,
     txParamType: TX_PARAM_TYPE,
     txParams,
-    caip2Id: BYTES_32,
+    executionDest: BYTES_32,
+    signatureDest: MPC_DESTINATION,
+    params: BYTES_64,
     outputDeserializationSchema: new CompactTypeBytes(lenOutputDeserialization),
     respondSerializationSchema: new CompactTypeBytes(lenRespondSerialization),
   });
 }
 
 /**
- * The generated ledger shape of `Map<RequestId, SignBidirectionalEvent>`:
- * what a contract's `ledger(state).signetRequestsIndex` provides. Structural,
- * so any contract exposing the index satisfies it.
+ * The generated ledger shape of a `SignBidirectionalEventMapV1`: what a
+ * contract's `ledger(state).signBidirectionalEventMap` provides. Structural,
+ * so any contract exposing such a map satisfies it.
  */
 export interface SignBidirectionalEventLedgerMap extends Iterable<
   [RequestId, SignBidirectionalEvent]

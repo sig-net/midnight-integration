@@ -19,11 +19,14 @@ test, including single-file runs.
 
 The default run covers TWO flow files: the generic flow (EVM-free: its
 request exists to be SIGNED, never broadcast, 5 online tests) and the
-real-EVM flow (15 online tests), which broadcasts the MPC-signed
+real-EVM flow (30 online tests), which broadcasts the MPC-signed
 transactions on the compose `evm` service (anvil, :8545), recomputes each
 attested output from its trace and checks the fakenet's output cache
 simulation on :3040 (`MPC_OUTPUT_CACHE_URL`, default
-`http://localhost:3040/v1/fakenet`) holds the same bytes.
+`http://localhost:3040/v1/fakenet`) holds the same bytes. The real-EVM
+flow drives all three outcome kinds to in-circuit settlement: `executed`
+(isEven, checkAndDouble), `failed` (revertIf mines reverted) and
+`unviable` (a signed request whose nonce the isEven broadcast spends).
 
 ## Fresh-clone quickstart (zero to green)
 
@@ -44,7 +47,7 @@ and a value that conflicts with the shell environment is a hard error, never
 an overwrite. The first run zk-compiles BOTH contracts (~10–25 min of
 keygen, machine-dependent: background the run and never diagnose a hang
 from duration alone), deploys them, starts the responder mid-setup, and the
-flow files run to the end (generic flow 5/5, real-EVM flow 15/15). Save the
+flow files run to the end (generic flow 5/5, real-EVM flow 30/30). Save the
 printed
 `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips
 compile + deploy (the signet address is appended automatically).
@@ -93,11 +96,11 @@ contract it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to
 `.env` (docker compose interpolates the `fakenet` service's environment from
 that file) and runs
 `docker compose --profile fakenet up -d [--force-recreate] fakenet`
-(`ghcr.io/sig-net/fakenet:0.25.0`, built from
+(`ghcr.io/sig-net/fakenet:0.29.0`, built from
 sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 
 - Healthy startup (`docker logs -f fakenet-responder`) prints
-  `MidnightMonitor: polling signet contract registry at <signet address>`.
+  `MidnightMonitor: polling signet contract events at <signet address>`.
   The responder DISCOVERS requester contracts through the signet contract,
   no caller address needed.
 - `FAKENET_MANAGED=0` = you run the responder yourself (responder
@@ -143,6 +146,17 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   edit (classic yarn caches `file:` tarballs by name@version and pins their
   checksum):
   `yarn cache clean @sig-net/midnight @sig-net/midnight-contract && rm -rf node_modules/@sig-net && yarn install --update-checksums --check-files`.
+  That refresh can silently keep the OLD tarball (yarn 1 reuses its
+  `npm-@sig-net-<name>-<version>-<hash>` cache entry under an unchanged
+  name@version, and the responder then runs the stale SDK with no error, its
+  feed just never finds a request). Before `yarn install`, delete
+  `"$(yarn cache dir)"/npm-@sig-net-*` and `"$(yarn cache dir)"/.tmp` and check
+  `ls "$(yarn cache dir)" | grep sig-net` prints nothing. After it, confirm the
+  installed copy is the one you packed:
+  `diff -rq node_modules/@sig-net/midnight/dist <this-repo>/packages/signet-midnight/dist`
+  (only `.map` files may differ). A rerun after a failed generic flow dies in
+  submit with `Request already exists`: resume with
+  `CALLER_REQUEST_ID=<id from the failed run>` instead.
   The tarball also gives prover/verifier parity for free: the responder
   proves with the same keys the deploy used.
 - Prover/verifier parity: the image carries the signet zk keys from the

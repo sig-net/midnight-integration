@@ -44,7 +44,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
   keyVersion: 1n,
   path: bytes(32, 0x03),
   algo: MPCSignatureAlgorithm.ecdsa,
-  dest: MPCDestination.unused,
+  signatureDest: MPCDestination.unused,
   params: bytes(64, 0x06),
   txParamType: TxParamType.evmType2,
   txParams: {
@@ -66,7 +66,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
       },
     },
   },
-  caip2Id: bytes(32, 0x02),
+  executionDest: bytes(32, 0x02),
   outputDeserializationSchema: bytes(34, 0x07),
   respondSerializationSchema: bytes(34, 0x08),
 };
@@ -407,8 +407,8 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
     expect(() =>
       readSignetRequestsLedgerFromState(
         indexStateWithCell({
-          value: value.slice(0, 6),
-          alignment: alignment.slice(0, 6),
+          value: value.slice(0, 4),
+          alignment: alignment.slice(0, 4),
         }),
         [0],
       ),
@@ -419,8 +419,8 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
     const { value, alignment } = cellsOf();
     // A 2-byte atom needs a matching 2-byte alignment for the state layer to
     // accept the cell; the decoder's width check then rejects it.
-    value[6] = Uint8Array.of(0, 1);
-    alignment[6] = { tag: "atom", value: { tag: "bytes", length: 2 } };
+    value[4] = Uint8Array.of(0, 1);
+    alignment[4] = { tag: "atom", value: { tag: "bytes", length: 2 } };
     expect(() =>
       readSignetRequestsLedgerFromState(indexStateWithCell({ value, alignment }), [0]),
     ).toThrow(/txParamType atom holds 2 bytes/);
@@ -428,7 +428,7 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
 
   it("rejects the reserved txParamType variant", () => {
     const { value, alignment } = cellsOf();
-    value[6] = Uint8Array.of(1);
+    value[4] = Uint8Array.of(1);
     expect(() =>
       readSignetRequestsLedgerFromState(indexStateWithCell({ value, alignment }), [0]),
     ).toThrow(/unsupported txParamType 1/);
@@ -443,7 +443,7 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
 
   it("lookupSignetRequestAt returns undefined for a stored cell that is not a decodable record", () => {
     const { value, alignment } = cellsOf();
-    value[6] = Uint8Array.of(1); // the reserved txParamType variant
+    value[4] = Uint8Array.of(1); // the reserved txParamType variant
     const id = bytes(32, 0x43);
     const state = StateValue.newArray().arrayPush(
       StateValue.newMap(

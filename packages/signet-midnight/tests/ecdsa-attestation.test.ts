@@ -21,6 +21,7 @@ import {
   formatSecp256k1PublicKey,
   type MpcSignature,
   normaliseSecp256k1PublicKey,
+  OutputKind,
   parseSecp256k1PublicKey,
   pureCircuits as signetCircuits,
   type RespondBidirectionalEvent,
@@ -29,6 +30,7 @@ import {
   verifyRespondBidirectionalSignature,
 } from "../src/index.ts";
 import {
+  attestRespondBidirectional,
   calculateSignetAttestationDigest,
   type EcdsaSignature,
   ecdsaSignatureToMpcSignature,
@@ -52,6 +54,7 @@ const IMPOSTER_SECRET = Uint8Array.from(
 const IMPOSTER_PUBLIC = secp256k1PublicKeyOf(IMPOSTER_SECRET);
 
 const REQUEST_ID = bytes(32, 0x2f);
+const BLOCK_HEIGHT = 21_000_000n;
 
 // A 32-byte serialised output (one ABI word's worth) for the verify tests.
 // The exact unpadded respond payload of a real request follows from its
@@ -59,25 +62,22 @@ const REQUEST_ID = bytes(32, 0x2f);
 const OUTPUT_32 = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
 
 /**
- * Sign a REAL respond-bidirectional response for (requestId, output) with
- * `secretKey`: the digest comes from the TS twin, exactly like the MPC.
- * The signature lands in stored form (full R point), the ledger shape.
+ * Sign a REAL respond-bidirectional response for (requestId, BLOCK_HEIGHT,
+ * outputKind, OUTPUT_32) with `secretKey`: the digest comes from the TS
+ * twin, exactly like the MPC. The signature lands in stored form (full R
+ * point), the ledger shape.
  */
-const HEIGHT = 9_401_212n;
-
 const respond = (
   secretKey: Uint8Array,
   requestId: Uint8Array,
-  serializedOutput: Uint8Array = OUTPUT_32,
-  blockHeight: bigint = HEIGHT,
-): RespondBidirectionalEvent => ({
-  signature: ecdsaSignatureToMpcSignature(
-    signAttestationDigest(
-      calculateSignetAttestationDigest(requestId, blockHeight, serializedOutput),
-      secretKey,
-    ),
-  ),
-});
+  outputKind: OutputKind,
+): RespondBidirectionalEvent =>
+  attestRespondBidirectional(
+    { requestId, blockHeight: BLOCK_HEIGHT, outputKind, serializedOutput: OUTPUT_32 },
+    secretKey,
+  );
+
+const OUTPUT_KINDS = [OutputKind.executed, OutputKind.failed, OutputKind.unviable];
 
 describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circuits", () => {
   // The BINDING tests: the TS twin must agree byte-for-byte with the
@@ -86,24 +86,29 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
   // align the preimage the same way).
   const oracles = [
     {
+      width: 0,
+      oracle: (id: Uint8Array, kind: OutputKind, out: Uint8Array) =>
+        signetCircuits.calculateSignetAttestationDigest0(id, BLOCK_HEIGHT, kind, out),
+    },
+    {
       width: 1,
-      oracle: (id: Uint8Array, out: Uint8Array) =>
-        signetCircuits.calculateSignetAttestationDigest1(id, HEIGHT, out),
+      oracle: (id: Uint8Array, kind: OutputKind, out: Uint8Array) =>
+        signetCircuits.calculateSignetAttestationDigest1(id, BLOCK_HEIGHT, kind, out),
     },
     {
       width: 2,
-      oracle: (id: Uint8Array, out: Uint8Array) =>
-        signetCircuits.calculateSignetAttestationDigest2(id, HEIGHT, out),
+      oracle: (id: Uint8Array, kind: OutputKind, out: Uint8Array) =>
+        signetCircuits.calculateSignetAttestationDigest2(id, BLOCK_HEIGHT, kind, out),
     },
     {
       width: 32,
-      oracle: (id: Uint8Array, out: Uint8Array) =>
-        signetCircuits.calculateSignetAttestationDigest32(id, HEIGHT, out),
+      oracle: (id: Uint8Array, kind: OutputKind, out: Uint8Array) =>
+        signetCircuits.calculateSignetAttestationDigest32(id, BLOCK_HEIGHT, kind, out),
     },
     {
       width: 100,
-      oracle: (id: Uint8Array, out: Uint8Array) =>
-        signetCircuits.calculateSignetAttestationDigest100(id, HEIGHT, out),
+      oracle: (id: Uint8Array, kind: OutputKind, out: Uint8Array) =>
+        signetCircuits.calculateSignetAttestationDigest100(id, BLOCK_HEIGHT, kind, out),
     },
   ] as const;
 
@@ -118,50 +123,112 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
   ];
 
   it.each(oracles)("matches the compiled Bytes<$width> oracle", ({ width, oracle }) => {
-    for (const output of outputsOf(width)) {
-      expect(calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, output)).toEqual(
-        oracle(REQUEST_ID, output),
-      );
+    for (const kind of OUTPUT_KINDS) {
+      for (const output of outputsOf(width)) {
+        expect(calculateSignetAttestationDigest(REQUEST_ID, BLOCK_HEIGHT, kind, output)).toEqual(
+          oracle(REQUEST_ID, kind, output),
+        );
+      }
     }
   });
 
-  it("commits to the request id, the block height and the output", () => {
-    const digest = calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, OUTPUT_32);
+  it("commits to the request id, the block height, the output kind and the output", () => {
+    const digest = calculateSignetAttestationDigest(
+      REQUEST_ID,
+      BLOCK_HEIGHT,
+      OutputKind.executed,
+      OUTPUT_32,
+    );
     expect(digest).toHaveLength(32);
-    expect(calculateSignetAttestationDigest(REQUEST_ID, HEIGHT + 1n, OUTPUT_32)).not.toEqual(
-      digest,
-    );
-    expect(calculateSignetAttestationDigest(bytes(32, 0xab), HEIGHT, OUTPUT_32)).not.toEqual(
-      digest,
-    );
-    expect(calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, bytes(32, 0x77))).not.toEqual(
-      digest,
-    );
+    expect(
+      calculateSignetAttestationDigest(
+        bytes(32, 0xab),
+        BLOCK_HEIGHT,
+        OutputKind.executed,
+        OUTPUT_32,
+      ),
+    ).not.toEqual(digest);
+    expect(
+      calculateSignetAttestationDigest(
+        REQUEST_ID,
+        BLOCK_HEIGHT + 1n,
+        OutputKind.executed,
+        OUTPUT_32,
+      ),
+    ).not.toEqual(digest);
+    expect(
+      calculateSignetAttestationDigest(REQUEST_ID, BLOCK_HEIGHT, OutputKind.failed, OUTPUT_32),
+    ).not.toEqual(digest);
+    expect(
+      calculateSignetAttestationDigest(
+        REQUEST_ID,
+        BLOCK_HEIGHT,
+        OutputKind.executed,
+        bytes(32, 0x77),
+      ),
+    ).not.toEqual(digest);
   });
 
   it("changes with the output's content", () => {
-    expect(calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, Uint8Array.from([1]))).not.toEqual(
-      calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, Uint8Array.from([1, 2])),
+    expect(
+      calculateSignetAttestationDigest(
+        REQUEST_ID,
+        BLOCK_HEIGHT,
+        OutputKind.executed,
+        Uint8Array.from([1]),
+      ),
+    ).not.toEqual(
+      calculateSignetAttestationDigest(
+        REQUEST_ID,
+        BLOCK_HEIGHT,
+        OutputKind.executed,
+        Uint8Array.from([1, 2]),
+      ),
     );
   });
 
   it("the output width is part of the digest", () => {
-    const oneByte = calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, Uint8Array.from([1]));
+    const oneByte = calculateSignetAttestationDigest(
+      REQUEST_ID,
+      BLOCK_HEIGHT,
+      OutputKind.executed,
+      Uint8Array.from([1]),
+    );
     const zeroPaddedTo31 = new Uint8Array(31);
     zeroPaddedTo31[0] = 1;
     expect(
-      calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, Uint8Array.from([1, 0])),
+      calculateSignetAttestationDigest(
+        REQUEST_ID,
+        BLOCK_HEIGHT,
+        OutputKind.executed,
+        Uint8Array.from([1, 0]),
+      ),
     ).not.toEqual(oneByte);
-    expect(calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, zeroPaddedTo31)).not.toEqual(
-      oneByte,
-    );
+    expect(
+      calculateSignetAttestationDigest(
+        REQUEST_ID,
+        BLOCK_HEIGHT,
+        OutputKind.executed,
+        zeroPaddedTo31,
+      ),
+    ).not.toEqual(oneByte);
   });
 
   it("the compiled circuit binds the width too", () => {
     expect(
-      signetCircuits.calculateSignetAttestationDigest2(REQUEST_ID, HEIGHT, Uint8Array.from([1, 0])),
+      signetCircuits.calculateSignetAttestationDigest2(
+        REQUEST_ID,
+        BLOCK_HEIGHT,
+        OutputKind.executed,
+        Uint8Array.from([1, 0]),
+      ),
     ).not.toEqual(
-      signetCircuits.calculateSignetAttestationDigest1(REQUEST_ID, HEIGHT, Uint8Array.from([1])),
+      signetCircuits.calculateSignetAttestationDigest1(
+        REQUEST_ID,
+        BLOCK_HEIGHT,
+        OutputKind.executed,
+        Uint8Array.from([1]),
+      ),
     );
   });
 
@@ -170,26 +237,32 @@ describe("calculateSignetAttestationDigest (TS twin) x fixed-width oracle circui
     within[0] = 1;
     const across = new Uint8Array(62);
     across[0] = 1;
-    expect(calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, across)).not.toEqual(
-      calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, within),
+    expect(
+      calculateSignetAttestationDigest(REQUEST_ID, BLOCK_HEIGHT, OutputKind.executed, across),
+    ).not.toEqual(
+      calculateSignetAttestationDigest(REQUEST_ID, BLOCK_HEIGHT, OutputKind.executed, within),
     );
   });
 
   it("leaves byte 31 zero: the field element occupies the low 31 bytes", () => {
-    const digest = calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, OUTPUT_32);
+    const digest = calculateSignetAttestationDigest(
+      REQUEST_ID,
+      BLOCK_HEIGHT,
+      OutputKind.executed,
+      OUTPUT_32,
+    );
     expect(digest.at(31)).toBe(0);
   });
 });
 
 describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestationDigest", () => {
-  const valid = respond(MPC_SECRET, REQUEST_ID);
+  const valid = respond(MPC_SECRET, REQUEST_ID, OutputKind.executed);
   const validSig = mpcSignatureToEcdsaSignature(valid.signature);
 
   interface VerifyCase {
     name: string;
     event: RespondBidirectionalEvent;
     serializedOutput: Uint8Array;
-    requestId: Uint8Array;
     pk: typeof MPC_PUBLIC;
     expected: boolean;
   }
@@ -199,7 +272,6 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
       name: "a genuine response verifies against the signing key",
       event: valid,
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: true,
     },
@@ -213,7 +285,6 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
         }),
       },
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: true,
     },
@@ -221,23 +292,13 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
       name: "fails against a different public key",
       event: valid,
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: IMPOSTER_PUBLIC,
       expected: false,
     },
     {
-      name: "fails under a different request id",
-      event: valid,
+      name: "fails when the posted request id was tampered with",
+      event: { ...valid, requestId: bytes(32, 0xab) },
       serializedOutput: OUTPUT_32,
-      requestId: bytes(32, 0xab),
-      pk: MPC_PUBLIC,
-      expected: false,
-    },
-    {
-      name: "fails under a different block height",
-      event: respond(MPC_SECRET, REQUEST_ID, OUTPUT_32, HEIGHT + 1n),
-      serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: false,
     },
@@ -249,40 +310,50 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
         out[7] = 0xff;
         return out;
       })(),
-      requestId: REQUEST_ID,
+      pk: MPC_PUBLIC,
+      expected: false,
+    },
+    {
+      name: "fails when the posted block height was tampered with",
+      event: { ...valid, blockHeight: BLOCK_HEIGHT + 1n },
+      serializedOutput: OUTPUT_32,
+      pk: MPC_PUBLIC,
+      expected: false,
+    },
+    {
+      name: "fails when the posted output kind was tampered with",
+      event: { ...valid, outputKind: OutputKind.failed },
+      serializedOutput: OUTPUT_32,
       pk: MPC_PUBLIC,
       expected: false,
     },
     {
       name: "fails when the stored signature scalar s was tampered with",
       event: {
+        ...valid,
         signature: ecdsaSignatureToMpcSignature({
           ...validSig,
           s: validSig.s + 1n,
         }),
       },
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: false,
     },
     {
       name: "fails for an imposter's signature over the same content",
-      event: respond(IMPOSTER_SECRET, REQUEST_ID),
+      event: respond(IMPOSTER_SECRET, REQUEST_ID, OutputKind.executed),
       serializedOutput: OUTPUT_32,
-      requestId: REQUEST_ID,
       pk: MPC_PUBLIC,
       expected: false,
     },
   ];
 
-  it.each(CASES)("$name", ({ event, serializedOutput, requestId, pk, expected }) => {
+  it.each(CASES)("$name", ({ event, serializedOutput, pk, expected }) => {
     // The client's exact claim path: the record as read, flipped to the
     // circuit-input form at the circuit call.
     expect(
       signetCircuits.verifyRespondBidirectionalEvent32(
-        requestId,
-        HEIGHT,
         serializedOutput,
         respondBidirectionalEventToCircuitInput(event),
         pk,
@@ -294,15 +365,9 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
     // Pins the circuit-input convention itself: the circuit reads the
     // signature scalars little-endian, so the big-endian wire record must be
     // passed through respondBidirectionalEventToCircuitInput first.
-    expect(
-      signetCircuits.verifyRespondBidirectionalEvent32(
-        REQUEST_ID,
-        HEIGHT,
-        OUTPUT_32,
-        valid,
-        MPC_PUBLIC,
-      ),
-    ).toBe(false);
+    expect(signetCircuits.verifyRespondBidirectionalEvent32(OUTPUT_32, valid, MPC_PUBLIC)).toBe(
+      false,
+    );
   });
 
   it("the circuit-input flip touches only bigR.x and s", () => {
@@ -311,6 +376,11 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
     expect(flipped.signature.s).toEqual(Uint8Array.from(valid.signature.s).reverse());
     expect(flipped.signature.bigR.y).toEqual(valid.signature.bigR.y);
     expect(flipped.signature.recoveryId).toBe(valid.signature.recoveryId);
+    expect(flipped.requestId).toEqual(valid.requestId);
+    expect(flipped.blockHeight).toBe(valid.blockHeight);
+    expect(flipped.outputKind).toBe(valid.outputKind);
+    expect(flipped.serializedOutputLength).toBe(valid.serializedOutputLength);
+    expect(flipped.digest).toEqual(valid.digest);
   });
 
   // The off-chain sifting check must answer exactly what the circuit answers:
@@ -318,35 +388,78 @@ describe("verifyRespondBidirectionalEvent32 (compiled circuit) x signAttestation
   // disagreement either drops a provable post or forwards an unprovable one.
   it.each(CASES)(
     "$name (off chain, verifyRespondBidirectionalSignature)",
-    ({ event, serializedOutput, requestId, pk, expected }) => {
-      expect(
-        verifyRespondBidirectionalSignature(requestId, HEIGHT, serializedOutput, event, pk),
-      ).toBe(expected);
+    ({ event, serializedOutput, pk, expected }) => {
+      expect(verifyRespondBidirectionalSignature(serializedOutput, event, pk)).toBe(expected);
     },
   );
 
   it("returns false for a malformed stored signature rather than throwing", () => {
     expect(
       verifyRespondBidirectionalSignature(
-        REQUEST_ID,
-        HEIGHT,
         OUTPUT_32,
-        { signature: { ...valid.signature, recoveryId: 2n } },
+        { ...valid, signature: { ...valid.signature, recoveryId: 2n } },
         MPC_PUBLIC,
       ),
     ).toBe(false);
   });
 
   it("the recovery id recovers the signing key from the digest", () => {
-    const digest = calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, OUTPUT_32);
+    const digest = calculateSignetAttestationDigest(
+      REQUEST_ID,
+      BLOCK_HEIGHT,
+      OutputKind.executed,
+      OUTPUT_32,
+    );
     const sig = signAttestationDigest(digest, MPC_SECRET);
     expect([0, 1]).toContain(sig.recoveryId);
   });
 });
 
+describe("verifyRespondBidirectionalEvent0 (compiled circuit): a failure's empty output", () => {
+  const EMPTY = new Uint8Array(0);
+  // What the MPC posts for a reverted transaction: the failed kind over no
+  // output bytes at all.
+  const failed = attestRespondBidirectional(
+    {
+      requestId: REQUEST_ID,
+      blockHeight: BLOCK_HEIGHT,
+      outputKind: OutputKind.failed,
+      serializedOutput: EMPTY,
+    },
+    MPC_SECRET,
+  );
+
+  it("verifies at width 0 over the empty output", () => {
+    expect(
+      signetCircuits.verifyRespondBidirectionalEvent0(
+        EMPTY,
+        respondBidirectionalEventToCircuitInput(failed),
+        MPC_PUBLIC,
+      ),
+    ).toBe(true);
+    expect(verifyRespondBidirectionalSignature(EMPTY, failed, MPC_PUBLIC)).toBe(true);
+  });
+
+  it("cannot be presented as an executed success", () => {
+    expect(
+      signetCircuits.verifyRespondBidirectionalEvent0(
+        EMPTY,
+        respondBidirectionalEventToCircuitInput({ ...failed, outputKind: OutputKind.executed }),
+        MPC_PUBLIC,
+      ),
+    ).toBe(false);
+  });
+
+  it("the empty output is distinct from a one-byte zero output: the digest commits to the width", () => {
+    expect(verifyRespondBidirectionalSignature(Uint8Array.from([0]), failed, MPC_PUBLIC)).toBe(
+      false,
+    );
+  });
+});
+
 describe("ecdsaSignatureToMpcSignature x mpcSignatureToEcdsaSignature", () => {
   const SCALAR_SIG = signAttestationDigest(
-    calculateSignetAttestationDigest(REQUEST_ID, HEIGHT, OUTPUT_32),
+    calculateSignetAttestationDigest(REQUEST_ID, BLOCK_HEIGHT, OutputKind.executed, OUTPUT_32),
     MPC_SECRET,
   );
   const STORED = ecdsaSignatureToMpcSignature(SCALAR_SIG);

@@ -42,6 +42,7 @@ export {
   abiWordToUint128,
   assembleCalldata,
   boolAbiWord,
+  calculateEvmType2TxParamsDigest,
   type EvmAccessListEntry,
   evmAddressAbiWord,
   type EvmCalldata,
@@ -64,6 +65,7 @@ export {
   requestIdBytes,
   type RequestIdHex,
   requestIdHex,
+  type RequestIdPreimage,
   type SignBidirectionalEvent,
   type SignBidirectionalEventIndex,
   type SignBidirectionalEventLedgerMap,
@@ -86,8 +88,13 @@ export {
 } from "./ecdsa-attestation.ts";
 
 /**
- * Compiled pure circuits of Signet.compact (run `yarn compile` first).
- * Off-chain code MUST use these instead of re-porting the algorithms:
- * they are the same compiled logic the contracts prove.
+ * Compiled pure circuits and protocol enums of Signet.compact (run
+ * `yarn compile` first). Off-chain code MUST use these instead of re-porting
+ * the algorithms: they are the same compiled logic the contracts prove.
  */
-export { type PureCircuits, pureCircuits } from "./managed/contract/index.js";
+export {
+  HashDomain,
+  OutputKind,
+  type PureCircuits,
+  pureCircuits,
+} from "./managed/contract/index.js";

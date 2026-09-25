@@ -7,19 +7,16 @@
 // MPC's test double, posts through these same helpers, which keeps its bytes
 // pinned to this package's decoders.
 //
-// The canonical fixture chain:
-//   ecdsaSignatureToMpcSignature(
-//     signAttestationDigest(
-//       calculateSignetAttestationDigest(requestId, blockHeight, serializedOutput),
-//       secretKey,
-//     ),
-//   )
+// The canonical fixture:
+//   attestRespondBidirectional({ requestId, blockHeight, outputKind, serializedOutput }, secretKey)
 // verifies in-circuit against secp256k1PublicKeyOf(secretKey).
 
 export {
+  attestRespondBidirectional,
   calculateSignetAttestationDigest,
   type EcdsaSignature,
   ecdsaSignatureToMpcSignature,
+  type RespondBidirectionalAttestation,
   secp256k1PublicKeyOf,
   signAttestationDigest,
   signatureToSignatureRespondedEvent,

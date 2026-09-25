@@ -26,12 +26,7 @@ import {
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
 } from "./signet-evtype2tx-requests.ts";
-import {
-  requestIdBytes,
-  type RequestIdHex,
-  type SignBidirectionalEvent,
-  TxParamType,
-} from "./signet-requests.ts";
+import { type RequestIdHex, type SignBidirectionalEvent, TxParamType } from "./signet-requests.ts";
 
 /**
  * The least of midnight-js's `PublicDataProvider` the reader needs: raw
@@ -113,28 +108,18 @@ function assertEvmType2Request(request: SignBidirectionalEvent): void {
  * The first (oldest) of a request's respond-bidirectional posts whose
  * signature verifies over `serializedOutput` against `mpcResponseKey`.
  *
- * @param requestId - The request id the attestation must commit to.
- * @param blockHeight - The destination block height the attestation names.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @param mpcResponseKey - The MPC response key the requesting contract pinned.
  * @param posts - The request's posts, in emission order.
  * @returns The first verifying post, or `undefined` when none verifies.
  */
 function firstVerifiedRespondBidirectionalEvent(
-  requestId: RequestIdHex,
-  blockHeight: bigint,
   serializedOutput: Uint8Array,
   mpcResponseKey: Secp256k1Point,
   posts: readonly RespondBidirectionalEvent[],
 ): RespondBidirectionalEvent | undefined {
   return posts.find((post) =>
-    verifyRespondBidirectionalSignature(
-      requestIdBytes(requestId),
-      blockHeight,
-      serializedOutput,
-      post,
-      mpcResponseKey,
-    ),
+    verifyRespondBidirectionalSignature(serializedOutput, post, mpcResponseKey),
   );
 }
 
@@ -146,7 +131,6 @@ function firstVerifiedRespondBidirectionalEvent(
  *
  * @param requestId - The request id the posts must declare and the
  *   attestation must commit to.
- * @param blockHeight - The destination block height the attestation names.
  * @param serializedOutput - The serialised execution output the attestation
  *   must commit to, exact unpadded bytes.
  * @param mpcResponseKey - The MPC response key the requesting contract
@@ -157,14 +141,11 @@ function firstVerifiedRespondBidirectionalEvent(
  */
 export function findVerifiedRespondBidirectionalEvent(
   requestId: RequestIdHex,
-  blockHeight: bigint,
   serializedOutput: Uint8Array,
   mpcResponseKey: Secp256k1Point,
   events: readonly DecodedSignetEvent[],
 ): RespondBidirectionalEvent | undefined {
   return firstVerifiedRespondBidirectionalEvent(
-    requestId,
-    blockHeight,
     serializedOutput,
     mpcResponseKey,
     signetEventRecordsOf(events, SignetEventName.RespondBidirectionalEvent, requestId),
@@ -424,7 +405,6 @@ export class SignetRequestResponseReader {
    *
    * @param requestId - The request id the posts must declare and the
    *   attestation must commit to.
-   * @param blockHeight - The destination block height the attestation names.
    * @param serializedOutput - The serialised execution output the attestation
    *   must commit to, exact unpadded bytes.
    * @param mpcResponseKey - The MPC response key the requesting contract
@@ -434,13 +414,10 @@ export class SignetRequestResponseReader {
    */
   async getVerifiedRespondBidirectionalEvent(
     requestId: RequestIdHex,
-    blockHeight: bigint,
     serializedOutput: Uint8Array,
     mpcResponseKey: Secp256k1Point,
   ): Promise<RespondBidirectionalEvent | undefined> {
     return firstVerifiedRespondBidirectionalEvent(
-      requestId,
-      blockHeight,
       serializedOutput,
       mpcResponseKey,
       await this.getRespondBidirectionalEvents(requestId),

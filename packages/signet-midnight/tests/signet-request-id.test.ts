@@ -1,7 +1,7 @@
 // Unit tests for the request id computation: determinism, sensitivity to the
 // record's contents, and the unsupported-decomposition rejection. The
-// lockstep with the compiled `calculateRequestId` circuit is pinned by
-// test-caller-contract's round-trip test, not duplicated here.
+// lockstep with the compiled calculateRequestIdV1 and
+// calculateEvmType2RequestIdV1 circuits is pinned in circuits.test.ts.
 
 import { describe, expect, it } from "vitest";
 
@@ -23,7 +23,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
   keyVersion: 1n,
   path: bytes(32, 0x03),
   algo: MPCSignatureAlgorithm.ecdsa,
-  dest: MPCDestination.unused,
+  signatureDest: MPCDestination.unused,
   params: bytes(64, 0x06),
   txParamType: TxParamType.evmType2,
   txParams: {
@@ -45,7 +45,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
       },
     },
   },
-  caip2Id: bytes(32, 0x02),
+  executionDest: bytes(32, 0x02),
   outputDeserializationSchema: bytes(34, 0x07),
   respondSerializationSchema: bytes(34, 0x08),
 };
@@ -55,10 +55,67 @@ describe("calculateRequestId", () => {
     expect(calculateRequestId(SAMPLE_REQUEST)).toEqual(calculateRequestId(SAMPLE_REQUEST));
   });
 
-  it("changes when any field of the record changes", () => {
+  it("changes when a preimage field of the record changes", () => {
     const changed: SignBidirectionalEvent = {
       ...SAMPLE_REQUEST,
       keyVersion: 2n,
+    };
+    expect(calculateRequestId(changed)).not.toEqual(calculateRequestId(SAMPLE_REQUEST));
+  });
+
+  const SCHEMA_ONLY_DELTAS: { name: string; delta: Partial<SignBidirectionalEvent> }[] = [
+    {
+      name: "different schema contents at the same widths",
+      delta: {
+        outputDeserializationSchema: bytes(34, 0x17),
+        respondSerializationSchema: bytes(34, 0x18),
+      },
+    },
+    {
+      name: "different schema widths",
+      delta: {
+        outputDeserializationSchema: bytes(69, 0x07),
+        respondSerializationSchema: bytes(100, 0x08),
+      },
+    },
+  ];
+
+  it.each(SCHEMA_ONLY_DELTAS)("ignores the serialisation schemas: $name", ({ delta }) => {
+    const changed: SignBidirectionalEvent = { ...SAMPLE_REQUEST, ...delta };
+    expect(calculateRequestId(changed)).toEqual(calculateRequestId(SAMPLE_REQUEST));
+  });
+
+  it("ignores the record's capacities and the bytes in its unused slots", () => {
+    // The same transaction with a third, unused word slot holding garbage:
+    // the id hashes a digest over the used entries, so it is unchanged.
+    const { calldata } = SAMPLE_REQUEST.txParams;
+    const padded: SignBidirectionalEvent = {
+      ...SAMPLE_REQUEST,
+      txParams: {
+        ...SAMPLE_REQUEST.txParams,
+        calldata: {
+          is_some: true,
+          value: { ...calldata.value, words: [...calldata.value.words, bytes(32, 0x99)] },
+        },
+      },
+    };
+    expect(calculateRequestId(padded)).toEqual(calculateRequestId(SAMPLE_REQUEST));
+  });
+
+  it("changes when a used calldata word changes", () => {
+    const { calldata } = SAMPLE_REQUEST.txParams;
+    const changed: SignBidirectionalEvent = {
+      ...SAMPLE_REQUEST,
+      txParams: {
+        ...SAMPLE_REQUEST.txParams,
+        calldata: {
+          is_some: true,
+          value: {
+            ...calldata.value,
+            words: [calldata.value.words[0] ?? bytes(32, 0), bytes(32, 0x99)],
+          },
+        },
+      },
     };
     expect(calculateRequestId(changed)).not.toEqual(calculateRequestId(SAMPLE_REQUEST));
   });

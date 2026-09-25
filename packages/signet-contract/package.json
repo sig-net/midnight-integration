@@ -1,13 +1,13 @@
 {
   "name": "@sig-net/midnight-contract",
-  "version": "0.24.0-rc.1",
+  "version": "0.24.0-rc.4",
   "repository": {
     "type": "git",
     "url": "https://github.com/sig-net/midnight-integration",
     "directory": "packages/signet-contract"
   },
   "type": "module",
-  "description": "The central signet Compact contract on Midnight: the MPC posts signature responses (unauthenticated counted log, verified off-chain) and remote execution responses (Schnorr attestations, verified in-circuit at post time) here; clients poll it. src/index.ts is the curated export surface.",
+  "description": "The central signet Compact contract on Midnight: the MPC posts signature responses and remote execution attestations (ECDSA, emitted unverified for clients to verify in-circuit) here as contract events; clients poll it. src/index.ts is the curated export surface.",
   "exports": {
     ".": "./src/index.ts",
     "./managed/*": "./src/managed/*"
@@ -39,7 +39,7 @@
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.6"
   },
   "devDependencies": {
-    "@sig-net/midnight": "^0.24.0-rc.1",
+    "@sig-net/midnight": "^0.24.0-rc.4",
     "@types/node": "^26.1.0",
     "@vitest/coverage-v8": "^5.0.0",
     "typescript": "^7.0.2",

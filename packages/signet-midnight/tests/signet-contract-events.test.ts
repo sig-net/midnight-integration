@@ -24,6 +24,7 @@ import {
   decodeSignetEventNamed,
   decodeSignetLogEvents,
   type IndexedSignetMiscEvent,
+  OutputKind,
   pureCircuits,
   requestIdHex,
   type RespondBidirectionalEvent,
@@ -79,6 +80,7 @@ const NOTIFICATION = pureCircuits.constructSignBidirectionalEventNotificationV1(
 // decoder that dropped the byte cannot match a 0 default.
 const REQUEST_ID = bytes(32, 0x2f);
 const RESPONSE: SignatureRespondedEvent = {
+  requestId: REQUEST_ID,
   signature: {
     bigR: { x: bytes(32, 0xa0), y: bytes(32, 0xa1) },
     s: bytes(32, 0xa2),
@@ -86,6 +88,11 @@ const RESPONSE: SignatureRespondedEvent = {
   },
 };
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
+  requestId: REQUEST_ID,
+  blockHeight: 0x0102030405060708n,
+  outputKind: OutputKind.unviable,
+  serializedOutputLength: 33n,
+  digest: bytes(32, 0x60),
   signature: {
     bigR: { x: bytes(32, 0x5c), y: bytes(32, 0x5d) },
     s: bytes(32, 0x5e),

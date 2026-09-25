@@ -42,7 +42,7 @@ export ledger pad17: Counter;
 export ledger pad18: Counter;
 
 // field 19: the request map, addressed as chunk 1 slot 14 in raw state.
-export ledger signBidirectionalEventMap: SignBidirectionalEventMap<EvmType2TxParams<1, 0, 0>, 34, 34>;
+export ledger signBidirectionalEventMap: SignBidirectionalEventMapV1<EvmType2TxParams<1, 0, 0>, 34, 34>;
 
 // Records the smallest well-formed signet request (the test-caller-contract's
 // fixed composition minus the notifier call): the tests read the stored
@@ -72,20 +72,20 @@ export circuit submitSignatureRequest(
   };
 
   const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
-  const request = constructSignBidirectionalEvent<EvmType2TxParams<1, 0, 0>, 34, 34>(
-    kernel.self(),
+  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
     keyVersion,
+    kernel.self(),
     pad(32, "caller-path"),
     MPCSignatureAlgorithm.ecdsa,
-    MPCDestination.unused,
-    pad(64, ""),
     TxParamType.evmType2,
     txParams,
     ethereumCaip2Id(),
+    MPCDestination.unused,
+    pad(64, ""),
     schema,
     schema
   );
-  const requestId = disclose(calculateRequestId<EvmType2TxParams<1, 0, 0>, 34, 34>(request));
+  const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34, 34>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signBidirectionalEventMap.insert(requestId, disclose(request));

@@ -8,16 +8,25 @@
 // `selector || words` VERBATIM, so the transaction the MPC signs carries the
 // contract-stored bytes untouched.
 
-import { type CompactType, CompactTypeVector } from "@midnight-ntwrk/compact-runtime";
+import {
+  type CompactType,
+  CompactTypeVector,
+  transientHash,
+  upgradeFromTransient,
+} from "@midnight-ntwrk/compact-runtime";
 import { getAddress, Transaction } from "ethers";
 
 import { bigintToBytes32BE, bytesToHex } from "./byte-codecs.ts";
 import {
+  BOOLEAN,
   BYTES_4,
   BYTES_20,
   BYTES_32,
   compactMaybeDescriptor,
   compactStructDescriptor,
+  compactTupleDescriptor,
+  FIELD,
+  HASH_DOMAIN,
   type Maybe,
   UINT_8,
   UINT_16,
@@ -25,6 +34,7 @@ import {
   UINT_128,
 } from "./compact-descriptors.ts";
 import { signatureRespondedEventToSignature } from "./ecdsa-attestation.ts";
+import { HashDomain } from "./managed/contract/index.js";
 import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 import {
   type SignBidirectionalEvent,
@@ -163,26 +173,6 @@ export function evmType2TxParamsDescriptor(
 }
 
 /**
- * Descriptor of {@link EvmType2TxParams} at the capacity instantiation a
- * stored value itself exhibits: vector capacities are read off the value's
- * array lengths, which carry the contract's compile-time throttles. For
- * hashing or re-encoding a record already decoded at full capacity (see
- * `calculateRequestId` in signet-request-id.ts).
- *
- * @param txParams - The transaction decomposition to size against.
- * @returns The tx-params descriptor at the value's capacities.
- */
-export function evmType2TxParamsDescriptorOf(
-  txParams: EvmType2TxParams,
-): CompactType<EvmType2TxParams> {
-  return evmType2TxParamsDescriptor(
-    txParams.calldata.value.words.length,
-    txParams.accessList.length,
-    txParams.accessList[0]?.storageKeys.length ?? 0,
-  );
-}
-
-/**
  * Descriptor of {@link SignBidirectionalEvent} at one EVM Type-2 capacity
  * instantiation.
  *
@@ -300,6 +290,113 @@ export function abiWordToBool(word: Uint8Array): boolean {
   return low === 1;
 }
 
+/** The digest's head tuple: the scalar fields, the calldata presence, selector and count, the entry count. */
+const EVM_TYPE2_DIGEST_HEAD = compactTupleDescriptor<
+  [
+    HashDomain,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    Uint8Array,
+    bigint,
+    boolean,
+    Uint8Array,
+    bigint,
+    bigint,
+  ]
+>([
+  HASH_DOMAIN,
+  UINT_64,
+  UINT_64,
+  UINT_128,
+  UINT_128,
+  UINT_64,
+  BYTES_20,
+  UINT_128,
+  BOOLEAN,
+  BYTES_4,
+  UINT_16,
+  UINT_8,
+]);
+/** One fold step over a calldata word or storage key. */
+const DOMAIN_FIELD_BYTES_32 = compactTupleDescriptor<[HashDomain, bigint, Uint8Array]>([
+  HASH_DOMAIN,
+  FIELD,
+  BYTES_32,
+]);
+/** One fold step over a used access-list entry with its keys' digest. */
+const EVM_TYPE2_DIGEST_ENTRY = compactTupleDescriptor<
+  [HashDomain, bigint, Uint8Array, bigint, bigint]
+>([HASH_DOMAIN, FIELD, BYTES_20, UINT_8, FIELD]);
+
+/**
+ * Digest of an {@link EvmType2TxParams} over the bytes that reach the signed
+ * transaction, the TS twin of the `calculateEvmType2TxParamsDigestV1` circuit
+ * (lockstep-tested against its fixed-width oracles): the scalar fields, then
+ * the calldata words, access-list entries and storage keys up to their
+ * declared counts, each count hashed beside its entries. Slots past a count
+ * are skipped and an absent calldata contributes only its absence, so one
+ * transaction has one digest whatever the capacities and whatever bytes sit
+ * in unused slots. This is what {@link calculateRequestId} hashes in place of
+ * the parameters.
+ *
+ * @param txParams - The transaction decomposition to digest, at any capacity.
+ * @returns The 32-byte digest.
+ * @throws {Error} When a count exceeds its capacity.
+ */
+export function calculateEvmType2TxParamsDigest(txParams: EvmType2TxParams): Uint8Array {
+  const { calldata, accessListEntryCount, accessList } = txParams;
+  const noWords = calldata.is_some ? calldata.value.noWords : 0n;
+  const selector = calldata.is_some ? calldata.value.selector : new Uint8Array(4);
+  if (noWords > BigInt(calldata.value.words.length)) {
+    throw new Error("calldata noWords exceeds capacity");
+  }
+  if (accessListEntryCount > BigInt(accessList.length)) {
+    throw new Error("accessListEntryCount exceeds capacity");
+  }
+  const head = transientHash(EVM_TYPE2_DIGEST_HEAD, [
+    HashDomain.evmType2TxHeader,
+    txParams.chainId,
+    txParams.nonce,
+    txParams.maxPriorityFeePerGas,
+    txParams.maxFeePerGas,
+    txParams.gasLimit,
+    txParams.to,
+    txParams.value,
+    calldata.is_some,
+    selector,
+    noWords,
+    accessListEntryCount,
+  ]);
+  let acc = head;
+  for (const word of calldata.value.words.slice(0, Number(noWords))) {
+    acc = transientHash(DOMAIN_FIELD_BYTES_32, [HashDomain.evmType2TxWord, acc, word]);
+  }
+  for (const entry of accessList.slice(0, Number(accessListEntryCount))) {
+    if (entry.storageKeyCount > BigInt(entry.storageKeys.length)) {
+      throw new Error("a used entry's storageKeyCount exceeds capacity");
+    }
+    let keysAcc = 0n;
+    for (const key of entry.storageKeys.slice(0, Number(entry.storageKeyCount))) {
+      keysAcc = transientHash(DOMAIN_FIELD_BYTES_32, [
+        HashDomain.evmType2TxStorageKey,
+        keysAcc,
+        key,
+      ]);
+    }
+    acc = transientHash(EVM_TYPE2_DIGEST_ENTRY, [
+      HashDomain.evmType2TxAccessEntry,
+      acc,
+      entry.address,
+      entry.storageKeyCount,
+      keysAcc,
+    ]);
+  }
+  return upgradeFromTransient(acc);
+}
+
 /**
  * Assemble the raw calldata a request's words describe:
  * `data = selector || words[0..noWords]`, VERBATIM (see {@link EvmCalldata}).
@@ -347,7 +444,7 @@ function decodeAccessList(
  * @param request - The on-ledger request record.
  * @returns The unsigned ethers transaction (`unsignedHash` is the digest the
  *   MPC signs).
- * @throws {Error} If a calldata word carries an unknown kind.
+ * @throws {Error} If a calldata count overruns its stored slots.
  */
 export function signBidirectionalEventToUnsignedEvmTransaction(
   request: SignBidirectionalEvent,

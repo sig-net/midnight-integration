@@ -37,8 +37,9 @@ and two flow files:
      signet contract and verifies against the caller's epsilon-derived
      account.
   5. `verifyResponse`: verify an ECDSA respond-bidirectional attestation
-     (the MPC's signature over the digest of the request id and serialised
-     output) in-circuit and consume the request. The event never carries the
+     (the MPC's signature over the digest of the request id, block height,
+     output kind, output width and serialised output) in-circuit and consume
+     the request. The event never carries the
      output, so the circuit takes the output bytes as an argument
      and re-hashes them into the digest the signature must cover. The
      fakenet only attests after observing a broadcast on the destination
@@ -53,7 +54,20 @@ and two flow files:
   execution and posts its attestation, and the suite recomputes the attested
   bytes from the mined call's trace, checks the fakenet's output cache holds
   exactly those bytes, picks the attestation that verifies over them, and
-  verifies it in-circuit. Self-sufficient (its own idempotent initialise stage), so it
+  verifies it in-circuit. Every outcome kind reaches settlement:
+  - `executed`: `isEven` and `checkAndDouble` mine and return data, settled
+    by the verify circuit of their respond schema's packed width.
+    `checkAndDouble`'s verify deserialises the output in-circuit and the
+    suite checks the returned amount it recorded on the ledger.
+  - `failed`: `revertIf(true)` mines reverted (status 0). The fakenet
+    attests it over an EMPTY output and the suite settles it with the
+    caller's width-0 `verifyFailureResponse`, checking the recorded verdict.
+  - `unviable`: a request signed at the nonce the `isEven` broadcast then
+    spends, never broadcast itself. Once `isEven` mines, the fakenet attests
+    the request unviable at the block that spent the nonce (the suite finds
+    that block independently) and the same width-0 circuit settles it.
+
+  Self-sufficient (its own idempotent initialise stage), so it
   never depends on the generic flow file having run first.
 
 The unit tests beside it (`tests/env-file.test.ts`, `tests/mpc-keys.test.ts`)
@@ -99,7 +113,7 @@ run offline under plain `yarn test`; the flow file gates itself with
 # All three from the repo root. Run 'yarn compile' first.
 yarn test:integration-tests                            # both flow files
 yarn test:integration-tests:signet-caller-e2e          # just the generic (EVM-free) caller flow file
-yarn test:integration-tests:signet-caller-evm-e2e      # just the real-EVM flow file (broadcast, attestation, /responses fetch)
+yarn test:integration-tests:signet-caller-evm-e2e      # just the real-EVM flow file (broadcast, attestation, output cache, settlement)
 ```
 
 Either way the globalSetup pipeline runs first — setup is never skipped by
@@ -151,7 +165,7 @@ the value to save — and for the fakenet hand-off pair
 human between deploy and the flow. A fresh deployment is ONE run:
 globalSetup zk-compiles both contracts (~10+ min: background it), deploys
 them, hands off to the responder mid-setup, and the flow files run to the
-end (5 tests in the generic flow, 15 in the real-EVM flow).
+end (5 tests in the generic flow, 30 in the real-EVM flow).
 
 **Redeploying after a circuit change?** Any `.compact` edit that alters a
 circuit, struct layout, or the request-id hash domain needs fresh deploys:
@@ -193,6 +207,8 @@ the address vars, rerun the suite and watch the run for you.
 | `MPC_OUTPUT_CACHE_URL` | The fakenet's output cache simulation, down to its object prefix: where the real-EVM flow reads each attestation's cached bytes through `MpcOutputCacheReader` | `http://localhost:3040/v1/fakenet` |
 | `CALLER_EVM_REQUEST_ID_ISEVEN` | Resume the real-EVM `isEven` pipeline with an existing request id, skipping its submit prove | unset |
 | `CALLER_EVM_REQUEST_ID_CHECKANDDOUBLE` | Resume the real-EVM `checkAndDouble` pipeline with an existing request id, skipping its submit prove | unset |
+| `CALLER_EVM_REQUEST_ID_REVERTIF` | Resume the real-EVM `revertIf` pipeline with an existing request id, skipping its submit prove | unset |
+| `CALLER_EVM_REQUEST_ID_SUPERSEDED` | Resume the real-EVM superseded-request (unviable) leg with an existing request id, skipping its submit prove | unset |
 | `TRUST_PREBUILT_ZK_KEYS` | `1` = setup skips `compile:*:zk` when prover keys are already present. CI-only: the CI cache is keyed on the contract sources, so present ⇒ fresh; locally stale keys would poison deploys — never set it by hand | unset |
 | `CALLER_REQUEST_ID` | Resume an in-flight request, skipping the (heavy) submit prove | unset |
 | `STEP_THROUGH` | `1` pauses before each setup step and each test (hit enter) — interactive debugging only, never unattended | unset |

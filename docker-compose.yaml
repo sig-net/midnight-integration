@@ -54,11 +54,10 @@ services:
       SIDECHAIN_BLOCK_BENEFICIARY: '04bcf7ad3be7a5c790460be82a713af570f22e0f801f6659ab8e84a52be6969e'
 
   evm:
-    # anvil dev chain (id 31337, pre-funded dev-mnemonic accounts).
-    # Although the tests in this repository perform no EVM interactions this
-    # is required as the fakenet has no option to disable EVM yet, so this is
-    # required to keep the fakenet running.
-    # TODO: remove this local-evm once fakenet responder has a "DISABLE_EVM" option.
+    # anvil dev chain (id 31337, pre-funded dev-mnemonic accounts): the
+    # destination chain of the real-EVM e2e flow, which deploys its target
+    # contract here and broadcasts the MPC-signed transactions, and the chain
+    # the fakenet responder observes executions on.
     container_name: 'local-evm'
     image: 'ghcr.io/foundry-rs/foundry:v1.5.1'
     entrypoint: ['anvil', '--host', '0.0.0.0']
@@ -79,7 +78,7 @@ services:
     # starts this service. Manual equivalent (and the FAKENET_MANAGED=0 path):
     #   docker compose --profile fakenet up -d --force-recreate fakenet
     container_name: 'fakenet-responder'
-    image: 'ghcr.io/sig-net/fakenet:0.26.0'
+    image: 'ghcr.io/sig-net/fakenet:0.29.0'
     profiles: ['fakenet']
     depends_on:
       indexer:

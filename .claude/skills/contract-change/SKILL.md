@@ -37,7 +37,7 @@ the central notifier, a client contract, or the driver?*
 |---|---|---|---|
 | **Seed SDK** | `packages/signet-midnight` | Client-agnostic protocol: request/response structs, request-id hashing, secp256k1 ECDSA attestations, the `CompactType` descriptors and readers, `pureCircuits` (compiled `circuits.compact`) | Anything specific to one client contract |
 | **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to emit a `SignBidirectionalNotification` event. The MPC discovers requesters by polling ITS events | Application logic, per-client state |
-| **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit a request with contract-fixed calldata, verify the ECDSA response in-circuit. Seals the signet contract address and the MPC key at deploy | Reusable protocol code (that belongs in the seed). Business logic beyond what exercising the singleton needs |
+| **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit requests (contract-fixed calldata, plus one circuit per real-EVM target method), verify the MPC's ECDSA attestation in-circuit and settle every outcome kind (`executed` at the schema's packed width, `failed` and `unviable` at width 0). Seals the signet contract address and the MPC key at deploy | Reusable protocol code (that belongs in the seed). Business logic beyond what exercising the singleton needs |
 | **Driver** | `packages/integration-tests` | Orchestration a downstream app would do: build circuit args, submit calls via midnight-js, poll the signet contract, verify responses. The e2e drives the caller THROUGH these sequences | Rules a contract should enforce |
 
 Placement rule of thumb: **if a second contract would ever want it, it goes in
@@ -51,8 +51,9 @@ per-package `AGENTS.md`.
 
 A request is a round trip across all four layers. Each stage maps to a
 concrete circuit or e2e leg (see
-`packages/integration-tests/tests/signet-caller-e2e.test.ts`). Know this map
-before touching any stage:
+`packages/integration-tests/tests/signet-caller-e2e.test.ts` for the EVM-free
+flow and `signet-caller-evm-e2e.test.ts` for the broadcast flow). Know this
+map before touching any stage:
 
 1. **Request**: the client circuit (`submitSignatureRequest`) builds the
    contract-enforced calldata, inserts the request into its request index,
@@ -67,13 +68,16 @@ before touching any stage:
 3. **Poll signed tx**: the e2e reconstructs a typed ethers `Transaction`
    from the request + response and verifies it recovers to the caller's
    epsilon-derived account.
-4. **Settle**: the client circuit (`verifyResponse`) verifies a secp256k1
-   ECDSA attestation IN-CIRCUIT against the response key pinned at initialise,
-   over the request id and the attested output, and
-   **removes the request** (double-settle protection). The fakenet only
-   attests after observing a broadcast, so the generic e2e signs the
-   attestation in-test from the suite's `MPC_ROOT_KEY` (the same key
-   material the fakenet holds).
+4. **Settle**: the client's verify circuits (`verifyResponse`,
+   `verifyCheckAndDoubleResponse`, `verifyFailureResponse`) verify a
+   secp256k1 ECDSA attestation IN-CIRCUIT against the response key pinned at
+   initialise, over the request id, block height, output kind and the
+   attested output, route on the verified kind, and **remove the request**
+   (double-settle protection). The fakenet only attests after observing a
+   broadcast, so the generic e2e signs its attestation in-test from the
+   suite's `MPC_ROOT_KEY` (the same key material the fakenet holds), while
+   the real-EVM e2e settles the fakenet's own posts, `failed` (a reverted
+   call) and `unviable` (a nonce another transaction took) included.
 
 The reader that stages 2–4 lean on (`SignetRequestResponseReader`) reads RAW
 ledger/state exactly as the MPC does: the same view on both sides is the point.
@@ -112,8 +116,10 @@ ledger/state exactly as the MPC does: the same view on both sides is the point.
 
 **4. Reuse completed work to iterate on a late stage.** To exercise only the
 settle leg without re-proving a submit, set `CALLER_REQUEST_ID=<an existing
-request id>` before `/e2e`: the submit leg short-circuits and the suite
-reaches your stage on real state (the run prints the id as it goes).
+request id>` before `/e2e` (the real-EVM flow's legs have their own
+`CALLER_EVM_REQUEST_ID_*` vars, listed in the integration-tests README):
+the submit leg short-circuits and the suite reaches your stage on real state
+(the run prints the id as it goes).
 
 ## Sharp edges that fail silently
 
@@ -131,9 +137,9 @@ reaches your stage on real state (the run prints the id as it goes).
   can sit at ANY ledger field: each notification the contract registers names
   the field position holding the map (`requestsIndexField`), and the MPC reads
   the authenticated request from that position knowing only the contract
-  address. The test caller keeps its two per-schema-width maps at fields 4 and
-  7 (its `requestLog` List deliberately occupies field 0), so the positions its
-  submit circuits pass in the notification are 4 and 7. Reordering ledger
+  address. The test caller keeps its two per-schema-width maps at fields 3 and
+  6 (its `requestLog` List deliberately occupies field 0), so the positions its
+  submit circuits pass in the notification are 3 and 6. Reordering ledger
   declarations changes those positions: the notification literals (and any
   reader configured with a `requestsIndexField`) must move with them.
 - **Keep enums in hashed structs ≥ 2 variants**: a 1-variant enum hashes as a
@@ -167,7 +173,8 @@ reaches your stage on real state (the run prints the id as it goes).
 3. `yarn compile` in the contract package, then add simulator tests for the
    happy path and every reject.
 4. `yarn build && yarn test` in each touched member.
-5. Extend `packages/integration-tests/tests/signet-caller-e2e.test.ts` with a
+5. Extend the flow file that fits (`signet-caller-e2e.test.ts` for an
+   EVM-free leg, `signet-caller-evm-e2e.test.ts` for one that broadcasts) with a
    leg that drives the new circuit and asserts a publicly-observable effect (a
    ledger insert/removal is stronger than a return value).
 6. Retest per the decision tree. Assert on RAW ledger state read back through

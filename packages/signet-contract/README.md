@@ -21,11 +21,11 @@ The protocol and integration documentation lives in the [sig-net/midnight-integr
 
 - [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow): the 5-step protocol this contract relays, with diagram, failure handling and output recovery: which circuit each step calls and which event it emits.
 - [Integrator Guide](https://github.com/sig-net/midnight-integration/blob/main/README.md#integrator-guide): how client contracts and dApps drive this contract's circuits and events per request.
-- [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure): how a failed foreign transaction still completes the flow through this contract's `respondBidirectional` circuit, attested as a fixed 5-byte payload.
+- [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure): how a failed foreign transaction still completes the flow through this contract's `respondBidirectional` circuit, attested as an empty output under a failure output kind.
 
 ## Related packages
 
-- [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): deploys this contract (constructor argument: the MPC attestation key).
+- [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): deploys this contract (it takes no constructor arguments: the MPC derives a response key per client contract, and each client pins its own).
 - [`@sig-net/midnight`](https://www.npmjs.com/package/@sig-net/midnight): the client-agnostic protocol library for reading this contract's state and verifying responses.
 
 Developed in [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration). Example applications live in [sig-net/midnight-examples](https://github.com/sig-net/midnight-examples).

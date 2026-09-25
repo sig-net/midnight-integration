@@ -7,6 +7,7 @@ import { computeAddress, SigningKey } from "ethers";
 import { describe, expect, it } from "vitest";
 
 import {
+  calculateRequestId,
   evmAddressAbiWord,
   MPCDestination,
   MPCSignatureAlgorithm,
@@ -43,7 +44,7 @@ const REQUEST: SignBidirectionalEvent = {
   keyVersion: 1n,
   path: new Uint8Array(32),
   algo: MPCSignatureAlgorithm.ecdsa,
-  dest: MPCDestination.unused,
+  signatureDest: MPCDestination.unused,
   params: new Uint8Array(64),
   txParamType: TxParamType.evmType2,
   txParams: {
@@ -65,7 +66,7 @@ const REQUEST: SignBidirectionalEvent = {
       },
     },
   },
-  caip2Id: pureCircuits.ethereumCaip2Id(),
+  executionDest: pureCircuits.ethereumCaip2Id(),
   outputDeserializationSchema: new Uint8Array(34),
   respondSerializationSchema: new Uint8Array(34),
 };
@@ -83,6 +84,7 @@ const signResponse = (
 ): SignatureRespondedEvent => {
   const signature = key.sign(signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash);
   return {
+    requestId: calculateRequestId(request),
     signature: ecdsaSignatureToMpcSignature({
       r: BigInt(signature.r),
       s: BigInt(signature.s),
@@ -95,6 +97,7 @@ const VALID_RESPONSE = signResponse(MPC_KEY, REQUEST);
 
 /** VALID_RESPONSE with its signature's recovery id overwritten. */
 const withRecoveryId = (value: bigint): SignatureRespondedEvent => ({
+  ...VALID_RESPONSE,
   signature: { ...VALID_RESPONSE.signature, recoveryId: value },
 });
 
@@ -183,6 +186,7 @@ const VERIFY_CASES: VerifyCase[] = [
     name: "garbage scalars (a well-formed record that is no signature)",
     request: REQUEST,
     response: {
+      requestId: bytes(32, 0x5a),
       signature: {
         bigR: { x: bytes(32, 0x5a), y: bytes(32, 0x5a) },
         s: bytes(32, 0x5a),
