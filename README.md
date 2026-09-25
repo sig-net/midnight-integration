@@ -32,7 +32,7 @@ Illustrated below, the protocol is best understood in 5 steps:
 ![The sign bidirectional protocol flow: five steps between a dApp, contracts on Midnight, the Sig Network MPC and a foreign blockchain](./docs/sign-bidirectional-flow.drawio.png)
 
 - **1.** A user interacts with a dApp, which starts a cross chain interaction by calling a circuit (`startCrossChain(...)` in the diagram) on a contract on Midnight that has integrated with Sig Network.
-   - The integrating contract constructs a **[SignBidirectionalEventV1](./packages/signet-midnight/src/Signet.compact#L85)** (aka. signature request) which it stores in its ledger's **[SignBidirectionalEventMapV1](./packages/signet-midnight/src/Signet.compact#L229)** against the associated **[RequestId](./packages/signet-midnight/src/Signet.compact#L193)** (hash of the request's key, sender, path, transaction digest and destination). The **SignBidirectionalEvent** contains the fields of a transaction destined for a foreign blockchain, as well as a path property which the Sig Network Distributed MPC uses to derive a **Request Signing Key** to sign the transaction (see [Derived Keys](#derived-keys) for more on this key).
+   - The integrating contract constructs a **[SignBidirectionalEventV1](./packages/signet-midnight/src/Signet.compact#L85)** (aka. signature request) which it stores in its ledger's **[SignBidirectionalEventMapV1](./packages/signet-midnight/src/Signet.compact#L229)** against the associated **[RequestId](./packages/signet-midnight/src/Signet.compact#L193)** (hash of the request's keyVersion, sender, path, algo, txParamType, txParamsDigest and executionDest). The **SignBidirectionalEvent** contains the fields of a transaction destined for a foreign blockchain, as well as a path property which the Sig Network Distributed MPC uses to derive a **Request Signing Key** to sign the transaction (see [Derived Keys](#derived-keys) for more on this key).
    - Then the integrating contract performs a cross contract call to the [`signBidirectional`](./packages/signet-contract/src/signet-contract.compact#L31) circuit on the [**Sig Network Singleton** contract](./packages/signet-contract/src/signet-contract.compact) which emits a [**SignBidirectionalEventNotification**](./packages/signet-midnight/src/Signet.compact#L250). The **SignBidirectionalEventNotification** carries the address of the integrating client contract and the ledger location of its request map, and the **RequestId** travels beside it as `signBidirectional`'s first argument, so the emitted event gives the MPC everything it needs to find the stored **SignBidirectionalEvent** signature request.
 - **2.** The MPC network, watching for events on the Singleton contract, picks up the emitted **SignBidirectionalEventNotification** and honours the signature request it points to.
   - The MPC verifies the notification before honouring it (see [Sign Bidirectional Event Discovery & Verification](#sign-bidirectional-event-discovery--verification)).
@@ -124,12 +124,13 @@ A failed foreign transaction (one that reverted on chain, or whose nonce another
 
 # Integrator Guide
 
-A signet-compliant client contract does four things:
+A signet-compliant client contract:
 
 - it stores its requests in a public `SignBidirectionalEventMapV1` in its own ledger
 - it pins its counterparties: the Signet singleton contract and its own MPC response key
 - it submits signature requests
 - it verifies execution responses in-circuit
+- it records the destination height known when each request is made and accepts only responses above that height
 
 Integrating a contract on Midnight with the Sig Network MPC consists of:
 
@@ -138,7 +139,7 @@ Integrating a contract on Midnight with the Sig Network MPC consists of:
 
 ## Setup
 
-Set up your contract for integration with the Sig Network MPC's sign bidirectional flow:
+Set up your contract for integration with the Sig Network MPC's sign bidirectional flow. This basic example targets one destination chain, Ethereum Sepolia, so it uses one `lastSeen` height. This is the highest destination height the contract has accepted in an attestation, initially zero, not a height supplied by the client. A contract supporting multiple destination chains needs a separate `lastSeen` per chain.
 
 1. Add the protocol library to your project:
    ```sh
@@ -165,6 +166,10 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    // <1 calldata word, 0 access-list entries, 0 storage keys> and
    // 34-byte serialisation schemas.
    export ledger signBidirectionalEventMap: SignBidirectionalEventMapV1<EvmType2TxParams<1, 0, 0>, 34, 34>;
+
+   export ledger lastSeen: Uint<64>;
+   // Snapshot lastSeen per request so later responses cannot move its threshold.
+   export ledger heightAtRequest: Map<RequestId, Uint<64>>;
 
    // Required: The Signet singleton signer interface, set at deploy.
    // Used to notify the MPC of events you add to your signBidirectionalEventMap.
@@ -194,6 +199,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    constructor(signetContract: SignetSigner, deployerCommitment: Bytes<32>) {
      signetSigner = disclose(signetContract);
      deployer = disclose(deployerCommitment);
+     lastSeen = 0;
    }
    ```
 
@@ -290,8 +296,12 @@ const expectedSigner = deriveEvmAddress(
    const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(/* ... */);
    const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34, 34>(request));
 
-   // Store the signature request in your signBidirectionalEventMap for MPC to discover
+   // One lastSeen value is safe only when every request targets this chain.
+   assert(request.executionDest == ethereumCaip2Id(), "Expected Ethereum destination");
+   assert(request.txParams.chainId == 11155111, "Expected Sepolia chain id");
+   assert(!signBidirectionalEventMap.member(requestId), "Request already outstanding");
    signBidirectionalEventMap.insert(requestId, disclose(request));
+   heightAtRequest.insert(requestId, lastSeen);
 
    // Notify the MPC of the SignBidirectionalEvent and the location of your signBidirectionalEventMap.
    // The map is at ledger field 0 (Setup step 3), so its path is [0] at depth 1
@@ -341,6 +351,8 @@ const expectedSigner = deriveEvmAddress(
    const circuitInput = respondBidirectionalEventToCircuitInput(respondBidirectionalEvent);
    ```
 
+   Verify the signature before trusting the height. Compare it with the `heightAtRequest` snapshot from step 1, then advance `lastSeen` without ever decreasing it. Complete the checks, remove the request and run your application logic in the same transaction so a failure rolls back all of them.
+
    The width argument is the exact packed size of your respond serialisation schema (a single bool packs to 1 byte):
 
    ```compact
@@ -348,10 +360,26 @@ const expectedSigner = deriveEvmAddress(
       verifyRespondBidirectionalEventV1<1>(serializedOutput, respondBidirectionalEvent, mpcResponseKey),
       "Invalid attestation signature"
    );
-   signBidirectionalEventMap.remove(respondBidirectionalEvent.requestId);
+   const requestId = disclose(respondBidirectionalEvent.requestId);
+   const height = disclose(respondBidirectionalEvent.blockHeight);
+   assert(signBidirectionalEventMap.member(requestId), "Request not found");
+   assert(height > heightAtRequest.lookup(requestId), "Response is not above request height");
+
+   // Responses can arrive out of order, so keep the highest accepted height.
+   if (height > lastSeen) {
+      lastSeen = height;
+   }
+   signBidirectionalEventMap.remove(requestId);
+   heightAtRequest.remove(requestId);
+
+   // Run your application handler here, in the same transaction.
    ```
 
-   A foreign transaction that never executed settles through the same verification at width 0, with an empty output and a `failed` or `unviable` output kind. Route on the verified kind: see [Handling Failure](#handling-failure).
+   For example, a request made when `lastSeen` is 100 records `heightAtRequest[requestId] = 100`. Its response must attest a height above 100. If another response advances `lastSeen` to 120 first, this request can still accept height 110, and `lastSeen` stays 120. Comparing against the current `lastSeen` would incorrectly reject that response.
+
+   Apply the same height check, maximum update and request cleanup to `failed` and `unviable` responses, verifying their empty output at width 0. Route on the verified kind: see [Handling Failure](#handling-failure).
+
+   Preserve `lastSeen`, `heightAtRequest` and outstanding requests across upgrades. The SDK verification circuit authenticates the response but the integrating contract maintains and checks these records. See [the protocol's library rules](https://github.com/sig-net/mpc/blob/yap/bidirectional-calls-doc/doc/bidirectional_calls.md#41-library-inside-the-application-contract).
 
 ## EVM Type 2 Transactions and ABI Calldata Words
 
@@ -558,7 +586,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.24.0-rc.4 | [`packages/*/package.json`](packages) |
+| `@sig-net/*` npm packages | 0.24.0-rc.5 | [`packages/*/package.json`](packages) |
 | fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.28.0` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
 | Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |

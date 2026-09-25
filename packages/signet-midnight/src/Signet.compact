@@ -383,8 +383,8 @@ module Signet {
   }
 
   // Verifies a RespondBidirectionalEvent against its execution output and MPC
-  // response key: recomputes the attestation digest over the event's block
-  // height and output kind and checks the ECDSA signature over it. Client
+  // response key: recomputes the digest over the request id, block height,
+  // output kind, output length and caller's output, then verifies its signature. Client
   // contracts run this before consuming outputs, as the singleton emits
   // responses unverified. The caller supplies
   // serializedOutput at its exact unpadded width, and the event record with

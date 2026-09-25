@@ -441,6 +441,11 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
     error: string;
   }[] = [
     {
+      name: "attestation key path",
+      request: { ...RECORD, path: asciiPadded("midnight response key", 32) },
+      error: "path is reserved for the MPC response key",
+    },
+    {
       name: "signature destination",
       request: { ...RECORD, signatureDest: MPCDestination.reserved },
       error: "signatureDest must be unused",
@@ -535,6 +540,33 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
       expect(bytesToHex(calculateRequestId(record))).toBe(bytesToHex(oracle(record)));
     },
   );
+
+  it("gives the same request id to one transaction at different capacities", () => {
+    const wider: SignBidirectionalEvent = {
+      ...RECORD,
+      txParams: {
+        ...RECORD.txParams,
+        calldata: {
+          ...RECORD.txParams.calldata,
+          value: {
+            ...RECORD.txParams.calldata.value,
+            words: [...RECORD.txParams.calldata.value.words, bytes(32, 0x99)],
+          },
+        },
+        accessList: [
+          {
+            address: bytes(20, 0x99),
+            storageKeyCount: 2n,
+            storageKeys: [bytes(32, 0x99), bytes(32, 0x99)],
+          },
+        ],
+      },
+    };
+    const requestId: Uint8Array = pureCircuits.calculateEvmType2RequestIdV1_1_0_0_34_34(RECORD);
+    expect(pureCircuits.calculateEvmType2RequestIdV1_2_1_2_34_34(wider)).toEqual(requestId);
+    expect(calculateRequestId(RECORD)).toEqual(requestId);
+    expect(calculateRequestId(wider)).toEqual(requestId);
+  });
 
   it("the circuit refuses a request whose tag is not evmType2", () => {
     expect(() =>
