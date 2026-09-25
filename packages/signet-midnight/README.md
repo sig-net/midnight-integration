@@ -116,3 +116,16 @@ const event = attestRespondBidirectional(
 - [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): deploy tooling for that contract plus generic Midnight deploy/wallet plumbing.
 
 Developed in [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration).
+
+## Protocol hash domains
+
+`HashDomain` is the shared append-only enum exported by the Compact module
+and the TypeScript SDK. Its indices are `requestId = 0`,
+`attestationDigest = 1`, `evmType2TxHeader = 2`, `evmType2TxWord = 3`,
+`evmType2TxAccessEntry = 4` and `evmType2TxStorageKey = 5`. Each protocol
+hash input starts with its domain tag. Off-chain recomputation must use
+the same tags and field order as the circuits.
+
+`constructSignBidirectionalEventV1` rejects a `signatureDest` other than
+`MPCDestination.unused` and any non-zero byte in `params`. Both fields
+are reserved and remain outside the request id.

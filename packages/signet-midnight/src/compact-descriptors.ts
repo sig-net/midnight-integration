@@ -39,6 +39,9 @@ import {
 // Runtime descriptors of the Compact base types, at the same literals the
 // compiler emits.
 
+/** Protocol HashDomain enum, matching the Compact variant indices and byte width. */
+export const HASH_DOMAIN = new CompactTypeEnum(5, 1);
+
 /** `Boolean`. */
 export const BOOLEAN = CompactTypeBoolean;
 /** `Field`: the accumulator of the transaction digest folds. */
@@ -223,8 +226,8 @@ export function compactTupleDescriptor<T extends unknown[]>(elements: {
 
 /**
  * Descriptor of the Compact tuple
- * `[RequestId, Uint<64>, OutputKind, Uint<64>, Bytes<serializedOutputLength>]`
- * the attestation digest hashes (request id, block height, output kind,
+ * `[HashDomain, RequestId, Uint<64>, OutputKind, Uint<64>, Bytes<serializedOutputLength>]`
+ * the attestation digest hashes (domain tag, request id, block height, output kind,
  * output length, output). The output width enters the descriptor, so it is
  * built per call.
  *
@@ -233,8 +236,9 @@ export function compactTupleDescriptor<T extends unknown[]>(elements: {
  */
 export function attestationPreimageDescriptor(
   serializedOutputLength: number,
-): CompactType<[Uint8Array, bigint, number, bigint, Uint8Array]> {
-  return compactTupleDescriptor<[Uint8Array, bigint, number, bigint, Uint8Array]>([
+): CompactType<[number, Uint8Array, bigint, number, bigint, Uint8Array]> {
+  return compactTupleDescriptor<[number, Uint8Array, bigint, number, bigint, Uint8Array]>([
+    HASH_DOMAIN,
     BYTES_32,
     UINT_64,
     OUTPUT_KIND,

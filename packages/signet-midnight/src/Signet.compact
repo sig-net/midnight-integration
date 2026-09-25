@@ -19,8 +19,7 @@
 //
 //  Key types at a glance (each declaration below carries the full contract):
 //  - SignBidirectionalEventV1: a client contract's structured request for a signature on a transaction.
-//  - RequestId: 32-byte id of a request, the transientHash of its RequestIdPreimageV1 (the fields
-//    that name one execution: key, sender, path, a digest of the transaction and its destination).
+//  - RequestId: 32-byte id derived by calculateRequestIdV1.
 //  - SignBidirectionalEventMapV1: the RequestId -> SignBidirectionalEventV1 map a client contract
 //    declares in its own ledger for the MPC to read requests from.
 //  - SignetSigner: the contract interface client contracts call to notify the Signet singleton.
@@ -65,6 +64,16 @@
 
 module Signet {
   import CompactStandardLibrary;
+
+  // Hash-domain indices are protocol u8 values. Append variants only.
+  export enum HashDomain {
+    requestId,
+    attestationDigest,
+    evmType2TxHeader,
+    evmType2TxWord,
+    evmType2TxAccessEntry,
+    evmType2TxStorageKey,
+  }
 
   // ---- SignBidirectionalEvent ------------------------------------------------------------------------
 
@@ -155,6 +164,8 @@ module Signet {
     respondSerializationSchema: Bytes<LenRespondSerialization>,
   ): SignBidirectionalEventV1<TxParams, LenOutputDeserialization, LenRespondSerialization> {
     assert(keyVersion >= 1, "keyVersion must be >= 1");
+    assert(signatureDest == MPCDestination.unused, "signatureDest must be unused");
+    assert(params == default<Bytes<64>>, "params must be zero");
     // The protocol reserves the "midnight response key" path for the MPC's
     // attestation key of this contract (see RespondBidirectionalEventV1), and the
     // MPC refuses a request that names it.
@@ -178,8 +189,7 @@ module Signet {
 
   // ---- SignBidirectionalEvent RequestId --------------------------------------------------------------
 
-  // 32 byte chain agnostic nominal id of a SignBidirectionalEvent, calculated as the
-  // transientHash of its RequestIdPreimageV1 (see calculateRequestIdV1).
+  // 32-byte chain-agnostic nominal id derived by calculateRequestIdV1.
   export new type RequestId = Bytes<32>;
 
   // The fields of a SignBidirectionalEventV1 that name one execution: the signing key
@@ -203,20 +213,11 @@ module Signet {
     executionDest: Bytes<32>;
   }
 
-  // transientHash (Poseidon over the preimage's field-aligned representation) upgraded
-  // to Bytes<32>: the id commits to every preimage field, including the sender, and
-  // carries no domain-separation tag. Off-chain twins must reproduce the field-aligned
-  // layout exactly.
-  //
-  // Two properties follow from the field-aligned representation and matter to anyone
-  // reasoning about these ids:
-  //  - byte 31 is always zero. upgradeFromTransient writes the field element's 31
-  //    little-endian bytes into bytes 0..30, so an id carries ~248 bits of entropy.
-  //  - a Bytes<N> field packs into ceil(N/31) field elements, so trailing zero bytes
-  //    within a chunk do not change the hash. Every id commits to its sender, so
-  //    requests cannot collide in practice.
+  // Off-chain recomputation must prefix the preimage with HashDomain.requestId
+  // and reproduce its field-aligned layout exactly. A ledger-era hash change
+  // requires draining pending requests before the fork.
   export pure circuit calculateRequestIdV1(preimage: RequestIdPreimageV1): RequestId {
-    return upgradeFromTransient(transientHash<RequestIdPreimageV1>(preimage)) as RequestId;
+    return upgradeFromTransient(transientHash<[HashDomain, RequestIdPreimageV1]>([HashDomain.requestId, preimage])) as RequestId;
   }
 
   // ---- Client Contract: SignBidirectionalEvent Map ---------------------------------------------------
@@ -321,7 +322,7 @@ module Signet {
   // RespondBidirectionalEvent: the MPC's attestation of a foreign execution, the
   // final step of the sign bidirectional flow.
   //
-  //    attestationDigest = upgradeFromTransient(transientHash([requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]))
+  //    attestationDigest = calculateSignetAttestationDigestV1(requestId, blockHeight, outputKind, serializedOutput)
   //    signature = signSECP256k1(mpcResponseKey, attestationDigest)
   //
   // mpcResponseKey is derived like request signing keys, with the path set to the
@@ -366,7 +367,7 @@ module Signet {
   }
 
   // The 32-byte attestation digest of a remote execution output:
-  //    attestationDigest = upgradeFromTransient(transientHash([requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]))
+  //    attestationDigest = upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]))
   // blockHeight is the height of the finalised destination block holding the
   // transaction the attestation describes, in the destination chain's own
   // numbering (a slot on Solana).
@@ -378,7 +379,7 @@ module Signet {
     outputKind: OutputKind,
     serializedOutput: Bytes<serializedOutputLength>,
   ): Bytes<32> {
-    return upgradeFromTransient(transientHash<[RequestId, Uint<64>, OutputKind, Uint<64>, Bytes<serializedOutputLength>]>([requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]));
+    return upgradeFromTransient(transientHash<[HashDomain, RequestId, Uint<64>, OutputKind, Uint<64>, Bytes<serializedOutputLength>]>([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]));
   }
 
   // Verifies a RespondBidirectionalEvent against its execution output and MPC
@@ -523,7 +524,8 @@ module Signet {
     assert(keyCountsFit[1], "a used entry's storageKeyCount exceeds capacity");
 
     // The scalar fields and the counts, hashed as one field-aligned tuple.
-    const head = transientHash<[Uint<64>, Uint<64>, Uint<128>, Uint<128>, Uint<64>, Bytes<20>, Uint<128>, Boolean, Bytes<4>, Uint<16>, Uint<8>]>([
+    const head = transientHash<[HashDomain, Uint<64>, Uint<64>, Uint<128>, Uint<128>, Uint<64>, Bytes<20>, Uint<128>, Boolean, Bytes<4>, Uint<16>, Uint<8>]>([
+      HashDomain.evmType2TxHeader,
       txParams.chainId,
       txParams.nonce,
       txParams.maxPriorityFeePerGas,
@@ -542,7 +544,7 @@ module Signet {
     // at zero every step passes the head through.
     const wordsScan = fold(
       (acc: [Uint<16>, Field], word: Bytes<32>): [Uint<16>, Field] =>
-        [(acc[0] + 1) as Uint<16>, acc[0] < noWords ? transientHash<[Field, Bytes<32>]>([acc[1], word]) : acc[1]],
+        [(acc[0] + 1) as Uint<16>, acc[0] < noWords ? transientHash<[HashDomain, Field, Bytes<32>]>([HashDomain.evmType2TxWord, acc[1], word]) : acc[1]],
       [0 as Uint<16>, head],
       calldata.value.words
     );
@@ -555,13 +557,14 @@ module Signet {
         [
           (acc[0] + 1) as Uint<8>,
           acc[0] < txParams.accessListEntryCount
-            ? transientHash<[Field, Bytes<20>, Uint<8>, Field]>([
+            ? transientHash<[HashDomain, Field, Bytes<20>, Uint<8>, Field]>([
+                HashDomain.evmType2TxAccessEntry,
                 acc[1],
                 entry.address,
                 entry.storageKeyCount,
                 fold(
                   (keyAcc: [Uint<8>, Field], key: Bytes<32>): [Uint<8>, Field] =>
-                    [(keyAcc[0] + 1) as Uint<8>, keyAcc[0] < entry.storageKeyCount ? transientHash<[Field, Bytes<32>]>([keyAcc[1], key]) : keyAcc[1]],
+                    [(keyAcc[0] + 1) as Uint<8>, keyAcc[0] < entry.storageKeyCount ? transientHash<[HashDomain, Field, Bytes<32>]>([HashDomain.evmType2TxStorageKey, keyAcc[1], key]) : keyAcc[1]],
                   [0 as Uint<8>, 0 as Field],
                   entry.storageKeys
                 )[1]

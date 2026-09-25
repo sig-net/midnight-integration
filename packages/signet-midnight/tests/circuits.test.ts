@@ -1,14 +1,3 @@
-// Unit tests for the compiled Signet pure circuits (see
-// src/circuits.compact). These exercise the REAL compiled circuit logic
-// in-process via pureCircuits — no ledger, no network, no proving.
-//
-// Only the compiled-circuit surface is tested here: the generic request
-// circuits cannot be compiled into it — request construction is exercised
-// through each requester contract's simulator tests, and the request-id TS
-// twin is checked against the real compiled contract in test-caller-contract's
-// submit round-trip test. The attestation digest / verify circuits have
-// their own suite (ecdsa-attestation.test.ts).
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -23,10 +12,12 @@ import {
   evmAddressAbiWord,
   type EvmType2TxParams,
   EXECUTION_DEST_BYTES,
+  HashDomain,
   hexToBytes,
   MPCDestination,
   MPCSignatureAlgorithm,
   numericAbiWord,
+  OutputKind,
   pureCircuits,
   type SignBidirectionalEvent,
   TxParamType,
@@ -440,6 +431,38 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
     respondSerializationSchema: bytes(34, 0x08),
   };
 
+  it("constructs requests with unused reserved fields", () => {
+    expect(pureCircuits.constructSignBidirectionalEventV1_1_0_0_34_34(RECORD)).toEqual(RECORD);
+  });
+
+  const INVALID_RESERVED_FIELDS: {
+    name: string;
+    request: SignBidirectionalEvent;
+    error: string;
+  }[] = [
+    {
+      name: "signature destination",
+      request: { ...RECORD, signatureDest: MPCDestination.reserved },
+      error: "signatureDest must be unused",
+    },
+    {
+      name: "first parameter byte",
+      request: { ...RECORD, params: Uint8Array.from([1, ...new Uint8Array(63)]) },
+      error: "params must be zero",
+    },
+    {
+      name: "last parameter byte",
+      request: { ...RECORD, params: Uint8Array.from([...new Uint8Array(63), 1]) },
+      error: "params must be zero",
+    },
+  ];
+
+  it.each(INVALID_RESERVED_FIELDS)("refuses a reserved $name", ({ request, error }) => {
+    expect(() => pureCircuits.constructSignBidirectionalEventV1_1_0_0_34_34(request)).toThrow(
+      error,
+    );
+  });
+
   it("the TS request id equals the compiled circuit over the same preimage", () => {
     const circuit = pureCircuits.calculateRequestIdV1({
       keyVersion: RECORD.keyVersion,
@@ -473,6 +496,26 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
     },
   };
 
+  it("pins all six domains through a transaction, request and attestation vector", () => {
+    expect(bytesToHex(calculateEvmType2TxParamsDigest(RECORD_2_1_2.txParams))).toBe(
+      "e5e11cd48153d16da6d9ec69b471848bafa6c1258a234b30359d383e3fba0b00",
+    );
+    const requestId: Uint8Array = calculateRequestId(RECORD_2_1_2);
+    expect(bytesToHex(requestId)).toBe(
+      "4c4e839b3257b4d73de4a362aabf435de1a4a137c0b220479d874c6b6b80fd00",
+    );
+    expect(
+      bytesToHex(
+        pureCircuits.calculateSignetAttestationDigest32(
+          requestId,
+          42n,
+          OutputKind.executed,
+          bytes(32, 0xab),
+        ),
+      ),
+    ).toBe("41a1845ae55860bc1d9bf08d2581cbc5f2a34005e99ea51743db252040165400");
+  });
+
   it.each([
     {
       name: "<1, 0, 0>",
@@ -500,5 +543,18 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
         txParamType: TxParamType.reserved,
       }),
     ).toThrow(/must tag txParams as evmType2/);
+  });
+});
+
+describe("HashDomain protocol indices", () => {
+  it.each([
+    [HashDomain.requestId, 0],
+    [HashDomain.attestationDigest, 1],
+    [HashDomain.evmType2TxHeader, 2],
+    [HashDomain.evmType2TxWord, 3],
+    [HashDomain.evmType2TxAccessEntry, 4],
+    [HashDomain.evmType2TxStorageKey, 5],
+  ])("pins domain %i to protocol index %i", (domain: HashDomain, index: number) => {
+    expect(domain).toBe(index);
   });
 });

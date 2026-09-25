@@ -9,6 +9,7 @@ import CompactStandardLibrary;
 import "./Signet";
 
 export {
+  HashDomain,
   OutputKind,
   calculateRequestIdV1,
   constructSignBidirectionalEventNotificationV1,
@@ -125,5 +126,23 @@ export pure circuit verifyRespondBidirectionalEvent32(
     serializedOutput,
     respondBidirectionalEvent,
     mpcResponseKey
+  );
+}
+
+export pure circuit constructSignBidirectionalEventV1_1_0_0_34_34(
+  request: SignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>
+): SignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34> {
+  return constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
+    request.keyVersion,
+    request.sender,
+    request.path,
+    request.algo,
+    request.txParamType,
+    request.txParams,
+    request.executionDest,
+    request.signatureDest,
+    request.params,
+    request.outputDeserializationSchema,
+    request.respondSerializationSchema
   );
 }

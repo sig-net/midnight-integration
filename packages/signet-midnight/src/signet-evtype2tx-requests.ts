@@ -26,6 +26,7 @@ import {
   compactStructDescriptor,
   compactTupleDescriptor,
   FIELD,
+  HASH_DOMAIN,
   type Maybe,
   UINT_8,
   UINT_16,
@@ -33,6 +34,7 @@ import {
   UINT_128,
 } from "./compact-descriptors.ts";
 import { signatureRespondedEventToSignature } from "./ecdsa-attestation.ts";
+import { HashDomain } from "./managed/contract/index.js";
 import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 import {
   type SignBidirectionalEvent,
@@ -290,8 +292,22 @@ export function abiWordToBool(word: Uint8Array): boolean {
 
 /** The digest's head tuple: the scalar fields, the calldata presence, selector and count, the entry count. */
 const EVM_TYPE2_DIGEST_HEAD = compactTupleDescriptor<
-  [bigint, bigint, bigint, bigint, bigint, Uint8Array, bigint, boolean, Uint8Array, bigint, bigint]
+  [
+    HashDomain,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    Uint8Array,
+    bigint,
+    boolean,
+    Uint8Array,
+    bigint,
+    bigint,
+  ]
 >([
+  HASH_DOMAIN,
   UINT_64,
   UINT_64,
   UINT_128,
@@ -305,14 +321,15 @@ const EVM_TYPE2_DIGEST_HEAD = compactTupleDescriptor<
   UINT_8,
 ]);
 /** One fold step over a calldata word or storage key. */
-const FIELD_BYTES_32 = compactTupleDescriptor<[bigint, Uint8Array]>([FIELD, BYTES_32]);
-/** One fold step over a used access-list entry with its keys' digest. */
-const EVM_TYPE2_DIGEST_ENTRY = compactTupleDescriptor<[bigint, Uint8Array, bigint, bigint]>([
+const DOMAIN_FIELD_BYTES_32 = compactTupleDescriptor<[HashDomain, bigint, Uint8Array]>([
+  HASH_DOMAIN,
   FIELD,
-  BYTES_20,
-  UINT_8,
-  FIELD,
+  BYTES_32,
 ]);
+/** One fold step over a used access-list entry with its keys' digest. */
+const EVM_TYPE2_DIGEST_ENTRY = compactTupleDescriptor<
+  [HashDomain, bigint, Uint8Array, bigint, bigint]
+>([HASH_DOMAIN, FIELD, BYTES_20, UINT_8, FIELD]);
 
 /**
  * Digest of an {@link EvmType2TxParams} over the bytes that reach the signed
@@ -340,6 +357,7 @@ export function calculateEvmType2TxParamsDigest(txParams: EvmType2TxParams): Uin
     throw new Error("accessListEntryCount exceeds capacity");
   }
   const head = transientHash(EVM_TYPE2_DIGEST_HEAD, [
+    HashDomain.evmType2TxHeader,
     txParams.chainId,
     txParams.nonce,
     txParams.maxPriorityFeePerGas,
@@ -354,7 +372,7 @@ export function calculateEvmType2TxParamsDigest(txParams: EvmType2TxParams): Uin
   ]);
   let acc = head;
   for (const word of calldata.value.words.slice(0, Number(noWords))) {
-    acc = transientHash(FIELD_BYTES_32, [acc, word]);
+    acc = transientHash(DOMAIN_FIELD_BYTES_32, [HashDomain.evmType2TxWord, acc, word]);
   }
   for (const entry of accessList.slice(0, Number(accessListEntryCount))) {
     if (entry.storageKeyCount > BigInt(entry.storageKeys.length)) {
@@ -362,9 +380,14 @@ export function calculateEvmType2TxParamsDigest(txParams: EvmType2TxParams): Uin
     }
     let keysAcc = 0n;
     for (const key of entry.storageKeys.slice(0, Number(entry.storageKeyCount))) {
-      keysAcc = transientHash(FIELD_BYTES_32, [keysAcc, key]);
+      keysAcc = transientHash(DOMAIN_FIELD_BYTES_32, [
+        HashDomain.evmType2TxStorageKey,
+        keysAcc,
+        key,
+      ]);
     }
     acc = transientHash(EVM_TYPE2_DIGEST_ENTRY, [
+      HashDomain.evmType2TxAccessEntry,
       acc,
       entry.address,
       entry.storageKeyCount,

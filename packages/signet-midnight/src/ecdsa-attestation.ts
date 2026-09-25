@@ -23,7 +23,7 @@ import { decodeBase58, Signature, toBeHex } from "ethers";
 
 import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codecs.ts";
 import { attestationPreimageDescriptor } from "./compact-descriptors.ts";
-import type { OutputKind } from "./managed/contract/index.js";
+import { HashDomain, type OutputKind } from "./managed/contract/index.js";
 import type {
   MpcSignature,
   RespondBidirectionalEvent,
@@ -323,7 +323,7 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
 
 /**
  * The attestation digest of a respond-bidirectional response:
- * `upgradeFromTransient(transientHash([requestId, blockHeight, outputKind, outputLength, serializedOutput]))`,
+ * `upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, outputLength, serializedOutput]))`,
  * the 32-byte digest the MPC ECDSA-signs to attest a remote execution. TS
  * twin of the size-generic Compact circuit `calculateSignetAttestationDigestV1`.
  *
@@ -342,6 +342,7 @@ export function calculateSignetAttestationDigest(
 ): Uint8Array {
   return upgradeFromTransient(
     transientHash(attestationPreimageDescriptor(serializedOutput.length), [
+      HashDomain.attestationDigest,
       requestId,
       blockHeight,
       outputKind,

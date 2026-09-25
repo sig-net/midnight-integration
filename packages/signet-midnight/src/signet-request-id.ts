@@ -6,6 +6,8 @@
 
 import { transientHash, upgradeFromTransient } from "@midnight-ntwrk/compact-runtime";
 
+import { compactTupleDescriptor, HASH_DOMAIN } from "./compact-descriptors.ts";
+import { HashDomain } from "./managed/contract/index.js";
 import { calculateEvmType2TxParamsDigest } from "./signet-evtype2tx-requests.ts";
 import {
   type RequestId,
@@ -15,9 +17,14 @@ import {
   TxParamType,
 } from "./signet-requests.ts";
 
+const REQUEST_ID_HASH_PREIMAGE = compactTupleDescriptor<[HashDomain, RequestIdPreimage]>([
+  HASH_DOMAIN,
+  requestIdPreimageDescriptor,
+]);
+
 /**
  * Canonical id of a signet request: the transientHash (Poseidon) of the
- * record's {@link RequestIdPreimage} over its field-aligned representation,
+ * record's {@link RequestIdPreimage} prefixed with {@link HashDomain.requestId},
  * with the transaction entering as its decomposition's digest
  * ({@link calculateEvmType2TxParamsDigest} for evmType2), so the id ignores
  * the record's capacities and unused slots.
@@ -43,5 +50,7 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
     txParamsDigest: calculateEvmType2TxParamsDigest(request.txParams),
     executionDest: request.executionDest,
   };
-  return upgradeFromTransient(transientHash(requestIdPreimageDescriptor, preimage));
+  return upgradeFromTransient(
+    transientHash(REQUEST_ID_HASH_PREIMAGE, [HashDomain.requestId, preimage]),
+  );
 }
