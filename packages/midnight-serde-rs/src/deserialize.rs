@@ -138,13 +138,13 @@ fn decode_from(
             if packed_size(element, path)? == 0 {
                 // Zero-width elements consume no input, so a hostile
                 // descriptor could hang on an empty buffer: cap them.
-                context.zero_width_elements += length;
-                if context.zero_width_elements > MAX_ZERO_WIDTH_ELEMENTS {
+                if *length > MAX_ZERO_WIDTH_ELEMENTS - context.zero_width_elements {
                     return Err(Error::ZeroWidthElementCap {
                         path: path.to_string(),
                         cap: MAX_ZERO_WIDTH_ELEMENTS,
                     });
                 }
+                context.zero_width_elements += length;
             }
             let mut elements = Vec::with_capacity(*length);
             let mut cursor = offset;
