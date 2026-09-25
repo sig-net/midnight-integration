@@ -7,8 +7,7 @@ with one `deserialize<T, N>` call, and decode bytes a contract produced with
 
 The layout has no single written spec upstream: it was reconstructed by
 inspection ([Compact serialization protocol
-(inferred)](#compact-serialization-protocol-inferred)), and every behaviour
-documented here is verified by executing compiled circuits and a committed
+(inferred)](#compact-serialization-protocol-inferred)), and tested using compiled circuit JavaScript and a committed
 cross-implementation corpus ([Trust and
 verification](#trust-and-verification)).
 
@@ -60,9 +59,9 @@ Fields and elements pack in declaration order, little-endian, at their
 natural widths, with no gaps and no length prefixes. "Natural width" means
 each atom occupies exactly the bytes its own type needs (the widths in the
 table), independent of its value and of its neighbours: no machine-word
-alignment, no rounding up to powers of two, no padding between fields. Every
-serializable Compact type has a descriptor kind (`Opaque<...>` is the one
-exclusion: compactc itself rejects it as "not a serializable type"):
+alignment, no rounding up to powers of two, no padding between fields. The supported descriptor kinds are listed below. `Opaque<...>` is rejected
+by compactc. `JubjubScalar` is unsupported here: the pinned compiler crashes
+when compiling either serialisation direction for that type.
 
 | Compact type | Descriptor | Packed width | Value type |
 | --- | --- | --- | --- |
@@ -70,6 +69,8 @@ exclusion: compactc itself rejects it as "not a serializable type"):
 | `Uint<w>` (sized) | `{ kind: 'uint', bits: w }` | ceil(w / 8), w at most 248 [2] | `bigint` |
 | `Uint<0..n>` (bounded) | `{ kind: 'uint', bound: n }` | byte length of n - 1 [1] [2] [4] | `bigint` |
 | `Field` | `{ kind: 'field' }` | 32 bytes, value below the Fr modulus [3] | `bigint` |
+| `Secp256k1Base` | `{ kind: 'secp256k1-base' }` | 32 bytes | `bigint` |
+| `Secp256k1Scalar` | `{ kind: 'secp256k1-scalar' }` | 32 bytes | `bigint` |
 | `Bytes<n>` | `{ kind: 'bytes', length: n }` | n, raw [4] | `Uint8Array` |
 | enum | `{ kind: 'enum', variants: k }` | byte length of k - 1 [1] [4] | `number` (index) |
 | `Vector<n, T>` | `{ kind: 'vector', length: n, element }` | n elements, unprefixed [4] | `T[]` |
@@ -132,27 +133,31 @@ writes zero padding and 0x00/0x01 booleans:
   (0x02..0xff included), the twin rejects bytes above 1. Pass
   `{ lenientBooleans: true }` to mirror the circuit's boolean behaviour.
 
-With both options set, `compactDeserialize` is circuit-exact on arbitrary
-bytes (pinned by tests). Everything else mirrors the circuit exactly,
-including rejections: out-of-range bounded Uint, sized Uint, enum and Field
-encodings throw in-circuit and throw here (all pinned by the tests).
+Both options enable the compiler's boolean and padding semantics. The
+conformance tests also check numeric rejections: out-of-range bounded Uint, sized Uint, enum and Field
+encodings throw in the generated circuit JavaScript and here.
+
+Secp256k1 fields have different decode semantics: all 32-byte inputs are
+accepted and reduced modulo `SECP256K1_BASE_MODULUS` or
+`SECP256K1_SCALAR_MODULUS`. Encoding requires a non-negative value strictly
+below the corresponding modulus. The constants are exported by this package.
 
 The ENCODE side is stricter than TypeScript alone would be, in line with the
 strict descriptor validation: a struct value with a property the descriptor
 does not declare is rejected (a typo'd key alongside the correct ones would
 otherwise vanish silently), array and byte lengths must match the descriptor
-exactly, and out-of-range numerics throw. Two resource guards round this
+exactly, vectors must contain every element, and out-of-range numerics throw. Two resource guards round this
 off: descriptor lengths must be safe integers and computed packed sizes must
 stay below `Number.MAX_SAFE_INTEGER` (never a silently rounded size), and a
 decode refuses to materialise more than 65536 zero-width vector elements
 (`Vector<huge, Nothing>` decodes from no input at all, so a hostile
 descriptor could otherwise hang the process on an empty buffer).
 
-Known compactc 0.33 limits (pinned by the tests): `serialize<T, N>` crashes
-the COMPILER on vectors of structs, vectors of vectors, and struct nesting
-deeper than one level. `deserialize<T, N>` handles all of those, so contracts
-can still READ such payloads from off-chain encoders. Tuples are unaffected:
-`serialize<[Pair, Boolean], N>` compiles fine.
+The compiler sweep pins failures for the `VectorsDeep` and `Nested` fixture
+encoders under compactc 0.33.0-rc.2. Both decoders compile and agree with this
+library. These are shape-dependent compiler failures: simpler vectors of
+structs can compile, so nesting alone is not a reliable predictor. Tuples
+containing a struct are also covered in both directions.
 
 ## Compact serialization protocol (inferred)
 
@@ -164,10 +169,11 @@ Compact's `serialize<T, N>` is a compile-time expansion, not a library call:
 the compiler monomorphises every call site into circuit code that walks the
 type in declaration order and packs each atom at its natural width,
 little-endian, with no tags, prefixes or gaps, then zero-pads the result on
-the right to `Bytes<N>`. The layout it emits is the binary form of Midnight's
-field-aligned binary (FAB) representation, the same bytes the ledger writes
-as `persistentHash` preimages and that `toBinaryRepr` reproduces in the TS
-runtime.
+the right to `Bytes<N>`. For native fields, integers, booleans and bytes, the layout agrees with
+the raw binary form of Midnight's field-aligned binary (FAB) representation.
+Secp256k1 fields differ: the runtime FAB adapter shifts values by one modulo
+the field, whereas the builtin writes the value directly. The conformance
+kit therefore uses direct compiler expectations for those types.
 
 The defining property is that there is NO framing. Nesting exists only in
 the type: it contributes nothing to the wire. Only leaf atoms are encoded,
@@ -280,29 +286,22 @@ Repositories are pinned at `LFDT-Minokawa/compact @ 5d8c66c`,
 
 ## Trust and verification
 
-Every claim in this README is pinned byte-for-byte against COMPILED
-circuits. The fixture contract and the shared descriptor tables live in the
-sibling conformance kit
-([`../midnight-serde-conformance`](../midnight-serde-conformance)): its
-circuits wrap the builtins over structs exercising all supported types and
-combos, and the tests assert twin/circuit equality in both directions. A
-second oracle backs the serialize direction: `toBinaryRepr` from
-`@midnight-ntwrk/compact-runtime` (via the conformance kit, never a runtime
-dependency) must agree with the twin on every shape, including the shapes
-compactc cannot compile `serialize<T, N>` for, and the oracle adapter
-computes its byte widths independently of the twin's width logic, so a width
-bug cannot cancel out of the comparison. On every run the tests also replay
-the conformance kit's COMMITTED golden corpus (seeded randomised sweep
-included): the same corpus every other implementation of this layout is
-pinned against.
+The sibling [conformance kit](../midnight-serde-conformance) owns the
+fixtures, corpus and compiler-backed sweep. Its corpus records identify their
+authority individually: compiled circuit JavaScript, runtime FAB oracle,
+intentional twin policy or production ABI mapping. The 400 seeded corpus
+cases use the FAB oracle. The extended sweep additionally compiles decoders
+for those descriptors and compares their results with this library.
 
-A caveat on what "circuit-pinned" means: the pins execute the compiler's JS
-emission of each circuit (via `@midnight-ntwrk/compact-runtime` under
-vitest), not the Impact VM or a prover. That JS is generated by the same
-expand-serialize compiler pass as the in-circuit code, and the ledger
-sources define the identical atom layout ([Compact serialization protocol
-(inferred)](#compact-serialization-protocol-inferred)), but no test in this
-package runs a proof or a node.
+The compiler-backed sweep covers every Uint width, boundary values, foreign
+fields, exhaustive Uint<12> encodings, boolean bytes and padding options.
+The committed corpus is replayed by both TypeScript and Rust. Coverage and
+mutation checks guard against missing test families and stale expected bytes.
+
+This is evidence of agreement with compactc 0.33.0-rc.2's generated
+JavaScript and compact-runtime 0.18.0-rc.1 for the tested cases. The suite
+executes neither proofs nor the Impact VM. Compiler-limited composite
+encoders and `JubjubScalar` remain explicit gaps.
 
 ## Develop
 

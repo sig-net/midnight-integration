@@ -4,15 +4,25 @@
 // pair, so off-chain code can produce or consume the exact bytes a circuit
 // reads or writes.
 //
-// Coverage: every serializable Compact type has a descriptor kind. The only
-// exclusion is `Opaque<...>`, which compactc itself rejects with
-// "Opaque<...> is not a serializable type".
+// Supported field types are native Field, Secp256k1Base and Secp256k1Scalar.
+// JubjubScalar serialisation is blocked by the pinned compiler.
 
 /**
  * The BLS12-381 scalar field modulus. A Compact `Field` value must be below
  * it. Matches `maxField + 1n` exported by `@midnight-ntwrk/compact-runtime`.
  */
 export const FIELD_MODULUS = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001n;
+
+// Local moduli preserve the codecs' zero-runtime-dependency contract. The
+// conformance kit checks them against SDK exports. Import those exports if
+// the codecs adopt compact-runtime as a runtime dependency.
+/** Exclusive upper bound of Compact's Secp256k1Base. */
+export const SECP256K1_BASE_MODULUS =
+  0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
+
+/** Exclusive upper bound of Compact's Secp256k1Scalar. */
+export const SECP256K1_SCALAR_MODULUS =
+  0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 
 /** Maximum `Uint` width accepted by compactc 0.33 (bits). */
 export const MAX_UINT_BITS = 248;
@@ -56,6 +66,16 @@ export type CompactUintType = CompactSizedUintType | CompactBoundedUintType;
 /** Compact `Field`: 32 bytes little-endian, value below {@link FIELD_MODULUS}. */
 export interface CompactFieldType {
   readonly kind: "field";
+}
+
+/** Compact Secp256k1Base: 32 little-endian bytes below its base-field modulus. */
+export interface CompactSecp256k1BaseType {
+  readonly kind: "secp256k1-base";
+}
+
+/** Compact Secp256k1Scalar: 32 little-endian bytes below its scalar-field modulus. */
+export interface CompactSecp256k1ScalarType {
+  readonly kind: "secp256k1-scalar";
 }
 
 /** Compact `Bytes<length>`: raw bytes, copied verbatim. `Bytes<0>` is legal. */
@@ -111,6 +131,8 @@ export type CompactType =
   | CompactBooleanType
   | CompactUintType
   | CompactFieldType
+  | CompactSecp256k1BaseType
+  | CompactSecp256k1ScalarType
   | CompactBytesType
   | CompactEnumType
   | CompactVectorType
@@ -159,7 +181,8 @@ type CompactTupleValueOf<E extends readonly CompactType[]> = number extends E["l
 /** The TypeScript value type a given Compact descriptor serializes. */
 export type CompactValueOf<T extends CompactType> = T extends CompactBooleanType
   ? boolean
-  : T extends CompactUintType | CompactFieldType
+  : T extends
+        CompactUintType | CompactFieldType | CompactSecp256k1BaseType | CompactSecp256k1ScalarType
     ? bigint
     : T extends CompactEnumType
       ? number

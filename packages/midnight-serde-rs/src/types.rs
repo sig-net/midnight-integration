@@ -13,6 +13,24 @@ pub const FIELD_MODULUS: U256 = U256::from_limbs([
     0x73ed_a753_299d_7d48,
 ]);
 
+// Local constants keep the crate dependency-free. Corpus fixtures check the
+// SDK moduli. Use SDK exports if a runtime dependency is adopted.
+/// Exclusive upper bound of Compact's Secp256k1Base.
+pub const SECP256K1_BASE_MODULUS: U256 = U256::from_limbs([
+    0xffff_fffe_ffff_fc2f,
+    0xffff_ffff_ffff_ffff,
+    0xffff_ffff_ffff_ffff,
+    0xffff_ffff_ffff_ffff,
+]);
+
+/// Exclusive upper bound of Compact's Secp256k1Scalar.
+pub const SECP256K1_SCALAR_MODULUS: U256 = U256::from_limbs([
+    0xbfd2_5e8c_d036_4141,
+    0xbaae_dce6_af48_a03b,
+    0xffff_ffff_ffff_fffe,
+    0xffff_ffff_ffff_ffff,
+]);
+
 /// Maximum `Uint` width accepted by compactc 0.33 (bits).
 pub const MAX_UINT_BITS: u32 = 248;
 
@@ -44,6 +62,10 @@ pub enum Descriptor {
     /// Compact `Field`: 32 bytes little-endian, value below
     /// [`FIELD_MODULUS`].
     Field,
+    /// Compact Secp256k1Base: 32 little-endian bytes.
+    Secp256k1Base,
+    /// Compact Secp256k1Scalar: 32 little-endian bytes.
+    Secp256k1Scalar,
     /// Compact `Bytes<length>`: raw bytes, copied verbatim.
     Bytes {
         /// Byte length (0 is legal).
@@ -84,6 +106,10 @@ pub enum Value {
     Uint(U256),
     /// A `Field` value.
     Field(U256),
+    /// A Secp256k1Base value.
+    Secp256k1Base(U256),
+    /// A Secp256k1Scalar value.
+    Secp256k1Scalar(U256),
     /// An enum variant index.
     Enum(u64),
     /// A `Bytes<n>` value: exactly n bytes.

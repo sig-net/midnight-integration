@@ -1,28 +1,9 @@
-// Byte-exact twin of Compact's builtin `deserialize<T, N>` from
-// CompactStandardLibrary, pinned against compiled circuits by tests/.
-//
-// Two deliberate divergences from the circuit, both strict-by-default
-// (garbage in a buffer means corruption or mis-framing, and failing loudly
-// off-chain is the safer default), and both with an opt-out:
-//   - PADDING: the circuit IGNORES bytes in the padding region entirely
-//     (pinned by tests), while this decoder rejects non-zero padding. Pass
-//     `{ ignorePadding: true }` to mirror the circuit.
-//   - BOOLEANS: the circuit decodes ANY byte other than 0x01 as false, so
-//     0x02..0xff all quietly become false (pinned by tests), while this
-//     decoder rejects bytes above 1. Pass `{ lenientBooleans: true }` to
-//     mirror the circuit.
-// With both options set the decode is circuit-exact. Circuit-produced bytes
-// never trigger either divergence: `serialize<T, N>` only writes zero padding
-// and 0x00/0x01 booleans.
-//
-// Everything else mirrors the circuit exactly, including its rejections: the
-// descriptor is fully validated (src/validate.ts) and the input buffer
-// type-checked before any decoding, and out-of-range Uint, enum and Field
-// encodings all throw exactly where the circuit throws (pinned by tests).
+// Strict boolean and padding policies have independent compatibility options.
+// Native Field rejects non-canonical encodings. Foreign fields reduce modulo
+// their respective moduli, matching the compiler-generated decoders.
 
-import { packedSize, uintBound, uintName } from "./serialize.ts";
+import { fieldModulus, packedSize, uintBound, uintName } from "./serialize.ts";
 import type { CompactType, CompactValue, CompactValueOf } from "./types.ts";
-import { FIELD_MODULUS } from "./types.ts";
 import { assertCompactType, assertUnreachable, isUint8Array } from "./validate.ts";
 
 /** Options controlling how strictly {@link compactDeserialize} reads a value. */
@@ -127,14 +108,14 @@ function decodeFrom(
       }
       return [value, offset + size];
     }
-    case "field": {
+    case "field":
+    case "secp256k1-base":
+    case "secp256k1-scalar": {
       const value = readUintLE(bytes, offset, 32);
-      // The circuit rejects out-of-range Field encodings at runtime too
-      // (pinned by tests): mirror it.
-      if (value >= FIELD_MODULUS) {
+      if (type.kind === "field" && value >= fieldModulus(type)) {
         throw new Error(`${label}: encoding ${String(value)} is not below the Field modulus`);
       }
-      return [value, offset + 32];
+      return [value % fieldModulus(type), offset + 32];
     }
     case "bytes":
       // A copy into a PLAIN Uint8Array, never `bytes.slice(...)`: subclasses

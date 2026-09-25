@@ -17,7 +17,11 @@ pub fn validate(descriptor: &Descriptor) -> Result<(), Error> {
 
 fn validate_at(descriptor: &Descriptor, path: &str) -> Result<(), Error> {
     match descriptor {
-        Descriptor::Boolean | Descriptor::Field | Descriptor::Bytes { .. } => Ok(()),
+        Descriptor::Boolean
+        | Descriptor::Field
+        | Descriptor::Secp256k1Base
+        | Descriptor::Secp256k1Scalar
+        | Descriptor::Bytes { .. } => Ok(()),
         Descriptor::UintBits { bits } => {
             if *bits < 1 || *bits > MAX_UINT_BITS {
                 return Err(Error::InvalidDescriptor {

@@ -1,9 +1,7 @@
 //! Replays every record of the committed golden corpus
 //! (../midnight-serde-conformance/corpus/serde-corpus.jsonl) through this
-//! crate. The corpus is generated from compiled Compact circuits, Midnight's
-//! toBinaryRepr oracle and the TypeScript twin (which replays it too), so a
-//! green run proves this crate agrees with all of them byte for byte, with no
-//! JS toolchain anywhere near `cargo test`.
+//! crate. Each record identifies its compiler, oracle, twin-policy or
+//! production-mapping authority.
 //!
 //! Struct fields in JSON values are read in DESCRIPTOR order, never JSON key
 //! order. Rejections are matched by the corpus's language-neutral category
@@ -32,6 +30,8 @@ fn json_to_descriptor(json: &Json) -> Descriptor {
     match kind {
         "boolean" => Descriptor::Boolean,
         "field" => Descriptor::Field,
+        "secp256k1-base" => Descriptor::Secp256k1Base,
+        "secp256k1-scalar" => Descriptor::Secp256k1Scalar,
         "uint" => match json.get("bits") {
             Some(bits) => Descriptor::UintBits {
                 bits: bits.as_u64().expect("bits") as u32,
@@ -85,6 +85,12 @@ fn json_to_value(descriptor: &Descriptor, json: &Json) -> Value {
         Descriptor::Field => {
             Value::Field(U256::from_dec_str(json.as_str().expect("field string")).expect("field"))
         }
+        Descriptor::Secp256k1Base => Value::Secp256k1Base(
+            U256::from_dec_str(json.as_str().expect("base string")).expect("base"),
+        ),
+        Descriptor::Secp256k1Scalar => Value::Secp256k1Scalar(
+            U256::from_dec_str(json.as_str().expect("scalar string")).expect("scalar"),
+        ),
         Descriptor::Bytes { .. } => Value::Bytes(hex_decode(json.as_str().expect("bytes hex"))),
         Descriptor::Enum { .. } => Value::Enum(json.as_u64().expect("enum index")),
         Descriptor::Vector { element, .. } => Value::Vector(
@@ -116,7 +122,9 @@ fn value_to_json(descriptor: &Descriptor, value: &Value) -> Json {
         (Descriptor::UintBits { .. } | Descriptor::UintBound { .. }, Value::Uint(v)) => {
             Json::from(v.to_string())
         }
-        (Descriptor::Field, Value::Field(v)) => Json::from(v.to_string()),
+        (Descriptor::Field, Value::Field(v))
+        | (Descriptor::Secp256k1Base, Value::Secp256k1Base(v))
+        | (Descriptor::Secp256k1Scalar, Value::Secp256k1Scalar(v)) => Json::from(v.to_string()),
         (Descriptor::Bytes { .. }, Value::Bytes(b)) => Json::from(hex_encode(b)),
         (Descriptor::Enum { .. }, Value::Enum(i)) => Json::from(*i),
         (Descriptor::Vector { element, .. }, Value::Vector(items)) => Json::from(
@@ -254,7 +262,19 @@ fn record_options(record: &Json) -> DeserializeOptions {
 fn corpus_conformance() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../midnight-serde-conformance/corpus/serde-corpus.jsonl");
-    let text = std::fs::read_to_string(&path)
+    replay_corpus(&path);
+}
+
+#[test]
+#[ignore = "requires the compiler-generated sweep corpus"]
+fn compiler_sweep_conformance() {
+    let path = std::env::var("MIDNIGHT_SERDE_COMPILER_CORPUS")
+        .expect("set MIDNIGHT_SERDE_COMPILER_CORPUS to the generated corpus path");
+    replay_corpus(Path::new(&path));
+}
+
+fn replay_corpus(path: &Path) {
+    let text = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("cannot read the golden corpus at {}: {e}", path.display()));
 
     let mut failures: Vec<String> = Vec::new();
@@ -271,7 +291,7 @@ fn corpus_conformance() {
 
         match record["record"].as_str().expect("record kind") {
             "header" => {
-                if record["schema"].as_u64() != Some(1) {
+                if record["schema"].as_u64() != Some(2) {
                     fail(format!("unsupported corpus schema {}", record["schema"]));
                 }
             }

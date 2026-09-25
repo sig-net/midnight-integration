@@ -225,7 +225,7 @@ export function serializeRespondOutput(
  *
  * @param schema - The respondSerializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
  * @returns The struct descriptor covering every schema field in order.
- * @throws If the schema is malformed or uses a type outside the respond vocabulary.
+ * @throws {Error} If the schema is malformed or uses a type outside the respond vocabulary.
  */
 export function respondSchemaDescriptor(schema: AbiSchemaInput): CompactType {
   return respondSchemaToCompactType(normalizeRespondSchema(schema));

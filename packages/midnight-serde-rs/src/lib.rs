@@ -24,6 +24,9 @@ mod validate;
 pub use deserialize::{DeserializeOptions, deserialize};
 pub use error::Error;
 pub use serialize::{serialize, serialized_size};
-pub use types::{Descriptor, FIELD_MODULUS, MAX_UINT_BITS, MAX_ZERO_WIDTH_ELEMENTS, Value};
+pub use types::{
+    Descriptor, FIELD_MODULUS, MAX_UINT_BITS, MAX_ZERO_WIDTH_ELEMENTS, SECP256K1_BASE_MODULUS,
+    SECP256K1_SCALAR_MODULUS, Value,
+};
 pub use u256::U256;
 pub use validate::validate;

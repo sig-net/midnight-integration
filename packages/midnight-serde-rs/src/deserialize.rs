@@ -12,8 +12,8 @@
 //! circuit fails.
 
 use crate::error::Error;
-use crate::serialize::{packed_size, uint_bound, width_of_bound};
-use crate::types::{Descriptor, FIELD_MODULUS, MAX_ZERO_WIDTH_ELEMENTS, Value};
+use crate::serialize::{field_modulus, packed_size, uint_bound, width_of_bound};
+use crate::types::{Descriptor, MAX_ZERO_WIDTH_ELEMENTS, Value};
 use crate::u256::U256;
 use crate::validate::validate;
 
@@ -100,17 +100,23 @@ fn decode_from(
             }
             Ok((Value::Uint(value), offset + size))
         }
-        Descriptor::Field => {
+        Descriptor::Field | Descriptor::Secp256k1Base | Descriptor::Secp256k1Scalar => {
             let value = U256::from_le_bytes(&bytes[offset..offset + 32]);
-            // The circuit rejects out-of-range Field encodings at runtime
-            // too: mirror it.
-            if value >= FIELD_MODULUS {
+            let modulus = field_modulus(descriptor);
+            if matches!(descriptor, Descriptor::Field) && value >= modulus {
                 return Err(Error::FieldOutOfRange {
                     path: path.to_string(),
                     value,
+                    modulus,
                 });
             }
-            Ok((Value::Field(value), offset + 32))
+            let decoded = match descriptor {
+                Descriptor::Field => Value::Field(value),
+                Descriptor::Secp256k1Base => Value::Secp256k1Base(value.reduce_once(modulus)),
+                Descriptor::Secp256k1Scalar => Value::Secp256k1Scalar(value.reduce_once(modulus)),
+                _ => unreachable!(),
+            };
+            Ok((decoded, offset + 32))
         }
         Descriptor::Bytes { length } => Ok((
             Value::Bytes(bytes[offset..offset + length].to_vec()),
