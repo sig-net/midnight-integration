@@ -141,7 +141,7 @@ impl U256 {
             "write_le: value does not fit the target width"
         );
         for (i, slot) in out.iter_mut().enumerate() {
-            *slot = (self.limbs[i / 8] >> ((i % 8) * 8)) as u8;
+            *slot = (self.limbs.get(i / 8).copied().unwrap_or(0) >> ((i % 8) * 8)) as u8;
         }
     }
 }
