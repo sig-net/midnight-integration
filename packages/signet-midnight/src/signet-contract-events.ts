@@ -389,7 +389,7 @@ export interface MpcSignature {
   bigR: AffinePoint;
   /** Signature scalar s, 32 big-endian bytes. */
   s: Uint8Array;
-  /** Recovery id (parity of R.y): 0 or 1. */
+  /** Recovery flag matching the supplied signature scalar: 0 or 1. */
   recoveryId: bigint;
 }
 

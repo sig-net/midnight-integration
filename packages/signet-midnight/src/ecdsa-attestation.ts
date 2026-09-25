@@ -48,7 +48,7 @@ export interface EcdsaSignature {
   r: bigint;
   /** Signature scalar s (low-s normalised by the signer). */
   s: bigint;
-  /** Recovery id (parity of R.y): 0 or 1. */
+  /** Recovery flag matching the supplied signature scalar: 0 or 1. */
   recoveryId: number;
 }
 

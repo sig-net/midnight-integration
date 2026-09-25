@@ -298,10 +298,10 @@ module Signet {
     y: Bytes<32>;
   }
 
-  // The MPC's canonical ECDSA signature: bigR the full nonce point, s the
-  // signature scalar, recoveryId the parity of R.y (0 or 1). The same Signature
-  // vocabulary as the EVM and Solana signer contracts and the MPC's own record.
-  // Stored bytes are BIG-endian (SEC1) throughout.
+  // recoveryId (0 or 1) recovers the signer with the supplied s. Converting
+  // high-s to low-s requires replacing s with n - s and flipping recoveryId,
+  // where n is the curve's group order, even when bigR is kept unchanged.
+  // Point coordinates and s are stored as BIG-endian SEC1 bytes.
   export struct Signature {
     bigR: AffinePoint;
     s: Bytes<32>;
