@@ -6,6 +6,7 @@
 //                        (outputDeserializationSchema)
 //   decoded values --serializeRespondOutput--> RespondBidirectionalEvent bytes
 //                        (respondSerializationSchema)
+//   callTracer top frame --evmTraceOutputFromCallFrame--> the trace
 //   executed EVM transaction --executedEvmRespondOutput--> attested bytes
 //                        (both schemas, isEvmContractCall, the trace)
 //
@@ -253,17 +254,18 @@ export function isEvmContractCall(input: ethers.BytesLike): boolean {
 export enum EvmTraceOutputKind {
   /** The transaction was not traced: the MPC traces contract calls only. */
   NotTraced = "NotTraced",
-  /** The top call frame carries an `output` field: the return data, possibly empty (`0x`). */
+  /** The top call frame carries a string `output` field: the return data, possibly empty (`0x`). */
   Output = "Output",
-  /** The top call frame carries no `output` field. */
+  /** The top call frame carries no string `output` field. */
   NoReturnData = "NoReturnData",
 }
 
 /**
  * The traced return data of an EVM transaction, as the MPC models it: a top
- * call frame's `output` field present (even `0x`) is
- * {@link EvmTraceOutputKind.Output}, absent is
- * {@link EvmTraceOutputKind.NoReturnData}.
+ * call frame's string `output` field (even `0x`) is
+ * {@link EvmTraceOutputKind.Output}, an absent or non-string one is
+ * {@link EvmTraceOutputKind.NoReturnData}. {@link evmTraceOutputFromCallFrame}
+ * reads it off a frame.
  */
 export type EvmTraceOutput =
   | {
@@ -395,6 +397,84 @@ export function executedEvmRespondOutput(
     respondSerializationSchema,
     nonFunctionCallDefaults(respondSerializationSchema),
   );
+}
+
+/** A parsed JSON object. */
+export interface JsonObject {
+  readonly [key: string]: JsonValue;
+}
+
+/** Any parsed JSON value: the shape of a JSON-RPC `result`. */
+export type JsonValue = null | boolean | number | string | readonly JsonValue[] | JsonObject;
+
+/**
+ * Whether a JSON value is an object. A type guard, as `Array.isArray` does
+ * not narrow a readonly array out of a union.
+ *
+ * @param value - The JSON value.
+ * @returns True for a JSON object, false for an array, a scalar or null.
+ */
+function isJsonObject(value: JsonValue): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * A JSON object's own property when it is a string.
+ *
+ * @param object - The JSON object.
+ * @param key - The property name.
+ * @returns The string value, or `undefined` when absent or of another JSON kind.
+ */
+function ownString(object: JsonObject, key: string): string | undefined {
+  const value = Object.hasOwn(object, key) ? object[key] : undefined;
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * The {@link EvmTraceOutput} of a `debug_traceTransaction` callTracer top
+ * call frame, read exactly as the MPC reads it (`trace_output_to_bytes` in
+ * its `chain-ethereum/src/rpc.rs`):
+ *
+ * - The frame must be a JSON object with a `type` field (of any value).
+ * - A non-empty string `error` refuses the frame, naming a non-empty string
+ *   `revertReason` beside it. Any other `error` is ignored.
+ * - A string `output` is {@link EvmTraceOutputKind.Output}, its hex decoded
+ *   after one optional lowercase `0x` prefix (`0x` and `""` are empty return
+ *   data). An absent or non-string `output` is
+ *   {@link EvmTraceOutputKind.NoReturnData}.
+ *
+ * @param frame - The JSON-RPC `result` of `debug_traceTransaction` with the callTracer.
+ * @returns The frame's traced return data, for {@link executedEvmRespondOutput}.
+ * @throws {Error} If the frame is not an object, has no `type`, reports an
+ *   `error`, or carries an `output` that is not even-length hex.
+ */
+export function evmTraceOutputFromCallFrame(frame: JsonValue): EvmTraceOutput {
+  if (!isJsonObject(frame)) {
+    throw new Error(`debug_traceTransaction result is not a call frame: ${JSON.stringify(frame)}`);
+  }
+  if (!Object.hasOwn(frame, "type")) {
+    throw new Error(
+      `debug_traceTransaction result has no call frame \`type\`: ${JSON.stringify(frame)}`,
+    );
+  }
+  const error = ownString(frame, "error");
+  if (error !== undefined && error !== "") {
+    const revertReason = ownString(frame, "revertReason");
+    throw new Error(
+      revertReason !== undefined && revertReason !== ""
+        ? `debug_traceTransaction reports the call reverted: ${error} (${revertReason})`
+        : `debug_traceTransaction reports the call errored: ${error}`,
+    );
+  }
+  const output = ownString(frame, "output");
+  if (output === undefined) {
+    return { kind: EvmTraceOutputKind.NoReturnData };
+  }
+  const digits = output.startsWith("0x") ? output.slice(2) : output;
+  if (!/^[0-9a-fA-F]*$/.test(digits) || digits.length % 2 !== 0) {
+    throw new Error(`debug_traceTransaction call frame output is not hex: "${output}"`);
+  }
+  return { kind: EvmTraceOutputKind.Output, returnData: ethers.getBytes(`0x${digits}`) };
 }
 
 // ===========================================================================

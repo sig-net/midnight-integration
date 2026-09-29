@@ -12,10 +12,11 @@
 // so these tables transitively pin the wire format a Compact contract reads
 // with deserialize<T, N>.
 //
-// executedEvmRespondOutput and isEvmContractCall: the MPC's own
-// build_serialized_output and is_contract_call test cases (bracketed in each
-// row name) under the Midnight respond format, plus a row for every other
-// branch and error of the rule.
+// executedEvmRespondOutput, isEvmContractCall and evmTraceOutputFromCallFrame:
+// the MPC's own build_serialized_output, is_contract_call and
+// trace_output_to_bytes test cases (bracketed in each row name) under the
+// Midnight respond format, plus a row for every other branch and error of
+// each rule.
 
 import { ethers } from "ethers";
 import { describe, expect, it } from "vitest";
@@ -27,9 +28,11 @@ import {
   deserializeEvmOutput,
   type EvmSchemaInput,
   type EvmTraceOutput,
+  evmTraceOutputFromCallFrame,
   EvmTraceOutputKind,
   executedEvmRespondOutput,
   isEvmContractCall,
+  type JsonValue,
   type RespondPathSchemas,
   serializeRespondOutput,
 } from "../src/index.ts";
@@ -983,5 +986,138 @@ describe("executedEvmRespondOutput: throws where the MPC refuses to attest", () 
 
   it.each(cases)("$name", ({ schemas, isContractCall, trace, error }) => {
     expect(() => executedEvmRespondOutput(schemas, isContractCall, trace)).toThrow(error);
+  });
+});
+
+// ===========================================================================
+// evmTraceOutputFromCallFrame
+// ===========================================================================
+
+describe("evmTraceOutputFromCallFrame: the MPC's reading of a callTracer top frame", () => {
+  const cases: { name: string; frame: JsonValue; expected: EvmTraceOutput }[] = [
+    {
+      name: "a call's output decodes to its return data [parses_successful_call_output]",
+      frame: { type: "CALL", output: "0x" + "00".repeat(31) + "01" },
+      expected: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: new Uint8Array([...new Uint8Array(31), 1]),
+      },
+    },
+    {
+      name: "no output field is no return data [returns_none_when_output_missing_and_no_error]",
+      frame: { type: "CALL" },
+      expected: { kind: EvmTraceOutputKind.NoReturnData },
+    },
+    {
+      name: "an empty 0x output is empty return data",
+      frame: { type: "CALL", output: "0x" },
+      expected: { kind: EvmTraceOutputKind.Output, returnData: new Uint8Array(0) },
+    },
+    {
+      name: "an empty string output is empty return data",
+      frame: { type: "CALL", output: "" },
+      expected: { kind: EvmTraceOutputKind.Output, returnData: new Uint8Array(0) },
+    },
+    {
+      name: "an unprefixed hex output decodes",
+      frame: { type: "CALL", output: "a9059cbb" },
+      expected: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]),
+      },
+    },
+    {
+      name: "uppercase hex digits decode",
+      frame: { type: "CALL", output: "0xA9059CBB" },
+      expected: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]),
+      },
+    },
+    {
+      name: "a null output is no return data",
+      frame: { type: "CALL", output: null },
+      expected: { kind: EvmTraceOutputKind.NoReturnData },
+    },
+    {
+      name: "a numeric output is no return data",
+      frame: { type: "CALL", output: 1 },
+      expected: { kind: EvmTraceOutputKind.NoReturnData },
+    },
+    {
+      name: "an empty error is ignored",
+      frame: { type: "CALL", error: "", output: "0x01" },
+      expected: { kind: EvmTraceOutputKind.Output, returnData: new Uint8Array([1]) },
+    },
+    {
+      name: "a non-string error is ignored",
+      frame: { type: "CALL", error: { code: 3 }, output: "0x01" },
+      expected: { kind: EvmTraceOutputKind.Output, returnData: new Uint8Array([1]) },
+    },
+    {
+      name: "a type of any JSON kind is a call frame",
+      frame: { type: null },
+      expected: { kind: EvmTraceOutputKind.NoReturnData },
+    },
+  ];
+
+  it.each(cases)("$name", ({ frame, expected }) => {
+    expect(evmTraceOutputFromCallFrame(frame)).toEqual(expected);
+  });
+});
+
+describe("evmTraceOutputFromCallFrame: refusals", () => {
+  const cases: { name: string; frame: JsonValue; error: RegExp }[] = [
+    {
+      name: "a null result [bails_when_trace_result_is_null]",
+      frame: null,
+      error: /is not a call frame/,
+    },
+    { name: "an array result", frame: [{ type: "CALL" }], error: /is not a call frame/ },
+    { name: "a string result", frame: "0x01", error: /is not a call frame/ },
+    {
+      name: "an object without a type [bails_when_trace_result_has_no_call_type]",
+      frame: {},
+      error: /has no call frame `type`/,
+    },
+    {
+      name: "a revert names its reason [bails_on_revert_with_reason]",
+      frame: { type: "CALL", error: "execution reverted", revertReason: "InsufficientBalance" },
+      error: /reverted: execution reverted \(InsufficientBalance\)/,
+    },
+    {
+      name: "an error without a reason",
+      frame: { type: "CALL", error: "out of gas" },
+      error: /errored: out of gas$/,
+    },
+    {
+      name: "an error with an empty reason",
+      frame: { type: "CALL", error: "execution reverted", revertReason: "" },
+      error: /errored: execution reverted$/,
+    },
+    {
+      name: "an error refuses even beside an output",
+      frame: { type: "CALL", error: "execution reverted", output: "0x01" },
+      error: /errored: execution reverted$/,
+    },
+    {
+      name: "an odd-length output",
+      frame: { type: "CALL", output: "0x012" },
+      error: /output is not hex/,
+    },
+    {
+      name: "a non-hex output",
+      frame: { type: "CALL", output: "0xzz" },
+      error: /output is not hex/,
+    },
+    {
+      name: "an uppercase 0X prefix is not stripped",
+      frame: { type: "CALL", output: "0X01" },
+      error: /output is not hex/,
+    },
+  ];
+
+  it.each(cases)("$name", ({ frame, error }) => {
+    expect(() => evmTraceOutputFromCallFrame(frame)).toThrow(error);
   });
 });

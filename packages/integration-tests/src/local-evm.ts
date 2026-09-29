@@ -8,7 +8,11 @@
 // Adapted from the midnight-examples test harness (local-evm.ts and the
 // erc20-vault broadcast flow), trimmed to what this suite needs.
 
-import { type EvmTraceOutput, EvmTraceOutputKind } from "@sig-net/midnight";
+import {
+  type EvmTraceOutput,
+  evmTraceOutputFromCallFrame,
+  type JsonValue,
+} from "@sig-net/midnight";
 import {
   ContractFactory,
   type InterfaceAbi,
@@ -319,32 +323,24 @@ export async function broadcastSignedTx(
 }
 
 /**
- * The top call frame of a `callTracer` trace, in the field read here. Nodes
- * omit `output` when the frame returned no data.
- */
-interface CallTracerFrame {
-  readonly output?: string;
-}
-
-/**
  * The return data of a mined call's top frame, read with
- * `debug_traceTransaction` (callTracer), the method the MPC observes
- * executions with: the input of the recompute route in Output Recovery.
+ * `debug_traceTransaction` (callTracer, top call only), the method the MPC
+ * observes executions with, and read by the MPC's frame rules: the input of
+ * the recompute route in Output Recovery.
  *
  * @param rpcUrl - The JSON-RPC endpoint, which must serve the method (anvil does).
  * @param txHash - The mined transaction to trace.
- * @returns The top frame's `output` as 0x-hex, or `NoReturnData` when the frame has none.
+ * @returns The top frame's traced return data.
+ * @throws {Error} If the node refuses the method or the frame reports an error.
  */
 export async function traceTopCallOutput(rpcUrl: string, txHash: string): Promise<EvmTraceOutput> {
   const provider = new JsonRpcProvider(rpcUrl);
   try {
     const frame = (await provider.send("debug_traceTransaction", [
       txHash,
-      { tracer: "callTracer" },
-    ])) as CallTracerFrame;
-    return frame.output === undefined
-      ? { kind: EvmTraceOutputKind.NoReturnData }
-      : { kind: EvmTraceOutputKind.Output, returnData: frame.output };
+      { tracer: "callTracer", tracerConfig: { onlyTopCall: true } },
+    ])) as JsonValue;
+    return evmTraceOutputFromCallFrame(frame);
   } finally {
     provider.destroy();
   }
