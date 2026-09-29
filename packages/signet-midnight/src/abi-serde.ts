@@ -1,26 +1,31 @@
 // The two schema-driven conversions every Signet participant performs on the
-// respond path, named after the protocol fields that drive them:
+// respond path, named after the protocol fields that drive them, and the
+// MPC's rule composing them for an executed EVM transaction:
 //
 //   EVM call result --deserializeEvmOutput--> decoded values
 //                        (outputDeserializationSchema)
 //   decoded values --serializeRespondOutput--> RespondBidirectionalEvent bytes
 //                        (respondSerializationSchema)
+//   executed EVM transaction --executedEvmRespondOutput--> attested bytes
+//                        (both schemas, isEvmContractCall, the trace)
 //
-// Run by fakenet and the real MPC, back to back, after the
-// destination-chain transaction confirms, and by Signet clients to
-// independently recompute the respond bytes the MPC attested or to display
-// a decoded result.
+// Run by fakenet and the real MPC after the destination-chain transaction
+// confirms, and by Signet clients to independently recompute the respond
+// bytes the MPC attested or to display a decoded result. A client
+// recomputing an attestation calls executedEvmRespondOutput: the MPC decodes
+// and re-packs a contract call's return data, and synthesises the output
+// of a plain transfer or a void call from the respond schema alone.
 //
 // The respond output is UNBOUNDED: this module never pads or clamps it. Any
 // fixed event-field width is the caller's concern. Schemas are the ABI-style
-// JSON carried on chain (NUL-padded fixed-width bytes). Both functions
-// accept the schema in any form: already-parsed fields, a JSON string, or
+// JSON carried on chain (NUL-padded fixed-width bytes). Every function
+// accepts the schema in any form: already-parsed fields, a JSON string, or
 // the raw on-chain bytes. An EMPTY output schema (an unset all-NUL field, a
-// blank string, or `[]`) decodes to no values: a plain transfer has no call
-// output. A respond schema must be non-empty, and its declared capacities
-// are bounded ({@link MAX_RESPOND_PACKED_BYTES}): schemas are
-// requester-authored on-chain data, so the responder never honours a schema
-// demanding a giant allocation.
+// blank string, or `[]`) decodes to no values. A respond schema must be
+// non-empty, and its declared capacities are bounded
+// ({@link MAX_RESPOND_PACKED_BYTES}): schemas are requester-authored
+// on-chain data, so the responder never honours a schema demanding a giant
+// allocation.
 //
 // Decode-side type grammar is left FULLY to the ABI library (ethers): this
 // module checks only the schema's shape. Respond-side types are restricted
@@ -131,10 +136,10 @@ export type AbiDecodedOutput = Record<string, AbiDecodedValue>;
  * into named values, driven by the request's outputDeserializationSchema.
  * The decode-side counterpart of {@link serializeRespondOutput}. Type
  * validation is FULLY delegated to ethers: this function checks the schema's
- * shape only. An empty schema decodes to an empty object (a plain transfer
- * has no output), matching the MPC's empty-schema handling. Returns a plain
- * object (never an ethers `Result`), so it survives JSON round-trips and
- * structural comparison.
+ * shape only. An empty schema decodes to an empty object. The MPC never
+ * decodes under an empty schema: {@link executedEvmRespondOutput} carries
+ * its rule for that case. Returns a plain object (never an ethers
+ * `Result`), so it survives JSON round-trips and structural comparison.
  *
  * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
  * @param callResult - The ABI-encoded return data (hex string or bytes).
@@ -217,9 +222,184 @@ export function serializeRespondOutput(
   return compactSerialize(descriptor, value);
 }
 
+// ---------------------------------------------------------------------------
+// 3. executed EVM transaction -> attested respond bytes
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether an EVM transaction is a contract call, decided over its input
+ * bytes exactly as the MPC decides it (`is_contract_call` in its
+ * `chain-ethereum/src/event_parsing.rs`): more than two bytes of input, so a
+ * one- or two-byte input is NOT a contract call. The answer selects the
+ * branch of {@link executedEvmRespondOutput}.
+ *
+ * Pass the signed transaction's `data`, or, from the request record alone,
+ * `assembleCalldata(request.txParams.calldata)`, which yields the same bytes
+ * (`"0x"` for a request without calldata).
+ *
+ * @param input - The transaction's input bytes (hex string or bytes).
+ * @returns True when the MPC treats the transaction as a contract call.
+ * @throws {Error} If `input` is neither bytes nor valid 0x hex.
+ */
+export function isEvmContractCall(input: ethers.BytesLike): boolean {
+  return ethers.getBytes(input).length > 2;
+}
+
+/**
+ * How a `debug_traceTransaction` (callTracer) read of a transaction's top
+ * call frame came back: the MPC's `TraceOutput`. Carried by
+ * {@link EvmTraceOutput}.
+ */
+export enum EvmTraceOutputKind {
+  /** The transaction was not traced: the MPC traces contract calls only. */
+  NotTraced = "NotTraced",
+  /** The top call frame carries an `output` field: the return data, possibly empty (`0x`). */
+  Output = "Output",
+  /** The top call frame carries no `output` field. */
+  NoReturnData = "NoReturnData",
+}
+
+/**
+ * The traced return data of an EVM transaction, as the MPC models it: a top
+ * call frame's `output` field present (even `0x`) is
+ * {@link EvmTraceOutputKind.Output}, absent is
+ * {@link EvmTraceOutputKind.NoReturnData}.
+ */
+export type EvmTraceOutput =
+  | {
+      /** The frame carried an `output` field. */
+      readonly kind: EvmTraceOutputKind.Output;
+      /** The frame's `output`: the ABI-encoded return data (hex string or bytes). */
+      readonly returnData: ethers.BytesLike;
+    }
+  | {
+      /** The frame carried no `output` field. */
+      readonly kind: EvmTraceOutputKind.NoReturnData;
+    }
+  | {
+      /** No trace was taken. */
+      readonly kind: EvmTraceOutputKind.NotTraced;
+    };
+
+/**
+ * A request's two respond-path schemas, each in any form its conversion
+ * accepts. An on-ledger request record (`SignBidirectionalEvent`) satisfies
+ * it, as does the pair read off one as JSON text.
+ */
+export interface RespondPathSchemas {
+  /** The outputDeserializationSchema, which {@link deserializeEvmOutput} decodes the return data with. */
+  readonly outputDeserializationSchema: EvmSchemaInput;
+  /** The respondSerializationSchema, which {@link serializeRespondOutput} packs the respond bytes with. */
+  readonly respondSerializationSchema: AbiSchemaInput;
+}
+
+/** The string default the MPC synthesises for an execution without call output. */
+const NON_FUNCTION_CALL_SUCCESS = "non_function_call_success";
+
+/**
+ * The per-field values the MPC synthesises for an execution without call
+ * output (its `default_value_for_kind`): `true` for a bool field,
+ * {@link NON_FUNCTION_CALL_SUCCESS} for a string field.
+ *
+ * @param respondSchema - The respondSerializationSchema.
+ * @returns The synthesised values keyed by field name.
+ * @throws {Error} If the schema is one {@link serializeRespondOutput}
+ *   rejects, or a field is of any other kind.
+ */
+function nonFunctionCallDefaults(respondSchema: AbiSchemaInput): AbiDecodedOutput {
+  const output: AbiDecodedOutput = {};
+  for (const field of normalizeRespondSchema(respondSchema)) {
+    if (field.type === "bool") {
+      output[field.name] = true;
+    } else if (field.type === "string") {
+      output[field.name] = NON_FUNCTION_CALL_SUCCESS;
+    } else {
+      throw new Error(
+        `respond output: '${field.name}' (${field.type}) has no non-function-call ` +
+          "default: only bool and string fields have one",
+      );
+    }
+  }
+  return output;
+}
+
+/**
+ * The exact serialised respond output the MPC attests for an EVM transaction
+ * that executed (the payload of an `OutputKind.executed` attestation),
+ * mirroring the MPC's `build_serialized_output` under the Midnight respond
+ * format:
+ *
+ * - Not a contract call: the output schema and the trace are ignored, and
+ *   the respond fields get synthesised defaults (bool `true`, string
+ *   `"non_function_call_success"` in its `maxBytes` buffer, any other kind
+ *   throws).
+ * - A contract call under an EMPTY output schema (a void call): the same
+ *   defaults when the trace has no or empty return data, a throw when it
+ *   returned data.
+ * - A contract call under a non-empty output schema: the return data
+ *   decoded by {@link deserializeEvmOutput} and packed by
+ *   {@link serializeRespondOutput}, a throw when the trace has no return
+ *   data.
+ *
+ * A contract call that was not traced always throws. A failed or unviable
+ * execution is attested over an empty output instead, which needs no call.
+ *
+ * @param schemas - The request's two schemas (a request record satisfies this).
+ * @param isContractCall - Whether the transaction is a contract call, as {@link isEvmContractCall} decides it.
+ * @param trace - The transaction's traced return data (`NotTraced` for an untraced plain transfer).
+ * @returns The packed respond bytes, unpadded.
+ * @throws {Error} Exactly where the MPC refuses to attest an execution: a
+ *   contract call not traced, an empty output schema with return data, a
+ *   non-empty output schema with no or undecodable return data, a malformed
+ *   output schema on a contract call, a respond field without a synthesised
+ *   default, and every {@link serializeRespondOutput} rejection.
+ */
+export function executedEvmRespondOutput(
+  schemas: RespondPathSchemas,
+  isContractCall: boolean,
+  trace: EvmTraceOutput,
+): Uint8Array {
+  const { outputDeserializationSchema, respondSerializationSchema } = schemas;
+  if (!isContractCall) {
+    return serializeRespondOutput(
+      respondSerializationSchema,
+      nonFunctionCallDefaults(respondSerializationSchema),
+    );
+  }
+  const expectsNoOutput = parseSchemaShape(outputDeserializationSchema).length === 0;
+  switch (trace.kind) {
+    case EvmTraceOutputKind.NotTraced:
+      throw new Error("respond output: a contract call's output needs its trace");
+    case EvmTraceOutputKind.NoReturnData:
+      if (!expectsNoOutput) {
+        throw new Error(
+          "respond output: the contract call's trace has no return data for a non-empty output schema",
+        );
+      }
+      break;
+    case EvmTraceOutputKind.Output:
+      if (!expectsNoOutput) {
+        return serializeRespondOutput(
+          respondSerializationSchema,
+          deserializeEvmOutput(outputDeserializationSchema, trace.returnData),
+        );
+      }
+      if (ethers.getBytes(trace.returnData).length > 0) {
+        throw new Error(
+          "respond output: the contract call returned data but its output schema declares no return values",
+        );
+      }
+      break;
+  }
+  return serializeRespondOutput(
+    respondSerializationSchema,
+    nonFunctionCallDefaults(respondSerializationSchema),
+  );
+}
+
 // ===========================================================================
-// Helpers from here down. The two functions above are the whole public
-// surface: everything below serves them.
+// Helpers from here down. The exports above are the whole public surface:
+// everything below serves them.
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
@@ -306,7 +486,8 @@ function parseSchemaJson(text: string): unknown {
  * fields with non-empty, unique names and non-empty type strings. An empty
  * schema is valid here: emptiness policy belongs to the callers
  * ({@link deserializeEvmOutput} decodes nothing, {@link serializeRespondOutput}
- * rejects).
+ * rejects, {@link executedEvmRespondOutput} synthesises defaults for a
+ * contract call without return data).
  *
  * @param schema - The schema as JSON text, packed bytes, or a field array.
  * @returns The schema's fields, names and type strings unvalidated beyond shape.

@@ -8,6 +8,7 @@
 // Adapted from the midnight-examples test harness (local-evm.ts and the
 // erc20-vault broadcast flow), trimmed to what this suite needs.
 
+import { type EvmTraceOutput, EvmTraceOutputKind } from "@sig-net/midnight";
 import {
   ContractFactory,
   type InterfaceAbi,
@@ -326,22 +327,24 @@ interface CallTracerFrame {
 }
 
 /**
- * The raw return data of a mined call's top frame, read with
+ * The return data of a mined call's top frame, read with
  * `debug_traceTransaction` (callTracer), the method the MPC observes
  * executions with: the input of the recompute route in Output Recovery.
  *
  * @param rpcUrl - The JSON-RPC endpoint, which must serve the method (anvil does).
  * @param txHash - The mined transaction to trace.
- * @returns The top frame's return data as 0x-hex, `0x` when it returned none.
+ * @returns The top frame's `output` as 0x-hex, or `NoReturnData` when the frame has none.
  */
-export async function traceTopCallOutput(rpcUrl: string, txHash: string): Promise<string> {
+export async function traceTopCallOutput(rpcUrl: string, txHash: string): Promise<EvmTraceOutput> {
   const provider = new JsonRpcProvider(rpcUrl);
   try {
     const frame = (await provider.send("debug_traceTransaction", [
       txHash,
       { tracer: "callTracer" },
     ])) as CallTracerFrame;
-    return frame.output ?? "0x";
+    return frame.output === undefined
+      ? { kind: EvmTraceOutputKind.NoReturnData }
+      : { kind: EvmTraceOutputKind.Output, returnData: frame.output };
   } finally {
     provider.destroy();
   }

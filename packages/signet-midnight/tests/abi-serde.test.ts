@@ -1,4 +1,4 @@
-// Table-driven tests for the two headline abi-serde functions.
+// Table-driven tests for the headline abi-serde functions.
 //
 // deserializeEvmOutput: golden against ethers itself. Every case ENCODES the
 // values with ethers' canonical AbiCoder, then decodes through our function,
@@ -11,15 +11,26 @@
 // @sig-net/midnight-serde's fixture suite and the serde-builtin experiment,
 // so these tables transitively pin the wire format a Compact contract reads
 // with deserialize<T, N>.
+//
+// executedEvmRespondOutput and isEvmContractCall: the MPC's own
+// build_serialized_output and is_contract_call test cases (bracketed in each
+// row name) under the Midnight respond format, plus a row for every other
+// branch and error of the rule.
 
 import { ethers } from "ethers";
 import { describe, expect, it } from "vitest";
 
 import {
   type AbiDecodedOutput,
+  type AbiSchema,
   type AbiSchemaInput,
   deserializeEvmOutput,
   type EvmSchemaInput,
+  type EvmTraceOutput,
+  EvmTraceOutputKind,
+  executedEvmRespondOutput,
+  isEvmContractCall,
+  type RespondPathSchemas,
   serializeRespondOutput,
 } from "../src/index.ts";
 
@@ -650,5 +661,327 @@ describe("pipeline: EVM output -> deserializeEvmOutput -> serializeRespondOutput
     ];
     const respond = serializeRespondOutput(respondSchema, decoded);
     expect(hex(respond)).toBe("01" + "9210" + "00".repeat(14));
+  });
+});
+
+// ===========================================================================
+// isEvmContractCall
+// ===========================================================================
+
+describe("isEvmContractCall: more than two input bytes, as the MPC decides", () => {
+  const cases: { name: string; input: ethers.BytesLike; expected: boolean }[] = [
+    {
+      name: "no input bytes [is_contract_call_detects_calldata]",
+      input: new Uint8Array(0),
+      expected: false,
+    },
+    {
+      name: "two zero bytes [is_contract_call_detects_calldata]",
+      input: new Uint8Array(2),
+      expected: false,
+    },
+    {
+      name: "a selector and one byte [is_contract_call_detects_calldata]",
+      input: new Uint8Array([0xa9, 0x05, 0x9c, 0xbb, 0x00]),
+      expected: true,
+    },
+    { name: "empty hex, the calldata of a plain transfer", input: "0x", expected: false },
+    { name: "one byte of hex input", input: "0x00", expected: false },
+    { name: "two bytes of hex input", input: "0xa905", expected: false },
+    { name: "three bytes of hex input", input: "0xa9059c", expected: true },
+    { name: "a bare selector", input: "0xa9059cbb", expected: true },
+    {
+      name: "the two ASCII bytes of the text 0x",
+      input: new Uint8Array([0x30, 0x78]),
+      expected: false,
+    },
+  ];
+
+  it.each(cases)("$name", ({ input, expected }) => {
+    expect(isEvmContractCall(input)).toBe(expected);
+  });
+
+  it("rejects input that is not 0x hex", () => {
+    expect(() => isEvmContractCall("0xzz")).toThrow();
+  });
+});
+
+// ===========================================================================
+// executedEvmRespondOutput
+// ===========================================================================
+
+const BOOL_SCHEMA: AbiSchema = [{ name: "success", type: "bool" }];
+const STRING_SCHEMA: AbiSchema = [{ name: "message", type: "string", maxBytes: 32 }];
+const UINT64_SCHEMA: AbiSchema = [{ name: "amount", type: "uint64" }];
+const UINT256_SCHEMA: AbiSchema = [{ name: "amount", type: "uint256" }];
+
+/** A plain transfer's request: the vault-style bool schema in both directions. */
+const PLAIN_TRANSFER_SCHEMAS: RespondPathSchemas = {
+  outputDeserializationSchema: BOOL_SCHEMA,
+  respondSerializationSchema: BOOL_SCHEMA,
+};
+
+/** A void call's request: nothing to decode, a bool to respond with. */
+const VOID_CALL_SCHEMAS: RespondPathSchemas = {
+  outputDeserializationSchema: "[]",
+  respondSerializationSchema: BOOL_SCHEMA,
+};
+
+const NOT_TRACED: EvmTraceOutput = { kind: EvmTraceOutputKind.NotTraced };
+const NO_RETURN_DATA: EvmTraceOutput = { kind: EvmTraceOutputKind.NoReturnData };
+
+/** The UTF-8 bytes of the MPC's synthesised string default, `non_function_call_success` (25 bytes). */
+const NON_FUNCTION_CALL_SUCCESS_HEX = "6e6f6e5f66756e6374696f6e5f63616c6c5f73756363657373";
+
+describe("executedEvmRespondOutput: the bytes the MPC attests", () => {
+  const cases: {
+    name: string;
+    schemas: RespondPathSchemas;
+    isContractCall: boolean;
+    trace: EvmTraceOutput;
+    expectedHex: string;
+  }[] = [
+    {
+      name: "plain transfer under a bool field synthesises true [build_serialized_output_non_contract_call_uses_defaults]",
+      schemas: PLAIN_TRANSFER_SCHEMAS,
+      isContractCall: false,
+      trace: NOT_TRACED,
+      expectedHex: "01",
+    },
+    {
+      name: "plain transfer never parses its output schema [build_serialized_output_fab_non_contract_default_skips_output_schema]",
+      schemas: { ...PLAIN_TRANSFER_SCHEMAS, outputDeserializationSchema: "not JSON" },
+      isContractCall: false,
+      trace: NOT_TRACED,
+      expectedHex: "01",
+    },
+    {
+      name: "plain transfer ignores a trace it was given",
+      schemas: PLAIN_TRANSFER_SCHEMAS,
+      isContractCall: false,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [false]) },
+      expectedHex: "01",
+    },
+    {
+      name: "plain transfer under a string field fills its maxBytes buffer",
+      schemas: { ...PLAIN_TRANSFER_SCHEMAS, respondSerializationSchema: STRING_SCHEMA },
+      isContractCall: false,
+      trace: NOT_TRACED,
+      expectedHex: "1900000000000000" + NON_FUNCTION_CALL_SUCCESS_HEX + "00".repeat(7),
+    },
+    {
+      name: "plain transfer under a string field of exactly the default's length",
+      schemas: {
+        ...PLAIN_TRANSFER_SCHEMAS,
+        respondSerializationSchema: [{ name: "message", type: "string", maxBytes: 25 }],
+      },
+      isContractCall: false,
+      trace: NOT_TRACED,
+      expectedHex: "1900000000000000" + NON_FUNCTION_CALL_SUCCESS_HEX,
+    },
+    {
+      name: "plain transfer under bool and string fields keeps declaration order",
+      schemas: {
+        ...PLAIN_TRANSFER_SCHEMAS,
+        respondSerializationSchema: [...BOOL_SCHEMA, ...STRING_SCHEMA],
+      },
+      isContractCall: false,
+      trace: NOT_TRACED,
+      expectedHex: "01" + "1900000000000000" + NON_FUNCTION_CALL_SUCCESS_HEX + "00".repeat(7),
+    },
+    {
+      name: "void call without return data synthesises defaults [build_serialized_output_fab_void_call_uses_default]",
+      schemas: VOID_CALL_SCHEMAS,
+      isContractCall: true,
+      trace: NO_RETURN_DATA,
+      expectedHex: "01",
+    },
+    {
+      name: "void call under empty output schema bytes [build_serialized_output_accepts_missing_trace_output_for_empty_schema_bytes]",
+      schemas: { ...VOID_CALL_SCHEMAS, outputDeserializationSchema: new Uint8Array(0) },
+      isContractCall: true,
+      trace: NO_RETURN_DATA,
+      expectedHex: "01",
+    },
+    {
+      name: "void call under an unset all-NUL on-chain output schema",
+      schemas: { ...VOID_CALL_SCHEMAS, outputDeserializationSchema: new Uint8Array(34) },
+      isContractCall: true,
+      trace: NO_RETURN_DATA,
+      expectedHex: "01",
+    },
+    {
+      name: "void call with empty hex return data [build_serialized_output_accepts_explicit_empty_trace_output_for_empty_schema]",
+      schemas: VOID_CALL_SCHEMAS,
+      isContractCall: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: "0x" },
+      expectedHex: "01",
+    },
+    {
+      name: "void call with empty byte return data, string respond field",
+      schemas: { ...VOID_CALL_SCHEMAS, respondSerializationSchema: STRING_SCHEMA },
+      isContractCall: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: new Uint8Array(0) },
+      expectedHex: "1900000000000000" + NON_FUNCTION_CALL_SUCCESS_HEX + "00".repeat(7),
+    },
+    {
+      name: "contract call returning bool true decodes [build_serialized_output_fab_contract_bool]",
+      schemas: PLAIN_TRANSFER_SCHEMAS,
+      isContractCall: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [true]) },
+      expectedHex: "01",
+    },
+    {
+      name: "contract call returning bool false decodes, never defaults",
+      schemas: PLAIN_TRANSFER_SCHEMAS,
+      isContractCall: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [false]) },
+      expectedHex: "00",
+    },
+    {
+      name: "contract call returning uint64 decodes to its 8 LE bytes",
+      schemas: {
+        outputDeserializationSchema: UINT64_SCHEMA,
+        respondSerializationSchema: UINT64_SCHEMA,
+      },
+      isContractCall: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["uint64"], [12_345n]) },
+      expectedHex: "3930000000000000",
+    },
+    {
+      name: "contract call returning uint256 decodes to a LE Field [build_serialized_output_decodes_contract_call]",
+      schemas: {
+        outputDeserializationSchema: UINT256_SCHEMA,
+        respondSerializationSchema: UINT256_SCHEMA,
+      },
+      isContractCall: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["uint256"], [12_345n]) },
+      expectedHex: "3930" + "00".repeat(30),
+    },
+    {
+      name: "contract call returning a string decodes into its maxBytes buffer [all_response_formats_share_evm_decode_acceptance]",
+      schemas: {
+        outputDeserializationSchema: [{ name: "message", type: "string" }],
+        respondSerializationSchema: STRING_SCHEMA,
+      },
+      isContractCall: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["string"], ["hello"]) },
+      expectedHex: "0500000000000000" + "68656c6c6f" + "00".repeat(27),
+    },
+  ];
+
+  it.each(cases)("$name", ({ schemas, isContractCall, trace, expectedHex }) => {
+    expect(hex(executedEvmRespondOutput(schemas, isContractCall, trace))).toBe(expectedHex);
+  });
+});
+
+describe("executedEvmRespondOutput: throws where the MPC refuses to attest", () => {
+  const cases: {
+    name: string;
+    schemas: RespondPathSchemas;
+    isContractCall: boolean;
+    trace: EvmTraceOutput;
+    error: RegExp;
+  }[] = [
+    {
+      name: "plain transfer under a uint field has no default",
+      schemas: { ...PLAIN_TRANSFER_SCHEMAS, respondSerializationSchema: UINT64_SCHEMA },
+      isContractCall: false,
+      trace: NOT_TRACED,
+      error: /'amount' \(uint64\) has no non-function-call default/,
+    },
+    {
+      name: "plain transfer under a bytes field has no default",
+      schemas: {
+        ...PLAIN_TRANSFER_SCHEMAS,
+        respondSerializationSchema: [{ name: "blob", type: "bytes", maxBytes: 32 }],
+      },
+      isContractCall: false,
+      trace: NOT_TRACED,
+      error: /'blob' \(bytes\) has no non-function-call default/,
+    },
+    {
+      name: "plain transfer under a string field too narrow for the default",
+      schemas: {
+        ...PLAIN_TRANSFER_SCHEMAS,
+        respondSerializationSchema: [{ name: "message", type: "string", maxBytes: 24 }],
+      },
+      isContractCall: false,
+      trace: NOT_TRACED,
+      error: /payload is 25 bytes, maxBytes is 24/,
+    },
+    {
+      name: "plain transfer under an empty respond schema",
+      schemas: { ...PLAIN_TRANSFER_SCHEMAS, respondSerializationSchema: "[]" },
+      isContractCall: false,
+      trace: NOT_TRACED,
+      error: /respond schema is empty/,
+    },
+    {
+      name: "void call under empty respond schema bytes [build_serialized_output_rejects_empty_byte_response_schema]",
+      schemas: { ...VOID_CALL_SCHEMAS, respondSerializationSchema: new Uint8Array(0) },
+      isContractCall: true,
+      trace: NO_RETURN_DATA,
+      error: /respond schema is empty/,
+    },
+    {
+      name: "void call under a uint respond field has no default",
+      schemas: { ...VOID_CALL_SCHEMAS, respondSerializationSchema: UINT64_SCHEMA },
+      isContractCall: true,
+      trace: NO_RETURN_DATA,
+      error: /'amount' \(uint64\) has no non-function-call default/,
+    },
+    {
+      name: "empty output schema but the call returned data [build_serialized_output_rejects_output_when_schema_declares_no_values]",
+      schemas: { ...VOID_CALL_SCHEMAS, outputDeserializationSchema: new Uint8Array(0) },
+      isContractCall: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["uint256"], [1n]) },
+      error: /output schema declares no return values/,
+    },
+    {
+      name: "non-empty output schema without return data [build_serialized_output_rejects_missing_trace_output_for_non_empty_schema]",
+      schemas: {
+        outputDeserializationSchema: UINT256_SCHEMA,
+        respondSerializationSchema: UINT256_SCHEMA,
+      },
+      isContractCall: true,
+      trace: NO_RETURN_DATA,
+      error: /no return data for a non-empty output schema/,
+    },
+    {
+      name: "non-empty output schema not traced [build_serialized_output_requires_trace_for_contract_call]",
+      schemas: {
+        outputDeserializationSchema: UINT256_SCHEMA,
+        respondSerializationSchema: UINT256_SCHEMA,
+      },
+      isContractCall: true,
+      trace: NOT_TRACED,
+      error: /needs its trace/,
+    },
+    {
+      name: "empty output schema not traced",
+      schemas: VOID_CALL_SCHEMAS,
+      isContractCall: true,
+      trace: NOT_TRACED,
+      error: /needs its trace/,
+    },
+    {
+      name: "non-empty output schema with empty return data fails the ABI decode",
+      schemas: PLAIN_TRANSFER_SCHEMAS,
+      isContractCall: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: "0x" },
+      error: /data out-of-bounds/,
+    },
+    {
+      name: "a contract call's malformed output schema",
+      schemas: { ...PLAIN_TRANSFER_SCHEMAS, outputDeserializationSchema: "not JSON" },
+      isContractCall: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [true]) },
+      error: /schema is not valid JSON/,
+    },
+  ];
+
+  it.each(cases)("$name", ({ schemas, isContractCall, trace, error }) => {
+    expect(() => executedEvmRespondOutput(schemas, isContractCall, trace)).toThrow(error);
   });
 });
