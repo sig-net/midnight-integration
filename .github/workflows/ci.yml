@@ -213,8 +213,9 @@ jobs:
             -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' http://127.0.0.1:8545
       # The suite's setup deploys both contracts, writes MPC_ROOT_KEY +
       # MIDNIGHT_SIGNET_CONTRACT_ADDRESS to .env, and starts the fakenet
-      # responder. The pipeline is EVM-free: anvil runs only so the responder's
-      # config has a reachable EVM endpoint to boot.
+      # responder. Anvil is the EVM chain the flow files and the responder
+      # share: the setup deploys the EVM target and funds the derived sender
+      # there.
       - name: Integration suite (generic signet-caller e2e)
         env:
           TRUST_PREBUILT_ZK_KEYS: "1"

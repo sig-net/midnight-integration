@@ -15,8 +15,9 @@ and two flow files:
   with them). The setup pipeline also prepares the EVM side for the
   real-EVM flow: it deploys the `SignetEvmTarget` contract (hardhat compile
   + anvil deploy) and funds the caller's derived EVM sender from the anvil
-  dev funder account. The generic flow itself stays EVM-free: its request
-  exists to be SIGNED, never broadcast.
+  dev funder account. The generic flow itself never broadcasts: its request
+  exists to be SIGNED, and it reads the EVM chain only for the derived
+  sender's nonce.
 - **The generic flow file** (`tests/signet-caller-e2e.test.ts`, `--bail 1`): one
   ordered pipeline whose tests run in source order and feed each other
   through module-scoped state —
@@ -112,7 +113,7 @@ run offline under plain `yarn test`; the flow file gates itself with
 ```sh
 # All three from the repo root. Run 'yarn compile' first.
 yarn test:integration-tests                            # both flow files
-yarn test:integration-tests:signet-caller-e2e          # just the generic (EVM-free) caller flow file
+yarn test:integration-tests:signet-caller-e2e          # just the generic (broadcast-free) caller flow file
 yarn test:integration-tests:signet-caller-evm-e2e      # just the real-EVM flow file (broadcast, attestation, output cache, settlement)
 ```
 

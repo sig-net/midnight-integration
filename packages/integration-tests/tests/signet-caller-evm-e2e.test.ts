@@ -26,8 +26,8 @@
 // submit/verify circuit pair (a new exact-width request map when the schema
 // width is new), and one METHODS entry. Tests run in source order and feed
 // each other through per-method state. The file is self-sufficient (its own
-// idempotent initialise stage), so it does not depend on the base EVM-free
-// flow file having run first.
+// idempotent initialise stage), so it does not depend on the base flow file
+// having run first.
 //
 // The request-id envelope of the caller contract changed when the EVM
 // circuits landed, so a MIDNIGHT_CALLER_CONTRACT_ADDRESS kept from an older

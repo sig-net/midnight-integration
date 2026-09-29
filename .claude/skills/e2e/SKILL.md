@@ -17,7 +17,7 @@ the *operational* knowledge around it. Setup (MPC keys, dust preflight,
 compile, deploy, fakenet hand-off) runs in vitest globalSetup before ANY
 test, including single-file runs.
 
-The default run covers TWO flow files: the generic flow (EVM-free: its
+The default run covers TWO flow files: the generic flow (broadcast-free: its
 request exists to be SIGNED, never broadcast, 5 online tests) and the
 real-EVM flow (30 online tests), which broadcasts the MPC-signed
 transactions on the compose `evm` service (anvil, :8545), recomputes each
