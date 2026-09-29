@@ -60,7 +60,10 @@ services:
     # the fakenet responder observes executions on.
     container_name: 'local-evm'
     image: 'ghcr.io/foundry-rs/foundry:v1.5.1'
-    entrypoint: ['anvil', '--host', '0.0.0.0']
+    # The fakenet attests only once a transaction's block is `finalized`, which
+    # anvil places two epochs behind the head: one-second blocks and one-slot
+    # epochs finalise a block two seconds after it is mined.
+    entrypoint: ['anvil', '--host', '0.0.0.0', '--block-time', '1', '--slots-in-an-epoch', '1']
     ports:
       - '127.0.0.1:8545:8545'
 
