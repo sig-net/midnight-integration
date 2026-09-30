@@ -51,7 +51,7 @@ per-package `AGENTS.md`.
 
 A request is a round trip across all four layers. Each stage maps to a
 concrete circuit or e2e leg (see
-`packages/integration-tests/tests/signet-caller-e2e.test.ts` for the EVM-free
+`packages/integration-tests/tests/signet-caller-e2e.test.ts` for the broadcast-free
 flow and `signet-caller-evm-e2e.test.ts` for the broadcast flow). Know this
 map before touching any stage:
 
@@ -174,7 +174,7 @@ the submit leg short-circuits and the suite reaches your stage on real state
    happy path and every reject.
 4. `yarn build && yarn test` in each touched member.
 5. Extend the flow file that fits (`signet-caller-e2e.test.ts` for an
-   EVM-free leg, `signet-caller-evm-e2e.test.ts` for one that broadcasts) with a
+   broadcast-free leg, `signet-caller-evm-e2e.test.ts` for one that broadcasts) with a
    leg that drives the new circuit and asserts a publicly-observable effect (a
    ledger insert/removal is stronger than a return value).
 6. Retest per the decision tree. Assert on RAW ledger state read back through

@@ -13,12 +13,12 @@
 // plain `yarn test` stays offline. Set STEP_THROUGH=1 to pause before every
 // stage after the first, until you hit Enter in the terminal.
 //
-// Deliberately EVM-free: the request exists to be SIGNED, never broadcast.
-// The fakenet's own respond-bidirectional post only follows a broadcast it
-// observed on the target chain, so the in-circuit verification leg is driven
-// with a response signed here from the suite's shared MPC_ROOT_KEY: the
-// same key material (and the same response-key derivation) the fakenet signs
-// with.
+// Deliberately broadcast-free: the request exists to be SIGNED, and the flow
+// reads the EVM chain only for the derived sender's nonce. The fakenet's own
+// respond-bidirectional post only follows a broadcast it observed on the
+// target chain, so the in-circuit verification leg is driven with a response
+// signed here from the suite's shared MPC_ROOT_KEY: the same key material
+// (and the same response-key derivation) the fakenet signs with.
 
 import {
   asciiPadded,
@@ -51,6 +51,7 @@ import {
 import { CALLER_PATH_BYTES, CALLER_PATH_HEX } from "../src/constants.ts";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
 import { injectE2eEnv, installFlowHooks } from "../src/flow-hooks.ts";
+import { evmRpcUrl, getEvmNonce } from "../src/local-evm.ts";
 import { banner, logSkip } from "../src/output.ts";
 import { pollSignetNotification } from "../src/signet-notifications.ts";
 
@@ -98,11 +99,6 @@ const requireEnv = (name: string): string => requireEnvOf(env, name);
 // Stopped once in afterAll.
 const session = createCallerE2eSession(env);
 
-// The caller-supplied circuit args of the submit. The nonce is normally the
-// derived sender account's chain nonce. With no EVM in this exercise (the
-// transaction is signed, never broadcast) any value demonstrates the flow.
-const EVM_NONCE = 0n;
-
 // TS mirrors of the contract-fixed request constants in test-caller-contract.compact
 // (the caller package's simulator tests pin the full set, and the spec
 // re-checks the calldata + path against the LIVE ledger record).
@@ -123,6 +119,18 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
   // Populated by the submit test (or CALLER_REQUEST_ID, the resume var for
   // proof-server OOM recovery) for the subsequent stages.
   let signatureRequestId: RequestIdHex;
+
+  // The caller's requests are keyed under its contract-fixed path bytes, so
+  // the MPC signs with the account epsilon-derived from the CALLER
+  // CONTRACT's address + the hex rendering of those bytes, recomputed here
+  // with the same derivation the MPC uses. Resolved lazily once env is
+  // populated.
+  const derivedSender = (): string =>
+    deriveEvmAddress(
+      requireEnv("MPC_SECP256K1_PUBKEY"),
+      requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
+      CALLER_PATH_HEX,
+    );
 
   it(
     "initialise [signet-caller contract method call]: store the MPC response key for this contract",
@@ -171,8 +179,14 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
 
       const context = await session.callerContext();
 
+      // The derived sender's current nonce on the chain the fakenet admits
+      // against: the fakenet refuses to sign a request whose nonce the
+      // account has already spent at finality, and the real-EVM flow file
+      // spends this same account's nonces.
+      const evmNonce = await getEvmNonce(evmRpcUrl(env), derivedSender());
+
       const before = await readRequestIds(context);
-      await context.caller.callTx.submitSignatureRequest(EVM_NONCE, SIGNET_DEFAULT_KEY_VERSION);
+      await context.caller.callTx.submitSignatureRequest(evmNonce, SIGNET_DEFAULT_KEY_VERSION);
 
       // State indexing lags finalization: poll briefly for the fresh id.
       const deadline = Date.now() + MINUTE;
@@ -198,7 +212,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // contract state) and pin the contract-fixed composition against the
       // LIVE ledger, including the request-id TS-twin lockstep check.
       const record = await session.responseReader().getSignatureRequest(signatureRequestId);
-      expect(record.txParams.nonce).toBe(EVM_NONCE);
+      expect(record.txParams.nonce).toBe(evmNonce);
       expect(record.txParams.chainId).toBe(31337n);
       expect(record.txParams.calldata.is_some).toBe(true);
       expect(record.txParams.calldata.value.selector).toEqual(EXPECTED_SELECTOR);
@@ -266,15 +280,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
     async () => {
       expect(signatureRequestId).toBeDefined();
 
-      // The caller's requests are keyed under its contract-fixed path
-      // bytes, so the MPC signs with the account epsilon-derived from the
-      // CALLER CONTRACT's address + the hex rendering of those bytes,
-      // recomputed here with the same derivation the MPC uses.
-      const expectedSigner = deriveEvmAddress(
-        requireEnv("MPC_SECP256K1_PUBKEY"),
-        requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
-        CALLER_PATH_HEX,
-      );
+      const expectedSigner = derivedSender();
       console.log(`expected signer (derived caller account): ${expectedSigner}`);
 
       // Poll the signet contract's UNAUTHENTICATED response events for THIS

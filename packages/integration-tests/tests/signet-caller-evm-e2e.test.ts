@@ -4,11 +4,11 @@
 // responsibility), the fakenet observes the mined execution (via
 // debug_traceTransaction, the same RPC method the real MPC uses) and posts
 // a respond-bidirectional attestation. The suite then recomputes the respond
-// bytes from the mined call's trace (deserializeEvmOutput,
-// serializeRespondOutput), checks the fakenet's output cache (the twin of
-// the MPC's bucket, for clients without trace access) holds the same bytes,
-// and picks the attestation that VERIFIES over them against the pinned MPC
-// response key before in-circuit verification. Both the traced and the
+// bytes from the mined call's trace (executedEvmRespondOutput), checks the
+// fakenet's output cache (the twin of the MPC's bucket, for clients without
+// trace access) holds the same bytes, and picks the attestation that
+// VERIFIES over them against the pinned MPC response key before in-circuit
+// verification. Both the traced and the
 // cached bytes are UNTRUSTED until that signature verification passes.
 //
 // Every outcome kind of the protocol is driven to settlement:
@@ -26,8 +26,8 @@
 // submit/verify circuit pair (a new exact-width request map when the schema
 // width is new), and one METHODS entry. Tests run in source order and feed
 // each other through per-method state. The file is self-sufficient (its own
-// idempotent initialise stage), so it does not depend on the base EVM-free
-// flow file having run first.
+// idempotent initialise stage), so it does not depend on the base flow file
+// having run first.
 //
 // The request-id envelope of the caller contract changed when the EVM
 // circuits landed, so a MIDNIGHT_CALLER_CONTRACT_ADDRESS kept from an older
@@ -42,7 +42,10 @@ import {
   calculateRequestId,
   deriveEvmAddress,
   deserializeEvmOutput,
+  EvmTraceOutputKind,
+  executedEvmRespondOutput,
   hexToBytes,
+  isEvmContractCall,
   MpcOutputCacheReader,
   OutputKind,
   parseSecp256k1PublicKey,
@@ -51,7 +54,6 @@ import {
   requestIdHex,
   type RespondBidirectionalEvent,
   respondBidirectionalEventToCircuitInput,
-  serializeRespondOutput,
   signBidirectionalEventToSignedEvmTransaction,
   SIGNET_DEFAULT_KEY_VERSION,
   stripHexPrefix,
@@ -61,6 +63,7 @@ import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 import {
   getAddress,
   getBytes,
+  hexlify,
   id as keccakId,
   toBeHex,
   type Transaction,
@@ -670,22 +673,35 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
     const outcome = method.outcome;
     if (outcome.kind === OutputKind.executed) {
       it(
-        `${method.name} recompute: deserializeEvmOutput + serializeRespondOutput reproduce the attested output`,
+        `${method.name} recompute: executedEvmRespondOutput reproduces the attested output`,
         async () => {
           if (alreadyConsumed) {
             logSkip(`${method.name} recompute`, `request ${requestId} already consumed`);
             return;
           }
+          if (signedTx === undefined) {
+            throw new Error(`no signed transaction for request ${requestId}`);
+          }
           // Recompute route: the mined call's return data, read from the
           // local anvil with debug_traceTransaction (the method the MPC
-          // observes with), through the two abi-serde conversions under test
-          // on live protocol data.
-          const callResult = await traceTopCallOutput(evmRpcUrl(env), receipt.hash);
-          const decoded = deserializeEvmOutput(method.schema, callResult);
+          // observes with), through the MPC's respond-output rule on live
+          // protocol data.
+          const trace = await traceTopCallOutput(evmRpcUrl(env), receipt.hash);
+          if (trace.kind !== EvmTraceOutputKind.Output) {
+            throw new Error(`the ${method.name} call's trace carries no return data`);
+          }
+          const decoded = deserializeEvmOutput(method.schema, trace.returnData);
           expect(decoded, "the EVM output must decode to the expected values").toEqual(
             outcome.expectedDecoded,
           );
-          respondBytes = serializeRespondOutput(method.schema, decoded);
+          respondBytes = executedEvmRespondOutput(
+            {
+              outputDeserializationSchema: method.schema,
+              respondSerializationSchema: method.schema,
+            },
+            isEvmContractCall(signedTx.data),
+            trace,
+          );
           expect(
             respondBytes,
             "the packed respond payload must have the schema's exact width",
@@ -694,7 +710,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           banner([
             `${method.name} respond bytes recomputed from the mined call's trace:`,
             "",
-            `  raw output: ${callResult}`,
+            `  raw output: ${hexlify(trace.returnData)}`,
             `  decoded:    ${JSON.stringify(decoded, (_, v: unknown) => (typeof v === "bigint" ? v.toString() : v))}`,
             `  payload:    0x${Buffer.from(respondBytes).toString("hex")} (${String(respondBytes.length)} bytes)`,
           ]);
