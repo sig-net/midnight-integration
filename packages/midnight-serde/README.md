@@ -130,6 +130,166 @@ deeper than one level. `deserialize<T, N>` handles all of those, so contracts
 can still READ such payloads from off-chain encoders. Tuples are unaffected:
 `serialize<[Pair, Boolean], N>` compiles fine.
 
+## Relation to borsh
+
+The layout reads like [borsh](https://borsh.io) with every length fixed, and
+on the shapes borsh can name it is exactly that. `tests/borsh.test.ts` pins
+the compiled circuits, the twin and borsh-js (`borsh` on npm, NEAR's
+reference TypeScript implementation, a test-only dependency) byte for byte in
+both directions, using only borsh's fixed-length schemas: `bool`, `u8` to
+`u128`, `{ array: { type, len } }`, `{ struct }` and `{ enum }` of
+payload-free variants. Every byte string quoted in this section is asserted
+in that file.
+
+| Compact type | borsh schema with the same bytes |
+| --- | --- |
+| `Boolean` | `bool` |
+| `Uint<8>`, `Uint<16>`, `Uint<32>`, `Uint<64>`, `Uint<128>` | `u8`, `u16`, `u32`, `u64`, `u128` |
+| `Uint<w>` with `ceil(w / 8)` in 1, 2, 4, 8, 16 (`Uint<12>` is a `u16`) | the integer of that width, range-checked only here |
+| `Uint<0..n>` with `byteLength(n - 1)` in 1, 2, 4, 8, 16 | the integer of that width, range-checked only here |
+| `Bytes<n>`, n above 0 | `{ array: { type: "u8", len: n } }` |
+| `Vector<n, T>`, n above 0 | `{ array: { type: T, len: n } }` |
+| struct | `{ struct }` in declaration order |
+| tuple | `{ struct }` with positional field names |
+| enum of 2 to 256 variants | `{ enum }` of payload-free variants, the index as the one-byte tag |
+| `Maybe<T>`, `Either<A, B>` | the `{ struct }` of their fields, NOT `{ option }` or a payload-carrying `{ enum }` |
+
+### What pure borsh cannot serialise
+
+Each example below is a legal Compact type, the bytes `serialize<T, N>`
+produces for it, and what the closest borsh schema does instead.
+
+**A bounded `Uint` three bytes wide.** `Uint<0..70000>` holds 0 to 69999,
+so it packs to `byteLength(69999) = 3` bytes. Borsh has integers of 1, 2, 4,
+8 and 16 bytes and nothing in between.
+
+```text
+Compact  Uint<0..70000> = 69999   6f1101        (3 bytes, circuit-pinned)
+borsh    u32            = 69999   6f110100      (4 bytes)
+```
+
+One byte more, and every field that follows it in a struct lands one byte
+later than the circuit expects. The same applies to `Uint<24>` (3 bytes),
+`Uint<40>` (5 bytes) and every sized width whose byte count is not a power
+of two up to 16. borsh-js rejects `u24`, `u40` and `u248` as schemas
+outright.
+
+**The widest `Uint`.** `Uint<248>` is 31 bytes. The widest borsh integer is
+`u128`, and borsh-js does not fail when a value exceeds it: it keeps the low
+16 bytes and drops the rest.
+
+```text
+Compact  Uint<248> = 2^248 - 1   ff × 31       (31 bytes)
+borsh    u128      = 2^248 - 1   ff × 16       (16 bytes, silently truncated)
+```
+
+A `u128` schema over a `Uint<248>` field is therefore not a width mismatch
+you would notice from an error. It is silent data loss on any value above
+`2^128 - 1`.
+
+**`Field`.** A field element is 32 bytes little-endian and must be below the
+BLS12-381 scalar modulus. Borsh has no 32-byte integer (borsh-js rejects
+`u256`), so the only schema that reproduces the bytes is `[u8; 32]`, which
+hands the reader an array of 32 numbers, enforces no modulus, and loses the
+number entirely.
+
+```text
+Compact  Field = modulus - 1   00000000fffffffffe5bfeff02a4bd5305d8a10908d83933487d9d2953a7ed73
+borsh    [u8; 32]              the same 32 bytes, typed as bytes
+```
+
+**Zero-width types.** `Uint<0..1>` holds only 0 and occupies no bytes. A
+single-variant enum is `Uint<0..1>` under the hood and occupies none either.
+The narrowest borsh integer is one byte, and a borsh enum tag is always one
+byte.
+
+```text
+struct Bounded { small: Uint<0..1000>; unit: Uint<0..1>; status: Status; marker: Uint<8>; }
+   (Status has three variants. The value is 999, 0, variant 2, 0xaa.)
+
+Compact  e703 | (nothing) | 02 | aa        e70302aa     (4 bytes, circuit-pinned)
+borsh    e703 | 00        | 02 | aa        e7030002aa   (5 bytes)
+
+[Solo, Uint<8>] with Solo a single-variant enum, value [0, 0xaa]
+
+Compact  (nothing) | aa                    aa           (1 byte)
+borsh    00        | aa                    00aa         (2 bytes)
+```
+
+**Empty buffers and vectors.** `Bytes<0>` and `Vector<0, T>` are zero bytes
+in Compact. borsh-js treats a `len: 0` fixed array as an unsized one and
+writes a four-byte length prefix for it.
+
+```text
+struct ZeroSizes { empty: Bytes<0>; none: Vector<0, Uint<64>>; nothing: Nothing; marker: Uint<8>; }
+
+Compact  5a                                   (1 byte, circuit-pinned)
+borsh    00000000 00000000 5a                 (9 bytes)
+```
+
+This one bites a real request type. signet-midnight's
+`EvmType2TxParams<1, 0, 0>`, the struct the test caller submits, ends in
+`accessList: Vector<0, EvmAccessListEntry<0>>`. Every other field is inside
+the borsh core, so the two encodings agree for 132 bytes and then borsh-js
+appends four bytes of length prefix:
+
+```text
+Compact  EvmType2TxParams<1, 0, 0>   132 bytes
+borsh    same schema in borsh-js      136 bytes: the 132 above, then 00000000
+```
+
+**Enums past 256 variants.** A Compact enum index packs like
+`Uint<0..variants>`, so a 300-variant enum is two bytes. A borsh enum tag is
+a `u8`, and borsh-js stores the index through a one-byte write that wraps.
+
+```text
+Compact  Big (300 variants), variant 299   2b01   (2 bytes, circuit-pinned)
+borsh    300 payload-free variants, V299   2b     (1 byte: 299 mod 256 = 43, reads back as V43)
+```
+
+### Same bytes, other rules
+
+Where the bytes do coincide the rules around them still differ.
+
+**`Maybe<T>` is not borsh `Option<T>`.** The stdlib `none` keeps its
+zero-filled value arm, so the width never depends on the tag. In the request
+struct above, `calldata: Maybe<EvmCalldata<1>>` set to `none` still occupies
+its 39 bytes (1 tag, 4 selector, 2 word count, 32 word), all zero.
+
+```text
+Compact  none<Uint<64>>          00 0000000000000000   (9 bytes, circuit-pinned)
+borsh    Option<u64> = None      00                    (1 byte)
+Compact  some<Uint<64>>(99)      01 6300000000000000   (9 bytes, circuit-pinned)
+borsh    Option<u64> = Some(99)  01 6300000000000000   (9 bytes: `some` coincides)
+```
+
+**`Either<A, B>` is not a borsh enum.** Both arms are always packed.
+`left(4242)` of `Either<Uint<64>, Bytes<32>>` is 41 bytes in Compact and 9
+bytes as a borsh `enum { Left(u64), Right([u8; 32]) }`. `right(...)` is 41
+bytes against 33.
+
+**Padding.** `serialize<T, N>` right-pads to N, which borsh never does.
+`serialize<Buffers, 64>` is the 53 packed bytes followed by 11 zero bytes.
+borsh-js stops reading after the schema and does not check for trailing
+bytes, so it decodes the padded buffer, but it can never produce one.
+
+**Booleans.** A byte of `0x02` decodes as `true` in borsh-js, `false` in the
+circuit and an error here.
+
+**Range checks.** Borsh checks only the width. `4096` fits a `u16` but the
+`Uint<12>` circuit rejects it on decode, and the field modulus fits
+`[u8; 32]` but is not a `Field`.
+
+### Verdict
+
+The borsh-nameable core of the layout IS borsh, so a borsh encoder produces
+correct bytes for a contract whose types stay inside that core. The layout
+as a whole is not a subset of borsh: Compact has widths and zero-width types
+no borsh schema can name, a borsh decoder enforces none of the range checks
+the circuit does, and borsh-js silently truncates an over-wide integer. FAB (Sources below) is Midnight's own data model of alignment
+atoms, not borsh: the overlap is a coincidence of both packing fixed-width
+little-endian atoms with no tags, prefixes or gaps.
+
 ## Develop
 
 ```bash

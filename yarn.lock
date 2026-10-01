@@ -2312,6 +2312,7 @@ __metadata:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^4.1.10"
+    borsh: "npm:^2.0.0"
     typescript: "npm:^7.0.2"
     vitest: "npm:^4.1.9"
   languageName: unknown
@@ -3247,6 +3248,13 @@ __metadata:
   version: 5.2.5
   resolution: "bn.js@npm:5.2.5"
   checksum: 10c0/4c47bcb261950086a9d5d311bea97197b5950703e0a80caf6e226f3bb049954a864c80b0fca7f70149c74c2e255cb4a63d0da2c425d7b15f9051a042a4e12095
+  languageName: node
+  linkType: hard
+
+"borsh@npm:^2.0.0":
+  version: 2.0.0
+  resolution: "borsh@npm:2.0.0"
+  checksum: 10c0/59a96dd9c707450862198510fc518dff92ac7f0ed0d228c9b38affd968bb4debec805c6e2afed8ec13efd9fad63fd47f8e6ed420253542a8d10fb59f28fc7d01
   languageName: node
   linkType: hard
 

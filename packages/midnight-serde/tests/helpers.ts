@@ -19,7 +19,7 @@ import {
   toBinaryRepr,
 } from "@midnight-ntwrk/compact-runtime";
 
-import type { CompactType, CompactValue } from "../src/index.ts";
+import { type CompactType, type CompactValue, FIELD_MODULUS } from "../src/index.ts";
 
 export const hex = (b: Uint8Array): string => Buffer.from(b).toString("hex");
 
@@ -88,4 +88,70 @@ function composite(
       throw new Error("oracle helper is serialize-only");
     },
   } as unknown as RuntimeCompactType<unknown>;
+}
+
+// ---- seeded random generation, shared by property.test.ts and borsh.test.ts
+
+// mulberry32: tiny, deterministic, good enough distribution for test-case
+// generation.
+export function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export type Rng = () => number;
+
+/** Uniform-ish integer in [min, max], inclusive. */
+export function randInt(rng: Rng, min: number, max: number): number {
+  return min + Math.floor(rng() * (max - min + 1));
+}
+
+/** A bigint in [0, bound), biased towards the boundaries (where bugs live). */
+export function randBigIntBelow(rng: Rng, bound: bigint): bigint {
+  if (bound <= 1n) return 0n;
+  const roll = rng();
+  if (roll < 0.15) return 0n;
+  if (roll < 0.3) return bound - 1n;
+  let v = 0n;
+  const bytes = (bound - 1n).toString(16).length / 2 + 1;
+  for (let i = 0; i < bytes; i++) {
+    v = (v << 8n) | BigInt(randInt(rng, 0, 255));
+  }
+  return v % bound;
+}
+
+/** A random in-range value for any descriptor, boundary-biased via randBigIntBelow. */
+export function randValue(rng: Rng, type: CompactType): CompactValue {
+  switch (type.kind) {
+    case "boolean":
+      return rng() < 0.5;
+    case "field":
+      return randBigIntBelow(rng, FIELD_MODULUS);
+    case "uint": {
+      const bound =
+        "bits" in type
+          ? 1n << BigInt(type.bits)
+          : BigInt((type as { bound: number | bigint }).bound);
+      return randBigIntBelow(rng, bound);
+    }
+    case "bytes":
+      return Uint8Array.from({ length: type.length }, () => randInt(rng, 0, 255));
+    case "enum":
+      return randInt(rng, 0, type.variants - 1);
+    case "vector":
+      return Array.from({ length: type.length }, () => randValue(rng, type.element));
+    case "tuple":
+      return type.elements.map((e) => randValue(rng, e));
+    case "struct": {
+      const value: Record<string, CompactValue> = {};
+      for (const field of type.fields) value[field.name] = randValue(rng, field.type);
+      return value;
+    }
+  }
 }
