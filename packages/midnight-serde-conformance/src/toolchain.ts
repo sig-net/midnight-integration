@@ -15,6 +15,8 @@ export const RUNTIME_VERSION = "0.18.0-rc.1";
 
 /** SHA-256 of compactc.bin for each verified build of the pinned release. */
 export const COMPILER_BUILDS: Readonly<Record<string, string>> = {
+  "darwin-x64": "4bed41203507efe207f9b24aac7eeadfc1b7d100f63abfea20688f2e7b4335c7",
+  "linux-arm64": "2abdacfddf1b8ccc85ce6f4317b7a75b9f53641de6df0f387f86819084d10947",
   "darwin-arm64": "6945dd50bef946f054bca6e2aafa60a07b002e07809dffd3a7389602a627bae5",
   "linux-x64": "8f1622cb32b4e55343b02eb20ecac47be7f33f86acaf8b5a0cff79d046ddb38d",
 };

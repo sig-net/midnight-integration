@@ -57,13 +57,15 @@ fn compact_corpus() {
                 },
                 &expected,
             ),
-            "u8" => check(u8::MAX, &expected),
-            "u16" => check(u16::MAX, &expected),
-            "u32" => check(u32::MAX, &expected),
-            "u64" => check(u64::MAX, &expected),
-            "u128" => check(u128::MAX, &expected),
-            "bytes" => check([1u8, 2, 3, 4], &expected),
-            "vector" => check([0u16, 256, 65535], &expected),
+            "u8" => check::<u8>(serde_json::from_value(value.clone()).unwrap(), &expected),
+            "u16" => check::<u16>(serde_json::from_value(value.clone()).unwrap(), &expected),
+            "u32" => check::<u32>(serde_json::from_value(value.clone()).unwrap(), &expected),
+            "u64" => check::<u64>(value.as_str().unwrap().parse().unwrap(), &expected),
+            "u128" => check::<u128>(value.as_str().unwrap().parse().unwrap(), &expected),
+            "bytes" => check::<[u8; 4]>(serde_json::from_value(value.clone()).unwrap(), &expected),
+            "vector" => {
+                check::<[u16; 3]>(serde_json::from_value(value.clone()).unwrap(), &expected)
+            }
             "maybe" => check(
                 MaybeValue {
                     is_some: value["is_some"].as_bool().unwrap(),
@@ -74,12 +76,24 @@ fn compact_corpus() {
             "either" => check(
                 EitherValue {
                     is_left: value["is_left"].as_bool().unwrap(),
-                    left: 7,
-                    right: [1, 2, 3, 4],
+                    left: serde_json::from_value(value["left"].clone()).unwrap(),
+                    right: serde_json::from_value(value["right"].clone()).unwrap(),
                 },
                 &expected,
             ),
-            "enum" => check(Status::Done, &expected),
+            "enum" => {
+                let variants = value.as_object().unwrap();
+                assert_eq!(variants.len(), 1);
+                let (name, payload) = variants.iter().next().unwrap();
+                assert!(payload.as_object().unwrap().is_empty());
+                let status = match name.as_str() {
+                    "Pending" => Status::Pending,
+                    "Ready" => Status::Ready,
+                    "Done" => Status::Done,
+                    name => panic!("Unrecognised status {name}"),
+                };
+                check(status, &expected);
+            }
             name => panic!("Unrecognised corpus case {name}"),
         }
     }

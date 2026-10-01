@@ -1,6 +1,6 @@
 # @sig-net/midnight-serde
 
-A thin wrapper around the real [borsh-js](https://github.com/near/borsh-js) package, pinned to 2.0.0 by the workspace lockfile. Schemas and value representations are native Borsh. Optional zero padding supports Midnight fixed byte containers.
+A thin wrapper around the real [borsh-js](https://github.com/near/borsh-js) package, declared as an exact 2.0.0 dependency for workspace and published consumers. Schemas and value representations are native Borsh. Optional zero padding supports Midnight fixed byte containers.
 
 ## Use
 

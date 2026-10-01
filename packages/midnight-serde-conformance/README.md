@@ -13,4 +13,12 @@ yarn workspace @midnight-protocol/midnight-serde-conformance compile
 yarn workspace @midnight-protocol/midnight-serde-conformance generate
 ```
 
-Generation is a deliberate fixture update. Review and retain the updated corpus with the source change. The pinned compiler identity protects fixture provenance. CI's additional compiler check and Rust corpus replay run only when one of the three serde package folders changes.
+Generation is a deliberate fixture update. Review and retain the updated corpus with the source change. The pinned compiler identity protects fixture provenance. The ordinary unit suite checks fixture compatibility and corpus drift. The Rust job replays the corpus once. The separate 1,000-value response sweep runs only when one of the three serde package folders changes in CI and uses the fixtures already compiled by the unit job.
+
+For a local sweep after compilation:
+
+```sh
+yarn workspace @midnight-protocol/midnight-serde-conformance test:sweep
+```
+
+The verified compiler builds cover macOS and Linux on x64 and arm64. Keep `COMPACTC_VERSION`, `RUNTIME_VERSION` and every `COMPILER_BUILDS` hash in `src/toolchain.ts` aligned with the repository's compiler and runtime pins. Each hash is SHA-256 of `compactc.bin` extracted from that platform's official release archive, not the archive checksum. The selected default compiler must match that verified build.

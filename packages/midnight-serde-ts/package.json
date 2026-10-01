@@ -39,6 +39,6 @@
     "vitest": "^5.0.0"
   },
   "dependencies": {
-    "borsh": "^2.0.0"
+    "borsh": "2.0.0"
   }
 }

@@ -127,13 +127,9 @@ jobs:
         run: yarn build
       - name: Unit tests (simulator-only, the integration suites self-skip without RUN_INTEGRATION_TESTS)
         run: yarn test
-      - name: Compiler-backed serde conformance
+      - name: Compiler-backed Borsh response sweep
         if: steps.serde.outputs.changed == 'true'
-        run: yarn workspace @midnight-protocol/midnight-serde-conformance test:compiler
-      - name: Rust replay of the Borsh compatibility corpus
-        if: steps.serde.outputs.changed == 'true'
-        working-directory: packages/midnight-serde-rs
-        run: cargo test --locked --test conformance
+        run: yarn workspace @midnight-protocol/midnight-serde-conformance test:sweep
 
   rust:
     name: rust (fmt → clippy → test against the committed corpus)
@@ -160,7 +156,7 @@ jobs:
         run: cargo fmt --check
       - name: Clippy (warnings are errors)
         run: cargo clippy --locked --all-targets -- -D warnings
-      - name: Tests (conformance corpus + native sweep, frozen deps)
+      - name: Tests (Borsh compatibility corpus and native types, frozen deps)
         run: cargo test --locked
 
   integration:

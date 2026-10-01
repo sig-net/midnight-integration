@@ -35,17 +35,6 @@ describe("Borsh and compiled Compact compatibility", () => {
       ),
     );
   });
-  it("checks both circuit directions for 1000 u128 response values", () => {
-    let amount = 1n;
-    for (let i = 0; i < 1000; i++) {
-      amount = (amount * 6364136223846793005n + 1442695040888963407n) % (1n << 128n);
-      const value = { ok: i % 2 === 0, amount };
-      const schema = { struct: { ok: "bool", amount: "u128" } };
-      const bytes = compactSerialize(schema, value);
-      expect(bytes).toEqual(pureCircuits.serResult(value));
-      expect(pureCircuits.deResult(bytes)).toEqual(value);
-    }
-  });
   it("records compatibility limits without rejecting Borsh schemas", () => {
     expect(compactSerialize({ option: "u64" }, null)).toHaveLength(1);
     expect(pureCircuits.serNone()).toHaveLength(9);

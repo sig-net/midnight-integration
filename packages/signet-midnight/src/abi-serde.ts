@@ -85,11 +85,17 @@ export function deserializeEvmOutput(
  * @throws {Error} If schema JSON is malformed.
  */
 function respondSchema(schema: RespondSchemaInput): Schema {
-  if (schema instanceof Uint8Array) return JSON.parse(schemaText(schema)) as Schema;
-  if (typeof schema === "string" && /^\s*[{["]/.test(schema)) {
-    return JSON.parse(schema) as Schema;
+  if (typeof schema !== "string" && !(schema instanceof Uint8Array)) return schema;
+  const text = schemaText(schema).trim();
+  if (text.length === 0) throw new Error("Response schema is empty");
+  if (schema instanceof Uint8Array || /^[{["]/.test(text)) {
+    try {
+      return JSON.parse(text) as Schema;
+    } catch (error) {
+      throw new Error("Response schema is not valid JSON", { cause: error });
+    }
   }
-  return schema;
+  return text;
 }
 
 /**
@@ -110,6 +116,9 @@ function toBorshValue(schema: Schema, value: BorshValue): BorshValue {
       }
       if (typeof value === "number" && !Number.isSafeInteger(value)) {
         throw new RangeError(`Unsafe integer for ${schema}`);
+      }
+      if (typeof value === "string" && value.trim().length === 0) {
+        throw new RangeError(`Empty integer for ${schema}`);
       }
       const number = BigInt(value);
       const bits = Number(integer[2]);

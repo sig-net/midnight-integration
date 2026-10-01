@@ -94,7 +94,9 @@ exception for that specific case.
   (`compact update 0.33.0-rc.2`) or your `managed/` output will diverge. The
   launcher tag, the compiler URL, the SHA-256 checksums the workflows verify for
   the two downloads (installer script and compactc zip), the workflow cache
-  keys, the npm `@midnightntwrk/*` stack, and the README's Prerequisites and
+  keys, `COMPACTC_VERSION`, `RUNTIME_VERSION` and every platform hash in
+  `COMPILER_BUILDS` in `packages/midnight-serde-conformance/src/toolchain.ts`,
+  the npm `@midnightntwrk/*` stack, and the README's Prerequisites and
   Matched set tables are a MATCHED SET — bump them together in one change
   (recompute each checksum from a fresh download of the new URL). This trigger
   is bidirectional: a request to "update the compact version" AND a request to

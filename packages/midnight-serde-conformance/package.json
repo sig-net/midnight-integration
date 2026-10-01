@@ -11,8 +11,8 @@
     "compile": "node --import tsx src/compile.ts",
     "generate": "node --import tsx src/generate.ts",
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
-    "test:compiler": "yarn compile && vitest run tests/compatibility.test.ts"
+    "test": "vitest run --exclude tests/response-sweep.test.ts",
+    "test:sweep": "vitest run tests/response-sweep.test.ts"
   },
   "dependencies": {
     "@sig-net/midnight-serde": "workspace:*"

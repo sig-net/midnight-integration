@@ -427,13 +427,16 @@ describe("ABI values to native Borsh responses", () => {
       /does not fit Borsh u128/,
     );
   });
-  it.each(["native", "json", "bytes"])("accepts %s schema", (form) => {
-    const schema: RespondSchemaInput =
-      form === "native"
-        ? RESPONSE_SCHEMA
-        : form === "json"
-          ? JSON.stringify(RESPONSE_SCHEMA)
-          : nulPadded(RESPONSE_SCHEMA, 128);
+  const schemaForms: { name: string; schema: RespondSchemaInput }[] = [
+    { name: "native", schema: RESPONSE_SCHEMA },
+    { name: "JSON", schema: JSON.stringify(RESPONSE_SCHEMA) },
+    { name: "padded bytes", schema: nulPadded(RESPONSE_SCHEMA, 128) },
+    {
+      name: "padded text",
+      schema: new TextDecoder().decode(nulPadded(RESPONSE_SCHEMA, 128)),
+    },
+  ];
+  it.each(schemaForms)("accepts $name schema", ({ schema }) => {
     expect(serializeRespondOutput(schema, { success: true, amount: 42n })).toEqual(
       Uint8Array.from([1, 42, ...new Array<number>(15).fill(0)]),
     );
@@ -460,6 +463,70 @@ describe("ABI values to native Borsh responses", () => {
       /Missing response field/,
     );
   });
+  it.each(["", " ", "\t\n"])("rejects blank integer %j", (amount) => {
+    expect(() => serializeRespondOutput(RESPONSE_SCHEMA, { success: true, amount })).toThrow(
+      "Empty integer for u128",
+    );
+  });
+  const invalidSchemas: { name: string; schema: RespondSchemaInput; error: string }[] = [
+    { name: "empty text", schema: "", error: "Response schema is empty" },
+    { name: "blank text", schema: " \t\n", error: "Response schema is empty" },
+    { name: "NUL text", schema: "\0\0", error: "Response schema is empty" },
+    { name: "NUL bytes", schema: new Uint8Array(4), error: "Response schema is empty" },
+    { name: "invalid JSON text", schema: "{", error: "Response schema is not valid JSON" },
+    {
+      name: "invalid JSON bytes",
+      schema: new TextEncoder().encode("{"),
+      error: "Response schema is not valid JSON",
+    },
+  ];
+  it.each(invalidSchemas)("rejects $name with schema context", ({ schema, error }) => {
+    expect(() => serializeRespondOutput(schema, {})).toThrow(error);
+  });
+  const nativeCases: {
+    name: string;
+    schema: RespondSchemaInput;
+    output: AbiDecodedOutput;
+    expected: string;
+  }[] = [
+    { name: "empty struct", schema: { struct: {} }, output: {}, expected: "" },
+    {
+      name: "optional integer",
+      schema: { struct: { amount: { option: "u16" } } },
+      output: { amount: 256n },
+      expected: "010001",
+    },
+    {
+      name: "optional struct",
+      schema: { option: { struct: { amount: "u16" } } },
+      output: { amount: 256n },
+      expected: "010001",
+    },
+    {
+      name: "enum integer variant",
+      schema: { enum: [{ struct: { success: "bool" } }, { struct: { amount: "u16" } }] },
+      output: { amount: 256n },
+      expected: "010001",
+    },
+    {
+      name: "enum Boolean variant",
+      schema: { enum: [{ struct: { success: "bool" } }, { struct: { amount: "u16" } }] },
+      output: { success: true },
+      expected: "0001",
+    },
+  ];
+  it.each(nativeCases)("converts $name", ({ schema, output, expected }) => {
+    expect(hex(serializeRespondOutput(schema, output))).toBe(expected);
+  });
+  const narrowingSchemas: { name: string; schema: RespondSchemaInput }[] = [
+    { name: "option", schema: { struct: { amount: { option: "u16" } } } },
+    { name: "enum", schema: { enum: [{ struct: { amount: "u16" } }] } },
+  ];
+  it.each(narrowingSchemas)("rejects overflow within $name", ({ schema }) => {
+    expect(() => serializeRespondOutput(schema, { amount: 65536n })).toThrow(
+      "does not fit Borsh u16",
+    );
+  });
 });
 
 const BOOL_RESPONSE_SCHEMA = { struct: { success: "bool" } };
@@ -476,7 +543,13 @@ const VOID_CALL_SCHEMAS: RespondPathSchemas = {
 };
 
 describe("executed EVM Borsh response pipeline", () => {
-  it.each([
+  const successCases: {
+    name: string;
+    schemas: RespondPathSchemas;
+    call: boolean;
+    trace: EvmTraceOutput;
+    expected: string;
+  }[] = [
     {
       name: "transfer",
       schemas: PLAIN_TRANSFER_SCHEMAS,
@@ -492,6 +565,13 @@ describe("executed EVM Borsh response pipeline", () => {
       expected: "01",
     },
     { name: "void", schemas: VOID_CALL_SCHEMAS, call: true, trace: NO_RETURN_DATA, expected: "01" },
+    {
+      name: "empty struct default",
+      schemas: { ...VOID_CALL_SCHEMAS, respondSerializationSchema: { struct: {} } },
+      call: false,
+      trace: NOT_TRACED,
+      expected: "",
+    },
     {
       name: "empty return",
       schemas: VOID_CALL_SCHEMAS,
@@ -529,7 +609,8 @@ describe("executed EVM Borsh response pipeline", () => {
       trace: NO_RETURN_DATA,
       expected: "19000000" + "6e6f6e5f66756e6374696f6e5f63616c6c5f73756363657373",
     },
-  ])("$name", ({ schemas, call, trace, expected }) => {
+  ];
+  it.each(successCases)("$name", ({ schemas, call, trace, expected }) => {
     expect(hex(executedEvmRespondOutput(schemas, call, trace))).toBe(expected);
   });
   it.each([
