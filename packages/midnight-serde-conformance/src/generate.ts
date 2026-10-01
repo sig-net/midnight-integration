@@ -1,13 +1,20 @@
-// Regenerates the committed golden corpus. Explicitly human-invoked
-// (`yarn workspace @midnight-protocol/midnight-serde-conformance generate`):
-// the guard test only ever COMPARES, never writes. Requires the compiled
-// fixture circuits (`yarn compile` first).
-
 import { writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
-import { buildCorpus, CORPUS_URL, corpusText } from "./corpus.ts";
+import { CASES } from "./cases.ts";
+import { fixtureIdentity } from "./toolchain.ts";
 
-const records = buildCorpus();
-writeFileSync(CORPUS_URL, corpusText(records));
-console.log(`wrote ${String(records.length)} records to ${fileURLToPath(CORPUS_URL)}`);
+fixtureIdentity();
+const records = CASES.map(({ name, value, bytes }) => ({
+  name,
+  value,
+  hex: Buffer.from(bytes).toString("hex"),
+}));
+writeFileSync(
+  new URL("../corpus/borsh-corpus.json", import.meta.url),
+  JSON.stringify(
+    records,
+    (_key, value: object | string | number | bigint | boolean | null) =>
+      typeof value === "bigint" ? value.toString() : value,
+    2,
+  ) + "\n",
+);

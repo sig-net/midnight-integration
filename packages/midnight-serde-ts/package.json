@@ -7,7 +7,7 @@
     "directory": "packages/midnight-serde-ts"
   },
   "type": "module",
-  "description": "TypeScript twin of Compact's builtin serialize<T, N> / deserialize<T, N> byte layout, pinned byte-for-byte against compiled circuits.",
+  "description": "Native Borsh serialisation with optional zero padding for Midnight callers.",
   "//exports": "Local dev consumes raw TS source. `publishConfig.exports` below swaps this to the emitted ./dist at publish time, so npm consumers get JS + .d.ts while the monorepo keeps resolving to src.",
   "exports": {
     ".": "./src/index.ts"
@@ -32,11 +32,13 @@
     }
   },
   "devDependencies": {
-    "@midnight-protocol/midnight-serde-conformance": "workspace:*",
     "@types/node": "^26.1.0",
     "@vitest/coverage-v8": "^5.0.0",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
     "vitest": "^5.0.0"
+  },
+  "dependencies": {
+    "borsh": "^2.0.0"
   }
 }

@@ -130,12 +130,10 @@ jobs:
       - name: Compiler-backed serde conformance
         if: steps.serde.outputs.changed == 'true'
         run: yarn workspace @midnight-protocol/midnight-serde-conformance test:compiler
-      - name: Rust replay of compiler-backed serde conformance
+      - name: Rust replay of the Borsh compatibility corpus
         if: steps.serde.outputs.changed == 'true'
         working-directory: packages/midnight-serde-rs
-        env:
-          MIDNIGHT_SERDE_COMPILER_CORPUS: ${{ github.workspace }}/packages/midnight-serde-conformance/managed-sweep/compiler-corpus.jsonl
-        run: cargo test --locked --test conformance compiler_sweep_conformance -- --ignored
+        run: cargo test --locked --test conformance
 
   rust:
     name: rust (fmt → clippy → test against the committed corpus)

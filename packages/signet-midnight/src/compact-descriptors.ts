@@ -21,10 +21,6 @@
 // Delete each piece of this file the moment compact-runtime exports a
 // supported equivalent.
 //
-// These are NOT the `CompactType` schema types of @sig-net/midnight-serde
-// (that package describes the `serialize<T, N>` wire format, a different
-// layer). Package-internal: consumers use the reader/request functions built
-// on top, never these directly.
 
 import {
   type AlignedValue,

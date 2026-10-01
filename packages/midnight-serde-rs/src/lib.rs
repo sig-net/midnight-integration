@@ -1,32 +1,33 @@
-//! Rust twin of Compact's builtin `serialize<T, N>` / `deserialize<T, N>`
-//! byte layout: produce bytes off-chain that a Midnight contract reads with
-//! one `deserialize<T, N>` call, and decode bytes a contract produced with
-//! `serialize<T, N>`. Zero runtime dependencies.
-//!
-//! The layout: struct fields and tuple elements pack in declaration order,
-//! every value little-endian at its natural width (bounded uints and enums as
-//! wide as their largest legal value), no tags, prefixes or gaps, right
-//! zero-padded to `Bytes<N>`.
-//!
-//! Every claim is pinned against the golden corpus committed in the sibling
-//! `midnight-serde-conformance` package, which is itself generated from
-//! compiled Compact circuits and Midnight's own `toBinaryRepr` oracle, so
-//! this crate, the TypeScript twin and the circuits provably agree byte for
-//! byte (see `tests/conformance.rs`).
+//! Native Borsh serialisation with optional zero padding for Midnight callers.
+//! Compact compatibility depends on the caller's type choices, documented in the README.
 
-mod deserialize;
-mod error;
-mod serialize;
-mod types;
-mod u256;
-mod validate;
+pub use borsh::{self, BorshDeserialize, BorshSerialize};
+use std::io::{self, Error, ErrorKind};
 
-pub use deserialize::{DeserializeOptions, deserialize};
-pub use error::Error;
-pub use serialize::{serialize, serialized_size};
-pub use types::{
-    Descriptor, FIELD_MODULUS, MAX_UINT_BITS, MAX_ZERO_WIDTH_ELEMENTS, SECP256K1_BASE_MODULUS,
-    SECP256K1_SCALAR_MODULUS, Value,
-};
-pub use u256::U256;
-pub use validate::validate;
+/// Serialise a native Borsh value, optionally extending its encoding with zeros.
+///
+/// Returns an error when Borsh fails or the requested length is too small.
+pub fn serialize<T: BorshSerialize + ?Sized>(
+    value: &T,
+    length: Option<usize>,
+) -> io::Result<Vec<u8>> {
+    let mut bytes = borsh::to_vec(value)?;
+    if let Some(length) = length {
+        if length < bytes.len() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "Output length is smaller than the Borsh encoding",
+            ));
+        }
+        bytes.resize(length, 0);
+    }
+    Ok(bytes)
+}
+
+/// Decode one native Borsh value from the start of the buffer.
+///
+/// Uses Borsh's reader API so trailing padding is left unread.
+/// Returns the native Borsh decoding error for malformed input.
+pub fn deserialize<T: BorshDeserialize>(bytes: &[u8]) -> io::Result<T> {
+    T::deserialize_reader(&mut &bytes[..])
+}

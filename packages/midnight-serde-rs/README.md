@@ -1,72 +1,63 @@
 # signet-midnight-serde
 
-Rust twin of Compact's builtin `serialize<T, N>` / `deserialize<T, N>` byte
-layout: produce bytes off-chain that a Midnight contract reads with one
-`deserialize<T, N>` call, and decode bytes a contract produced with
-`serialize<T, N>`. Zero runtime dependencies. The sibling
-[`midnight-serde-ts`](../midnight-serde-ts) package is the TypeScript twin of
-the same layout.
+A thin wrapper around the real Rust `borsh` crate, pinned to 1.8.1. Values use native Rust types and Borsh derives. Optional zero padding supports Midnight fixed byte containers.
 
-The layout: struct fields and tuple elements pack in declaration order, every
-value little-endian at its natural width (bounded uints and enums as wide as
-their largest legal value, so `Uint<0..1>` and single-variant enums are ZERO
-bytes), no tags, prefixes or gaps, right zero-padded to `Bytes<N>`. The
-`Uint<0..n>` upper bound is EXCLUSIVE.
+## Use
 
 ```rust
-use signet_midnight_serde::{Descriptor, Value, U256, serialize, deserialize, DeserializeOptions};
+use signet_midnight_serde::{borsh, BorshDeserialize, BorshSerialize, deserialize, serialize};
 
-// Compact: struct Result { ok: Boolean; amount: Uint<128>; }
-let result = Descriptor::Struct {
-    fields: vec![
-        ("ok".to_string(), Descriptor::Boolean),
-        ("amount".to_string(), Descriptor::UintBits { bits: 128 }),
-    ],
-};
-let value = Value::Struct(vec![
-    ("ok".to_string(), Value::Bool(true)),
-    ("amount".to_string(), Value::Uint(U256::from(4242u64))),
-]);
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+struct ResultValue {
+    ok: bool,
+    amount: u128,
+}
 
-// serialize<Result, 128> twin: packed value at the start, zero-padded to 128.
-let bytes = serialize(&result, &value, Some(128)).unwrap();
-let decoded = deserialize(&result, &bytes, DeserializeOptions::default()).unwrap();
-assert_eq!(decoded, value);
+let result = ResultValue { ok: true, amount: 4242 };
+let bytes = serialize(&result, Some(128)).unwrap();
+let decoded: ResultValue = deserialize(&bytes).unwrap();
+assert_eq!(decoded, result);
 ```
 
-Strict by default, exactly like the TypeScript twin: out-of-range Uint, enum
-and Field encodings fail where the circuit fails, and the two deliberate
-divergences from the circuit both have opt-outs (`ignore_padding` for the
-padding region the circuit ignores, `lenient_booleans` for the bytes above
-0x01 the circuit decodes as false). Rejections carry language-neutral
-category slugs via `Error::category`, shared with the conformance corpus.
+`serialize(&value, length)` delegates to `borsh::to_vec` and optionally extends the result with zeros. A total length smaller than the encoding returns an error. `deserialize::<T>(&bytes)` uses `T::deserialize_reader`, consuming the value prefix and leaving any trailing bytes unread. The crate re-exports Borsh and its derive traits.
 
-`Descriptor::Secp256k1Base` and `Descriptor::Secp256k1Scalar` use matching
-`Value` variants and exported modulus constants. Both occupy 32 bytes.
-Encoding rejects values at or above the modulus, while decoding reduces the
-input modulo that modulus, matching compiled Compact. Native `Field` decoding
-rejects out-of-range inputs. `JubjubScalar` is unsupported: the pinned
-compiler crashes on its serialisation and deserialisation.
+Use `[T; N]` for fixed arrays. A `Vec<T>` has a length prefix. Native Rust `Option<T>` and payload enums retain their standard Borsh representation. The wrapper accepts any native Borsh type and has no Compact compatibility gate or runtime descriptor system.
 
-## Testing
+## Compact-compatible types
 
-`cargo test --locked` replays every record of the COMMITTED golden corpus in
-[`../midnight-serde-conformance/corpus/serde-corpus.jsonl`](../midnight-serde-conformance/corpus/serde-corpus.jsonl),
-which is generated from compiled Compact circuits, Midnight's `toBinaryRepr`
-oracle and the TypeScript twin, and guarded against staleness on the TS side.
-Each record identifies its authority: compiler-generated JavaScript, FAB
-oracle, twin policy or production mapping. A green run establishes agreement
-with those recorded expectations. A native seeded sweep adds randomised
-roundtrip coverage, and malformed-input tables check descriptor and value
-validation. The compiler-backed suite generates an additional corpus that
-CI replays through Rust when one of the three serde packages changes.
-Proof and Impact VM execution remain outside this evidence.
+These are caller responsibilities, documented here without a runtime Compact compatibility gate. Native Borsh also accepts types outside this subset. Use the following representations to obtain bytes compatible with Compact's standard-library `serialize<T, N>` and `deserialize<T, N>` on valid values:
 
-From the repo root: `yarn test:midnight-serde-rs` / `yarn build:midnight-serde-rs`.
+| Compact type | Native Borsh representation | Conditions |
+| --- | --- | --- |
+| `Boolean` | Boolean | Use canonical values and encodings 0 or 1. |
+| `Uint<8>`, `Uint<16>`, `Uint<32>`, `Uint<64>`, `Uint<128>` | `u8`, `u16`, `u32`, `u64`, `u128` | Values must fit the unsigned width. |
+| Other sized or bounded uint | Unsigned integer of exactly the same byte width | That width must be 1, 2, 4, 8 or 16. The value must also satisfy Compact's narrower bound. For example, `Uint<12>` uses `u16` but values must be below 4096. |
+| `Bytes<n>` | Fixed byte array | Exact length. For interoperability with borsh-js 2.0.0, use positive lengths. |
+| `Vector<n, T>` | Fixed array | Exact length, positive for cross-language interoperability, and compatible element types. |
+| Struct or tuple | Fields in the same order | Every member must satisfy this table recursively. |
+| Enum with 2 to 256 variants | Payload-free enum with matching ordinal | Same variant order. |
+| `Maybe<T>` | Struct with `is_some: bool`, then `value: T` | Always include the value arm, including when absent. |
+| `Either<A, B>` | Struct with `is_left: bool`, then `left: A`, then `right: B` | Always include both arms. |
 
-## Pinning
+The byte layout and the value constraints are separate contracts. The wrappers do not impose Compact integer bounds, field moduli or an allowlist. They use native Borsh behaviour. A successful Borsh round trip does not prove that Compact accepts the value or that the complete bytes are canonical for a chosen `N`.
 
-An isolated crate (not part of any Cargo workspace): `Cargo.lock` is
-committed and CI runs `--locked`, and `rust-toolchain.toml` pins the
-toolchain. Releases go to crates.io through the repo's publish workflow
-(OIDC trusted publishing), which skips any version already published.
+## Types and behaviours that need care
+
+- `Uint<24>`, `Uint<40>`, `Uint<248>` and `Field` have no matching native Borsh integer. Do not substitute a wider or narrower integer. Explicit fixed byte arrays require application-owned numeric conversions and validation.
+- `Uint<0..1>` and a singleton Compact enum occupy zero bytes. Borsh integers and enum tags do not. There is no automatic singleton conversion here.
+- Borsh dynamic arrays and strings include a four-byte length. Compact vectors and byte buffers are fixed-size. Use fixed arrays for direct compatibility.
+- Native Borsh options and payload enums differ from Compact `Maybe` and `Either`. In particular, an absent Borsh `Option<u64>` is one byte, while Compact `Maybe<Uint<64>>` occupies nine bytes.
+- Signed integers, floats, maps and sets have native Borsh meanings, but this package makes no claim that they correspond to Compact types.
+- Compact `serialize<T, N>` pads to `N`. Pass the optional total output length to the wrapper when padding is needed. The decoding wrapper reads the Borsh value prefix and accepts trailing bytes. It does not validate padding.
+- borsh-js 2.0.0 treats fixed arrays with `len: 0` as dynamic arrays and adds a four-byte prefix. Rust Borsh fixed empty arrays occupy zero bytes. This is an implementation difference, not the fixed-array rule of the Borsh format.
+- borsh-js 2.0.0 accepts non-zero Boolean bytes as true and can silently truncate overflowing integers. Rust's native Boolean decoder rejects byte 2. Do not use malformed-input behaviour as a cross-language contract.
+
+For the EVM response path, `@sig-net/midnight` decodes `uint256` using ethers and performs checked conversion to the response schema's `u128` before invoking this package. Values outside `0 <= value < 2^128` throw before response bytes are attested. The matching Compact response field is `Uint<128>`. This value conversion belongs to the EVM mapping layer, not to these generic Borsh wrappers.
+
+## Evidence and references
+
+The [conformance kit](../midnight-serde-conformance/README.md) compares native Borsh encodings with compiler-generated Compact fixtures for the documented subset. It also records examples of incompatibility. These tests execute generated JavaScript, not proof verification, and do not establish equivalence for the entire Compact type system.
+
+- [Borsh specification](https://borsh.io/#specification)
+- [borsh-js](https://github.com/near/borsh-js)
+- [Rust Borsh](https://docs.rs/borsh/1.8.1/borsh/)

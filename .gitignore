@@ -20,3 +20,5 @@ package.tgz
 .env.stagenet
 .eslintcache
 coverage/
+
+.cargo-local/

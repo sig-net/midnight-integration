@@ -130,3 +130,9 @@ the same tags and field order as the circuits.
 `constructSignBidirectionalEventV1` rejects a `signatureDest` other than
 `MPCDestination.unused` and any non-zero byte in `params`. Both fields
 are reserved and remain outside the request id.
+
+## EVM output and Borsh responses
+
+`outputDeserializationSchema` is an ethers-compatible ABI field array. `respondSerializationSchema` is native borsh-js JSON. These fields have independent lengths and representations. For example, an ABI result `[{"name":"success","type":"bool"},{"name":"amount","type":"uint256"}]` can map to `{"struct":{"success":"bool","amount":"u128"}}`.
+
+`serializeRespondOutput` converts decoded ABI numbers and byte strings into the requested Borsh value representation, then calls `@sig-net/midnight-serde`. Integer conversion rejects any value outside its Borsh range, including `uint256` values that do not fit `u128`. `executedEvmRespondOutput` uses this conversion before returning bytes for attestation. Schema compatibility with Compact is a caller responsibility described in the [Borsh wrapper documentation](../midnight-serde-ts/README.md), with no Compact compatibility gate in this path.

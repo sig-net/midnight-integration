@@ -37,13 +37,13 @@ sealed ledger signetSigner: SignetSigner;
 
 // field 3: the request map the MPC reads requests back from. Sized for EVM
 // Type 2 transactions with <1 calldata word, 0 access-list entries,
-// 0 storage keys> and the exact-width 34-byte single-bool schema. Shared by
+// 0 storage keys>, a 34-byte ABI schema and a 29-byte Borsh schema. Shared by
 // every request of that shape: submitSignatureRequest and
 // submitIsEvenRequest. Schemas are EXACT-length by protocol convention
 // (never NUL-padded: the MPC's raw reader recovers the width from the
 // stored bytes, and trailing zeros would be trimmed), so a request with a
 // different schema length needs its own map: see field 6.
-export ledger signBidirectionalEventMap: SignBidirectionalEventMapV1<EvmType2TxParams<1, 0, 0>, 34, 34>;
+export ledger signBidirectionalEventMap: SignBidirectionalEventMapV1<EvmType2TxParams<1, 0, 0>, 34, 29>;
 
 // field 4: identity commitment of the deployer, gating initialise().
 sealed ledger deployer: Bytes<32>;
@@ -51,17 +51,18 @@ sealed ledger deployer: Bytes<32>;
 // field 5: whether initialise has run (0 = no, 1 = yes).
 export ledger initialised: Counter;
 
-// field 6: the request map for the 69-byte bool+uint256 schema
+// field 6: the request map for the 69-byte ABI bool+uint256 schema
+// and the 45-byte Borsh bool+u128 schema
 // (submitCheckAndDoubleRequest). One map per schema WIDTH is the growth
 // pattern: the notification names each map's field position, so the MPC
 // locates whichever map a request lives in. New fields append AFTER this
 // one, existing positions stay fixed.
-export ledger signBidirectionalEventMap69: SignBidirectionalEventMapV1<EvmType2TxParams<1, 0, 0>, 69, 69>;
+export ledger signBidirectionalEventMap69: SignBidirectionalEventMapV1<EvmType2TxParams<1, 0, 0>, 69, 45>;
 
 // field 7: the amount each verified checkAndDouble response returned, keyed
 // by the request it settled: what a real client does with an attested
 // output once the signature over it has verified.
-export ledger checkAndDoubleAmounts: Map<RequestId, Field>;
+export ledger checkAndDoubleAmounts: Map<RequestId, Uint<128>>;
 
 // field 8: the MPC's verdict on each settled failure, keyed by the request
 // it settled: failed (the transaction reverted) or unviable (another
@@ -124,8 +125,9 @@ export circuit submitSignatureRequest(
     accessList: []
   };
 
-  const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
-  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
+  const outputSchema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
+  const respondSchema = "{\"struct\":{\"success\":\"bool\"}}" as Bytes<29>;
+  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 29>(
     keyVersion,
     kernel.self(),
     pad(32, "caller-path"),
@@ -135,10 +137,10 @@ export circuit submitSignatureRequest(
     ethereumCaip2Id(),
     MPCDestination.unused,
     pad(64, ""),
-    schema,
-    schema
+    outputSchema,
+    respondSchema
   );
-  const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34, 34>(request));
+  const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34, 29>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signBidirectionalEventMap.insert(requestId, disclose(request));
@@ -192,8 +194,9 @@ export circuit submitIsEvenRequest(
     accessList: []
   };
 
-  const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
-  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
+  const outputSchema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
+  const respondSchema = "{\"struct\":{\"success\":\"bool\"}}" as Bytes<29>;
+  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 29>(
     keyVersion,
     kernel.self(),
     pad(32, "caller-path"),
@@ -203,10 +206,10 @@ export circuit submitIsEvenRequest(
     ethereumCaip2Id(),
     MPCDestination.unused,
     pad(64, ""),
-    schema,
-    schema
+    outputSchema,
+    respondSchema
   );
-  const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34, 34>(request));
+  const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34, 29>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signBidirectionalEventMap.insert(requestId, disclose(request));
@@ -226,10 +229,10 @@ export circuit submitIsEvenRequest(
 // Real EVM leg, stage 1b: SignetEvmTarget.checkAndDouble(uint256) on the
 // local anvil, also broadcast by the e2e. The selector is the first 4 bytes
 // of keccak256("checkAndDouble(uint256)"), pinned here and lockstep-checked
-// against ethers in the e2e. The respond schema is bool + uint256 (69
-// bytes, a different exact width than field 3's), so the request lives in
+// against ethers in the e2e. The ABI output schema is bool + uint256 (69 bytes),
+// and the Borsh response schema is bool + u128 (45 bytes), so the request lives in
 // the field-6 map (named in the notification) and its responses verify via
-// verifyCheckAndDoubleResponse (packed respond payload: 33 bytes).
+// verifyCheckAndDoubleResponse (packed respond payload: 17 bytes).
 export circuit submitCheckAndDoubleRequest(
   evmNonce: Uint<64>,
   keyVersion: Uint<8>,
@@ -255,8 +258,9 @@ export circuit submitCheckAndDoubleRequest(
     accessList: []
   };
 
-  const schema = "[{\"name\":\"success\",\"type\":\"bool\"},{\"name\":\"amount\",\"type\":\"uint256\"}]" as Bytes<69>;
-  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 69, 69>(
+  const outputSchema = "[{\"name\":\"success\",\"type\":\"bool\"},{\"name\":\"amount\",\"type\":\"uint256\"}]" as Bytes<69>;
+  const respondSchema = "{\"struct\":{\"success\":\"bool\",\"amount\":\"u128\"}}" as Bytes<45>;
+  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 69, 45>(
     keyVersion,
     kernel.self(),
     pad(32, "caller-path"),
@@ -266,10 +270,10 @@ export circuit submitCheckAndDoubleRequest(
     ethereumCaip2Id(),
     MPCDestination.unused,
     pad(64, ""),
-    schema,
-    schema
+    outputSchema,
+    respondSchema
   );
-  const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 69, 69>(request));
+  const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 69, 45>(request));
 
   assert(!signBidirectionalEventMap69.member(requestId), "Request already exists");
   signBidirectionalEventMap69.insert(requestId, disclose(request));
@@ -319,8 +323,9 @@ export circuit submitRevertIfRequest(
     accessList: []
   };
 
-  const schema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
-  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
+  const outputSchema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
+  const respondSchema = "{\"struct\":{\"success\":\"bool\"}}" as Bytes<29>;
+  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 29>(
     keyVersion,
     kernel.self(),
     pad(32, "caller-path"),
@@ -330,10 +335,10 @@ export circuit submitRevertIfRequest(
     ethereumCaip2Id(),
     MPCDestination.unused,
     pad(64, ""),
-    schema,
-    schema
+    outputSchema,
+    respondSchema
   );
-  const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34, 34>(request));
+  const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34, 29>(request));
 
   assert(!signBidirectionalEventMap.member(requestId), "Request already exists");
   signBidirectionalEventMap.insert(requestId, disclose(request));
@@ -407,15 +412,10 @@ export circuit verifyResponse(
   signBidirectionalEventMap.remove(disclosedRequestId);
 }
 
-// The contract's own declaration of the checkAndDouble respond schema
-// ("[{\"name\":\"success\",\"type\":\"bool\"},{\"name\":\"amount\",\"type\":\"uint256\"}]"):
-// the MPC packs the decoded EVM output to this struct's exact serialized
-// width (33 bytes: a 1-byte bool followed by a 32-byte little-endian Field),
-// and verifyCheckAndDoubleResponse unpacks it back with the stdlib
-// deserialize.
+// Field order and widths must match the Borsh response schema.
 struct CheckAndDoubleResponse {
   success: Boolean;
-  amount: Field;
+  amount: Uint<128>;
 }
 
 // Same in-circuit verification as verifyResponse but for the checkAndDouble
@@ -426,7 +426,7 @@ struct CheckAndDoubleResponse {
 // the output width.
 export circuit verifyCheckAndDoubleResponse(
   respondBidirectionalEvent: RespondBidirectionalEventV1,
-  serializedOutput: Bytes<33>
+  serializedOutput: Bytes<17>
 ): [] {
   const disclosedRequestId = disclose(respondBidirectionalEvent.requestId);
 
@@ -436,7 +436,7 @@ export circuit verifyCheckAndDoubleResponse(
   );
 
   assert(
-    verifyRespondBidirectionalEventV1<33>(
+    verifyRespondBidirectionalEventV1<17>(
       serializedOutput,
       disclose(respondBidirectionalEvent),
       mpcResponseKey
@@ -448,7 +448,7 @@ export circuit verifyCheckAndDoubleResponse(
     "Attestation is not an execution"
   );
 
-  const response = deserialize<CheckAndDoubleResponse, 33>(serializedOutput);
+  const response = deserialize<CheckAndDoubleResponse, 17>(serializedOutput);
   assert(response.success, "Foreign call reported failure");
 
   assert(signBidirectionalEventMap69.member(disclosedRequestId), "Request not found");

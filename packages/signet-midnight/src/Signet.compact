@@ -120,10 +120,9 @@ module Signet {
     // Serialisation Schemas.
     // outputDeserializationSchema tells the MPC how to deserialise the destination chain's
     // execution output (destination chain -> MPC). respondSerializationSchema tells the MPC
-    // how to serialise that output into the RespondBidirectionalEvent it posts back
-    // (MPC -> Midnight).
-    // Both are ABI-style JSON schema strings, sized per client contract
-    // (see: https://docs.soliditylang.org/en/v0.8.30/abi-spec.html#json)
+    // how to encode the output bytes covered by its response attestation.
+    // EVM output decoding uses an ABI field array. Response encoding uses native
+    // Borsh schema JSON. Each field is sized to its own schema string.
     outputDeserializationSchema: Bytes<LenOutputDeserialization>;
     respondSerializationSchema: Bytes<LenRespondSerialization>;
   }

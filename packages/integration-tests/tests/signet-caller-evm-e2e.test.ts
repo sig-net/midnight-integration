@@ -37,11 +37,11 @@
 import type { Ledger as CallerLedger } from "@midnight-protocol/test-caller-contract";
 import {
   type AbiDecodedOutput,
-  type AbiSchema,
   boolAbiWord,
   calculateRequestId,
   deriveEvmAddress,
   deserializeEvmOutput,
+  type EvmSchemaField,
   EvmTraceOutputKind,
   executedEvmRespondOutput,
   hexToBytes,
@@ -54,6 +54,7 @@ import {
   requestIdHex,
   type RespondBidirectionalEvent,
   respondBidirectionalEventToCircuitInput,
+  type RespondSchemaInput,
   signBidirectionalEventToSignedEvmTransaction,
   SIGNET_DEFAULT_KEY_VERSION,
   stripHexPrefix,
@@ -107,10 +108,10 @@ const requireEnv = (name: string): string => requireEnvOf(env, name);
 const session = createCallerE2eSession(env);
 
 // TS mirrors of the contract-fixed schema literals (the submit stage pins
-// them against the LIVE ledger record). The same JSON drives both
-// directions: the EVM output decode and the packed respond encoding.
-const BOOL_SCHEMA: AbiSchema = [{ name: "success", type: "bool" }];
-const BOOL_UINT_SCHEMA: AbiSchema = [
+// them against the live ledger record). EVM decoding uses ABI schemas.
+// Response encoding uses native Borsh schemas.
+const BOOL_ABI_SCHEMA: EvmSchemaField[] = [{ name: "success", type: "bool" }];
+const BOOL_UINT_ABI_SCHEMA: EvmSchemaField[] = [
   { name: "success", type: "bool" },
   { name: "amount", type: "uint256" },
 ];
@@ -170,8 +171,9 @@ interface EvmMethodCase {
   map: CallerRequestMap;
   /** The map's ledger field position (named in the notification). */
   requestsIndexField: number;
-  /** TS mirror of the contract-fixed schema (both directions). */
-  schema: AbiSchema;
+  /** ABI schema for decoding the EVM return data. */
+  outputSchema: EvmSchemaField[];
+  respondSchema: RespondSchemaInput;
   /** How the broadcast ends and how the attestation is settled. */
   outcome: EvmMethodOutcome;
   /** The ledger record the verify circuit writes, when it writes one. */
@@ -196,7 +198,8 @@ const METHODS: EvmMethodCase[] = [
     argLabel: "6",
     map: "signBidirectionalEventMap",
     requestsIndexField: 3,
-    schema: BOOL_SCHEMA,
+    outputSchema: BOOL_ABI_SCHEMA,
+    respondSchema: { struct: { success: "bool" } },
     outcome: { kind: OutputKind.executed, expectedDecoded: { success: true }, packedWidth: 1 },
     resumeEnvVar: "CALLER_EVM_REQUEST_ID_ISEVEN",
     submit: (context, evmNonce, to) =>
@@ -216,11 +219,12 @@ const METHODS: EvmMethodCase[] = [
     argLabel: "21",
     map: "signBidirectionalEventMap69",
     requestsIndexField: 6,
-    schema: BOOL_UINT_SCHEMA,
+    outputSchema: BOOL_UINT_ABI_SCHEMA,
+    respondSchema: { struct: { success: "bool", amount: "u128" } },
     outcome: {
       kind: OutputKind.executed,
       expectedDecoded: { success: true, amount: 42n },
-      packedWidth: 33,
+      packedWidth: 17,
     },
     settlement: {
       description: "the amount checkAndDouble returned, deserialised in-circuit",
@@ -246,7 +250,8 @@ const METHODS: EvmMethodCase[] = [
     argLabel: "true",
     map: "signBidirectionalEventMap",
     requestsIndexField: 3,
-    schema: BOOL_SCHEMA,
+    outputSchema: BOOL_ABI_SCHEMA,
+    respondSchema: { struct: { success: "bool" } },
     outcome: { kind: OutputKind.failed },
     settlement: {
       description: "the MPC's verdict on the reverted transaction",
@@ -532,8 +537,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         );
         expect(record.txParams.calldata.value.words[0]).toEqual(method.argWord);
         const schemaJson = new TextDecoder().decode(record.respondSerializationSchema);
-        expect(JSON.parse(schemaJson)).toEqual(method.schema);
-        expect(record.outputDeserializationSchema).toEqual(record.respondSerializationSchema);
+        expect(JSON.parse(schemaJson)).toEqual(method.respondSchema);
+        expect(JSON.parse(new TextDecoder().decode(record.outputDeserializationSchema))).toEqual(
+          method.outputSchema,
+        );
         expect(requestId).toBe(requestIdHex(calculateRequestId(record)));
 
         banner([
@@ -690,14 +697,14 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           if (trace.kind !== EvmTraceOutputKind.Output) {
             throw new Error(`the ${method.name} call's trace carries no return data`);
           }
-          const decoded = deserializeEvmOutput(method.schema, trace.returnData);
+          const decoded = deserializeEvmOutput(method.outputSchema, trace.returnData);
           expect(decoded, "the EVM output must decode to the expected values").toEqual(
             outcome.expectedDecoded,
           );
           respondBytes = executedEvmRespondOutput(
             {
-              outputDeserializationSchema: method.schema,
-              respondSerializationSchema: method.schema,
+              outputDeserializationSchema: method.outputSchema,
+              respondSerializationSchema: method.respondSchema,
             },
             isEvmContractCall(signedTx.data),
             trace,

@@ -23,3 +23,5 @@ midnight-level-db/
 *.md
 *.yml
 *.yaml
+
+.cargo-local/
