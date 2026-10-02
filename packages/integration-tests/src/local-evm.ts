@@ -174,9 +174,17 @@ export async function getEvmNonce(rpcUrl: string, address: string): Promise<bigi
 /**
  * The first block at which `address` had spent `nonce`: the block holding
  * the transaction that took the nonce from a signed-but-never-broadcast
- * request, found by bisecting the account's transaction count over the
- * chain height. An independent oracle for the height the MPC attests an
+ * request. An independent oracle for the height the MPC attests an
  * unviable request at.
+ *
+ * The search gallops back from the tip, doubling its span until it finds a
+ * block where the nonce was still unspent, then bisects that span. Anvil
+ * serves account state only for its most recent few thousand blocks and
+ * answers `BlockOutOfRangeError` below that, so a search anchored at
+ * genesis fails on a chain that has run for an hour. Starting at the tip
+ * keeps every query within twice the spend's age of the tip, inside the
+ * retained window whenever the nonce was spent recently, which it always
+ * is in this suite.
  *
  * @param rpcUrl - The JSON-RPC endpoint.
  * @param address - The sending account.
@@ -191,22 +199,35 @@ export async function findNonceConsumedBlock(
 ): Promise<bigint> {
   const provider = new JsonRpcProvider(rpcUrl);
   try {
-    let low = 0;
+    const spentAt = async (block: number): Promise<boolean> =>
+      BigInt(await provider.getTransactionCount(address, block)) > nonce;
     let high = await provider.getBlockNumber();
-    if (BigInt(await provider.getTransactionCount(address, high)) <= nonce) {
+    if (!(await spentAt(high))) {
       throw new Error(
         `${address} has not spent nonce ${String(nonce)} as of block ${String(high)}`,
       );
     }
-    while (low < high) {
+    // Gallop: `low` is the newest block known to predate the spend.
+    let span = 1;
+    let low = high - span;
+    while (low > 0 && (await spentAt(low))) {
+      high = low;
+      span *= 2;
+      low = Math.max(0, high - span);
+    }
+    if (low === 0 && (await spentAt(0))) {
+      return 0n;
+    }
+    // Bisect: spent at `high`, unspent at `low`.
+    while (high - low > 1) {
       const mid = Math.floor((low + high) / 2);
-      if (BigInt(await provider.getTransactionCount(address, mid)) > nonce) {
+      if (await spentAt(mid)) {
         high = mid;
       } else {
-        low = mid + 1;
+        low = mid;
       }
     }
-    return BigInt(low);
+    return BigInt(high);
   } finally {
     provider.destroy();
   }
