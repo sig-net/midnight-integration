@@ -93,7 +93,7 @@ After recovering and deserialising the execution output, the MPC maps the decode
 
 The supported types and their mappings are specific to the execution chain. The following lists are exhaustive.
 
-#### Ethereum to Compact
+#### Ethereum → Compact
 
 | ABI type  | Compact type | Comment                                                                                                                                                      |
 | --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
