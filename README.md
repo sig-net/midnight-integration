@@ -61,39 +61,60 @@ Illustrated below, the protocol is best understood in 5 steps:
 
 ## Output Recovery and Serialisation
 
-Step **5.** needs the exact serialised output the MPC attested. The MPC extracts, deserialises and then reserialises the output before it is attested.
+Step **5.** needs the exact serialised output the MPC attested. The MPC extracts, deserialises and then reserialises the output before it is attested. Clients need to be able to reproduce it.
 
 ```
 Output Extracted → Deserialised → Serialised → Attested
 ```
 
-So clients need to be able to reproduce it. The serialised output itself does not travel on chain: the **RespondBidirectionalEvent** carries the attestation digest and the signature over it.
+### Output Recovery and Deserialisation
 
-How the MPC and clients do output recovery and handle serialisation is foreign chain specific.
+The serialised output itself does not travel on chain: the **RespondBidirectionalEvent** carries the attestation digest and the signature over it.
 
-| Chain | Recovery Method | SDK Helper |
+How the MPC and clients do output recovery and handle serialisation is execution chain specific. 
+
+For each supported chain the recovery method employed:
+
+| Execution Chain | Recovery Method | SDK Helper |
 | ------- | ------| ------ |
 |Ethereum| `debug_traceTransaction` RPC Call (callTracer, top call frame) | [`evmTraceOutputFromCallFrame`](./packages/signet-midnight/src/abi-serde.ts)|
 
-The MPC deserializes outputs using the `outputDeserializationSchema` provided by the client contract in its `SignBidirectionalEventV1`. The protocol employed to deserialize the extracted output is also chain specific.
+The MPC deserializes outputs using the `outputDeserializationSchema` provided by the client contract in its `SignBidirectionalEventV1`. The protocol employed to deserialize the extracted output is also chain specific. The `outputDeserializationSchema` needs to match the transaction execution chain.
 
-| Chain | Encoding |
+For each supported chain the encoding protocol employed:
+
+| Execution Chain | Encoding |
 | ------- | ------|
 |Ethereum| ABI |
 
-Once decoded the MPC
+### Serialization for Attestation
 
-### Serialisation
+After recovery and deserialisation of the transaction's execution output the MPC maps it to a subset of supported compact types before applying borsh serialisation. The resultant bytes are then readable by the compact standard library `deserialise<T, L>(...)` circuit.
 
-- **Output recovery is chain-specific.** For EVM chains the output is the mined call's return data, read with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. [`evmTraceOutputFromCallFrame`](./packages/signet-midnight/src/abi-serde.ts) reads the returned frame by the MPC's rules: it refuses a frame that is not a call frame or that reports an `error`, and tells return data (a string `output`, even `0x`) from none. The client rebuilds the attested bytes from it with [`executedEvmRespondOutput`](./packages/signet-midnight/src/abi-serde.ts), the rule step **4.** ran: it takes the request's two schemas, whether the transaction was a contract call ([`isEvmContractCall`](./packages/signet-midnight/src/abi-serde.ts) over its calldata) and the traced return data, decoding a contract call's return data per the `outputDeserializationSchema` and re-serialising it per the `respondSerializationSchema`, and synthesising the output of a plain transfer or a void call.
-- **Getting the output yourself is the most trustless route.** The dApp broadcast the transaction in step **3.**, so it can read the result from a node of its own choosing, with no third party in the loop.
-- **An MPC _may_ publish the attested bytes into a cache.** MPC nodes read the output to attest it and can be configured to upload the output to a public bucket. If configured to do this, then BEFORE the attestation is posted to chain the associated serialised output is written to an object at the path `<prefix>/<networkId>/<signetContractAddress>/<requestId>.bin`.
-- **A default cache is available where a tracing RPC is not.** Hosted EVM providers often gate `debug_traceTransaction` behind a paid tier. An application without one may read the attested bytes from the cache this package publishes for its network:
+Types supported and their mappings are execution chain specific. Following are **Exhaustive Lists** of supported types and their mappings per supported exectuion chain:
+
+#### Ethereum <--> Compact
+
+| ABI Type | Compact | Comment
+| ------- | ------|------|
+|Uint256| Bytes<32> |For use as number in compact perform checked truncation to Uint<128> in circuit.|
+|bool| bool |Equivalent|
+|Bytes[n]| Bytes<n> |Fixed lengths ONLY|
+
+> **NO OTHER TYPES ARE SUPPORTED**. The MPC will **DROP** requests if the ABI output word types are not in the table above.
+
+### Serialized Output MPC Cache
+
+Getting the output yourself is the most trustless route. The dApp broadcast the transaction in step **3.**, so it can read the result from a node of its own choosing, with no third party in the loop.
+
+A Sig Network MPC node _may_ publish the attested bytes into a cache. MPC nodes read the output to attest it and can be configured to upload the output to a public bucket. If configured to do this, then BEFORE the attestation is posted to chain the associated serialised output is written to an object at the path `<prefix>/<networkId>/<signetContractAddress>/<requestId>.bin`.
+
+Hosted EVM providers often gate `debug_traceTransaction` behind a paid tier. An application without one may read the attested bytes from the cache this package publishes for its network:
   - [`MpcOutputCacheReader`](./packages/signet-midnight/src/mpc-output-cache.ts) is the client. Construct it with the network id and the signet contract address. The cache URL defaults to the one [`getMpcOutputCacheUrl`](./packages/signet-midnight/src/constants.ts) publishes for that network (stagenet: `https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet`).
   - `fetchSerializedOutput(requestId)` returns the attested bytes. It returns `undefined` while the MPC has not written them yet, so poll it beside the attestation events.
   - The local fakenet responder simulates the same bucket on port 3040 under the prefix `v1/fakenet`. Pass `cacheUrl: "http://127.0.0.1:3040/v1/fakenet"` and the same reader works against the local stack.
 
-Whichever route supplies them, the bytes are UNTRUSTED until step **5.**'s in-circuit signature verification: a wrong or forged output merely fails to verify.
+Whichever route supplies them, the serialized output should be considered UNTRUSTED until step **5.**'s in-circuit signature verification: a wrong or forged output merely fails to verify.
 
 ## Sign Bidirectional Event Discovery & Verification
 
