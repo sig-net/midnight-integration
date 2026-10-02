@@ -46,7 +46,10 @@ Illustrated below, the protocol is best understood in 5 steps:
 - **4.** The MPC network observes execution of the signed transaction on the foreign blockchain and posts an attestation thereof back to Midnight.
   - The MPC network, watching for transaction executions on the foreign blockchain, observes execution of the transaction signed in step **2.**.
   - It determines three facts about the execution, all of which it attests:
-    - **`outputKind`**: `executed` (the transaction was finalised and succeeded), `failed` (it was finalised and reverted) or `unviable` (a finalised transaction carrying other bytes took its nonce, so it can never execute).
+    - **`outputKind`**: the MPC's verdict, one of:
+      - `executed`: the transaction was finalised and succeeded.
+      - `failed`: the transaction was finalised and reverted.
+      - `unviable`: a finalised transaction carrying other bytes took its nonce, so it can never execute.
     - **`blockHeight`**: the height of the finalised destination block that settled the verdict, in that chain's own numbering (a slot on Solana).
     - **`serializedOutput`**: only present under `executed`, and possibly empty. The MPC extracts the output of the transaction execution (if any) and decodes it using the `outputDeserializationSchema` given in the **SignBidirectionalEvent** from step **2.**. It maps the decoded values to Compact-compatible types and serialises them with Borsh against a schema derived from that mapping. The integrating contract reads the result in-circuit with Compact's built-in `deserialize<T, N>(...)`. See [Output Recovery and Serialisation](#output-recovery-and-serialisation) for detail. Under `failed` and `unviable` the output is empty (zero bytes).
   - The MPC creates the attestation as the ECDSA signature over the **attestation digest**, signed with the integrating contract's own **Response Signing Key** (see [Derived Keys](#derived-keys)). The digest is `upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]))` (see [`calculateSignetAttestationDigestV1`](./packages/signet-midnight/src/Signet.compact#L376)).
@@ -75,17 +78,17 @@ How the MPC and clients recover the output, and how they decode it, is specific 
 
 The recovery method employed for each supported chain:
 
-| Execution chain | Recovery method                                                 | SDK helper                                                                           |
-| --------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Ethereum        | `debug_traceTransaction` RPC call (callTracer, top call frame)  | [`evmTraceOutputFromCallFrame`](./packages/signet-midnight/src/abi-serde.ts)         |
+| Execution chain | Recovery method | SDK helper |
+| --- | --- | --- |
+| Ethereum | `debug_traceTransaction` RPC call (callTracer, top call frame) | [`evmTraceOutputFromCallFrame`](./packages/signet-midnight/src/abi-serde.ts) |
 
 The MPC deserialises the recovered output using the `outputDeserializationSchema` the client contract provided in its `SignBidirectionalEventV1`. The encoding that schema describes is also chain-specific, so the schema must be written for the chain the transaction executes on.
 
 The encoding employed for each supported chain:
 
 | Execution chain | Encoding |
-| --------------- | -------- |
-| Ethereum        | ABI      |
+| --- | --- |
+| Ethereum | ABI |
 
 ### Serialisation for attestation
 
@@ -95,11 +98,11 @@ The supported types and their mappings are specific to the execution chain. The 
 
 #### Ethereum → Compact
 
-| ABI type  | Compact type | Comment                                                                                                                                                      |
-| --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `uint256` | `Bytes<32>`  | To use it as a number in Compact, perform a checked truncation to `Uint<128>` in-circuit with `checkedTruncationU128(v: Bytes<32>)`, provided by this SDK.  |
-| `bool`    | `Boolean`    | Equivalent.                                                                                                                                                  |
-| `bytesN`  | `Bytes<N>`   | Fixed lengths only.                                                                                                                                          |
+| ABI type | Compact type | Comment |
+| --- | --- | --- |
+| `uint256` | `Bytes<32>` | To use it as a number in Compact, perform a checked truncation to `Uint<128>` in-circuit with `checkedTruncationU128(v: Bytes<32>)`, provided by this SDK. |
+| `bool` | `Boolean` | Equivalent. |
+| `bytesN` | `Bytes<N>` | Fixed lengths only. |
 
 > **⚠️ No other types are supported.** The MPC drops a request if any type in its output schema is absent from the table above.
 
