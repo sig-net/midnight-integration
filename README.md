@@ -100,6 +100,8 @@ The supported types and their mappings are specific to the execution chain. The 
 
 #### Ethereum → Compact
 
+The MPC and SDKs enforce that every field in the schema is a valid Solidity identifier: i.e. matching `[A-Za-z_$][A-Za-z0-9_$]*`. In addition the name  `__proto__` is not allowed.
+
 | ABI type | Compact type | Comment |
 | --- | --- | --- |
 | `uint256` | `Bytes<32>` | The value as 32 little-endian bytes, the byte order of every Borsh and Compact integer (the ABI wire word reversed). To use it as a number, narrow it in-circuit with this SDK's `checkedTruncationU128(x: Bytes<32>): Uint<128>`, which aborts unless the high 16 bytes are zero. |
@@ -107,7 +109,7 @@ The supported types and their mappings are specific to the execution chain. The 
 | `address` | `Bytes<20>` | The 20 address bytes in wire order. |
 | `bytesN` | `Bytes<N>` | Fixed lengths only. |
 
-> **⚠️ No other types are supported.** The MPC drops a request if any type in its output schema is absent from the table above.
+> **⚠️ No other types are supported.** The MPC drops a request if any type in its output schema is absent from the table above, or if any field lacks a valid field name as defined above.
 
 ### Obtaining the output: your own node or the MPC cache
 

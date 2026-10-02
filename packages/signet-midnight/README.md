@@ -135,7 +135,7 @@ are reserved and remain outside the request id.
 
 ## EVM output and Borsh responses
 
-`outputDeserializationSchema` is an ethers-compatible ABI field array, and it is the only schema a request carries: `respondSerializationSchema` is reserved, pinned to `Bytes<0>` by `constructSignBidirectionalEventV1`. The MPC derives the Borsh schema of the attested bytes from the output schema, one struct member per field in schema order, under a closed mapping:
+`outputDeserializationSchema` is an ethers-compatible ABI field array whose field names are unique Solidity identifiers (`[A-Za-z_$][A-Za-z0-9_$]*`, never `__proto__`), and it is the only schema a request carries: `respondSerializationSchema` is reserved, pinned to `Bytes<0>` by `constructSignBidirectionalEventV1`. The MPC derives the Borsh schema of the attested bytes from the output schema, one struct member per field in schema order, under a closed mapping:
 
 | ABI type | Borsh | Compact | Width |
 | --- | --- | --- | --- |

@@ -65,11 +65,12 @@ export function deserializeEvmOutput(
     fields.map((field) => field.type),
     callResult,
   );
-  const output: AbiDecodedOutput = {};
-  fields.forEach((field, i) => {
-    output[field.name] = toPlainValue(decoded[i], field.name);
-  });
-  return output;
+  return Object.fromEntries(
+    fields.map((field, i): [string, AbiDecodedValue] => [
+      field.name,
+      toPlainValue(decoded[i], field.name),
+    ]),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +179,9 @@ function classifiedEvmOutputFields(schema: EvmSchemaInput): ClassifiedEvmOutputF
  * The Borsh schema the respond bytes of an executed call are serialised
  * with: a struct with one member per output field, in schema order, each
  * typed by {@link EvmOutputTypeKind}. An empty output schema derives an
- * empty struct, which serialises to zero bytes.
+ * empty struct, which serialises to zero bytes. Borsh writes struct members
+ * in the struct object's key order, which equals schema order because field
+ * names are Solidity identifiers (see {@link parseSchemaShape}).
  *
  * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
  * @returns The derived Borsh struct schema.
@@ -273,26 +276,26 @@ export function serializeRespondOutput(
   schema: EvmSchemaInput,
   output: AbiDecodedOutput,
 ): Uint8Array {
-  const values: Record<string, BorshValue> = {};
-  for (const field of classifiedEvmOutputFields(schema)) {
-    const value = output[field.name];
-    if (value === undefined) throw new Error(`respond output: missing value for '${field.name}'`);
-    switch (field.kind) {
-      case EvmOutputTypeKind.Bool:
-        if (typeof value !== "boolean") {
-          throw new TypeError(`respond output: '${field.name}' (bool) expects a boolean`);
-        }
-        values[field.name] = value;
-        break;
-      case EvmOutputTypeKind.Uint256:
-        values[field.name] = uint256Word(value, field.name);
-        break;
-      case EvmOutputTypeKind.Address:
-      case EvmOutputTypeKind.FixedBytes:
-        values[field.name] = byteString(value, field);
-        break;
-    }
-  }
+  const values: Record<string, BorshValue> = Object.fromEntries(
+    classifiedEvmOutputFields(schema).map((field): [string, BorshValue] => {
+      const value = output[field.name];
+      if (value === undefined) {
+        throw new Error(`respond output: missing value for '${field.name}'`);
+      }
+      switch (field.kind) {
+        case EvmOutputTypeKind.Bool:
+          if (typeof value !== "boolean") {
+            throw new TypeError(`respond output: '${field.name}' (bool) expects a boolean`);
+          }
+          return [field.name, value];
+        case EvmOutputTypeKind.Uint256:
+          return [field.name, uint256Word(value, field.name)];
+        case EvmOutputTypeKind.Address:
+        case EvmOutputTypeKind.FixedBytes:
+          return [field.name, byteString(value, field)];
+      }
+    }),
+  );
   return compactSerialize(deriveRespondSchema(schema), values);
 }
 
@@ -551,14 +554,30 @@ function parseSchemaJson(text: string): unknown {
 }
 
 /**
+ * A Solidity identifier, the only form a field name takes. A name outside
+ * this grammar can start with a digit, and a JavaScript object orders
+ * integer-like keys first, which would move the derived Borsh struct's
+ * members out of schema order.
+ */
+const SOLIDITY_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/**
+ * The one identifier no field may use: assigning it on a JavaScript object
+ * reaches the prototype accessor, so an output object cannot carry it.
+ */
+const PROTOTYPE_ACCESSOR_NAME = "__proto__";
+
+/**
  * Parse a schema in any input form and check its SHAPE only: an array of
- * fields with non-empty, unique names and non-empty type strings. An empty
- * schema is valid here: {@link deserializeEvmOutput} decodes nothing from
- * it and {@link executedEvmRespondOutput} attests an empty output.
+ * fields with unique Solidity-identifier names and non-empty type strings.
+ * An empty schema is valid here: {@link deserializeEvmOutput} decodes
+ * nothing from it and {@link executedEvmRespondOutput} attests an empty
+ * output.
  *
  * @param schema - The schema as JSON text, packed bytes, or a field array.
- * @returns The schema's fields, names and type strings unvalidated beyond shape.
- * @throws {Error} If the schema is not an array of uniquely named fields.
+ * @returns The schema's fields, type strings unvalidated beyond presence.
+ * @throws {Error} If the schema is not an array of fields, a name is not a
+ *   Solidity identifier or is `__proto__`, a name repeats, or a type is missing.
  */
 function parseSchemaShape(schema: EvmSchemaInput): EvmSchemaField[] {
   const parsed: unknown =
@@ -576,6 +595,12 @@ function parseSchemaShape(schema: EvmSchemaInput): EvmSchemaField[] {
     const { name, type } = raw as Record<string, unknown>;
     if (typeof name !== "string" || name.length === 0) {
       throw new Error(`schema field ${String(i)} needs a non-empty name`);
+    }
+    if (!SOLIDITY_IDENTIFIER.test(name)) {
+      throw new Error(`schema: field name '${name}' is not a Solidity identifier`);
+    }
+    if (name === PROTOTYPE_ACCESSOR_NAME) {
+      throw new Error(`schema: field name '${name}' is refused`);
     }
     if (seen.has(name)) {
       throw new Error(`schema: duplicate field name '${name}'`);

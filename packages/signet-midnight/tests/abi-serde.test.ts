@@ -215,6 +215,16 @@ describe("deserializeEvmOutput: rejections", () => {
       ],
       error: /duplicate field name 'x'/,
     },
+    ...["1", "0x1", "a b", "a-b", " a", "a ", "a.b", "é"].map((name) => ({
+      name: `field name '${name}' is not a Solidity identifier`,
+      schema: [{ name, type: "bool" }],
+      error: /is not a Solidity identifier/,
+    })),
+    {
+      name: "field named __proto__ (a valid identifier no object can carry)",
+      schema: [{ name: "__proto__", type: "bool" }],
+      error: /'__proto__' is refused/,
+    },
     {
       name: "truncated call result (rejected by ethers)",
       schema: [{ name: "x", type: "uint256" }],
@@ -226,6 +236,19 @@ describe("deserializeEvmOutput: rejections", () => {
     // `/./` for the row whose message comes from ethers and is not pinned here.
     expect(() => deserializeEvmOutput(schema, callResult ?? good)).toThrow(error ?? /./);
   });
+});
+
+describe("deserializeEvmOutput: field names are own properties of the output", () => {
+  // Every Solidity identifier is accepted, including names that exist on
+  // Object.prototype, and each lands as the output's own property.
+  it.each(["_x", "$y", "ok1", "__proto", "constructor", "hasOwnProperty", "toString"])(
+    "'%s'",
+    (name) => {
+      const output = deserializeEvmOutput([{ name, type: "bool" }], coder.encode(["bool"], [true]));
+      expect(Object.hasOwn(output, name)).toBe(true);
+      expect(output[name]).toBe(true);
+    },
+  );
 });
 
 // ===========================================================================
@@ -473,6 +496,21 @@ describe("deriveRespondSchema: the Borsh struct an output schema derives", () =>
       "amount",
       "success",
     ]);
+  });
+
+  it("serialises members in schema order whatever the names", () => {
+    // Names an object would not reorder: identifiers, however digit-heavy.
+    const schema: EvmSchemaField[] = [
+      { name: "z9", type: "bool" },
+      { name: "_1", type: "bytes1" },
+      { name: "a", type: "bool" },
+    ];
+    expect(Object.keys((deriveRespondSchema(schema) as { struct: object }).struct)).toEqual([
+      "z9",
+      "_1",
+      "a",
+    ]);
+    expect(hex(serializeRespondOutput(schema, { z9: true, _1: "0xab", a: false }))).toBe("01ab00");
   });
 });
 
