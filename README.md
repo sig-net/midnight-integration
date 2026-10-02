@@ -97,11 +97,11 @@ Types supported and their mappings are execution chain specific. Following are *
 
 | ABI Type | Compact | Comment
 | ------- | ------|------|
-|Uint256| Bytes<32> |For use as number in compact perform checked truncation to Uint<128> in circuit.|
+|Uint256| Bytes<32> |For use as number in compact perform checked truncation to Uint<128> in circuit with the `checkedTruncationU128(v: Bytes<32>)` provided in this SDK.|
 |bool| bool |Equivalent|
 |Bytes[n]| Bytes<n> |Fixed lengths ONLY|
 
-> **NO OTHER TYPES ARE SUPPORTED**. The MPC will **DROP** requests if the ABI output word types are not in the table above.
+> **⚠️ NO OTHER TYPES ARE SUPPORTED**. The MPC will **DROP** requests if the ABI output word types are not in the table above.
 
 ### Serialized Output MPC Cache
 
