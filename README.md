@@ -45,11 +45,11 @@ Illustrated below, the protocol is best understood in 5 steps:
   - **Note:** The MPC only ever signs. Broadcasting is the dApp's responsibility.
 - **4.** The MPC network observes execution of the signed transaction on the foreign blockchain and posts an attestation thereof back to Midnight.
   - The MPC network, watching for transaction executions on the foreign blockchain, observes execution of the transaction signed in step **2.**.
-  - The serialised output it attests depends on whether that execution succeeded:
-    - **Foreign transaction success:** the MPC extracts the output of the transaction execution, decodes it per the request's ABI `outputDeserializationSchema`, and encodes the decoded values using the native Borsh `respondSerializationSchema`. Both schemas are given in the **SignBidirectionalEvent** from step **2.**. The integrating contract must use a [Compact-compatible Borsh representation](packages/midnight-serde-ts/README.md#compact-compatible-types) to deserialise those bytes with Compact's standard library.
-      - A plain transfer (at most two bytes of calldata) or a void call (an empty `outputDeserializationSchema` and no return data) has no output to decode. The MPC synthesises one from the `respondSerializationSchema` alone: `true` for each bool field and the UTF-8 text `non_function_call_success` for each string field. No other field kind has a synthesised value.
-    - **Foreign transaction failure:** there is no output to serialise, so the serialised output is empty (zero bytes) and the attestation's `outputKind` says why: `failed` (the transaction reverted) or `unviable` (another transaction took its nonce). See [Handling Failure](#handling-failure).
-  - From here the two branches converge: the MPC creates the attestation as the ECDSA signature over the attestation digest `upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]))` (see [`calculateSignetAttestationDigestV1`](./packages/signet-midnight/src/Signet.compact#L376)) of whichever serialised output the branch produced, signed with the integrating contract's own **Response Signing Key** (see [Derived Keys](#derived-keys)). `blockHeight` is the height of the finalised foreign block holding the transaction, in that chain's own numbering (a slot on Solana), and `outputKind` is the MPC's verdict: `executed`, `failed` or `unviable` (the transaction's nonce was taken by another transaction, so it can never execute).
+  - It determines the following information about the execution which it will attest:
+    - **OutputKind**: `Success`, `Failed` or `Unviable`
+    - **BlockHeight**: The block height at the destination chain where the transaction was included or became unviable.
+    - **SerialisedOutput**: only relevant where `OutputKind == Success`, the MPC extracts the output of the transaction execution (if any) and decodes it using the `outputDeserializationSchema` given in the **SignBidirectionalEvent** from step **2.**. The data is mapped to compact compatible types and then serialised using Borsh against a generated schema derived from the mapping. This serialised output is parsable in contract using compacts built in `deserialize<T, N>(...)`. See [Output Recovery, Decoding and Serialisation](#output-recovery-and-serialisation) for more detail.
+  - The MPC creates the attestation as the ECDSA signature over the **attestation digest** with the integrating contract's own **Response Signing Key** (see [Derived Keys](#derived-keys)). The attestation digest is calculated as `upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]))`, see [`calculateSignetAttestationDigestV1`](./packages/signet-midnight/src/Signet.compact#L376).
   - The output attestation is then made available on Midnight with the MPC calling the [`respondBidirectional`](./packages/signet-contract/src/signet-contract.compact#L79) circuit on the **Sig Network Singleton**, emitting a **[RespondBidirectionalEventV1](./packages/signet-midnight/src/Signet.compact#L337)**. The output itself never travels on chain: the event carries the request id, the attested block height, the output kind, the output's byte width, the attestation digest and the attesting signature.
 - **5.** The integrating dApp collects the execution output and its attestation and submits both back to the integrating contract, completing the cross chain interaction.
   - The dApp extracts the posted output attestation from the emitted **RespondBidirectionalEvent**.
@@ -59,9 +59,31 @@ Illustrated below, the protocol is best understood in 5 steps:
   - It submits the attestation and the reconstructed serialised output to a completing circuit on the integrating contract (`completeCrossChain(...)` in the diagram), which recomputes the attestation digest from the output bytes and verifies the MPC's signature in-circuit via [`verifyRespondBidirectionalEventV1`](./packages/signet-midnight/src/Signet.compact#L402) against the response key the contract pinned after deploy (see [Derived Keys](#derived-keys)). Success and failure verify identically, since step **4.** attests both with the same digest construction and key.
   - The completing circuit settles on the verified `outputKind`: under `executed` the output bytes are the foreign call's return data, to be deserialised against the respond serialisation schema, and under `failed` or `unviable` the foreign transaction did not execute and the output is empty. The kind is inside the signed digest, so a post cannot present a failure as a success or a success as a failure: see [Handling Failure](#handling-failure).
 
-## Output Recovery
+## Output Recovery and Serialisation
 
-Step **5.** needs the exact serialised output the MPC attested, and the output itself never travels on chain: the event carries the attestation digest and the signature over it. Where the client gets the bytes from is its choice:
+Step **5.** needs the exact serialised output the MPC attested. The MPC extracts, deserialises and then reserialises the output before it is attested.
+
+```
+Output Extracted → Deserialised → Serialised → Attested
+```
+
+So clients need to be able to reproduce it. The serialised output itself does not travel on chain: the **RespondBidirectionalEvent** carries the attestation digest and the signature over it.
+
+How the MPC and clients do output recovery and handle serialisation is foreign chain specific.
+
+| Chain | Recovery Method | SDK Helper |
+| ------- | ------| ------ |
+|Ethereum| `debug_traceTransaction` RPC Call (callTracer, top call frame) | [`evmTraceOutputFromCallFrame`](./packages/signet-midnight/src/abi-serde.ts)|
+
+The MPC deserializes outputs using the `outputDeserializationSchema` provided by the client contract in its `SignBidirectionalEventV1`. The protocol employed to deserialize the extracted output is also chain specific.
+
+| Chain | Encoding |
+| ------- | ------|
+|Ethereum| ABI |
+
+Once decoded the MPC
+
+### Serialisation
 
 - **Output recovery is chain-specific.** For EVM chains the output is the mined call's return data, read with `debug_traceTransaction` (callTracer, top call frame), the same RPC method the MPC observes executions with. [`evmTraceOutputFromCallFrame`](./packages/signet-midnight/src/abi-serde.ts) reads the returned frame by the MPC's rules: it refuses a frame that is not a call frame or that reports an `error`, and tells return data (a string `output`, even `0x`) from none. The client rebuilds the attested bytes from it with [`executedEvmRespondOutput`](./packages/signet-midnight/src/abi-serde.ts), the rule step **4.** ran: it takes the request's two schemas, whether the transaction was a contract call ([`isEvmContractCall`](./packages/signet-midnight/src/abi-serde.ts) over its calldata) and the traced return data, decoding a contract call's return data per the `outputDeserializationSchema` and re-serialising it per the `respondSerializationSchema`, and synthesising the output of a plain transfer or a void call.
 - **Getting the output yourself is the most trustless route.** The dApp broadcast the transaction in step **3.**, so it can read the result from a node of its own choosing, with no third party in the loop.
