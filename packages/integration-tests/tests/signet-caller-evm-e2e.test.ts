@@ -13,8 +13,9 @@
 //
 // Every outcome kind of the protocol is driven to settlement:
 // - executed: isEven and checkAndDouble mine and return data, attested at
-//   the respond schema's packed width and settled by the width's verify
-//   circuit (checkAndDouble records the returned amount on the ledger).
+//   the width their output schema derives and settled by that width's verify
+//   circuit (checkAndDouble narrows the attested uint256 word to Uint<128>
+//   in-circuit and records it on the ledger).
 // - failed: revertIf(true) mines reverted, attested over an EMPTY output and
 //   settled at width 0 by verifyFailureResponse.
 // - unviable: a signed request that is never broadcast loses its nonce to
@@ -54,7 +55,6 @@ import {
   requestIdHex,
   type RespondBidirectionalEvent,
   respondBidirectionalEventToCircuitInput,
-  type RespondSchemaInput,
   signBidirectionalEventToSignedEvmTransaction,
   SIGNET_DEFAULT_KEY_VERSION,
   stripHexPrefix,
@@ -107,9 +107,9 @@ const requireEnv = (name: string): string => requireEnvOf(env, name);
 // Stopped once in afterAll.
 const session = createCallerE2eSession(env);
 
-// TS mirrors of the contract-fixed schema literals (the submit stage pins
-// them against the live ledger record). EVM decoding uses ABI schemas.
-// Response encoding uses native Borsh schemas.
+// TS mirrors of the contract-fixed output schema literals (the submit stage
+// pins them against the live ledger record). The respond bytes derive from
+// these: a bool is 1 byte, a uint256 its whole 32-byte word.
 const BOOL_ABI_SCHEMA: EvmSchemaField[] = [{ name: "success", type: "bool" }];
 const BOOL_UINT_ABI_SCHEMA: EvmSchemaField[] = [
   { name: "success", type: "bool" },
@@ -132,7 +132,7 @@ type EvmMethodOutcome =
       readonly kind: OutputKind.executed;
       /** The values deserializeEvmOutput must decode from the return data. */
       readonly expectedDecoded: AbiDecodedOutput;
-      /** The packed respond payload's exact byte width. */
+      /** The attested output's exact byte width, as the output schema derives it. */
       readonly packedWidth: number;
     }
   | {
@@ -171,9 +171,8 @@ interface EvmMethodCase {
   map: CallerRequestMap;
   /** The map's ledger field position (named in the notification). */
   requestsIndexField: number;
-  /** ABI schema for decoding the EVM return data. */
+  /** ABI schema for decoding the EVM return data, which the respond bytes derive from. */
   outputSchema: EvmSchemaField[];
-  respondSchema: RespondSchemaInput;
   /** How the broadcast ends and how the attestation is settled. */
   outcome: EvmMethodOutcome;
   /** The ledger record the verify circuit writes, when it writes one. */
@@ -199,7 +198,6 @@ const METHODS: EvmMethodCase[] = [
     map: "signBidirectionalEventMap",
     requestsIndexField: 3,
     outputSchema: BOOL_ABI_SCHEMA,
-    respondSchema: { struct: { success: "bool" } },
     outcome: { kind: OutputKind.executed, expectedDecoded: { success: true }, packedWidth: 1 },
     resumeEnvVar: "CALLER_EVM_REQUEST_ID_ISEVEN",
     submit: (context, evmNonce, to) =>
@@ -220,14 +218,13 @@ const METHODS: EvmMethodCase[] = [
     map: "signBidirectionalEventMap69",
     requestsIndexField: 6,
     outputSchema: BOOL_UINT_ABI_SCHEMA,
-    respondSchema: { struct: { success: "bool", amount: "u128" } },
     outcome: {
       kind: OutputKind.executed,
       expectedDecoded: { success: true, amount: 42n },
-      packedWidth: 17,
+      packedWidth: 33,
     },
     settlement: {
-      description: "the amount checkAndDouble returned, deserialised in-circuit",
+      description: "the amount checkAndDouble returned, narrowed to Uint<128> in-circuit",
       read: (ledger, requestId) => ledger.checkAndDoubleAmounts.lookup(requestId),
       expected: 42n,
     },
@@ -251,7 +248,6 @@ const METHODS: EvmMethodCase[] = [
     map: "signBidirectionalEventMap",
     requestsIndexField: 3,
     outputSchema: BOOL_ABI_SCHEMA,
-    respondSchema: { struct: { success: "bool" } },
     outcome: { kind: OutputKind.failed },
     settlement: {
       description: "the MPC's verdict on the reverted transaction",
@@ -536,11 +532,11 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           getBytes(keccakId(method.signature).slice(0, 10)),
         );
         expect(record.txParams.calldata.value.words[0]).toEqual(method.argWord);
-        const schemaJson = new TextDecoder().decode(record.respondSerializationSchema);
-        expect(JSON.parse(schemaJson)).toEqual(method.respondSchema);
         expect(JSON.parse(new TextDecoder().decode(record.outputDeserializationSchema))).toEqual(
           method.outputSchema,
         );
+        // Reserved: constructSignBidirectionalEventV1 pins it to Bytes<0>.
+        expect(record.respondSerializationSchema).toEqual(new Uint8Array(0));
         expect(requestId).toBe(requestIdHex(calculateRequestId(record)));
 
         banner([
@@ -702,16 +698,13 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
             outcome.expectedDecoded,
           );
           respondBytes = executedEvmRespondOutput(
-            {
-              outputDeserializationSchema: method.outputSchema,
-              respondSerializationSchema: method.respondSchema,
-            },
+            method.outputSchema,
             isEvmContractCall(signedTx.data),
             trace,
           );
           expect(
             respondBytes,
-            "the packed respond payload must have the schema's exact width",
+            "the respond bytes must have the width the output schema derives",
           ).toHaveLength(outcome.packedWidth);
 
           banner([

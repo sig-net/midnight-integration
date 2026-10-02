@@ -47,7 +47,7 @@ The byte layout and the value constraints are separate contracts. The wrappers d
 - borsh-js 2.0.0 treats fixed arrays with `len: 0` as dynamic arrays and adds a four-byte prefix. Rust Borsh fixed empty arrays occupy zero bytes. This is an implementation difference, not the fixed-array rule of the Borsh format.
 - borsh-js 2.0.0 accepts non-zero Boolean bytes as true and can silently truncate overflowing integers. Rust's native Boolean decoder rejects byte 2. Do not use malformed-input behaviour as a cross-language contract.
 
-For the EVM response path, `@sig-net/midnight` decodes `uint256` using ethers and performs checked conversion to the response schema's `u128` before invoking this package. Values outside `0 <= value < 2^128` throw before response bytes are attested. The matching Compact response field is `Uint<128>`. This value conversion belongs to the EVM mapping layer, not to these generic Borsh wrappers.
+For the EVM response path, `@sig-net/midnight` derives the Borsh schema from the request's ABI output schema (`bool` to `bool`, `uint256` to a 32-byte fixed array holding the value little-endian, `address` to a 20-byte fixed array, `bytesN` to an N-byte fixed array) and calls this package with it. No integer is narrowed off chain: a Compact circuit narrows the `Bytes<32>` with `checkedTruncationU128`. That mapping belongs to the EVM layer, not to these generic Borsh wrappers.
 
 ## Evidence and references
 

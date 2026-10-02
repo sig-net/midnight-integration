@@ -5,19 +5,18 @@ import { ethers } from "ethers";
 // Schema types
 // ---------------------------------------------------------------------------
 
-/** A native Borsh schema, JSON text, or NUL-padded on-chain JSON bytes. */
-export type RespondSchemaInput = Schema | Uint8Array;
-
 /**
- * A decode-side schema field: `type` is ANY type string the ABI library
- * accepts.
+ * One field of an outputDeserializationSchema: `type` is ANY type string the
+ * ABI library accepts. {@link deserializeEvmOutput} decodes every ABI type,
+ * while the respond side ({@link deriveRespondSchema}) accepts only the
+ * {@link EvmOutputTypeKind} subset.
  */
 export interface EvmSchemaField {
   name: string;
   type: string;
 }
 
-/** Any form a decode schema arrives in: parsed, JSON text, or NUL-padded raw bytes. */
+/** Any form an outputDeserializationSchema arrives in: parsed, JSON text, or NUL-padded raw bytes. */
 export type EvmSchemaInput = readonly EvmSchemaField[] | string | Uint8Array;
 
 // ---------------------------------------------------------------------------
@@ -28,8 +27,8 @@ export type EvmSchemaInput = readonly EvmSchemaField[] | string | Uint8Array;
  * Decoded output values, keyed by schema field name. Numerics are bigint,
  * bools boolean, address/bytesN/bytes/string are the forms ethers produces
  * (hex or text strings) or Uint8Array, arrays are plain arrays.
- * `serializeRespondOutput` accepts all of these (plus plain numbers and
- * numeric strings, the forms indexer JSON typically yields).
+ * {@link serializeRespondOutput} additionally accepts plain numbers and
+ * numeric strings for `uint256`, the forms indexer JSON typically yields.
  */
 export type AbiDecodedValue = bigint | boolean | number | string | Uint8Array | AbiDecodedValue[];
 
@@ -45,10 +44,10 @@ export type AbiDecodedOutput = Record<string, AbiDecodedValue>;
  * into named values, driven by the request's outputDeserializationSchema.
  * The decode-side counterpart of {@link serializeRespondOutput}. Type
  * validation is FULLY delegated to ethers: this function checks the schema's
- * shape only. An empty schema decodes to an empty object. The MPC never
- * decodes under an empty schema: {@link executedEvmRespondOutput} carries
- * its rule for that case. Returns a plain object (never an ethers
- * `Result`), so it survives JSON round-trips and structural comparison.
+ * shape only, so it decodes ABI types the respond side refuses. An empty
+ * schema decodes to an empty object. Returns a plain object (never an
+ * ethers `Result`), so it survives JSON round-trips and structural
+ * comparison.
  *
  * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
  * @param callResult - The ABI-encoded return data (hex string or bytes).
@@ -74,108 +73,227 @@ export function deserializeEvmOutput(
 }
 
 // ---------------------------------------------------------------------------
-// 2. decoded values -> respond bytes  (respondSerializationSchema)
+// 2. decoded values -> respond bytes  (Borsh schema derived from the output schema)
 // ---------------------------------------------------------------------------
 
 /**
- * Parse native Borsh schema JSON from an on-chain field.
+ * The ABI output types the MPC attests, and what each maps to. The respond
+ * bytes are the Borsh serialisation of a struct with one member per output
+ * field, in schema order, typed by this mapping:
  *
- * @param schema - Native schema, JSON text, or NUL-padded bytes.
- * @returns The native Borsh schema.
- * @throws {Error} If schema JSON is malformed.
+ * - {@link EvmOutputTypeKind.Bool}: ABI `bool`, Borsh `bool`, Compact `Boolean` (1 byte).
+ * - {@link EvmOutputTypeKind.Uint256}: ABI `uint256`, Borsh `[u8; 32]`
+ *   holding the value LITTLE-endian, the byte order of every Borsh and
+ *   Compact integer, Compact `Bytes<32>` (32 bytes). A circuit that wants a
+ *   number narrows it with `checkedTruncationU128`, which aborts above
+ *   2^128 - 1. The ABI wire word is big-endian: the MPC reverses it once,
+ *   here, so no circuit has to.
+ * - {@link EvmOutputTypeKind.Address}: ABI `address`, Borsh `[u8; 20]`
+ *   holding the address bytes, Compact `Bytes<20>` (20 bytes).
+ * - {@link EvmOutputTypeKind.FixedBytes}: ABI `bytes1` to `bytes32`, Borsh
+ *   `[u8; N]`, Compact `Bytes<N>` (N bytes).
+ *
+ * Every other ABI type is unsupported: the MPC drops a request whose output
+ * schema names one, and {@link deriveRespondSchema} throws on it.
  */
-function respondSchema(schema: RespondSchemaInput): Schema {
-  if (typeof schema !== "string" && !(schema instanceof Uint8Array)) return schema;
-  const text = schemaText(schema).trim();
-  if (text.length === 0) throw new Error("Response schema is empty");
-  if (schema instanceof Uint8Array || /^[{["]/.test(text)) {
-    try {
-      return JSON.parse(text) as Schema;
-    } catch (error) {
-      throw new Error("Response schema is not valid JSON", { cause: error });
-    }
+export enum EvmOutputTypeKind {
+  Bool = "bool",
+  Uint256 = "uint256",
+  Address = "address",
+  FixedBytes = "bytesN",
+}
+
+/** The byte width of an ABI word, and of the Borsh array a `uint256` output maps to. */
+const ABI_WORD_BYTES = 32;
+
+/** The byte width of an EVM address, and of the Borsh array an `address` output maps to. */
+const EVM_ADDRESS_BYTES = 20;
+
+/**
+ * Classify an ABI type string into the supported output subset.
+ *
+ * @param type - The ABI type string of an output schema field.
+ * @returns The field's kind and respond byte width, or `undefined` for an unsupported type.
+ */
+function classifyEvmOutputType(
+  type: string,
+): { readonly kind: EvmOutputTypeKind; readonly bytes: number } | undefined {
+  if (type === "bool") return { kind: EvmOutputTypeKind.Bool, bytes: 1 };
+  if (type === "uint256") return { kind: EvmOutputTypeKind.Uint256, bytes: ABI_WORD_BYTES };
+  if (type === "address") return { kind: EvmOutputTypeKind.Address, bytes: EVM_ADDRESS_BYTES };
+  const fixedBytes = /^bytes([1-9]|[12][0-9]|3[0-2])$/.exec(type);
+  if (fixedBytes !== null) {
+    return { kind: EvmOutputTypeKind.FixedBytes, bytes: Number(fixedBytes[1]) };
   }
-  return text;
+  return undefined;
 }
 
 /**
- * Convert ABI numeric and byte representations into native Borsh values.
- * Integer narrowing must fail before the value reaches Borsh's truncating writes.
+ * The fields of an outputDeserializationSchema whose ABI type is outside the
+ * supported subset ({@link EvmOutputTypeKind}). The check itself never
+ * throws on an unsupported type: an empty result means the MPC attests the
+ * request, a non-empty one means it drops it.
  *
- * @param schema - Native Borsh schema.
- * @param value - Decoded EVM value.
- * @returns Value in the Borsh representation.
- * @throws {RangeError} If an integer cannot be represented without loss.
+ * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
+ * @returns The unsupported fields in schema order, empty when every field is supported.
+ * @throws {Error} If the schema is not an array of uniquely named fields (its shape, not its types).
  */
-function toBorshValue(schema: Schema, value: BorshValue): BorshValue {
-  if (typeof schema === "string") {
-    const integer = /^([ui])(8|16|32|64|128)$/.exec(schema);
-    if (integer) {
-      if (typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string") {
-        throw new TypeError(`Expected an integer for ${schema}`);
-      }
-      if (typeof value === "number" && !Number.isSafeInteger(value)) {
-        throw new RangeError(`Unsafe integer for ${schema}`);
-      }
-      if (typeof value === "string" && value.trim().length === 0) {
-        throw new RangeError(`Empty integer for ${schema}`);
-      }
-      const number = BigInt(value);
-      const bits = Number(integer[2]);
-      const signed = integer[1] === "i";
-      const bound = 1n << BigInt(signed ? bits - 1 : bits);
-      if (number < (signed ? -bound : 0n) || number >= bound) {
-        throw new RangeError(`EVM integer ${String(number)} does not fit Borsh ${schema}`);
-      }
-      return bits <= 32 ? Number(number) : number;
-    }
-    return value;
-  }
-  if ("struct" in schema && typeof value === "object" && value !== null) {
-    const record = value as Record<string, BorshValue>;
-    return Object.fromEntries(
-      Object.entries(schema.struct).map(([name, child]) => {
-        const field = record[name];
-        if (field === undefined) throw new Error(`Missing response field '${name}'`);
-        return [name, toBorshValue(child, field)];
-      }),
-    );
-  }
-  if ("array" in schema) {
-    const array =
-      typeof value === "string" && schema.array.type === "u8"
-        ? Array.from(ethers.getBytes(value))
-        : value instanceof Uint8Array
-          ? Array.from(value)
-          : value;
-    if (Array.isArray(array)) {
-      return (array as BorshValue[]).map((element) => toBorshValue(schema.array.type, element));
-    }
-  }
-  if ("option" in schema && value !== null) return toBorshValue(schema.option, value);
-  if ("enum" in schema && typeof value === "object" && value !== null) {
-    const variant = schema.enum.find((item) =>
-      Object.keys(item.struct).some((key) => Object.hasOwn(value, key)),
-    );
-    if (variant !== undefined) return toBorshValue(variant, value);
-  }
-  return value;
+export function unsupportedEvmOutputFields(schema: EvmSchemaInput): EvmSchemaField[] {
+  return parseSchemaShape(schema).filter(
+    (field) => classifyEvmOutputType(field.type) === undefined,
+  );
+}
+
+/** An output schema field with its {@link EvmOutputTypeKind} and respond byte width. */
+interface ClassifiedEvmOutputField extends EvmSchemaField {
+  readonly kind: EvmOutputTypeKind;
+  readonly bytes: number;
 }
 
 /**
- * Encode ABI-decoded output using the request's native Borsh response schema.
+ * Parse an output schema and classify every field, refusing the schema as a
+ * whole when any field is unsupported.
  *
- * @param schema - Native schema, JSON text, or NUL-padded on-chain JSON.
- * @param output - Named decoded EVM values.
- * @returns Unpadded Borsh bytes.
- * @throws {Error} If conversion loses integer precision or Borsh rejects the input.
+ * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
+ * @returns The classified fields in schema order.
+ * @throws {Error} If the schema is malformed or names an unsupported ABI type.
+ */
+function classifiedEvmOutputFields(schema: EvmSchemaInput): ClassifiedEvmOutputField[] {
+  const fields = parseSchemaShape(schema);
+  const unsupported = fields.filter((field) => classifyEvmOutputType(field.type) === undefined);
+  if (unsupported.length > 0) {
+    throw new Error(
+      `respond output: unsupported ABI output type${unsupported.length > 1 ? "s" : ""} ` +
+        unsupported.map((field) => `'${field.name}' (${field.type})`).join(", ") +
+        ": the MPC attests bool, uint256, address and bytes1 to bytes32 only",
+    );
+  }
+  return fields.flatMap((field) => {
+    const classified = classifyEvmOutputType(field.type);
+    return classified === undefined ? [] : [{ ...field, ...classified }];
+  });
+}
+
+/**
+ * The Borsh schema the respond bytes of an executed call are serialised
+ * with: a struct with one member per output field, in schema order, each
+ * typed by {@link EvmOutputTypeKind}. An empty output schema derives an
+ * empty struct, which serialises to zero bytes.
+ *
+ * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
+ * @returns The derived Borsh struct schema.
+ * @throws {Error} If the schema is malformed or names an unsupported ABI type.
+ */
+export function deriveRespondSchema(schema: EvmSchemaInput): Schema {
+  return {
+    struct: Object.fromEntries(
+      classifiedEvmOutputFields(schema).map((field) => [
+        field.name,
+        field.kind === EvmOutputTypeKind.Bool
+          ? "bool"
+          : { array: { type: "u8", len: field.bytes } },
+      ]),
+    ),
+  };
+}
+
+/**
+ * The byte width of the respond bytes an output schema derives: the sum of
+ * its fields' widths under {@link EvmOutputTypeKind}, what a settle circuit
+ * declares as its `Bytes<N>` output argument.
+ *
+ * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
+ * @returns The exact serialised width, 0 for an empty schema.
+ * @throws {Error} If the schema is malformed or names an unsupported ABI type.
+ */
+export function respondOutputWidth(schema: EvmSchemaInput): number {
+  return classifiedEvmOutputFields(schema).reduce((width, field) => width + field.bytes, 0);
+}
+
+/**
+ * The 32-byte LITTLE-endian encoding of a `uint256` output value, as ethers
+ * decodes it (bigint) or as indexer JSON renders it (a number or a decimal
+ * string). This is the ABI wire word reversed: the Borsh integer byte order,
+ * which a Compact `Uint<128>` reads directly.
+ *
+ * @param value - The decoded value.
+ * @param name - The field name, for the error message.
+ * @returns The value's 32 little-endian bytes.
+ * @throws {RangeError} If the value is not an integer in `0 <= value < 2^256`.
+ */
+function uint256Word(value: AbiDecodedValue, name: string): number[] {
+  if (typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string") {
+    throw new TypeError(`respond output: '${name}' (uint256) expects an integer`);
+  }
+  if (typeof value === "number" && !Number.isSafeInteger(value)) {
+    throw new RangeError(`respond output: '${name}' (uint256) is not a safe integer`);
+  }
+  if (typeof value === "string" && !/^\s*\d+\s*$/.test(value)) {
+    throw new RangeError(`respond output: '${name}' (uint256) is not a decimal integer string`);
+  }
+  const integer = BigInt(value);
+  if (integer < 0n || integer >= 1n << 256n) {
+    throw new RangeError(
+      `respond output: '${name}' (uint256) ${String(integer)} is outside uint256`,
+    );
+  }
+  return Array.from(ethers.getBytes(ethers.toBeHex(integer, ABI_WORD_BYTES))).reverse();
+}
+
+/**
+ * The bytes of an `address` or `bytesN` output value, as ethers decodes it
+ * (a hex string, checksummed for an address) or as bytes. Byte order is the
+ * wire's: these are byte strings, not numbers.
+ *
+ * @param value - The decoded value.
+ * @param field - The field, for the error message.
+ * @returns The value's bytes, length-checked by Borsh against the schema.
+ * @throws {TypeError} If the value is neither a hex string nor bytes.
+ */
+function byteString(value: AbiDecodedValue, field: EvmSchemaField): number[] {
+  if (value instanceof Uint8Array) return Array.from(value);
+  if (typeof value === "string") return Array.from(ethers.getBytes(value));
+  throw new TypeError(`respond output: '${field.name}' (${field.type}) expects hex or bytes`);
+}
+
+/**
+ * Serialise ABI-decoded output into the respond bytes the MPC attests: the
+ * Borsh encoding of {@link deriveRespondSchema}'s struct over the output's
+ * values. A `uint256` is carried whole as 32 little-endian bytes, so no
+ * value is narrowed off chain: a circuit that wants a number narrows the
+ * `Bytes<32>` with `checkedTruncationU128`.
+ *
+ * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
+ * @param output - The decoded values keyed by field name, as {@link deserializeEvmOutput} returns them.
+ * @returns The unpadded respond bytes, {@link respondOutputWidth} long.
+ * @throws {Error} If the schema is malformed or names an unsupported type, a
+ *   field is missing from `output`, or a value is outside its type.
  */
 export function serializeRespondOutput(
-  schema: RespondSchemaInput,
+  schema: EvmSchemaInput,
   output: AbiDecodedOutput,
 ): Uint8Array {
-  const parsed = respondSchema(schema);
-  return compactSerialize(parsed, toBorshValue(parsed, output));
+  const values: Record<string, BorshValue> = {};
+  for (const field of classifiedEvmOutputFields(schema)) {
+    const value = output[field.name];
+    if (value === undefined) throw new Error(`respond output: missing value for '${field.name}'`);
+    switch (field.kind) {
+      case EvmOutputTypeKind.Bool:
+        if (typeof value !== "boolean") {
+          throw new TypeError(`respond output: '${field.name}' (bool) expects a boolean`);
+        }
+        values[field.name] = value;
+        break;
+      case EvmOutputTypeKind.Uint256:
+        values[field.name] = uint256Word(value, field.name);
+        break;
+      case EvmOutputTypeKind.Address:
+      case EvmOutputTypeKind.FixedBytes:
+        values[field.name] = byteString(value, field);
+        break;
+    }
+  }
+  return compactSerialize(deriveRespondSchema(schema), values);
 }
 
 // ---------------------------------------------------------------------------
@@ -239,116 +357,72 @@ export type EvmTraceOutput =
     };
 
 /**
- * A request's two respond-path schemas, each in any form its conversion
- * accepts. An on-ledger request record (`SignBidirectionalEvent`) satisfies
- * it, as does the pair read off one as JSON text.
- */
-export interface RespondPathSchemas {
-  /** The outputDeserializationSchema, which {@link deserializeEvmOutput} decodes the return data with. */
-  readonly outputDeserializationSchema: EvmSchemaInput;
-  /** The respondSerializationSchema, which {@link serializeRespondOutput} packs the respond bytes with. */
-  readonly respondSerializationSchema: RespondSchemaInput;
-}
-
-/** The string default the MPC synthesises for an execution without call output. */
-const NON_FUNCTION_CALL_SUCCESS = "non_function_call_success";
-
-/**
- * The per-field values the MPC synthesises for an execution without call
- * output (its `default_value_for_kind`): `true` for a bool field,
- * {@link NON_FUNCTION_CALL_SUCCESS} for a string field.
+ * The exact respond output the MPC attests for an EVM transaction that
+ * executed (the payload of an `OutputKind.executed` attestation), derived
+ * from the request's outputDeserializationSchema alone. The schema and the
+ * execution's return data MUST agree: an empty schema declares that the
+ * execution returns nothing, a non-empty schema that it returns data.
  *
- * @param schema - The respondSerializationSchema.
- * @returns The synthesised values keyed by field name.
- * @throws {Error} If the schema is one {@link serializeRespondOutput}
- *   rejects, or a field is of any other kind.
- */
-function nonFunctionCallDefaults(schema: RespondSchemaInput): AbiDecodedOutput {
-  const parsed = respondSchema(schema);
-  if (typeof parsed === "string" || !("struct" in parsed)) {
-    throw new Error("Non-function-call defaults require a Borsh struct");
-  }
-  const output: AbiDecodedOutput = {};
-  for (const [name, type] of Object.entries(parsed.struct)) {
-    if (type === "bool") output[name] = true;
-    else if (type === "string") output[name] = NON_FUNCTION_CALL_SUCCESS;
-    else throw new Error(`Response field '${name}' has no non-function-call default`);
-  }
-  return output;
-}
-
-/**
- * The exact serialised respond output the MPC attests for an EVM transaction
- * that executed (the payload of an `OutputKind.executed` attestation),
- * mirroring the MPC's `build_serialized_output` under the Midnight respond
- * format:
+ * - Not a contract call (a plain transfer): there is no return data, so the
+ *   schema must be empty and the output is EMPTY.
+ * - A contract call whose trace carries no return data, or empty return
+ *   data (`0x`): the schema must be empty and the output is EMPTY.
+ * - A contract call that returned data: the schema must be non-empty, and
+ *   the output is the return data decoded by {@link deserializeEvmOutput}
+ *   and serialised by {@link serializeRespondOutput}.
  *
- * - Not a contract call: the output schema and the trace are ignored, and
- *   the respond fields get synthesised defaults (bool `true`, string
- *   `"non_function_call_success"`, any other kind
- *   throws).
- * - A contract call under an EMPTY output schema (a void call): the same
- *   defaults when the trace has no or empty return data, a throw when it
- *   returned data.
- * - A contract call under a non-empty output schema: the return data
- *   decoded by {@link deserializeEvmOutput} and packed by
- *   {@link serializeRespondOutput}, a throw when the trace has no return
- *   data.
+ * The schema's types are checked on every path, a plain transfer included,
+ * so a request the MPC should have dropped never attests anything. A failed
+ * or unviable execution is attested over an empty output instead, which
+ * needs no call. An empty output under `executed` is therefore ordinary for
+ * an empty schema: its settle circuit verifies at width 0 and must route on
+ * the verified `outputKind`, never on the width.
  *
- * A contract call that was not traced always throws. A failed or unviable
- * execution is attested over an empty output instead, which needs no call.
- *
- * @param schemas - The request's two schemas (a request record satisfies this).
+ * @param schema - The request's outputDeserializationSchema (a request record's field satisfies this).
  * @param isContractCall - Whether the transaction is a contract call, as {@link isEvmContractCall} decides it.
  * @param trace - The transaction's traced return data (`NotTraced` for an untraced plain transfer).
- * @returns The packed respond bytes, unpadded.
+ * @returns The respond bytes, unpadded, empty for an empty schema.
  * @throws {Error} Exactly where the MPC refuses to attest an execution: a
- *   contract call not traced, an empty output schema with return data, a
- *   non-empty output schema with no or undecodable return data, a malformed
- *   output schema on a contract call, a respond field without a synthesised
- *   default, and every {@link serializeRespondOutput} rejection.
+ *   malformed schema or an unsupported output type, a contract call not
+ *   traced, return data under an empty schema, no or empty return data
+ *   under a non-empty schema, return data the schema cannot decode, and
+ *   every {@link serializeRespondOutput} rejection.
  */
 export function executedEvmRespondOutput(
-  schemas: RespondPathSchemas,
+  schema: EvmSchemaInput,
   isContractCall: boolean,
   trace: EvmTraceOutput,
 ): Uint8Array {
-  const { outputDeserializationSchema, respondSerializationSchema } = schemas;
+  const expectsOutput = classifiedEvmOutputFields(schema).length > 0;
   if (!isContractCall) {
-    return serializeRespondOutput(
-      respondSerializationSchema,
-      nonFunctionCallDefaults(respondSerializationSchema),
+    if (expectsOutput) {
+      throw new Error(
+        "respond output: a plain transfer returns nothing, but the output schema declares return values",
+      );
+    }
+    return new Uint8Array(0);
+  }
+  if (trace.kind === EvmTraceOutputKind.NotTraced) {
+    throw new Error("respond output: a contract call's output needs its trace");
+  }
+  const returnData =
+    trace.kind === EvmTraceOutputKind.Output
+      ? ethers.getBytes(trace.returnData)
+      : new Uint8Array(0);
+  if (returnData.length === 0) {
+    if (expectsOutput) {
+      throw new Error(
+        "respond output: the contract call returned no data, but the output schema declares return values",
+      );
+    }
+    return new Uint8Array(0);
+  }
+  if (!expectsOutput) {
+    throw new Error(
+      "respond output: the contract call returned data, but the output schema declares no return values",
     );
   }
-  const expectsNoOutput = parseSchemaShape(outputDeserializationSchema).length === 0;
-  switch (trace.kind) {
-    case EvmTraceOutputKind.NotTraced:
-      throw new Error("respond output: a contract call's output needs its trace");
-    case EvmTraceOutputKind.NoReturnData:
-      if (!expectsNoOutput) {
-        throw new Error(
-          "respond output: the contract call's trace has no return data for a non-empty output schema",
-        );
-      }
-      break;
-    case EvmTraceOutputKind.Output:
-      if (!expectsNoOutput) {
-        return serializeRespondOutput(
-          respondSerializationSchema,
-          deserializeEvmOutput(outputDeserializationSchema, trace.returnData),
-        );
-      }
-      if (ethers.getBytes(trace.returnData).length > 0) {
-        throw new Error(
-          "respond output: the contract call returned data but its output schema declares no return values",
-        );
-      }
-      break;
-  }
-  return serializeRespondOutput(
-    respondSerializationSchema,
-    nonFunctionCallDefaults(respondSerializationSchema),
-  );
+  return serializeRespondOutput(schema, deserializeEvmOutput(schema, returnData));
 }
 
 /** A parsed JSON object. */
@@ -479,9 +553,8 @@ function parseSchemaJson(text: string): unknown {
 /**
  * Parse a schema in any input form and check its SHAPE only: an array of
  * fields with non-empty, unique names and non-empty type strings. An empty
- * schema is valid here: emptiness policy belongs to the callers
- * ({@link deserializeEvmOutput} decodes nothing and
- * {@link executedEvmRespondOutput} synthesises defaults for a void call).
+ * schema is valid here: {@link deserializeEvmOutput} decodes nothing from
+ * it and {@link executedEvmRespondOutput} attests an empty output.
  *
  * @param schema - The schema as JSON text, packed bytes, or a field array.
  * @returns The schema's fields, names and type strings unvalidated beyond shape.

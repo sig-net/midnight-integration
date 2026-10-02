@@ -94,14 +94,17 @@ The encoding employed for each supported chain:
 
 After recovering and deserialising the execution output, the MPC maps the decoded values to a subset of supported Compact types, then serialises them with Borsh against a schema derived from that mapping. The resulting bytes are readable in-circuit with the Compact standard library's `deserialize<T, N>(...)`.
 
+The output schema and the execution's return data must agree. An empty schema declares that the execution returns nothing (a plain transfer, or a call whose top frame carries no or empty return data) and attests an EMPTY output under `executed`. A non-empty schema declares that it returns data. The MPC refuses to attest a mismatch in either direction: return data under an empty schema, or no return data under a non-empty one. A settle circuit for an empty-schema request verifies at width 0 and routes on the verified `outputKind`, never on the width, since `failed` and `unviable` are empty too.
+
 The supported types and their mappings are specific to the execution chain. The following lists are exhaustive.
 
 #### Ethereum → Compact
 
 | ABI type | Compact type | Comment |
 | --- | --- | --- |
-| `uint256` | `Bytes<32>` | To use it as a number in Compact, perform a checked truncation to `Uint<128>` in-circuit with `checkedTruncationU128(v: Bytes<32>)`, provided by this SDK. |
+| `uint256` | `Bytes<32>` | The value as 32 little-endian bytes, the byte order of every Borsh and Compact integer (the ABI wire word reversed). To use it as a number, narrow it in-circuit with this SDK's `checkedTruncationU128(x: Bytes<32>): Uint<128>`, which aborts unless the high 16 bytes are zero. |
 | `bool` | `Boolean` | Equivalent. |
+| `address` | `Bytes<20>` | The 20 address bytes in wire order. |
 | `bytesN` | `Bytes<N>` | Fixed lengths only. |
 
 > **⚠️ No other types are supported.** The MPC drops a request if any type in its output schema is absent from the table above.
@@ -211,9 +214,9 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    ```compact
    // Required: Map of SignBidirectionalEvent signature requests, configured by transaction type.
    // Configured and sized here for an EVM Type 2 transaction with
-   // <1 calldata word, 0 access-list entries, 0 storage keys> and
-   // 34-byte serialisation schemas.
-   export ledger signBidirectionalEventMap: SignBidirectionalEventMapV1<EvmType2TxParams<1, 0, 0>, 34, 34>;
+   // <1 calldata word, 0 access-list entries, 0 storage keys> and a
+   // 34-byte output deserialisation schema.
+   export ledger signBidirectionalEventMap: SignBidirectionalEventMapV1<EvmType2TxParams<1, 0, 0>, 34>;
 
    export ledger lastSeen: Uint<64>;
    // Snapshot lastSeen per request so later responses cannot move its threshold.
@@ -341,8 +344,8 @@ const expectedSigner = deriveEvmAddress(
 
    ```compact
    // Construct SignBidirectionalEvent signature request and calculate its RequestId
-   const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(/* ... */);
-   const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34, 34>(request));
+   const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34>(/* ... */);
+   const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34>(request));
 
    // One lastSeen value is safe only when every request targets this chain.
    assert(request.executionDest == ethereumCaip2Id(), "Expected Ethereum destination");
@@ -401,7 +404,7 @@ const expectedSigner = deriveEvmAddress(
 
    Verify the signature before trusting the height. Compare it with the `heightAtRequest` snapshot from step 1, then advance `lastSeen` without ever decreasing it. Complete the checks, remove the request and run your application logic in the same transaction so a failure rolls back all of them.
 
-   The width argument is the exact packed size of your respond serialisation schema (a single bool packs to 1 byte):
+   The width argument is the exact width your output schema derives under the mapping in [Output Recovery and Serialisation](#output-recovery-and-serialisation) (a single `bool` is 1 byte, a `uint256` 32):
 
    ```compact
    assert(
@@ -482,7 +485,7 @@ const calldata = EvmCalldata<2> {
 
 The readers run the same rules in the other direction. They reject any non-canonical word outright (no silent truncation or coercion).
 
-The builders and readers apply to CALLDATA words only. The serialised output a settle circuit verifies (the explicit `serializedOutput` argument `verifyRespondBidirectionalEventV1` recomputes the attestation digest from) is NOT ABI words. It is the packed respond payload produced from the request's respond serialisation schema (a bool packs to 1 byte). The circuit reads it with a single stdlib `deserialize<T, N>` call, where `T` is a struct that mirrors the schema and `N` is the schema's packed size. For an ERC20 `transfer`'s `bool` return under a one-field bool schema:
+The builders and readers apply to CALLDATA words only. The serialised output a settle circuit verifies (the explicit `serializedOutput` argument `verifyRespondBidirectionalEventV1` recomputes the attestation digest from) is NOT ABI words. It is the Borsh serialisation the MPC derives from the request's output schema under the mapping in [Output Recovery and Serialisation](#output-recovery-and-serialisation): a `bool` is 1 byte, a `uint256` is its whole 32-byte word, a `bytesN` is N bytes. The circuit reads it with a single stdlib `deserialize<T, N>` call, where `T` is a struct that mirrors the schema field for field in the mapped Compact types and `N` is the sum of their widths. For an ERC20 `transfer`'s `bool` return under a one-field bool schema:
 
 ```compact
 struct TransferResult {
@@ -493,7 +496,22 @@ const result = deserialize<TransferResult, 1>(serializedOutput);
 assert(result.success, "Remote transfer failed");
 ```
 
-**Response schemas and integer bounds:** `outputDeserializationSchema` is an ABI field array, while `respondSerializationSchema` is native Borsh JSON. For example, an ABI `uint256` named `amount` can use `{"struct":{"amount":"u128"}}` as its response schema and `Uint<128>` in Compact. The EVM mapping layer rejects values outside `0 <= amount < 2^128` before serialising or attesting them. Borsh has no native `u256` or Compact `Field` integer. A full-width value requires an application-defined byte representation, such as `{ "array": { "type": "u8", "len": 32 } }` paired with Compact `Bytes<32>`, and an explicit conversion with agreed byte order. The mapper does not convert numeric `uint256` values into byte arrays automatically. See the [supported representations and limits](packages/midnight-serde-ts/README.md#compact-compatible-types).
+**Numeric outputs:** a `uint256` output reaches the circuit whole, as `Bytes<32>` holding the value little-endian. Nothing narrows it off chain. To use it as a number, narrow it in-circuit with `checkedTruncationU128`, which reads the low 16 bytes as a `Uint<128>` and aborts unless the high 16 are zero:
+
+```compact
+struct CheckAndDoubleResult {
+  success: Boolean;
+  amount: Bytes<32>;
+}
+
+const result = deserialize<CheckAndDoubleResult, 33>(serializedOutput);
+assert(result.success, "Remote call reported failure");
+const amount = checkedTruncationU128(result.amount);
+```
+
+An attested amount at or above 2^128 therefore fails the settle circuit, with a valid signature, at the narrowing: decide in your contract whether that is the outcome you want before choosing `Uint<128>` as the stored type. Off chain, the number is the 32 bytes read little-endian (`bytesToBigint` in `@sig-net/midnight`), not the ABI word.
+
+`checkedTruncationU128` is cheap: measured on the pinned compiler with `zkir-v3 mock-compile -v`, narrowing a bare `Bytes<32>` and writing the result costs 167 rows at k=9, against 4,552 for a byte-by-byte fold and 9,583 for a stdlib `deserialize` split. Inside the test caller's `verifyCheckAndDoubleResponse` the circuit is dominated by signature verification and sits at k=16.
 
 The same builders and readers exist as TypeScript twins under identical names, for composing expected words off-chain (UIs, expected-record builders, tests). The `@sig-net/midnight` test suite keeps them in lockstep with the compiled circuits.
 
