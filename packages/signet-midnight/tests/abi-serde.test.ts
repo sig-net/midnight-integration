@@ -1263,10 +1263,9 @@ describe("checkCanonicalReturnData: seeded mutation sweep over canonical encodin
       fields.forEach(({ field, padding, valueBytes }, wordIndex) => {
         for (const byte of padding) {
           const mutated = setByte(words, wordIndex, byte, randomInt(255) + 1);
+          // A plain substring match: the type string is data, never a pattern.
           expect(() => executedEvmRespondOutput(schema, true, returned(...mutated))).toThrow(
-            new RegExp(
-              `'${field.name}' \\(${field.type.replace(/[()]/g, "\\$&")}\\) word .* is not canonical ABI`,
-            ),
+            `'${field.name}' (${field.type}) word`,
           );
           paddingMutations += 1;
         }
