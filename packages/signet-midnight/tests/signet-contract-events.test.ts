@@ -425,7 +425,7 @@ interface ServedRow {
 
 /** What the indexer stand-in answered for one request: the variables the adapter sent. */
 interface ServedQuery {
-  filter: { contractAddress: string; types: string[] };
+  filter: { contractAddress: string; types: string[]; fromBlock?: number };
   limit: number;
   offset: number;
 }
@@ -685,6 +685,34 @@ describe("signetEventSourceFromIndexer", () => {
     expect(events).toHaveLength(120);
     expect(eventAt(events, 119).id).toBe(120);
     expect(queries.map((query) => query.offset)).toEqual([0, 100]);
+  });
+
+  it("sends no fromBlock key when no bound is given", async () => {
+    const queries: ServedQuery[] = [];
+    const queryUrl = await serveHistory([MISC_ROW], queries);
+    await collect(signetEventSourceFromIndexer({ queryUrl }).streamSignetEvents(SIGNET_ADDRESS));
+    expect(Object.keys(queries[0]?.filter ?? {})).toStrictEqual(["contractAddress", "types"]);
+  });
+
+  it("passes fromBlock to every page's filter and still ends at the pinned tip", async () => {
+    const history = [...historyOf(100, 120), ...historyOf(150, 150).slice(100)];
+    const queries: ServedQuery[] = [];
+    const queryUrl = await serveHistory(history, queries);
+
+    const events = await collect(
+      signetEventSourceFromIndexer({ queryUrl }).streamSignetEvents(SIGNET_ADDRESS, {
+        fromBlock: 382000,
+      }),
+    );
+
+    expect(queries).toStrictEqual(
+      [0, 100].map((offset) => ({
+        filter: { contractAddress: SIGNET_ADDRESS, types: ["MISC"], fromBlock: 382000 },
+        limit: 100,
+        offset,
+      })),
+    );
+    expect(events).toHaveLength(120);
   });
 
   it("stops requesting pages when the consumer leaves the loop", async () => {

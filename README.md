@@ -329,6 +329,10 @@ const reader = new SignetRequestResponseReader({
    // The MPC's responses are read from the contract events the Signet
    // singleton emits, queried from the same indexer
    eventSource: signetEventSourceFromIndexer({ queryUrl: indexerUrl }),
+
+   // Lowest Midnight block to scan for responses: the tip, taken BEFORE
+   // the first request is submitted (see "Bounding the event scan" below)
+   signetEventsFromBlock: (await publicDataProvider.queryBlock())?.height,
 });
 
 // The path argument is the MPC's rendering of the exact 32 path bytes the
@@ -339,6 +343,10 @@ const expectedSigner = deriveEvmAddress(
    bytesToHex(asciiPadded("my-path", 32)),
 );
 ```
+
+#### Bounding the event scan
+
+`signetEventsFromBlock` bounds the event scan the reader runs on every poll, which otherwise walks the Signet singleton's whole history. Responses are emitted after their request, so it must not exceed the block in which the oldest request you still expect responses for was submitted: a fresh client takes the tip before its first request, a client resuming earlier requests uses the oldest pending request's block or omits the field. A value too high does not fail, it hides responses. Direct consumers of `streamSignetEvents` pass the same bound as `{ fromBlock }`.
 
 > **mpcRootPublicKey** is the root public key of the MPC network. On a local stack there is no fixed value: this repository's [integration-test setup](packages/integration-tests) generates a fresh `MPC_ROOT_KEY`, prints it during setup and appends it to the repo-root `.env`. For the public networks (stagenet, preview, preprod, mainnet) the fixed values are published in `@sig-net/midnight` via `getMpcRootPublicKey`, as `0x04…` uncompressed SEC1 hex (stagenet's is published, the others are placeholders until each network's key is). Every key entry point (`deriveEvmAddress`, `deriveMidnightResponseKey`, `parseSecp256k1PublicKey`) also accepts NEAR's `secp256k1:<base58>` spelling, the one signet.js and the MPC operators currently publish keys in, and `normaliseSecp256k1PublicKey` converts any spelling to the canonical one.
 >
