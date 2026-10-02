@@ -94,7 +94,7 @@ The encoding employed for each supported chain:
 
 After recovering and deserialising the execution output, the MPC maps the decoded values to a subset of supported Compact types, then serialises them with Borsh against a schema derived from that mapping. The resulting bytes are readable in-circuit with the Compact standard library's `deserialize<T, N>(...)`.
 
-The output schema and the execution's return data must agree. An empty schema declares that the execution returns nothing (a plain transfer, or a call whose top frame carries no or empty return data) and attests an EMPTY output under `executed`. A non-empty schema declares that it returns data. The MPC refuses to attest a mismatch in either direction: return data under an empty schema, or no return data under a non-empty one. A settle circuit for an empty-schema request verifies at width 0 and routes on the verified `outputKind`, never on the width, since `failed` and `unviable` are empty too.
+The schema and the return data must agree. The schema must be empty for an execution that returns no data (a plain transfer, or a contract call without return data), and the attested output is then empty. Otherwise the return data must be canonical ABI: whole words, `bool` 0 or 1, zero high bytes on `address`, zero padding after `bytesN`. Extra trailing words are ignored. Any mismatch is refused and the request stays unanswered. Since `failed` and `unviable` are empty too, a settle circuit routes on the verified `outputKind`, never on the width.
 
 The supported types and their mappings are specific to the execution chain. The following lists are exhaustive.
 

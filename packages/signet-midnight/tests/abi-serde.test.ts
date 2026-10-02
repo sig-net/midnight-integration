@@ -820,6 +820,26 @@ describe("executedEvmRespondOutput: the attested output of an executed transacti
       },
       expected: "01" + "ff".repeat(32),
     },
+    {
+      name: "a bytes4 result, zero-padded as the ABI requires",
+      schema: [{ name: "tag", type: "bytes4" }],
+      call: true,
+      trace: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: coder.encode(["bytes4"], ["0xdeadbeef"]),
+      },
+      expected: "deadbeef",
+    },
+    {
+      name: "return data with words past the declared fields",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: coder.encode(["bool", "uint256"], [true, 7n]),
+      },
+      expected: "01",
+    },
   ])("$name", ({ schema, call, trace, expected }) => {
     expect(hex(executedEvmRespondOutput(schema, call, trace))).toBe(expected);
   });
@@ -914,7 +934,353 @@ describe("executedEvmRespondOutput: the attested output of an executed transacti
       },
       error: /unsupported ABI output type 'note' \(string\)/,
     },
+    // Return data must be canonical ABI: the ABI library would decode every
+    // row below, so the refusal is this module's.
+    {
+      name: "a bool word of 2",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: "0x" + "00".repeat(31) + "02" },
+      error: /'success' \(bool\) word 0x0{62}02 is not canonical ABI/,
+    },
+    {
+      name: "a bool word with a dirty high byte",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: "0x01" + "00".repeat(30) + "01" },
+      error: /'success' \(bool\) word .* is not canonical ABI/,
+    },
+    {
+      name: "an address word with dirty high bytes",
+      schema: [{ name: "to", type: "address" }],
+      call: true,
+      trace: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: "0x" + "ff".repeat(12) + ADDRESS.slice(2),
+      },
+      error: /'to' \(address\) word .* is not canonical ABI/,
+    },
+    {
+      name: "a bytes4 word with dirty padding",
+      schema: [{ name: "tag", type: "bytes4" }],
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: "0xdeadbeef" + "ff".repeat(28) },
+      error: /'tag' \(bytes4\) word .* is not canonical ABI/,
+    },
+    {
+      name: "return data that is not whole words",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [true]) + "00" },
+      error: /return data of 33 bytes is not whole ABI words/,
+    },
+    {
+      name: "fewer words than declared fields",
+      schema: BOOL_UINT_ABI_SCHEMA,
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [true]) },
+      error: /holds 1 word but the output schema declares 2 fields/,
+    },
   ])("refuses $name", ({ schema, call, trace, error }) => {
     expect(() => executedEvmRespondOutput(schema, call, trace)).toThrow(error);
+  });
+});
+
+// ===========================================================================
+// checkCanonicalReturnData, through executedEvmRespondOutput's decode path
+// ===========================================================================
+
+/** A 32-byte ABI word from its hex digits, left-padded with zeros. */
+const abiWord = (hexDigits: string): string => hexDigits.padStart(64, "0");
+/** Return data from words, as the trace output a contract call yields. */
+const returned = (...words: string[]): EvmTraceOutput => ({
+  kind: EvmTraceOutputKind.Output,
+  returnData: "0x" + words.join(""),
+});
+/** A word of `byte` repeated 32 times. */
+const filled = (byte: number): string => byte.toString(16).padStart(2, "0").repeat(32);
+/** A zero word with one byte set, by position 0..31. */
+const wordWithByte = (position: number, byte: number): string => {
+  const bytes = new Array<string>(32).fill("00");
+  bytes[position] = byte.toString(16).padStart(2, "0");
+  return bytes.join("");
+};
+
+describe("checkCanonicalReturnData: bool words", () => {
+  it.each([0, 1])("accepts a last byte of %i", (last) => {
+    expect(
+      hex(executedEvmRespondOutput(BOOL_ABI_SCHEMA, true, returned(wordWithByte(31, last)))),
+    ).toBe(last.toString(16).padStart(2, "0"));
+  });
+
+  it.each(Array.from({ length: 254 }, (_, i) => i + 2))("refuses a last byte of %i", (last) => {
+    expect(() =>
+      executedEvmRespondOutput(BOOL_ABI_SCHEMA, true, returned(wordWithByte(31, last))),
+    ).toThrow(/'success' \(bool\) word .* is not canonical ABI/);
+  });
+
+  it.each(Array.from({ length: 31 }, (_, i) => i))(
+    "refuses a set byte at position %i above a last byte of 1",
+    (position) => {
+      const word = wordWithByte(position, 0x01).slice(0, 62) + "01";
+      expect(() => executedEvmRespondOutput(BOOL_ABI_SCHEMA, true, returned(word))).toThrow(
+        /'success' \(bool\) word .* is not canonical ABI/,
+      );
+    },
+  );
+});
+
+describe("checkCanonicalReturnData: address words", () => {
+  const schema: EvmSchemaField[] = [{ name: "to", type: "address" }];
+
+  it("accepts any 20 low bytes", () => {
+    expect(hex(executedEvmRespondOutput(schema, true, returned(abiWord("ff".repeat(20)))))).toBe(
+      "ff".repeat(20),
+    );
+  });
+
+  it.each(Array.from({ length: 12 }, (_, i) => i))(
+    "refuses a set high byte at position %i",
+    (position) => {
+      const word = wordWithByte(position, 0x01).slice(0, 24) + "11".repeat(20);
+      expect(() => executedEvmRespondOutput(schema, true, returned(word))).toThrow(
+        /'to' \(address\) word .* is not canonical ABI/,
+      );
+    },
+  );
+});
+
+describe("checkCanonicalReturnData: bytesN words", () => {
+  const sizes = Array.from({ length: 32 }, (_, i) => i + 1);
+
+  it.each(sizes)("accepts bytes%i filled to exactly N bytes", (n) => {
+    const schema: EvmSchemaField[] = [{ name: "b", type: `bytes${String(n)}` }];
+    const word = "ff".repeat(n) + "00".repeat(32 - n);
+    expect(hex(executedEvmRespondOutput(schema, true, returned(word)))).toBe("ff".repeat(n));
+  });
+
+  it.each(sizes.filter((n) => n < 32))("refuses bytes%i with its first padding byte set", (n) => {
+    const schema: EvmSchemaField[] = [{ name: "b", type: `bytes${String(n)}` }];
+    const word = "ff".repeat(n) + "01" + "00".repeat(31 - n);
+    expect(() => executedEvmRespondOutput(schema, true, returned(word))).toThrow(
+      new RegExp(`'b' \\(bytes${String(n)}\\) word .* is not canonical ABI`),
+    );
+  });
+
+  it.each(sizes.filter((n) => n < 32))("refuses bytes%i with its last padding byte set", (n) => {
+    const schema: EvmSchemaField[] = [{ name: "b", type: `bytes${String(n)}` }];
+    const word = "ff".repeat(n) + "00".repeat(31 - n) + "01";
+    expect(() => executedEvmRespondOutput(schema, true, returned(word))).toThrow(
+      /is not canonical ABI/,
+    );
+  });
+
+  it("bytes32 has no padding, so every word is canonical", () => {
+    const schema: EvmSchemaField[] = [{ name: "b", type: "bytes32" }];
+    expect(hex(executedEvmRespondOutput(schema, true, returned(filled(0xff))))).toBe(filled(0xff));
+  });
+});
+
+describe("checkCanonicalReturnData: uint256 words and data shape", () => {
+  const uint: EvmSchemaField[] = [{ name: "n", type: "uint256" }];
+
+  it("accepts every uint256 word", () => {
+    for (const byte of [0x00, 0x01, 0x7f, 0x80, 0xff]) {
+      expect(executedEvmRespondOutput(uint, true, returned(filled(byte)))).toHaveLength(32);
+    }
+  });
+
+  it.each(Array.from({ length: 31 }, (_, i) => i + 1))(
+    "refuses return data of %i bytes as not whole words",
+    (length) => {
+      expect(() =>
+        executedEvmRespondOutput(uint, true, {
+          kind: EvmTraceOutputKind.Output,
+          returnData: new Uint8Array(length),
+        }),
+      ).toThrow(new RegExp(`return data of ${String(length)} bytes is not whole ABI words`));
+    },
+  );
+
+  it.each([33, 63, 65, 95])("refuses return data of %i bytes", (length) => {
+    expect(() =>
+      executedEvmRespondOutput(uint, true, {
+        kind: EvmTraceOutputKind.Output,
+        returnData: new Uint8Array(length),
+      }),
+    ).toThrow(/is not whole ABI words/);
+  });
+
+  it.each([
+    { fields: 2, words: 1 },
+    { fields: 3, words: 2 },
+    { fields: 4, words: 1 },
+  ])("refuses $words word(s) for $fields fields", ({ fields, words }) => {
+    const schema: EvmSchemaField[] = Array.from({ length: fields }, (_, i) => ({
+      name: `f${String(i)}`,
+      type: "uint256",
+    }));
+    expect(() =>
+      executedEvmRespondOutput(schema, true, returned(...Array<string>(words).fill(abiWord("1")))),
+    ).toThrow(
+      new RegExp(
+        `holds ${String(words)} word${words === 1 ? "" : "s"} but the output schema declares ${String(fields)} fields`,
+      ),
+    );
+  });
+
+  it("ignores trailing words, whatever they hold", () => {
+    expect(
+      hex(
+        executedEvmRespondOutput(
+          BOOL_ABI_SCHEMA,
+          true,
+          returned(abiWord("1"), filled(0xff), wordWithByte(0, 0x80), filled(0x02)),
+        ),
+      ),
+    ).toBe("01");
+  });
+
+  it("blames the field whose word is dirty, by position", () => {
+    const schema: EvmSchemaField[] = [
+      { name: "ok", type: "bool" },
+      { name: "to", type: "address" },
+      { name: "tag", type: "bytes4" },
+      { name: "n", type: "uint256" },
+    ];
+    const clean = [
+      abiWord("1"),
+      abiWord("11".repeat(20)),
+      "deadbeef" + "00".repeat(28),
+      filled(0xff),
+    ];
+    expect(hex(executedEvmRespondOutput(schema, true, returned(...clean)))).toBe(
+      "01" + "11".repeat(20) + "deadbeef" + "ff".repeat(32),
+    );
+    const dirtyAt = (index: number, word: string): string[] =>
+      clean.map((w, i) => (i === index ? word : w));
+    expect(() =>
+      executedEvmRespondOutput(schema, true, returned(...dirtyAt(0, abiWord("2")))),
+    ).toThrow(/'ok' \(bool\)/);
+    expect(() =>
+      executedEvmRespondOutput(schema, true, returned(...dirtyAt(1, filled(0x11)))),
+    ).toThrow(/'to' \(address\)/);
+    expect(() =>
+      executedEvmRespondOutput(schema, true, returned(...dirtyAt(2, "deadbeef" + "ff".repeat(28)))),
+    ).toThrow(/'tag' \(bytes4\)/);
+  });
+});
+
+describe("checkCanonicalReturnData: the ABI library alone would accept what it refuses", () => {
+  // The reason the check exists: ethers decodes each of these without error.
+  // (An address word with dirty high bytes is the one case ethers refuses itself.)
+  it.each([
+    { name: "a bool word of 2", schema: BOOL_ABI_SCHEMA, data: wordWithByte(31, 2) },
+    {
+      name: "bytes4 with dirty padding",
+      schema: [{ name: "tag", type: "bytes4" }],
+      data: "deadbeef" + "ff".repeat(28),
+    },
+    { name: "33 bytes", schema: BOOL_ABI_SCHEMA, data: abiWord("1") + "00" },
+  ])("$name", ({ schema, data }) => {
+    expect(() => deserializeEvmOutput(schema, "0x" + data)).not.toThrow();
+    expect(() => executedEvmRespondOutput(schema, true, returned(data))).toThrow(
+      /is not canonical ABI|is not whole ABI words/,
+    );
+  });
+});
+
+describe("checkCanonicalReturnData: seeded mutation sweep over canonical encodings", () => {
+  // xorshift32: deterministic, so a failure reproduces from the seed.
+  let state = 0x9e3779b9;
+  const random = (): number => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return (state >>> 0) / 0x100000000;
+  };
+  const randomInt = (max: number): number => Math.floor(random() * max);
+  const randomHex = (bytes: number): string =>
+    Array.from({ length: bytes }, () => randomInt(256).toString(16).padStart(2, "0")).join("");
+
+  /** A random schema field with a canonical word for it and the word's padding byte positions. */
+  const randomField = (
+    index: number,
+  ): { field: EvmSchemaField; word: string; padding: number[]; valueBytes: number[] } => {
+    const name = `f${String(index)}`;
+    const all = Array.from({ length: 32 }, (_, i) => i);
+    switch (randomInt(4)) {
+      case 0:
+        return {
+          field: { name, type: "bool" },
+          word: wordWithByte(31, randomInt(2)),
+          padding: all.slice(0, 31),
+          valueBytes: [],
+        };
+      case 1:
+        return {
+          field: { name, type: "uint256" },
+          word: randomHex(32),
+          padding: [],
+          valueBytes: all,
+        };
+      case 2:
+        return {
+          field: { name, type: "address" },
+          word: "00".repeat(12) + randomHex(20),
+          padding: all.slice(0, 12),
+          valueBytes: all.slice(12),
+        };
+      default: {
+        const n = randomInt(32) + 1;
+        return {
+          field: { name, type: `bytes${String(n)}` },
+          word: randomHex(n) + "00".repeat(32 - n),
+          padding: all.slice(n),
+          valueBytes: all.slice(0, n),
+        };
+      }
+    }
+  };
+
+  const setByte = (words: string[], wordIndex: number, byte: number, value: number): string[] =>
+    words.map((w, i) =>
+      i === wordIndex
+        ? w.slice(0, byte * 2) + value.toString(16).padStart(2, "0") + w.slice(byte * 2 + 2)
+        : w,
+    );
+
+  it("accepts every canonical encoding, refuses every padding mutation, keeps every value mutation", () => {
+    let paddingMutations = 0;
+    let valueMutations = 0;
+    for (let round = 0; round < 60; round += 1) {
+      const fields = Array.from({ length: randomInt(4) + 1 }, (_, i) => randomField(i));
+      const schema = fields.map(({ field }) => field);
+      const words = fields.map(({ word }) => word);
+      expect(executedEvmRespondOutput(schema, true, returned(...words))).toHaveLength(
+        respondOutputWidth(schema),
+      );
+      fields.forEach(({ field, padding, valueBytes }, wordIndex) => {
+        for (const byte of padding) {
+          const mutated = setByte(words, wordIndex, byte, randomInt(255) + 1);
+          expect(() => executedEvmRespondOutput(schema, true, returned(...mutated))).toThrow(
+            new RegExp(
+              `'${field.name}' \\(${field.type.replace(/[()]/g, "\\$&")}\\) word .* is not canonical ABI`,
+            ),
+          );
+          paddingMutations += 1;
+        }
+        for (const byte of valueBytes) {
+          const mutated = setByte(words, wordIndex, byte, randomInt(256));
+          expect(executedEvmRespondOutput(schema, true, returned(...mutated))).toHaveLength(
+            respondOutputWidth(schema),
+          );
+          valueMutations += 1;
+        }
+      });
+    }
+    // The sweep must have exercised both branches, or it proves nothing.
+    expect(paddingMutations).toBeGreaterThan(500);
+    expect(valueMutations).toBeGreaterThan(500);
   });
 });

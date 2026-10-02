@@ -362,6 +362,54 @@ export type EvmTraceOutput =
     };
 
 /**
+ * Refuse return data that is not canonical ABI before it is decoded: whole
+ * 32-byte words, at least one per declared field, a `bool` word of 0 or 1,
+ * an `address` word with zero high bytes and a `bytesN` word zero-padded
+ * after its N bytes. Words past the declared fields are not checked. The ABI
+ * library decodes such data leniently (a `bool` word of 2 reads as true), so
+ * the check sits here, where the MPC decides whether to attest.
+ *
+ * @param fields - The schema's classified fields, in order.
+ * @param returnData - The traced return data, non-empty.
+ * @throws {Error} If the data is not whole words, holds fewer words than
+ *   fields, or a field's word is not canonical for its type.
+ */
+function checkCanonicalReturnData(
+  fields: readonly ClassifiedEvmOutputField[],
+  returnData: Uint8Array,
+): void {
+  if (returnData.length % ABI_WORD_BYTES !== 0) {
+    throw new Error(
+      `respond output: return data of ${String(returnData.length)} bytes is not whole ABI words`,
+    );
+  }
+  const words = returnData.length / ABI_WORD_BYTES;
+  if (words < fields.length) {
+    throw new Error(
+      `respond output: return data holds ${String(words)} word${words === 1 ? "" : "s"} but the output schema declares ${String(fields.length)} fields`,
+    );
+  }
+  const isZero = (bytes: Uint8Array): boolean => bytes.every((byte) => byte === 0);
+  fields.forEach((field, i) => {
+    const word = returnData.subarray(i * ABI_WORD_BYTES, (i + 1) * ABI_WORD_BYTES);
+    const last = word[ABI_WORD_BYTES - 1];
+    const canonical =
+      field.kind === EvmOutputTypeKind.Bool
+        ? isZero(word.subarray(0, ABI_WORD_BYTES - 1)) && (last === 0 || last === 1)
+        : field.kind === EvmOutputTypeKind.Address
+          ? isZero(word.subarray(0, ABI_WORD_BYTES - EVM_ADDRESS_BYTES))
+          : field.kind === EvmOutputTypeKind.FixedBytes
+            ? isZero(word.subarray(field.bytes))
+            : true;
+    if (!canonical) {
+      throw new Error(
+        `respond output: '${field.name}' (${field.type}) word 0x${ethers.hexlify(word).slice(2)} is not canonical ABI`,
+      );
+    }
+  });
+}
+
+/**
  * The exact respond output the MPC attests for an EVM transaction that
  * executed (the payload of an `OutputKind.executed` attestation), derived
  * from the request's outputDeserializationSchema alone. The schema and the
@@ -390,7 +438,8 @@ export type EvmTraceOutput =
  * @throws {Error} Exactly where the MPC refuses to attest an execution: a
  *   malformed schema or an unsupported output type, a contract call not
  *   traced, return data under an empty schema, no or empty return data
- *   under a non-empty schema, return data the schema cannot decode, and
+ *   under a non-empty schema, return data that is not canonical ABI
+ *   ({@link checkCanonicalReturnData}) or that the schema cannot decode, and
  *   every {@link serializeRespondOutput} rejection.
  */
 export function executedEvmRespondOutput(
@@ -398,7 +447,8 @@ export function executedEvmRespondOutput(
   isContractCall: boolean,
   trace: EvmTraceOutput,
 ): Uint8Array {
-  const expectsOutput = classifiedEvmOutputFields(schema).length > 0;
+  const fields = classifiedEvmOutputFields(schema);
+  const expectsOutput = fields.length > 0;
   if (!isContractCall) {
     if (expectsOutput) {
       throw new Error(
@@ -427,6 +477,7 @@ export function executedEvmRespondOutput(
       "respond output: the contract call returned data, but the output schema declares no return values",
     );
   }
+  checkCanonicalReturnData(fields, returnData);
   return serializeRespondOutput(schema, deserializeEvmOutput(schema, returnData));
 }
 
