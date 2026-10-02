@@ -1,6 +1,6 @@
 [package]
 name = "signet-midnight-serde"
-version = "0.24.0-rc.9"
+version = "0.24.0-rc.10"
 edition = "2024"
 description = "Native Borsh serialisation with optional zero padding for Midnight callers."
 repository = "https://github.com/sig-net/midnight-integration"
