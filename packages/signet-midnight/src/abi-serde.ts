@@ -6,10 +6,10 @@ import { ethers } from "ethers";
 // ---------------------------------------------------------------------------
 
 /**
- * One field of an outputDeserializationSchema: `type` is ANY type string the
- * ABI library accepts. {@link deserializeEvmOutput} decodes every ABI type,
- * while the respond side ({@link deriveRespondSchema}) accepts only the
- * {@link EvmOutputTypeKind} subset.
+ * One field of an outputDeserializationSchema: `type` is an ABI type string
+ * `ethers.ParamType` accepts. {@link deserializeEvmOutput} decodes every
+ * such type, while the respond side ({@link deriveRespondSchema}) accepts
+ * only the {@link EvmOutputTypeKind} subset, matched on the raw string.
  */
 export interface EvmSchemaField {
   name: string;
@@ -111,7 +111,9 @@ const ABI_WORD_BYTES = 32;
 const EVM_ADDRESS_BYTES = 20;
 
 /**
- * Classify an ABI type string into the supported output subset.
+ * Classify an ABI type string into the supported output subset. The match is
+ * on the raw string, so `uint` is unsupported although the ABI library reads
+ * it as `uint256`: the MPC matches the same raw string.
  *
  * @param type - The ABI type string of an output schema field.
  * @returns The field's kind and respond byte width, or `undefined` for an unsupported type.
@@ -569,15 +571,17 @@ const PROTOTYPE_ACCESSOR_NAME = "__proto__";
 
 /**
  * Parse a schema in any input form and check its SHAPE only: an array of
- * fields with unique Solidity-identifier names and non-empty type strings.
- * An empty schema is valid here: {@link deserializeEvmOutput} decodes
- * nothing from it and {@link executedEvmRespondOutput} attests an empty
- * output.
+ * fields with unique Solidity-identifier names and ABI type strings
+ * `ethers.ParamType` accepts. Whether a type is in the attested subset is
+ * decided later, by {@link classifyEvmOutputType}. An empty schema is valid
+ * here: {@link deserializeEvmOutput} decodes nothing from it and
+ * {@link executedEvmRespondOutput} attests an empty output.
  *
  * @param schema - The schema as JSON text, packed bytes, or a field array.
- * @returns The schema's fields, type strings unvalidated beyond presence.
+ * @returns The schema's fields, type strings as written.
  * @throws {Error} If the schema is not an array of fields, a name is not a
- *   Solidity identifier or is `__proto__`, a name repeats, or a type is missing.
+ *   Solidity identifier or is `__proto__`, a name repeats, or a type is
+ *   missing or not an ABI type.
  */
 function parseSchemaShape(schema: EvmSchemaInput): EvmSchemaField[] {
   const parsed: unknown =
@@ -608,6 +612,11 @@ function parseSchemaShape(schema: EvmSchemaInput): EvmSchemaField[] {
     seen.add(name);
     if (typeof type !== "string" || type.length === 0) {
       throw new Error(`schema: '${name}' needs a type`);
+    }
+    try {
+      ethers.ParamType.from(type);
+    } catch (error) {
+      throw new Error(`schema: '${name}' has an invalid ABI type '${type}'`, { cause: error });
     }
     return { name, type };
   });

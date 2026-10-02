@@ -100,7 +100,7 @@ The supported types and their mappings are specific to the execution chain. The 
 
 #### Ethereum → Compact
 
-The MPC and SDKs enforce that every field in the schema is a valid Solidity identifier: i.e. matching `[A-Za-z_$][A-Za-z0-9_$]*`. In addition the name  `__proto__` is not allowed.
+The MPC and SDKs enforce that every field in the schema is a valid Solidity identifier: i.e. matching `[A-Za-z_$][A-Za-z0-9_$]*`. In addition the name `__proto__` is not allowed, and names must be unique within the schema. Finally each field's type is an ABI type string, matched literally against the table below: `uint256`, never `uint`.
 
 | ABI type | Compact type | Comment |
 | --- | --- | --- |

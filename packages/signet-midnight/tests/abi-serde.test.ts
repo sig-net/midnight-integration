@@ -172,16 +172,11 @@ describe("deserializeEvmOutput: rejections", () => {
     callResult?: string;
     error?: RegExp;
   }[] = [
-    {
-      name: "unknown type string (rejected by ethers, the grammar authority)",
-      schema: [{ name: "x", type: "banana" }],
-      callResult: good,
-    },
-    {
-      name: "'field' is not an ABI type (respond-side only)",
-      schema: [{ name: "x", type: "field" }],
-      callResult: good,
-    },
+    ...["banana", "field", "bytes0", "bytes33", "uint256 ", "bool "].map((type) => ({
+      name: `type '${type}' is not an ABI type (ethers.ParamType is the grammar authority)`,
+      schema: [{ name: "x", type }],
+      error: /has an invalid ABI type/,
+    })),
     {
       name: "schema JSON that is not an array",
       schema: '{"name":"x","type":"bool"}',
@@ -521,12 +516,15 @@ describe("unsupportedEvmOutputFields: the MPC's drop decision", () => {
     "uint128",
     "string",
     "bytes",
-    "bytes0",
-    "bytes33",
     "uint256[]",
     "bool[2]",
     "(uint256,bool)",
-    "field",
+    "tuple(uint256,bool)",
+    // Valid ABI spellings ethers normalises to a supported type, refused
+    // because the match is on the raw string, as the MPC's is.
+    "uint",
+    " uint256",
+    "address payable",
   ])("names a %s field without throwing, and derivation refuses it", (type) => {
     const schema: EvmSchemaField[] = [
       { name: "ok", type: "bool" },
@@ -556,6 +554,15 @@ describe("unsupportedEvmOutputFields: the MPC's drop decision", () => {
   it("still refuses a malformed schema shape", () => {
     expect(() => unsupportedEvmOutputFields("not json at all")).toThrow(/JSON/);
     expect(() => unsupportedEvmOutputFields('{"name":"x","type":"bool"}')).toThrow(/JSON array/);
+    expect(() => unsupportedEvmOutputFields([{ name: "x", type: "bytes33" }])).toThrow(
+      /invalid ABI type/,
+    );
+  });
+
+  it("drops 'uint' although ethers decodes it as uint256", () => {
+    const schema: EvmSchemaField[] = [{ name: "x", type: "uint" }];
+    expect(deserializeEvmOutput(schema, coder.encode(["uint256"], [7n]))).toEqual({ x: 7n });
+    expect(unsupportedEvmOutputFields(schema)).toEqual(schema);
   });
 });
 
