@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   type AbiDecodedOutput,
+  canonicalSchemaText,
   deriveRespondSchema,
   deserializeEvmOutput,
   type EvmSchemaField,
@@ -155,12 +156,90 @@ describe("deserializeEvmOutput: empty schemas decode to no values", () => {
   const forms: { name: string; input: EvmSchemaInput }[] = [
     { name: "empty typed array", input: [] },
     { name: "empty-array JSON text", input: "[]" },
-    { name: "blank text", input: "  " },
+    { name: "empty text", input: "" },
+    { name: "no bytes", input: new Uint8Array(0) },
     { name: "an unset all-NUL on-chain field", input: new Uint8Array(34) },
   ];
 
   it.each(forms)("$name", ({ input }) => {
     expect(deserializeEvmOutput(input, "0x")).toEqual({});
+  });
+});
+
+describe("schema text and bytes must be canonical", () => {
+  const fields: EvmSchemaField[] = [
+    { name: "ok", type: "bool" },
+    { name: "amount", type: "uint256" },
+  ];
+  const canonical = '[{"name":"ok","type":"bool"},{"name":"amount","type":"uint256"}]';
+
+  it("canonicalSchemaText is JSON.stringify of {name, type} in order", () => {
+    expect(canonicalSchemaText(fields)).toBe(canonical);
+    expect(canonicalSchemaText([])).toBe("[]");
+    expect(canonicalSchemaText([{ name: "ok", type: "bool", extra: 1 } as EvmSchemaField])).toBe(
+      '[{"name":"ok","type":"bool"}]',
+    );
+  });
+
+  it.each([
+    { name: "the canonical text", input: canonical },
+    { name: "the canonical bytes", input: new TextEncoder().encode(canonical) },
+    { name: "the canonical bytes NUL-padded", input: nulPadded(fields, 100) },
+  ])("accepts $name", ({ input }) => {
+    expect(deserializeEvmOutput(input, coder.encode(["bool", "uint256"], [true, 1n]))).toEqual({
+      ok: true,
+      amount: 1n,
+    });
+  });
+
+  const rejected: { name: string; input: string | Uint8Array; error: RegExp }[] = [
+    { name: "blank text", input: "  ", error: /not valid JSON/ },
+    {
+      name: "whitespace inside",
+      input: '[ {"name": "ok", "type": "bool"} ]',
+      error: /not canonical/,
+    },
+    {
+      name: "a trailing newline",
+      input: '[{"name":"ok","type":"bool"}]\n',
+      error: /not canonical/,
+    },
+    { name: "type before name", input: '[{"type":"bool","name":"ok"}]', error: /not canonical/ },
+    {
+      name: "an extra key",
+      input: '[{"name":"ok","type":"bool","maxBytes":1}]',
+      error: /not canonical/,
+    },
+    {
+      name: "a duplicate JSON key",
+      input: '[{"name":"x","name":"ok","type":"bool"}]',
+      error: /not canonical/,
+    },
+    {
+      name: "a unicode escape",
+      input: '[{"name":"\\u006fk","type":"bool"}]',
+      error: /not canonical/,
+    },
+    {
+      name: "bytes after the first NUL",
+      input: new Uint8Array([...new TextEncoder().encode("[]"), 0, 0x78]),
+      error: /from the first NUL on must be NUL/,
+    },
+    {
+      name: "invalid UTF-8",
+      input: new Uint8Array([0x5b, 0xff, 0x5d]),
+      error: /not valid JSON/,
+    },
+  ];
+
+  it.each(rejected)("rejects $name", ({ input, error }) => {
+    expect(() => deserializeEvmOutput(input, "0x")).toThrow(error);
+  });
+
+  it("names the canonical text in the rejection", () => {
+    expect(() => deserializeEvmOutput('[ {"name":"ok","type":"bool"} ]', "0x")).toThrow(
+      'expected exactly [{"name":"ok","type":"bool"}]',
+    );
   });
 });
 

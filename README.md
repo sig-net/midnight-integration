@@ -102,6 +102,8 @@ The supported types and their mappings are specific to the execution chain. The 
 
 The MPC and SDKs enforce that every field in the schema is a valid Solidity identifier: i.e. matching `[A-Za-z_$][A-Za-z0-9_$]*`. In addition the name `__proto__` is not allowed, and names must be unique within the schema. Finally each field's type is an ABI type string, matched literally against the table below: `uint256`, never `uint`.
 
+The on-chain bytes must be canonical: `[{"name":"...","type":"..."},...]` with no whitespace, no other keys and no escapes, as produced by `canonicalSchemaText` in `@sig-net/midnight`, then NUL-padded to the field width. An empty schema is `[]` or all NUL. Anything else is dropped.
+
 | ABI type | Compact type | Comment |
 | --- | --- | --- |
 | `uint256` | `Bytes<32>` | The value as 32 little-endian bytes, the byte order of every Borsh and Compact integer (the ABI wire word reversed). To use it as a number, narrow it in-circuit with this SDK's `checkedTruncationU128(x: Bytes<32>): Uint<128>`, which aborts unless the high 16 bytes are zero. |
@@ -139,7 +141,7 @@ The MPC only generates signatures for **Verified Request Events**, which it disc
 - it confirms the cross contract caller address equals the `callerAddress` in the notification
 - it reads the `SignBidirectionalEvent` from ledger state at the `callerAddress`
 - it confirms the `sender` in the `SignBidirectionalEvent` matches the `callerAddress` from the notification
-- it confirms the read `SignBidirectionalEvent` hashes back to the notified **RequestId**
+- it confirms the read `SignBidirectionalEvent`'s request-id preimage fields (keyVersion, sender, path, algo, txParamType, txParamsDigest and executionDest, so neither schema and no reserved parameter) hash back to the notified **RequestId**
 
 If any of these checks fail the request is dropped silently.
 

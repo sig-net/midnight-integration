@@ -123,6 +123,9 @@ module Signet {
     // execution output (destination chain -> MPC).
     // The value is execution chain specific and sized per client contract: 
     // - Ethereum: an ABI JSON schema string (see https://docs.soliditylang.org/en/v0.8.30/abi-spec.html#json)
+    //   in canonical form: `[{"name":"<identifier>","type":"<abi type>"},...]` with no
+    //   whitespace, NUL-padded to LenOutputDeserialization (see the README's "Output
+    //   Recovery and Serialisation"). The MPC drops a request whose bytes differ.
     outputDeserializationSchema: Bytes<LenOutputDeserialization>;
 
     // respondSerializationSchema is reserved for future use and IGNORED by the MPC. The

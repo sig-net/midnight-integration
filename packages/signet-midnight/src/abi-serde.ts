@@ -537,22 +537,51 @@ function toPlainValue(value: unknown, label: string): AbiDecodedValue {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse schema text as JSON with the parse failure named. Blank text (an
- * unset all-NUL on-chain schema field) is the empty schema.
+ * The canonical text of an output schema: `JSON.stringify` of its fields
+ * reduced to `{name, type}` in schema order, with no whitespace. A schema's
+ * on-chain bytes must be exactly this text followed by NUL padding, so one
+ * schema has exactly one byte form. Write a contract's schema literal with
+ * this function's output.
  *
- * @param text - The schema text, NUL-trimmed.
- * @returns The parsed JSON value, `[]` for blank text.
- * @throws {Error} If non-blank text is not valid JSON.
+ * @param fields - The schema's fields in order.
+ * @returns The canonical JSON text, `[]` for an empty schema.
  */
-function parseSchemaJson(text: string): unknown {
-  if (text.trim() === "") {
+export function canonicalSchemaText(fields: readonly EvmSchemaField[]): string {
+  return JSON.stringify(fields.map(({ name, type }) => ({ name, type })));
+}
+
+/**
+ * Parse a schema's bytes, requiring the canonical form: the bytes before the
+ * first NUL are exactly {@link canonicalSchemaText} of the fields they
+ * encode, every byte from the first NUL on is NUL, and an empty schema is
+ * `[]` or no bytes at all (an unset all-NUL field).
+ *
+ * @param bytes - The schema text's UTF-8 bytes, NUL-padded or not.
+ * @returns The schema's fields.
+ * @throws {Error} If the padding holds a non-NUL byte, the text is not JSON,
+ *   the fields fail {@link checkSchemaFields}, or the text is not canonical.
+ */
+function parseCanonicalSchema(bytes: Uint8Array): EvmSchemaField[] {
+  const nul = bytes.indexOf(0);
+  const body = nul === -1 ? bytes : bytes.subarray(0, nul);
+  if (nul !== -1 && bytes.subarray(nul).some((byte) => byte !== 0)) {
+    throw new Error("schema: every byte from the first NUL on must be NUL");
+  }
+  if (body.length === 0) {
     return [];
   }
+  let parsed: unknown;
   try {
-    return JSON.parse(text);
+    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
   } catch (error) {
     throw new Error(`schema is not valid JSON (${String(error)})`, { cause: error });
   }
+  const fields = checkSchemaFields(parsed);
+  const canonical = new TextEncoder().encode(canonicalSchemaText(fields));
+  if (canonical.length !== body.length || canonical.some((byte, i) => byte !== body[i])) {
+    throw new Error(`schema is not canonical: expected exactly ${canonicalSchemaText(fields)}`);
+  }
+  return fields;
 }
 
 /**
@@ -570,24 +599,38 @@ const SOLIDITY_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const PROTOTYPE_ACCESSOR_NAME = "__proto__";
 
 /**
- * Parse a schema in any input form and check its SHAPE only: an array of
- * fields with unique Solidity-identifier names and ABI type strings
- * `ethers.ParamType` accepts. Whether a type is in the attested subset is
- * decided later, by {@link classifyEvmOutputType}. An empty schema is valid
- * here: {@link deserializeEvmOutput} decodes nothing from it and
+ * Parse a schema in any input form and check its SHAPE only: text and bytes
+ * must be the canonical form ({@link parseCanonicalSchema}), and every form
+ * passes {@link checkSchemaFields}. Whether a type is in the attested subset
+ * is decided later, by {@link classifyEvmOutputType}. An empty schema is
+ * valid here: {@link deserializeEvmOutput} decodes nothing from it and
  * {@link executedEvmRespondOutput} attests an empty output.
  *
- * @param schema - The schema as JSON text, packed bytes, or a field array.
+ * @param schema - The schema as canonical JSON text, NUL-padded bytes, or a field array.
  * @returns The schema's fields, type strings as written.
- * @throws {Error} If the schema is not an array of fields, a name is not a
+ * @throws {Error} If the text or bytes are not canonical, or the fields fail {@link checkSchemaFields}.
+ */
+function parseSchemaShape(schema: EvmSchemaInput): EvmSchemaField[] {
+  if (typeof schema === "string") {
+    return parseCanonicalSchema(new TextEncoder().encode(schema));
+  }
+  if (schema instanceof Uint8Array) {
+    return parseCanonicalSchema(schema);
+  }
+  return checkSchemaFields(schema);
+}
+
+/**
+ * Check a parsed schema value's shape: an array of fields with unique
+ * Solidity-identifier names and ABI type strings `ethers.ParamType` accepts.
+ *
+ * @param parsed - The schema as parsed JSON or a field array.
+ * @returns The schema's fields, type strings as written.
+ * @throws {Error} If the value is not an array of fields, a name is not a
  *   Solidity identifier or is `__proto__`, a name repeats, or a type is
  *   missing or not an ABI type.
  */
-function parseSchemaShape(schema: EvmSchemaInput): EvmSchemaField[] {
-  const parsed: unknown =
-    typeof schema === "string" || schema instanceof Uint8Array
-      ? parseSchemaJson(schemaText(schema))
-      : schema;
+function checkSchemaFields(parsed: unknown): EvmSchemaField[] {
   if (!Array.isArray(parsed)) {
     throw new Error("schema must be a JSON array of fields");
   }
@@ -620,16 +663,4 @@ function parseSchemaShape(schema: EvmSchemaInput): EvmSchemaField[] {
     }
     return { name, type };
   });
-}
-
-/**
- * Cut a NUL-padded on-chain schema at the first NUL and decode to text.
- *
- * @param schema - Schema text, or the NUL-padded bytes read from the ledger.
- * @returns The schema text with the padding removed.
- */
-function schemaText(schema: string | Uint8Array): string {
-  const raw = typeof schema === "string" ? schema : new TextDecoder().decode(schema);
-  const nul = raw.indexOf("\0");
-  return nul === -1 ? raw : raw.slice(0, nul);
 }
