@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "signet-midnight-serde"
-version = "0.24.0-rc.8"
+version = "0.24.0-rc.9"
 dependencies = [
  "borsh",
  "serde_json",
