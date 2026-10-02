@@ -89,7 +89,7 @@ For each supported chain the encoding protocol employed:
 
 ### Serialization for Attestation
 
-After recovery and deserialisation of the transaction's execution output the MPC maps it to a subset of supported compact types before applying borsh serialisation. The resultant bytes are then readable by the compact standard library `deserialise<T, L>(...)` circuit.
+After recovery and deserialisation of the transaction's execution output the MPC maps it to a subset of supported compact types before applying *borsh serialisation* with a derived schema. The resultant bytes are then readable by the compact standard library `deserialise<T, L>(...)` circuit.
 
 Types supported and their mappings are execution chain specific. Following are **Exhaustive Lists** of supported types and their mappings per supported exectuion chain:
 
