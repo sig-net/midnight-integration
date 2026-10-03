@@ -173,6 +173,40 @@ describe("schema text and bytes must be canonical", () => {
   ];
   const canonical = '[{"name":"ok","type":"bool"},{"name":"amount","type":"uint256"}]';
 
+  /**
+   * RFC 8785 (JCS) for the value shapes a schema holds: arrays in order,
+   * object keys sorted by UTF-16 code unit, strings as JSON.stringify
+   * serialises them (the escaping JCS specifies).
+   */
+  const jcs = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(jcs).join(",")}]`;
+    if (typeof value === "object" && value !== null) {
+      return `{${Object.entries(value)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, member]) => `${JSON.stringify(key)}:${jcs(member)}`)
+        .join(",")}}`;
+    }
+    return JSON.stringify(value);
+  };
+
+  it.each([
+    { name: "two fields", fields },
+    { name: "an empty schema", fields: [] as EvmSchemaField[] },
+    {
+      name: "fields written with type before name",
+      fields: [
+        { type: "address", name: "to" },
+        { type: "bytes4", name: "tag" },
+      ],
+    },
+    { name: "a digit-heavy identifier", fields: [{ name: "_1z9$", type: "uint256" }] },
+  ])(
+    "canonicalSchemaText is the RFC 8785 encoding of the reduced fields: $name",
+    ({ fields: f }) => {
+      expect(canonicalSchemaText(f)).toBe(jcs(f.map(({ name, type }) => ({ name, type }))));
+    },
+  );
+
   it("canonicalSchemaText is JSON.stringify of {name, type} in order", () => {
     expect(canonicalSchemaText(fields)).toBe(canonical);
     expect(canonicalSchemaText([])).toBe("[]");

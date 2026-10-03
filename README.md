@@ -102,7 +102,7 @@ The supported types and their mappings are specific to the execution chain. The 
 
 The MPC and SDKs enforce that every field in the schema is a valid Solidity identifier: i.e. matching `[A-Za-z_$][A-Za-z0-9_$]*`. In addition the name `__proto__` is not allowed, and names must be unique within the schema. Finally each field's type is an ABI type string, matched literally against the table below: `uint256`, never `uint`.
 
-The on-chain bytes must be canonical: `[{"name":"...","type":"..."},...]` with no whitespace, no other keys and no escapes, as produced by `canonicalSchemaText` in `@sig-net/midnight`, then NUL-padded to the field width. An empty schema is `[]` or all NUL. Anything else is dropped.
+The on-chain bytes must be canonical: `[{"name":"...","type":"..."},...]` with no whitespace, no other keys and no escapes, as produced by `canonicalSchemaText` in `@sig-net/midnight` (the [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) encoding of those two-key objects), then NUL-padded to the field width. An empty schema is `[]` or all NUL. Anything else is dropped.
 
 | ABI type | Compact type | Comment |
 | --- | --- | --- |
