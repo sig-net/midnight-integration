@@ -1,115 +1,22 @@
-// The two schema-driven conversions every Signet participant performs on the
-// respond path, named after the protocol fields that drive them, and the
-// MPC's rule composing them for an executed EVM transaction:
-//
-//   EVM call result --deserializeEvmOutput--> decoded values
-//                        (outputDeserializationSchema)
-//   decoded values --serializeRespondOutput--> RespondBidirectionalEvent bytes
-//                        (respondSerializationSchema)
-//   callTracer top frame --evmTraceOutputFromCallFrame--> the trace
-//   executed EVM transaction --executedEvmRespondOutput--> attested bytes
-//                        (both schemas, isEvmContractCall, the trace)
-//
-// Run by fakenet and the real MPC after the destination-chain transaction
-// confirms, and by Signet clients to independently recompute the respond
-// bytes the MPC attested or to display a decoded result. A client
-// recomputing an attestation calls executedEvmRespondOutput: the MPC decodes
-// and re-packs a contract call's return data, and synthesises the output
-// of a plain transfer or a void call from the respond schema alone.
-//
-// The respond output is UNBOUNDED: this module never pads or clamps it. Any
-// fixed event-field width is the caller's concern. Schemas are the ABI-style
-// JSON carried on chain (NUL-padded fixed-width bytes). Every function
-// accepts the schema in any form: already-parsed fields, a JSON string, or
-// the raw on-chain bytes. An EMPTY output schema (an unset all-NUL field, a
-// blank string, or `[]`) decodes to no values. A respond schema must be
-// non-empty, and its declared capacities are bounded
-// ({@link MAX_RESPOND_PACKED_BYTES}): schemas are requester-authored
-// on-chain data, so the responder never honours a schema demanding a giant
-// allocation.
-//
-// Decode-side type grammar is left FULLY to the ABI library (ethers): this
-// module checks only the schema's shape. Respond-side types are restricted
-// to the Compact-carrier vocabulary below, strictly enforced.
-//
-// The respond byte layout is Compact's builtin serialize<T, N> /
-// deserialize<T, N> (via @sig-net/midnight-serde, pinned against compiled
-// circuits), so a consumer contract reads the payload with ONE
-// deserialize<T, N> call. Per-type mapping (Compact struct field on the
-// right):
-//   bool            1 byte                    Boolean
-//   uint8..uint248  bits / 8 bytes LE         Uint<bits>
-//     (whole-byte widths only: multiples of 8, others are rejected)
-//   uint256, field  32 bytes LE, below Fr     Field
-//   address         32 bytes LE (numeric)     Field
-//   bytes1..bytes32 N raw bytes               Bytes<N>
-//   string, bytes   8-byte LE length + payload zero-padded to maxBytes
-//                                             struct { len: Uint<64>; data: Bytes<maxBytes>; }
-//   T[]             8-byte LE count + maxItems elements at T's width
-//                                             struct { len: Uint<64>; items: Vector<maxItems, T>; }
-//   intN            rejected: Compact has no signed integers
-//
-// RANGE TRAP: uint256, address and field all map to Compact `Field`, whose
-// values must lie strictly below the BLS12-381 Fr modulus (just under
-// 2^255). An EVM uint256 at or above Fr cannot be respond-serialised, and
-// `serializeRespondOutput` throws at respond time. Schema authors who need
-// the full 256-bit range carry the value as bytes32.
-
-import {
-  compactSerialize,
-  compactSerializedSize,
-  type CompactType,
-  type CompactValue,
-} from "@sig-net/midnight-serde";
+import { type BorshValue, compactSerialize, type Schema } from "@sig-net/midnight-serde";
 import { ethers } from "ethers";
 
 // ---------------------------------------------------------------------------
 // Schema types
 // ---------------------------------------------------------------------------
 
-/** Fixed-width schema types: the byte size follows entirely from the type. */
-export type AbiFixedType = "bool" | "address" | "field" | `uint${number}` | `bytes${number}`;
-
-/** A fixed-width schema field: its byte size follows entirely from its type. */
-export interface AbiFixedField {
-  name: string;
-  type: AbiFixedType;
-}
-
-/** A dynamic string/bytes field. `maxBytes` is the fixed Compact buffer capacity. */
-export interface AbiDynamicField {
-  name: string;
-  type: "string" | "bytes";
-  maxBytes: number;
-}
-
-/** A dynamic array field. `maxItems` is the fixed Compact vector capacity. */
-export interface AbiArrayField {
-  name: string;
-  type: `${AbiFixedType}[]`;
-  maxItems: number;
-}
-
-/** One respond-schema field: fixed-width, dynamic string/bytes, or array. */
-export type AbiSchemaField = AbiFixedField | AbiDynamicField | AbiArrayField;
-
-/** An ABI-style schema exactly as carried on chain (JSON array of fields). */
-export type AbiSchema = AbiSchemaField[];
-
-/** Any form a respond schema arrives in: parsed, JSON text, or NUL-padded raw bytes. */
-export type AbiSchemaInput = AbiSchema | string | Uint8Array;
-
 /**
- * A decode-side schema field: `type` is ANY type string the ABI library
- * accepts. The restricted {@link AbiSchemaField} vocabulary is a respond-side
- * concern only, and is assignable to this shape.
+ * One field of an outputDeserializationSchema: `type` is an ABI type string
+ * `ethers.ParamType` accepts. {@link deserializeEvmOutput} decodes every
+ * such type, while the respond side ({@link deriveRespondSchema}) accepts
+ * only the {@link EvmOutputTypeKind} subset, matched on the raw string.
  */
 export interface EvmSchemaField {
   name: string;
   type: string;
 }
 
-/** Any form a decode schema arrives in: parsed, JSON text, or NUL-padded raw bytes. */
+/** Any form an outputDeserializationSchema arrives in: parsed, JSON text, or NUL-padded raw bytes. */
 export type EvmSchemaInput = readonly EvmSchemaField[] | string | Uint8Array;
 
 // ---------------------------------------------------------------------------
@@ -120,8 +27,8 @@ export type EvmSchemaInput = readonly EvmSchemaField[] | string | Uint8Array;
  * Decoded output values, keyed by schema field name. Numerics are bigint,
  * bools boolean, address/bytesN/bytes/string are the forms ethers produces
  * (hex or text strings) or Uint8Array, arrays are plain arrays.
- * `serializeRespondOutput` accepts all of these (plus plain numbers and
- * numeric strings, the forms indexer JSON typically yields).
+ * {@link serializeRespondOutput} additionally accepts plain numbers and
+ * numeric strings for `uint256`, the forms indexer JSON typically yields.
  */
 export type AbiDecodedValue = bigint | boolean | number | string | Uint8Array | AbiDecodedValue[];
 
@@ -137,10 +44,10 @@ export type AbiDecodedOutput = Record<string, AbiDecodedValue>;
  * into named values, driven by the request's outputDeserializationSchema.
  * The decode-side counterpart of {@link serializeRespondOutput}. Type
  * validation is FULLY delegated to ethers: this function checks the schema's
- * shape only. An empty schema decodes to an empty object. The MPC never
- * decodes under an empty schema: {@link executedEvmRespondOutput} carries
- * its rule for that case. Returns a plain object (never an ethers
- * `Result`), so it survives JSON round-trips and structural comparison.
+ * shape only, so it decodes ABI types the respond side refuses. An empty
+ * schema decodes to an empty object. Returns a plain object (never an
+ * ethers `Result`), so it survives JSON round-trips and structural
+ * comparison.
  *
  * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
  * @param callResult - The ABI-encoded return data (hex string or bytes).
@@ -158,69 +65,240 @@ export function deserializeEvmOutput(
     fields.map((field) => field.type),
     callResult,
   );
-  const output: AbiDecodedOutput = {};
-  fields.forEach((field, i) => {
-    output[field.name] = toPlainValue(decoded[i], field.name);
-  });
-  return output;
+  return Object.fromEntries(
+    fields.map((field, i): [string, AbiDecodedValue] => [
+      field.name,
+      toPlainValue(decoded[i], field.name),
+    ]),
+  );
 }
 
 // ---------------------------------------------------------------------------
-// 2. decoded values -> respond bytes  (respondSerializationSchema)
+// 2. decoded values -> respond bytes  (Borsh schema derived from the output schema)
 // ---------------------------------------------------------------------------
 
 /**
- * Ceiling on a respond schema's total packed byte width. Schemas are
- * requester-authored on-chain data, so unbounded maxBytes/maxItems would let
- * a hostile request demand giant allocations from the responder. A real
- * respond payload must fit its consumer contract's fixed `deserialize<T, N>`
- * width, orders of magnitude below this.
+ * The ABI output types the MPC attests, and what each maps to. The respond
+ * bytes are the Borsh serialisation of a struct with one member per output
+ * field, in schema order, typed by this mapping:
+ *
+ * - {@link EvmOutputTypeKind.Bool}: ABI `bool`, Borsh `bool`, Compact `Boolean` (1 byte).
+ * - {@link EvmOutputTypeKind.Uint256}: ABI `uint256`, Borsh `[u8; 32]`
+ *   holding the value LITTLE-endian, the byte order of every Borsh and
+ *   Compact integer, Compact `Bytes<32>` (32 bytes). A circuit that wants a
+ *   number narrows it with `checkedTruncationU128`, which aborts above
+ *   2^128 - 1. The ABI wire word is big-endian: the MPC reverses it once,
+ *   here, so no circuit has to.
+ * - {@link EvmOutputTypeKind.Address}: ABI `address`, Borsh `[u8; 20]`
+ *   holding the address bytes, Compact `Bytes<20>` (20 bytes).
+ * - {@link EvmOutputTypeKind.FixedBytes}: ABI `bytes1` to `bytes32`, Borsh
+ *   `[u8; N]`, Compact `Bytes<N>` (N bytes).
+ *
+ * Every other ABI type is unsupported: the MPC drops a request whose output
+ * schema names one, and {@link deriveRespondSchema} throws on it.
  */
-export const MAX_RESPOND_PACKED_BYTES = 65536;
+export enum EvmOutputTypeKind {
+  Bool = "bool",
+  Uint256 = "uint256",
+  Address = "address",
+  FixedBytes = "bytesN",
+}
+
+/** The byte width of an ABI word, and of the Borsh array a `uint256` output maps to. */
+const ABI_WORD_BYTES = 32;
+
+/** The byte width of an EVM address, and of the Borsh array an `address` output maps to. */
+const EVM_ADDRESS_BYTES = 20;
 
 /**
- * Encode decoded output values into the respond payload, driven by the
- * request's respondSerializationSchema: the bytes a consumer contract reads
- * with `deserialize<T, N>` and the MPC attests. The respond-side counterpart
- * of {@link deserializeEvmOutput}.
+ * Classify an ABI type string into the supported output subset. The match is
+ * on the raw string, so `uint` is unsupported although the ABI library reads
+ * it as `uint256`: the MPC matches the same raw string.
  *
- * The result is the PACKED value, unpadded and unbounded: its length follows
- * entirely from the schema, and padding to a fixed container width is the
- * caller's concern. Strict: values are range-checked, dynamic payloads must
- * fit their capacity with no silent truncation, and signed integer types are
- * rejected.
- *
- * @param schema - The respondSerializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
- * @param output - Decoded values keyed by field name (from {@link deserializeEvmOutput} or any source using the same forms).
- * @returns The packed respond bytes.
- * @throws {Error} If the schema is empty or malformed, packs to more than
- *   {@link MAX_RESPOND_PACKED_BYTES} bytes, a value falls outside its declared
- *   range, or a dynamic payload exceeds its capacity.
+ * @param type - The ABI type string of an output schema field.
+ * @returns The field's kind and respond byte width, or `undefined` for an unsupported type.
  */
-export function serializeRespondOutput(
-  schema: AbiSchemaInput,
-  output: AbiDecodedOutput,
-): Uint8Array {
-  const fields = normalizeRespondSchema(schema);
-  // Size the descriptor BEFORE any value work: the ceiling check is what
-  // keeps a hostile capacity from ever reaching an allocation.
-  const descriptor = respondSchemaToCompactType(fields);
-  const packedWidth = compactSerializedSize(descriptor);
-  if (packedWidth > MAX_RESPOND_PACKED_BYTES) {
+function classifyEvmOutputType(
+  type: string,
+): { readonly kind: EvmOutputTypeKind; readonly bytes: number } | undefined {
+  if (type === "bool") return { kind: EvmOutputTypeKind.Bool, bytes: 1 };
+  if (type === "uint256") return { kind: EvmOutputTypeKind.Uint256, bytes: ABI_WORD_BYTES };
+  if (type === "address") return { kind: EvmOutputTypeKind.Address, bytes: EVM_ADDRESS_BYTES };
+  const fixedBytes = /^bytes([1-9]|[12][0-9]|3[0-2])$/.exec(type);
+  if (fixedBytes !== null) {
+    return { kind: EvmOutputTypeKind.FixedBytes, bytes: Number(fixedBytes[1]) };
+  }
+  return undefined;
+}
+
+/**
+ * The fields of an outputDeserializationSchema whose ABI type is outside the
+ * supported subset ({@link EvmOutputTypeKind}). The check itself never
+ * throws on an unsupported type: an empty result means the MPC attests the
+ * request, a non-empty one means it drops it.
+ *
+ * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
+ * @returns The unsupported fields in schema order, empty when every field is supported.
+ * @throws {Error} If the schema is not an array of uniquely named fields (its shape, not its types).
+ */
+export function unsupportedEvmOutputFields(schema: EvmSchemaInput): EvmSchemaField[] {
+  return parseSchemaShape(schema).filter(
+    (field) => classifyEvmOutputType(field.type) === undefined,
+  );
+}
+
+/** An output schema field with its {@link EvmOutputTypeKind} and respond byte width. */
+interface ClassifiedEvmOutputField extends EvmSchemaField {
+  readonly kind: EvmOutputTypeKind;
+  readonly bytes: number;
+}
+
+/**
+ * Parse an output schema and classify every field, refusing the schema as a
+ * whole when any field is unsupported.
+ *
+ * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
+ * @returns The classified fields in schema order.
+ * @throws {Error} If the schema is malformed or names an unsupported ABI type.
+ */
+function classifiedEvmOutputFields(schema: EvmSchemaInput): ClassifiedEvmOutputField[] {
+  const fields = parseSchemaShape(schema);
+  const unsupported = fields.filter((field) => classifyEvmOutputType(field.type) === undefined);
+  if (unsupported.length > 0) {
     throw new Error(
-      `respond schema packs to ${String(packedWidth)} bytes, above the ` +
-        `${String(MAX_RESPOND_PACKED_BYTES)}-byte ceiling`,
+      `respond output: unsupported ABI output type${unsupported.length > 1 ? "s" : ""} ` +
+        unsupported.map((field) => `'${field.name}' (${field.type})`).join(", ") +
+        ": the MPC attests bool, uint256, address and bytes1 to bytes32 only",
     );
   }
-  const value: Record<string, CompactValue> = {};
-  for (const field of fields) {
-    const raw = output[field.name];
-    if (raw === undefined) {
-      throw new Error(`respond output: missing value for '${field.name}'`);
-    }
-    value[field.name] = toCompactValue(raw, field);
+  return fields.flatMap((field) => {
+    const classified = classifyEvmOutputType(field.type);
+    return classified === undefined ? [] : [{ ...field, ...classified }];
+  });
+}
+
+/**
+ * The Borsh schema the respond bytes of an executed call are serialised
+ * with: a struct with one member per output field, in schema order, each
+ * typed by {@link EvmOutputTypeKind}. An empty output schema derives an
+ * empty struct, which serialises to zero bytes. Borsh writes struct members
+ * in the struct object's key order, which equals schema order because field
+ * names are Solidity identifiers (see {@link parseSchemaShape}).
+ *
+ * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
+ * @returns The derived Borsh struct schema.
+ * @throws {Error} If the schema is malformed or names an unsupported ABI type.
+ */
+export function deriveRespondSchema(schema: EvmSchemaInput): Schema {
+  return {
+    struct: Object.fromEntries(
+      classifiedEvmOutputFields(schema).map((field) => [
+        field.name,
+        field.kind === EvmOutputTypeKind.Bool
+          ? "bool"
+          : { array: { type: "u8", len: field.bytes } },
+      ]),
+    ),
+  };
+}
+
+/**
+ * The byte width of the respond bytes an output schema derives: the sum of
+ * its fields' widths under {@link EvmOutputTypeKind}, what a settle circuit
+ * declares as its `Bytes<N>` output argument.
+ *
+ * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
+ * @returns The exact serialised width, 0 for an empty schema.
+ * @throws {Error} If the schema is malformed or names an unsupported ABI type.
+ */
+export function respondOutputWidth(schema: EvmSchemaInput): number {
+  return classifiedEvmOutputFields(schema).reduce((width, field) => width + field.bytes, 0);
+}
+
+/**
+ * The 32-byte LITTLE-endian encoding of a `uint256` output value, as ethers
+ * decodes it (bigint) or as indexer JSON renders it (a number or a decimal
+ * string). This is the ABI wire word reversed: the Borsh integer byte order,
+ * which a Compact `Uint<128>` reads directly.
+ *
+ * @param value - The decoded value.
+ * @param name - The field name, for the error message.
+ * @returns The value's 32 little-endian bytes.
+ * @throws {RangeError} If the value is not an integer in `0 <= value < 2^256`.
+ */
+function uint256Word(value: AbiDecodedValue, name: string): number[] {
+  if (typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string") {
+    throw new TypeError(`respond output: '${name}' (uint256) expects an integer`);
   }
-  return compactSerialize(descriptor, value);
+  if (typeof value === "number" && !Number.isSafeInteger(value)) {
+    throw new RangeError(`respond output: '${name}' (uint256) is not a safe integer`);
+  }
+  if (typeof value === "string" && !/^\s*\d+\s*$/.test(value)) {
+    throw new RangeError(`respond output: '${name}' (uint256) is not a decimal integer string`);
+  }
+  const integer = BigInt(value);
+  if (integer < 0n || integer >= 1n << 256n) {
+    throw new RangeError(
+      `respond output: '${name}' (uint256) ${String(integer)} is outside uint256`,
+    );
+  }
+  return Array.from(ethers.getBytes(ethers.toBeHex(integer, ABI_WORD_BYTES))).reverse();
+}
+
+/**
+ * The bytes of an `address` or `bytesN` output value, as ethers decodes it
+ * (a hex string, checksummed for an address) or as bytes. Byte order is the
+ * wire's: these are byte strings, not numbers.
+ *
+ * @param value - The decoded value.
+ * @param field - The field, for the error message.
+ * @returns The value's bytes, length-checked by Borsh against the schema.
+ * @throws {TypeError} If the value is neither a hex string nor bytes.
+ */
+function byteString(value: AbiDecodedValue, field: EvmSchemaField): number[] {
+  if (value instanceof Uint8Array) return Array.from(value);
+  if (typeof value === "string") return Array.from(ethers.getBytes(value));
+  throw new TypeError(`respond output: '${field.name}' (${field.type}) expects hex or bytes`);
+}
+
+/**
+ * Serialise ABI-decoded output into the respond bytes the MPC attests: the
+ * Borsh encoding of {@link deriveRespondSchema}'s struct over the output's
+ * values. A `uint256` is carried whole as 32 little-endian bytes, so no
+ * value is narrowed off chain: a circuit that wants a number narrows the
+ * `Bytes<32>` with `checkedTruncationU128`.
+ *
+ * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
+ * @param output - The decoded values keyed by field name, as {@link deserializeEvmOutput} returns them.
+ * @returns The unpadded respond bytes, {@link respondOutputWidth} long.
+ * @throws {Error} If the schema is malformed or names an unsupported type, a
+ *   field is missing from `output`, or a value is outside its type.
+ */
+export function serializeRespondOutput(
+  schema: EvmSchemaInput,
+  output: AbiDecodedOutput,
+): Uint8Array {
+  const values: Record<string, BorshValue> = Object.fromEntries(
+    classifiedEvmOutputFields(schema).map((field): [string, BorshValue] => {
+      const value = output[field.name];
+      if (value === undefined) {
+        throw new Error(`respond output: missing value for '${field.name}'`);
+      }
+      switch (field.kind) {
+        case EvmOutputTypeKind.Bool:
+          if (typeof value !== "boolean") {
+            throw new TypeError(`respond output: '${field.name}' (bool) expects a boolean`);
+          }
+          return [field.name, value];
+        case EvmOutputTypeKind.Uint256:
+          return [field.name, uint256Word(value, field.name)];
+        case EvmOutputTypeKind.Address:
+        case EvmOutputTypeKind.FixedBytes:
+          return [field.name, byteString(value, field)];
+      }
+    }),
+  );
+  return compactSerialize(deriveRespondSchema(schema), values);
 }
 
 // ---------------------------------------------------------------------------
@@ -284,119 +362,123 @@ export type EvmTraceOutput =
     };
 
 /**
- * A request's two respond-path schemas, each in any form its conversion
- * accepts. An on-ledger request record (`SignBidirectionalEvent`) satisfies
- * it, as does the pair read off one as JSON text.
- */
-export interface RespondPathSchemas {
-  /** The outputDeserializationSchema, which {@link deserializeEvmOutput} decodes the return data with. */
-  readonly outputDeserializationSchema: EvmSchemaInput;
-  /** The respondSerializationSchema, which {@link serializeRespondOutput} packs the respond bytes with. */
-  readonly respondSerializationSchema: AbiSchemaInput;
-}
-
-/** The string default the MPC synthesises for an execution without call output. */
-const NON_FUNCTION_CALL_SUCCESS = "non_function_call_success";
-
-/**
- * The per-field values the MPC synthesises for an execution without call
- * output (its `default_value_for_kind`): `true` for a bool field,
- * {@link NON_FUNCTION_CALL_SUCCESS} for a string field.
+ * Refuse return data that is not canonical ABI before it is decoded: whole
+ * 32-byte words, at least one per declared field, a `bool` word of 0 or 1,
+ * an `address` word with zero high bytes and a `bytesN` word zero-padded
+ * after its N bytes. Words past the declared fields are not checked. The ABI
+ * library decodes such data leniently (a `bool` word of 2 reads as true), so
+ * the check sits here, where the MPC decides whether to attest.
  *
- * @param respondSchema - The respondSerializationSchema.
- * @returns The synthesised values keyed by field name.
- * @throws {Error} If the schema is one {@link serializeRespondOutput}
- *   rejects, or a field is of any other kind.
+ * @param fields - The schema's classified fields, in order.
+ * @param returnData - The traced return data, non-empty.
+ * @throws {Error} If the data is not whole words, holds fewer words than
+ *   fields, or a field's word is not canonical for its type.
  */
-function nonFunctionCallDefaults(respondSchema: AbiSchemaInput): AbiDecodedOutput {
-  const output: AbiDecodedOutput = {};
-  for (const field of normalizeRespondSchema(respondSchema)) {
-    if (field.type === "bool") {
-      output[field.name] = true;
-    } else if (field.type === "string") {
-      output[field.name] = NON_FUNCTION_CALL_SUCCESS;
-    } else {
+function checkCanonicalReturnData(
+  fields: readonly ClassifiedEvmOutputField[],
+  returnData: Uint8Array,
+): void {
+  if (returnData.length % ABI_WORD_BYTES !== 0) {
+    throw new Error(
+      `respond output: return data of ${String(returnData.length)} bytes is not whole ABI words`,
+    );
+  }
+  const words = returnData.length / ABI_WORD_BYTES;
+  if (words < fields.length) {
+    throw new Error(
+      `respond output: return data holds ${String(words)} word${words === 1 ? "" : "s"} but the output schema declares ${String(fields.length)} fields`,
+    );
+  }
+  const isZero = (bytes: Uint8Array): boolean => bytes.every((byte) => byte === 0);
+  fields.forEach((field, i) => {
+    const word = returnData.subarray(i * ABI_WORD_BYTES, (i + 1) * ABI_WORD_BYTES);
+    const last = word[ABI_WORD_BYTES - 1];
+    const canonical =
+      field.kind === EvmOutputTypeKind.Bool
+        ? isZero(word.subarray(0, ABI_WORD_BYTES - 1)) && (last === 0 || last === 1)
+        : field.kind === EvmOutputTypeKind.Address
+          ? isZero(word.subarray(0, ABI_WORD_BYTES - EVM_ADDRESS_BYTES))
+          : field.kind === EvmOutputTypeKind.FixedBytes
+            ? isZero(word.subarray(field.bytes))
+            : true;
+    if (!canonical) {
       throw new Error(
-        `respond output: '${field.name}' (${field.type}) has no non-function-call ` +
-          "default: only bool and string fields have one",
+        `respond output: '${field.name}' (${field.type}) word 0x${ethers.hexlify(word).slice(2)} is not canonical ABI`,
       );
     }
-  }
-  return output;
+  });
 }
 
 /**
- * The exact serialised respond output the MPC attests for an EVM transaction
- * that executed (the payload of an `OutputKind.executed` attestation),
- * mirroring the MPC's `build_serialized_output` under the Midnight respond
- * format:
+ * The exact respond output the MPC attests for an EVM transaction that
+ * executed (the payload of an `OutputKind.executed` attestation), derived
+ * from the request's outputDeserializationSchema alone. The schema and the
+ * execution's return data MUST agree: an empty schema declares that the
+ * execution returns nothing, a non-empty schema that it returns data.
  *
- * - Not a contract call: the output schema and the trace are ignored, and
- *   the respond fields get synthesised defaults (bool `true`, string
- *   `"non_function_call_success"` in its `maxBytes` buffer, any other kind
- *   throws).
- * - A contract call under an EMPTY output schema (a void call): the same
- *   defaults when the trace has no or empty return data, a throw when it
- *   returned data.
- * - A contract call under a non-empty output schema: the return data
- *   decoded by {@link deserializeEvmOutput} and packed by
- *   {@link serializeRespondOutput}, a throw when the trace has no return
- *   data.
+ * - Not a contract call (a plain transfer): there is no return data, so the
+ *   schema must be empty and the output is EMPTY.
+ * - A contract call whose trace carries no return data, or empty return
+ *   data (`0x`): the schema must be empty and the output is EMPTY.
+ * - A contract call that returned data: the schema must be non-empty, and
+ *   the output is the return data decoded by {@link deserializeEvmOutput}
+ *   and serialised by {@link serializeRespondOutput}.
  *
- * A contract call that was not traced always throws. A failed or unviable
- * execution is attested over an empty output instead, which needs no call.
+ * The schema's types are checked on every path, a plain transfer included,
+ * so a request the MPC should have dropped never attests anything. A failed
+ * or unviable execution is attested over an empty output instead, which
+ * needs no call. An empty output under `executed` is therefore ordinary for
+ * an empty schema: its settle circuit verifies at width 0 and must route on
+ * the verified `outputKind`, never on the width.
  *
- * @param schemas - The request's two schemas (a request record satisfies this).
+ * @param schema - The request's outputDeserializationSchema (a request record's field satisfies this).
  * @param isContractCall - Whether the transaction is a contract call, as {@link isEvmContractCall} decides it.
  * @param trace - The transaction's traced return data (`NotTraced` for an untraced plain transfer).
- * @returns The packed respond bytes, unpadded.
+ * @returns The respond bytes, unpadded, empty for an empty schema.
  * @throws {Error} Exactly where the MPC refuses to attest an execution: a
- *   contract call not traced, an empty output schema with return data, a
- *   non-empty output schema with no or undecodable return data, a malformed
- *   output schema on a contract call, a respond field without a synthesised
- *   default, and every {@link serializeRespondOutput} rejection.
+ *   malformed schema or an unsupported output type, a contract call not
+ *   traced, return data under an empty schema, no or empty return data
+ *   under a non-empty schema, return data that is not canonical ABI
+ *   ({@link checkCanonicalReturnData}) or that the schema cannot decode, and
+ *   every {@link serializeRespondOutput} rejection.
  */
 export function executedEvmRespondOutput(
-  schemas: RespondPathSchemas,
+  schema: EvmSchemaInput,
   isContractCall: boolean,
   trace: EvmTraceOutput,
 ): Uint8Array {
-  const { outputDeserializationSchema, respondSerializationSchema } = schemas;
+  const fields = classifiedEvmOutputFields(schema);
+  const expectsOutput = fields.length > 0;
   if (!isContractCall) {
-    return serializeRespondOutput(
-      respondSerializationSchema,
-      nonFunctionCallDefaults(respondSerializationSchema),
+    if (expectsOutput) {
+      throw new Error(
+        "respond output: a plain transfer returns nothing, but the output schema declares return values",
+      );
+    }
+    return new Uint8Array(0);
+  }
+  if (trace.kind === EvmTraceOutputKind.NotTraced) {
+    throw new Error("respond output: a contract call's output needs its trace");
+  }
+  const returnData =
+    trace.kind === EvmTraceOutputKind.Output
+      ? ethers.getBytes(trace.returnData)
+      : new Uint8Array(0);
+  if (returnData.length === 0) {
+    if (expectsOutput) {
+      throw new Error(
+        "respond output: the contract call returned no data, but the output schema declares return values",
+      );
+    }
+    return new Uint8Array(0);
+  }
+  if (!expectsOutput) {
+    throw new Error(
+      "respond output: the contract call returned data, but the output schema declares no return values",
     );
   }
-  const expectsNoOutput = parseSchemaShape(outputDeserializationSchema).length === 0;
-  switch (trace.kind) {
-    case EvmTraceOutputKind.NotTraced:
-      throw new Error("respond output: a contract call's output needs its trace");
-    case EvmTraceOutputKind.NoReturnData:
-      if (!expectsNoOutput) {
-        throw new Error(
-          "respond output: the contract call's trace has no return data for a non-empty output schema",
-        );
-      }
-      break;
-    case EvmTraceOutputKind.Output:
-      if (!expectsNoOutput) {
-        return serializeRespondOutput(
-          respondSerializationSchema,
-          deserializeEvmOutput(outputDeserializationSchema, trace.returnData),
-        );
-      }
-      if (ethers.getBytes(trace.returnData).length > 0) {
-        throw new Error(
-          "respond output: the contract call returned data but its output schema declares no return values",
-        );
-      }
-      break;
-  }
-  return serializeRespondOutput(
-    respondSerializationSchema,
-    nonFunctionCallDefaults(respondSerializationSchema),
-  );
+  checkCanonicalReturnData(fields, returnData);
+  return serializeRespondOutput(schema, deserializeEvmOutput(schema, returnData));
 }
 
 /** A parsed JSON object. */
@@ -482,30 +564,6 @@ export function evmTraceOutputFromCallFrame(frame: JsonValue): EvmTraceOutput {
 // everything below serves them.
 // ===========================================================================
 
-// ---------------------------------------------------------------------------
-// Field-kind guards
-// ---------------------------------------------------------------------------
-
-function isAbiDynamicField(field: AbiSchemaField): field is AbiDynamicField {
-  return field.type === "string" || field.type === "bytes";
-}
-
-function isAbiArrayField(field: AbiSchemaField): field is AbiArrayField {
-  return field.type.endsWith("[]");
-}
-
-// ---------------------------------------------------------------------------
-// Decode-side value flattening
-// ---------------------------------------------------------------------------
-
-/**
- * Flatten ethers `Result` arrays into plain arrays, pass scalars through.
- *
- * @param value - A decoded ABI value, possibly a nested `Result`.
- * @param label - Field path, used in error messages.
- * @returns The value with every `Result` replaced by a plain array.
- * @throws {Error} If the value is of a kind the respond side cannot carry.
- */
 function toPlainValue(value: unknown, label: string): AbiDecodedValue {
   if (value instanceof ethers.Result) {
     return value.toArray().map((v, i) => toPlainValue(v, `${label}[${String(i)}]`));
@@ -529,55 +587,101 @@ function toPlainValue(value: unknown, label: string): AbiDecodedValue {
 // Schema parsing + validation
 // ---------------------------------------------------------------------------
 
-const ADDRESS_BOUND = 1n << 160n;
-const MAX_UINT_BITS = 248;
-/** Length-prefix width of the dynamic string/bytes/array convention (Uint<64>). */
-const DYN_LEN_BYTES = 8;
-
-/** A shape-checked but vocabulary-unchecked schema field. */
-interface RawSchemaField {
-  name: string;
-  type: string;
-  maxBytes?: unknown;
-  maxItems?: unknown;
+/**
+ * The canonical text of an output schema: `JSON.stringify` of its fields
+ * reduced to `{name, type}` in schema order, with no whitespace. A schema's
+ * on-chain bytes must be exactly this text followed by NUL padding, so one
+ * schema has exactly one byte form. Write a contract's schema literal with
+ * this function's output.
+ *
+ * @param fields - The schema's fields in order.
+ * @returns The canonical JSON text, `[]` for an empty schema.
+ */
+export function canonicalSchemaText(fields: readonly EvmSchemaField[]): string {
+  return JSON.stringify(fields.map(({ name, type }) => ({ name, type })));
 }
 
 /**
- * Parse schema text as JSON with the parse failure named. Blank text (an
- * unset all-NUL on-chain schema field) is the empty schema.
+ * Parse a schema's bytes, requiring the canonical form: the bytes before the
+ * first NUL are exactly {@link canonicalSchemaText} of the fields they
+ * encode, every byte from the first NUL on is NUL, and an empty schema is
+ * `[]` or no bytes at all (an unset all-NUL field).
  *
- * @param text - The schema text, NUL-trimmed.
- * @returns The parsed JSON value, `[]` for blank text.
- * @throws {Error} If non-blank text is not valid JSON.
+ * @param bytes - The schema text's UTF-8 bytes, NUL-padded or not.
+ * @returns The schema's fields.
+ * @throws {Error} If the padding holds a non-NUL byte, the text is not JSON,
+ *   the fields fail {@link checkSchemaFields}, or the text is not canonical.
  */
-function parseSchemaJson(text: string): unknown {
-  if (text.trim() === "") {
+function parseCanonicalSchema(bytes: Uint8Array): EvmSchemaField[] {
+  const nul = bytes.indexOf(0);
+  const body = nul === -1 ? bytes : bytes.subarray(0, nul);
+  if (nul !== -1 && bytes.subarray(nul).some((byte) => byte !== 0)) {
+    throw new Error("schema: every byte from the first NUL on must be NUL");
+  }
+  if (body.length === 0) {
     return [];
   }
+  let parsed: unknown;
   try {
-    return JSON.parse(text);
+    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
   } catch (error) {
     throw new Error(`schema is not valid JSON (${String(error)})`, { cause: error });
   }
+  const fields = checkSchemaFields(parsed);
+  const canonical = new TextEncoder().encode(canonicalSchemaText(fields));
+  if (canonical.length !== body.length || canonical.some((byte, i) => byte !== body[i])) {
+    throw new Error(`schema is not canonical: expected exactly ${canonicalSchemaText(fields)}`);
+  }
+  return fields;
 }
 
 /**
- * Parse a schema in any input form and check its SHAPE only: an array of
- * fields with non-empty, unique names and non-empty type strings. An empty
- * schema is valid here: emptiness policy belongs to the callers
- * ({@link deserializeEvmOutput} decodes nothing, {@link serializeRespondOutput}
- * rejects, {@link executedEvmRespondOutput} synthesises defaults for a
- * contract call without return data).
- *
- * @param schema - The schema as JSON text, packed bytes, or a field array.
- * @returns The schema's fields, names and type strings unvalidated beyond shape.
- * @throws {Error} If the schema is not an array of uniquely named fields.
+ * A Solidity identifier, the only form a field name takes. A name outside
+ * this grammar can start with a digit, and a JavaScript object orders
+ * integer-like keys first, which would move the derived Borsh struct's
+ * members out of schema order.
  */
-function parseSchemaShape(schema: EvmSchemaInput | AbiSchemaInput): RawSchemaField[] {
-  const parsed: unknown =
-    typeof schema === "string" || schema instanceof Uint8Array
-      ? parseSchemaJson(schemaText(schema))
-      : schema;
+const SOLIDITY_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/**
+ * The one identifier no field may use: assigning it on a JavaScript object
+ * reaches the prototype accessor, so an output object cannot carry it.
+ */
+const PROTOTYPE_ACCESSOR_NAME = "__proto__";
+
+/**
+ * Parse a schema in any input form and check its SHAPE only: text and bytes
+ * must be the canonical form ({@link parseCanonicalSchema}), and every form
+ * passes {@link checkSchemaFields}. Whether a type is in the attested subset
+ * is decided later, by {@link classifyEvmOutputType}. An empty schema is
+ * valid here: {@link deserializeEvmOutput} decodes nothing from it and
+ * {@link executedEvmRespondOutput} attests an empty output.
+ *
+ * @param schema - The schema as canonical JSON text, NUL-padded bytes, or a field array.
+ * @returns The schema's fields, type strings as written.
+ * @throws {Error} If the text or bytes are not canonical, or the fields fail {@link checkSchemaFields}.
+ */
+function parseSchemaShape(schema: EvmSchemaInput): EvmSchemaField[] {
+  if (typeof schema === "string") {
+    return parseCanonicalSchema(new TextEncoder().encode(schema));
+  }
+  if (schema instanceof Uint8Array) {
+    return parseCanonicalSchema(schema);
+  }
+  return checkSchemaFields(schema);
+}
+
+/**
+ * Check a parsed schema value's shape: an array of fields with unique
+ * Solidity-identifier names and ABI type strings `ethers.ParamType` accepts.
+ *
+ * @param parsed - The schema as parsed JSON or a field array.
+ * @returns The schema's fields, type strings as written.
+ * @throws {Error} If the value is not an array of fields, a name is not a
+ *   Solidity identifier or is `__proto__`, a name repeats, or a type is
+ *   missing or not an ABI type.
+ */
+function checkSchemaFields(parsed: unknown): EvmSchemaField[] {
   if (!Array.isArray(parsed)) {
     throw new Error("schema must be a JSON array of fields");
   }
@@ -586,9 +690,15 @@ function parseSchemaShape(schema: EvmSchemaInput | AbiSchemaInput): RawSchemaFie
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
       throw new Error(`schema field ${String(i)} is not an object`);
     }
-    const { name, type, maxBytes, maxItems } = raw as Record<string, unknown>;
+    const { name, type } = raw as Record<string, unknown>;
     if (typeof name !== "string" || name.length === 0) {
       throw new Error(`schema field ${String(i)} needs a non-empty name`);
+    }
+    if (!SOLIDITY_IDENTIFIER.test(name)) {
+      throw new Error(`schema: field name '${name}' is not a Solidity identifier`);
+    }
+    if (name === PROTOTYPE_ACCESSOR_NAME) {
+      throw new Error(`schema: field name '${name}' is refused`);
     }
     if (seen.has(name)) {
       throw new Error(`schema: duplicate field name '${name}'`);
@@ -597,261 +707,11 @@ function parseSchemaShape(schema: EvmSchemaInput | AbiSchemaInput): RawSchemaFie
     if (typeof type !== "string" || type.length === 0) {
       throw new Error(`schema: '${name}' needs a type`);
     }
-    return { name, type, maxBytes, maxItems };
-  });
-}
-
-/**
- * Enforce the respond-side Compact-carrier vocabulary on a shape-checked
- * schema: every type needs a Compact carrier (no signed ints, uint widths of
- * at most 248 bits or exactly 256, bytesN at most 32) and every dynamic field
- * needs its fixed capacity.
- *
- * @param schema - The schema to normalize.
- * @returns The schema with every field proven to have a Compact carrier.
- * @throws {Error} If a type has no carrier or a dynamic field omits its capacity.
- */
-function normalizeRespondSchema(schema: AbiSchemaInput): AbiSchema {
-  const fields = parseSchemaShape(schema);
-  if (fields.length === 0) {
-    throw new Error(
-      "respond schema is empty: a respond serialization schema needs at least one field",
-    );
-  }
-  return fields.map(({ name, type, maxBytes, maxItems }) => {
-    if (type === "string" || type === "bytes") {
-      assertCapacity(maxBytes, `'${name}' (${type}) maxBytes`);
-      return { name, type, maxBytes };
-    }
-    if (type.endsWith("[]")) {
-      classifyFixedType(type.slice(0, -2), name);
-      assertCapacity(maxItems, `'${name}' (${type}) maxItems`);
-      return { name, type: type as AbiArrayField["type"], maxItems };
-    }
-    classifyFixedType(type, name);
-    return { name, type: type as AbiFixedType };
-  });
-}
-
-/**
- * Cut a NUL-padded on-chain schema at the first NUL and decode to text.
- *
- * @param schema - Schema text, or the NUL-padded bytes read from the ledger.
- * @returns The schema text with the padding removed.
- */
-function schemaText(schema: string | Uint8Array): string {
-  const raw = typeof schema === "string" ? schema : new TextDecoder().decode(schema);
-  const nul = raw.indexOf("\0");
-  return nul === -1 ? raw : raw.slice(0, nul);
-}
-
-function assertCapacity(value: unknown, label: string): asserts value is number {
-  if (value === undefined) {
-    throw new Error(`schema: ${label} is required: Compact types are fixed-size`);
-  }
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
-    throw new Error(`schema: ${label} must be a positive integer`);
-  }
-}
-
-/**
- * Classify a fixed-width respond type into its Compact carrier, validating
- * the respond-side vocabulary in one place: both the schema check
- * ({@link normalizeRespondSchema}) and the descriptor build
- * ({@link respondSchemaToCompactType}) call this, so the grammar cannot
- * drift between them. Respond-side uint widths are restricted to whole-byte
- * widths (multiples of 8 from 8 to 248, packing to bits / 8 bytes), plus
- * uint256 which maps to Field. Throws with the offending field named.
- *
- * @param type - The fixed-width ABI type name.
- * @param fieldName - The field the type belongs to, used in error messages.
- * @returns The Compact descriptor that carries the type.
- * @throws {Error} If the type has no respond-side Compact carrier.
- */
-function classifyFixedType(type: string, fieldName: string): CompactType {
-  if (type === "bool") return { kind: "boolean" };
-  if (type === "field" || type === "uint256" || type === "address") {
-    return { kind: "field" };
-  }
-  if (/^int\d+$/.test(type)) {
-    throw new Error(
-      `schema: '${fieldName}' (${type}) is unsupported: Compact has no signed integers`,
-    );
-  }
-  const uintMatch = /^uint([1-9]\d*)$/.exec(type);
-  if (uintMatch) {
-    const bits = Number(uintMatch[1]);
-    const wholeByteWidth = bits >= 8 && bits <= MAX_UINT_BITS && bits % 8 === 0;
-    if (!wholeByteWidth) {
-      throw new Error(
-        `schema: '${fieldName}' (${type}) has no respond carrier: uint widths ` +
-          `must be multiples of 8 from 8 to ${String(MAX_UINT_BITS)}, or uint256 (maps to Field)`,
-      );
-    }
-    return { kind: "uint", bits };
-  }
-  const bytesMatch = /^bytes([1-9]\d*)$/.exec(type);
-  if (bytesMatch) {
-    const n = Number(bytesMatch[1]);
-    if (n < 1 || n > 32) {
-      throw new Error(`schema: '${fieldName}' (${type}) is not a valid bytesN type`);
-    }
-    return { kind: "bytes", length: n };
-  }
-  throw new Error(`schema: '${fieldName}' has unsupported type '${type}'`);
-}
-
-// ---------------------------------------------------------------------------
-// Schema -> CompactType descriptor + value coercion
-// ---------------------------------------------------------------------------
-
-function respondSchemaToCompactType(fields: AbiSchema): CompactType {
-  return {
-    kind: "struct",
-    fields: fields.map((field) => {
-      if (isAbiDynamicField(field)) {
-        return {
-          name: field.name,
-          type: {
-            kind: "struct",
-            fields: [
-              { name: "len", type: { kind: "uint", bits: DYN_LEN_BYTES * 8 } },
-              { name: "data", type: { kind: "bytes", length: field.maxBytes } },
-            ],
-          } satisfies CompactType,
-        };
-      }
-      if (isAbiArrayField(field)) {
-        return {
-          name: field.name,
-          type: {
-            kind: "struct",
-            fields: [
-              { name: "len", type: { kind: "uint", bits: DYN_LEN_BYTES * 8 } },
-              {
-                name: "items",
-                type: {
-                  kind: "vector",
-                  length: field.maxItems,
-                  element: classifyFixedType(field.type.slice(0, -2), field.name),
-                },
-              },
-            ],
-          } satisfies CompactType,
-        };
-      }
-      return { name: field.name, type: classifyFixedType(field.type, field.name) };
-    }),
-  };
-}
-
-function toCompactValue(value: AbiDecodedValue, field: AbiSchemaField): CompactValue {
-  const { name } = field;
-
-  if (isAbiDynamicField(field)) {
-    const payload =
-      field.type === "string"
-        ? new TextEncoder().encode(asString(value, name))
-        : asBytes(value, name);
-    if (payload.length > field.maxBytes) {
-      throw new Error(
-        `'${name}': payload is ${String(payload.length)} bytes, maxBytes is ${String(field.maxBytes)}`,
-      );
-    }
-    const data = new Uint8Array(field.maxBytes);
-    data.set(payload);
-    return { len: BigInt(payload.length), data };
-  }
-
-  if (isAbiArrayField(field)) {
-    if (!Array.isArray(value)) {
-      throw new Error(`'${name}' (${field.type}) expects an array`);
-    }
-    if (value.length > field.maxItems) {
-      throw new Error(
-        `'${name}': ${String(value.length)} elements, maxItems is ${String(field.maxItems)}`,
-      );
-    }
-    const elementType = field.type.slice(0, -2) as AbiFixedType;
-    const items = value.map((element, i) =>
-      fixedCompactValue(element, elementType, `${name}[${String(i)}]`),
-    );
-    // Unused capacity encodes as zero values of the element type.
-    while (items.length < field.maxItems) items.push(zeroOf(elementType));
-    return { len: BigInt(value.length), items };
-  }
-
-  return fixedCompactValue(value, field.type, name);
-}
-
-function fixedCompactValue(
-  value: AbiDecodedValue,
-  type: AbiFixedType,
-  label: string,
-): CompactValue {
-  if (type === "bool") {
-    if (typeof value !== "boolean") {
-      throw new Error(`'${label}' (bool) expects a boolean`);
-    }
-    return value;
-  }
-  if (/^bytes\d+$/.test(type)) {
-    const raw = asBytes(value, label);
-    const expected = Number(type.slice(5));
-    if (raw.length !== expected) {
-      throw new Error(
-        `'${label}' (${type}) expects exactly ${String(expected)} bytes, got ${String(raw.length)}`,
-      );
-    }
-    return raw;
-  }
-  // Numeric carriers: uintN, uint256/field and address.
-  const n = asBigint(value, label);
-  if (type === "address" && n >= ADDRESS_BOUND) {
-    throw new Error(`'${label}': value ${String(n)} exceeds an address`);
-  }
-  // Uint width and Field modulus bounds are enforced by @sig-net/midnight-serde.
-  return n;
-}
-
-function zeroOf(type: AbiFixedType): CompactValue {
-  if (type === "bool") return false;
-  if (/^bytes\d+$/.test(type)) return new Uint8Array(Number(type.slice(5)));
-  return 0n;
-}
-
-// ---------------------------------------------------------------------------
-// Value-form coercions
-// ---------------------------------------------------------------------------
-
-function asBigint(value: AbiDecodedValue, label: string): bigint {
-  if (typeof value === "bigint") return value;
-  if (typeof value === "number" && Number.isSafeInteger(value)) return BigInt(value);
-  if (typeof value === "string") {
     try {
-      return BigInt(value);
-    } catch {
-      throw new Error(`'${label}': cannot parse '${value}' as an integer`);
+      ethers.ParamType.from(type);
+    } catch (error) {
+      throw new Error(`schema: '${name}' has an invalid ABI type '${type}'`, { cause: error });
     }
-  }
-  throw new Error(`'${label}': expected an integer-like value`);
-}
-
-function asBytes(value: AbiDecodedValue, label: string): Uint8Array {
-  if (value instanceof Uint8Array) return value;
-  if (typeof value === "string") {
-    try {
-      return ethers.getBytes(value);
-    } catch {
-      throw new Error(`'${label}': not a valid 0x hex byte string: "${value}"`);
-    }
-  }
-  throw new Error(`'${label}': expected bytes (Uint8Array or hex string)`);
-}
-
-function asString(value: AbiDecodedValue, label: string): string {
-  if (typeof value !== "string") {
-    throw new Error(`'${label}': expected a string`);
-  }
-  return value;
+    return { name, type };
+  });
 }

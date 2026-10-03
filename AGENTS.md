@@ -19,12 +19,18 @@ node-modules`). Its members live under `packages/`:
 - **`packages/signet-contract-deploy`** — the published, self-contained deploy
   tooling: the signet-contract deploy flow plus the generic deploy/wallet/config
   plumbing (`src/plumbing/`) every contract package's deploy script composes.
-- **`packages/midnight-serde`** — the published TypeScript twin of Compact's
-  builtin `serialize<T, N>` / `deserialize<T, N>` byte layout, pinned against
-  compiled fixture circuits, with zero runtime dependencies. `@sig-net/midnight`
-  depends on it.
 - **`packages/integration-tests`** — everything that needs a running stack:
   the signet-caller e2e flows (generic and real-EVM) and their setup pipeline.
+- **`packages/midnight-serde-ts`**: `@sig-net/midnight-serde`, a thin wrapper
+  over native borsh-js schemas and values with optional zero padding.
+- **`packages/midnight-serde-conformance`**: private compiler-backed evidence
+  for the documented Compact-compatible Borsh subset. Its committed
+  `corpus/borsh-corpus.json` also drives the Rust wrapper tests.
+- **`packages/midnight-serde-rs`**: `signet-midnight-serde`, an isolated Rust
+  crate using native Borsh types and derives. It has a committed Cargo.lock
+  and pinned rust-toolchain.toml. Rust tests replay the shared corpus without
+  Node or compactc. Rustfmt and `clippy -D warnings` apply to the crate.
+
 Example applications built on these packages (e.g. the ERC20 vault) live in
 `sig-net/midnight-examples`, consuming the published `@sig-net/*` packages
 from npm.
@@ -88,7 +94,9 @@ exception for that specific case.
   (`compact update 0.33.0-rc.2`) or your `managed/` output will diverge. The
   launcher tag, the compiler URL, the SHA-256 checksums the workflows verify for
   the two downloads (installer script and compactc zip), the workflow cache
-  keys, the npm `@midnightntwrk/*` stack, and the README's Prerequisites and
+  keys, `COMPACTC_VERSION`, `RUNTIME_VERSION` and every platform hash in
+  `COMPILER_BUILDS` in `packages/midnight-serde-conformance/src/toolchain.ts`,
+  the npm `@midnightntwrk/*` stack, and the README's Prerequisites and
   Matched set tables are a MATCHED SET — bump them together in one change
   (recompute each checksum from a fresh download of the new URL). This trigger
   is bidirectional: a request to "update the compact version" AND a request to

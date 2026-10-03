@@ -38,11 +38,15 @@ export default defineConfig([
     // which otherwise walks a file crawler into another package.
     "**/src/managed/**",
     "**/tests/fixtures/managed/**",
+    "packages/midnight-serde-conformance/managed/**",
     // Publish-only tsc emit: absent until a published package builds.
     "**/dist/**",
     // hardhat output: absent until `yarn compile:evm` runs.
     "packages/integration-tests/artifacts/**",
     "packages/integration-tests/cache/**",
+    // Local scratch work, the same pattern .gitignore excludes: compactc
+    // output under a scratch directory is generated JavaScript.
+    "**/*scratch*/**",
   ]),
 
   {

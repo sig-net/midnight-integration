@@ -66,6 +66,14 @@ export interface SignetRequestResponseReaderConfig {
    * with `signetEventSourceFromIndexer`.
    */
   readonly eventSource: SignetEventSource;
+  /**
+   * Inclusive lowest Midnight block the reader scans for responses. Omit to
+   * scan the whole history. Responses are emitted after their request, so
+   * the tip taken BEFORE submitting the first request is safe for a fresh
+   * client. It must not exceed the block of the oldest request whose
+   * responses are still wanted: a value too high hides them without error.
+   */
+  readonly signetEventsFromBlock?: number;
 }
 
 /** The verdict on one emitted response, in emission order. */
@@ -217,7 +225,12 @@ export class SignetRequestResponseReader {
     requestId: RequestIdHex,
   ): Promise<SignetEventRecords[TName][]> {
     const records: SignetEventRecords[TName][] = [];
-    const events = this.config.eventSource.streamSignetEvents(this.config.signetContractAddress);
+    const events = this.config.eventSource.streamSignetEvents(
+      this.config.signetContractAddress,
+      this.config.signetEventsFromBlock === undefined
+        ? undefined
+        : { fromBlock: this.config.signetEventsFromBlock },
+    );
     for await (const event of events) {
       const decoded = decodeSignetEventNamed(event, name);
       if (decoded?.requestId === requestId) records.push(decoded.record);

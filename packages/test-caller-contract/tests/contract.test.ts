@@ -9,6 +9,7 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 import {
   asciiPadded,
+  bigintToBytes32BE,
   boolAbiWord,
   bytesToHex,
   calculateRequestId,
@@ -25,6 +26,7 @@ import {
   requestIdHex,
   type RespondBidirectionalEvent,
   respondBidirectionalEventToCircuitInput,
+  serializeRespondOutput,
   type SignBidirectionalEvent,
   type SignBidirectionalEventLedgerMap,
   SignetEventName,
@@ -34,7 +36,6 @@ import {
   TxParamType,
 } from "@sig-net/midnight";
 import { attestRespondBidirectional, secp256k1PublicKeyOf } from "@sig-net/midnight/testing";
-import { compactSerialize, type CompactType } from "@sig-net/midnight-serde";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -167,7 +168,9 @@ const EXPECTED_PATH = asciiPadded("caller-path", 32);
 // Schemas are EXACT-width by protocol convention (never NUL-padded: the
 // MPC's raw reader recovers the width from the stored bytes). One request
 // map per schema width: field 3 carries the 34-byte bool schema, field 6
-// the 69-byte bool+uint256 schema.
+// the 69-byte bool+uint256 schema. The respond schema field is reserved:
+// constructSignBidirectionalEventV1 pins it to Bytes<0>.
+const EXPECTED_RESPOND_SCHEMA = new Uint8Array(0);
 const EXPECTED_SCHEMA = asciiPadded('[{"name":"success","type":"bool"}]', 34);
 const EXPECTED_SCHEMA_BOOL_UINT = asciiPadded(
   '[{"name":"success","type":"bool"},{"name":"amount","type":"uint256"}]',
@@ -375,7 +378,7 @@ describe("submitSignatureRequest round-trip", () => {
     expect(record.txParamType).toBe(TxParamType.evmType2);
     expect(record.executionDest).toEqual(EXPECTED_CAIP2);
     expect(record.outputDeserializationSchema).toEqual(EXPECTED_SCHEMA);
-    expect(record.respondSerializationSchema).toEqual(EXPECTED_SCHEMA);
+    expect(record.respondSerializationSchema).toEqual(EXPECTED_RESPOND_SCHEMA);
 
     // Contract-fixed minimal calldata: placeholder selector + one fixed word.
     expect(calldata.is_some).toBe(true);
@@ -481,7 +484,7 @@ describe("EVM target submit circuits round-trip", () => {
       expect(record.path).toEqual(EXPECTED_PATH);
       expect(record.executionDest).toEqual(EXPECTED_CAIP2);
       expect(record.outputDeserializationSchema).toEqual(schema);
-      expect(record.respondSerializationSchema).toEqual(schema);
+      expect(record.respondSerializationSchema).toEqual(EXPECTED_RESPOND_SCHEMA);
 
       expect(calldata.is_some).toBe(true);
       expect(calldata.value.selector).toEqual(selector);
@@ -550,21 +553,12 @@ describe("EVM target submit circuits round-trip", () => {
 const IMPOSTER_SECRET = bytes(32, 0x43);
 const IMPOSTER_PUBLIC = secp256k1PublicKeyOf(IMPOSTER_SECRET);
 
-// TS twin of the contract's BoolResponse struct (the single-bool respond
-// schema). Kept in lockstep with test-caller-contract.compact: the encoder
-// below produces exactly the bytes deserialize<BoolResponse, 1> unpacks
-// in-circuit.
-const BOOL_RESPONSE = {
-  kind: "struct",
-  fields: [{ name: "success", type: { kind: "boolean" } }],
-} as const satisfies CompactType;
-
-// A successful remote execution's serialised output, encoded with the
-// serialize twin exactly as the MPC packs it (one byte, 0x01 = true).
-// verifyResponse deserializes this into BoolResponse in-circuit and asserts
-// success, so only this value settles.
-const OUTPUT_SUCCESS = compactSerialize(BOOL_RESPONSE, { success: true }, 1);
-const OUTPUT_FAILURE = compactSerialize(BOOL_RESPONSE, { success: false }, 1);
+// The attested output of the single-bool output schema: the MPC serialises
+// the decoded bool as one Borsh byte, which verifyResponse reads back as
+// BoolResponse in-circuit. Hand-written so the fixture is independent of the
+// SDK's encoder; the lockstep test below pins the SDK to these bytes.
+const OUTPUT_SUCCESS = Uint8Array.of(1);
+const OUTPUT_FAILURE = Uint8Array.of(0);
 
 /** The destination block height every attestation below claims. */
 const BLOCK_HEIGHT = 21_000_000n;
@@ -701,7 +695,7 @@ describe("verifyResponse", () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     // Pins the compiled deserialize divergence: bytes 0x02..0xff are not
     // rejected, they decode to false and hit the same failure assert. Raw
-    // on purpose: the serialize twin can never produce this byte.
+    // on purpose: a Borsh bool encoder never produces this byte.
     const nonCanonical = Uint8Array.from([2]);
     const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, nonCanonical);
     await expect(contract.circuits.verifyResponse(ctx, event, nonCanonical)).rejects.toThrow(
@@ -744,26 +738,18 @@ describe("verifyResponse", () => {
 });
 
 describe("verifyCheckAndDoubleResponse", () => {
-  // TS twin of the checkAndDouble respond schema (bool + uint256): the
-  // uint256 packs as a 32-byte little-endian Field, so the struct packs to
-  // exactly 33 bytes.
-  const BOOL_UINT_RESPONSE = {
-    kind: "struct",
-    fields: [
-      { name: "success", type: { kind: "boolean" } },
-      { name: "amount", type: { kind: "field" } },
-    ],
-  } as const satisfies CompactType;
+  /**
+   * The attested output of the bool + uint256 output schema: one Borsh bool
+   * byte, then the uint256 carried whole as 32 little-endian bytes (the ABI
+   * word reversed), 33 bytes in all. Hand-written so the fixture is
+   * independent of the SDK's encoder.
+   */
+  const checkAndDoubleOutput = (success: boolean, amount: bigint): Uint8Array =>
+    Uint8Array.from([success ? 1 : 0, ...bigintToBytes32BE(amount).reverse()]);
 
-  // A successful checkAndDouble execution's packed respond payload, encoded
-  // with the serialize twin: bool true followed by uint256 12.
-  const OUTPUT_BOOL_UINT = compactSerialize(BOOL_UINT_RESPONSE, { success: true, amount: 12n }, 33);
+  const OUTPUT_BOOL_UINT = checkAndDoubleOutput(true, 12n);
   // checkAndDouble(0): the call executed and reported success=false.
-  const OUTPUT_BOOL_UINT_FAILURE = compactSerialize(
-    BOOL_UINT_RESPONSE,
-    { success: false, amount: 0n },
-    33,
-  );
+  const OUTPUT_BOOL_UINT_FAILURE = checkAndDoubleOutput(false, 0n);
 
   /** Deploy + submitCheckAndDoubleRequest: the arrange step. */
   const checkAndDoubleSubmitted = async () => {
@@ -784,6 +770,14 @@ describe("verifyCheckAndDoubleResponse", () => {
     return { contract, ctx: next, requestId: requestIdBytes(idHex) };
   };
 
+  it("the SDK derives exactly these bytes from the contract's output schemas", () => {
+    expect(serializeRespondOutput(EXPECTED_SCHEMA, { success: true })).toEqual(OUTPUT_SUCCESS);
+    expect(serializeRespondOutput(EXPECTED_SCHEMA, { success: false })).toEqual(OUTPUT_FAILURE);
+    expect(
+      serializeRespondOutput(EXPECTED_SCHEMA_BOOL_UINT, { success: true, amount: 12n }),
+    ).toEqual(OUTPUT_BOOL_UINT);
+  });
+
   it("a genuine 33-byte response verifies, consumes the request and records the amount", async () => {
     const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
     const next = (
@@ -795,10 +789,49 @@ describe("verifyCheckAndDoubleResponse", () => {
     ).context;
     const state = ledger(next.callContext.currentQueryContext.state);
     expect(state.signBidirectionalEventMap69.isEmpty()).toBe(true);
-    // The in-circuit deserialize read the 32-byte little-endian Field the
-    // serialize twin packed: the recorded amount is the attested one.
+    // The in-circuit deserialiser reads the 32 little-endian bytes and
+    // checkedTruncationU128 narrows them: the recorded amount is the attested one.
     expect(state.checkAndDoubleAmounts.lookup(requestId)).toBe(12n);
   });
+
+  it.each([
+    { name: "zero", amount: 0n },
+    { name: "the Uint<128> maximum", amount: (1n << 128n) - 1n },
+  ])("narrows an attested amount of $name in-circuit and records it", async ({ amount }) => {
+    const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
+    const output = checkAndDoubleOutput(true, amount);
+    const next = (
+      await contract.circuits.verifyCheckAndDoubleResponse(
+        ctx,
+        respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, output),
+        output,
+      )
+    ).context;
+    expect(
+      ledger(next.callContext.currentQueryContext.state).checkAndDoubleAmounts.lookup(requestId),
+    ).toBe(amount);
+  });
+
+  it.each([
+    { name: "2^128", amount: 1n << 128n },
+    { name: "the uint256 maximum", amount: (1n << 256n) - 1n },
+  ])(
+    "aborts on a genuinely attested amount of $name: the value exceeds Uint<128>",
+    async ({ amount }) => {
+      // The MPC carries the uint256 whole, so an out-of-range amount reaches
+      // the circuit with a valid signature. The narrowing, not the
+      // signature check, is what refuses it.
+      const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
+      const output = checkAndDoubleOutput(true, amount);
+      await expect(
+        contract.circuits.verifyCheckAndDoubleResponse(
+          ctx,
+          respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, output),
+          output,
+        ),
+      ).rejects.toThrow(/Value exceeds Uint<128>|exceeds maximum value/);
+    },
+  );
 
   it("rejects a genuinely attested success=false output without recording an amount", async () => {
     const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
@@ -826,7 +859,7 @@ describe("verifyCheckAndDoubleResponse", () => {
     const { contract, ctx, requestId } = await checkAndDoubleSubmitted();
     const response = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_BOOL_UINT);
     const tampered = Uint8Array.from(OUTPUT_BOOL_UINT);
-    tampered[1] = 13;
+    tampered[32] = 13;
     await expect(
       contract.circuits.verifyCheckAndDoubleResponse(ctx, response, tampered),
     ).rejects.toThrow(/Invalid attestation signature/);

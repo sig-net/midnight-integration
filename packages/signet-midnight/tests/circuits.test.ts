@@ -125,10 +125,84 @@ describe("ABI word circuits (circuit/TS lockstep, golden bytes)", () => {
     },
   );
 
-  it("abiWordToUint128 rejects a word wider than Uint<128>", () => {
-    const wide = hexToBytes("0000000000000000000000000000000100000000000000000000000000000000");
-    expect(() => pureCircuits.abiWordToUint128(wide)).toThrow();
-    expect(() => abiWordToUint128(wide)).toThrow("exceeds Uint<128>");
+  // The Uint<128> boundary of the calldata word reader, pinned at the exact
+  // edge on both sides.
+  it.each([
+    { name: "zero", word: "00".repeat(32), value: 0n },
+    { name: "one", word: "00".repeat(31) + "01", value: 1n },
+    { name: "2^128 - 1", word: "00".repeat(16) + "ff".repeat(16), value: (1n << 128n) - 1n },
+  ])("abiWordToUint128 narrows the word $name, circuit and TS", ({ word, value }) => {
+    expect(pureCircuits.abiWordToUint128(hexToBytes(word))).toBe(value);
+    expect(abiWordToUint128(hexToBytes(word))).toBe(value);
+  });
+
+  it.each([
+    { name: "2^128", word: "00".repeat(15) + "01" + "00".repeat(16) },
+    { name: "a word whose top byte is set", word: "80" + "00".repeat(31) },
+    { name: "a word whose sixteenth byte is set", word: "00".repeat(15) + "ff" + "00".repeat(16) },
+    { name: "the uint256 maximum", word: "ff".repeat(32) },
+  ])("abiWordToUint128 aborts on $name, circuit and TS", ({ word }) => {
+    expect(() => pureCircuits.abiWordToUint128(hexToBytes(word))).toThrow(/exceeds Uint<128>/);
+    expect(() => abiWordToUint128(hexToBytes(word))).toThrow(/exceeds Uint<128>/);
+  });
+
+  // checkedTruncationU128 reads the MPC's little-endian uint256 bytes: the
+  // ABI word reversed. No TS twin exists on purpose: contracts call the
+  // compiled circuit, and off-chain code reads the number with bytesToBigint.
+  // The circuit reports an oversized value with one of two messages
+  // depending on which byte is set, so the matcher accepts either.
+  const littleEndianWord = (value: bigint): Uint8Array => {
+    const bytes = new Uint8Array(32);
+    for (let i = 0; i < 32; i += 1) bytes[i] = Number((value >> BigInt(8 * i)) & 255n);
+    return bytes;
+  };
+  const EXCEEDS = /Value exceeds Uint<128>|exceeds maximum value/;
+  const BLS_SCALAR_MODULUS = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001n;
+
+  describe("checkedTruncationU128", () => {
+    it.each([
+      { name: "zero", value: 0n },
+      { name: "one", value: 1n },
+      { name: "42", value: 42n },
+      { name: "2^64", value: 1n << 64n },
+      { name: "2^128 - 1", value: (1n << 128n) - 1n },
+    ])("narrows the little-endian uint256 $name", ({ value }) => {
+      expect(pureCircuits.checkedTruncationU128(littleEndianWord(value))).toBe(value);
+    });
+
+    it.each([
+      { name: "2^128", value: 1n << 128n },
+      { name: "2^248", value: 1n << 248n },
+      { name: "2^255", value: 1n << 255n },
+      { name: "a value just above 2^254", value: BLS_SCALAR_MODULUS + 5n },
+      { name: "the uint256 maximum", value: (1n << 256n) - 1n },
+    ])("aborts on $name", ({ value }) => {
+      expect(() => pureCircuits.checkedTruncationU128(littleEndianWord(value))).toThrow(EXCEEDS);
+    });
+
+    it.each(Array.from({ length: 16 }, (_, i) => i))(
+      "accepts a word whose only set byte is low byte %i",
+      (index) => {
+        const word = new Uint8Array(32);
+        word[index] = 0xff;
+        expect(pureCircuits.checkedTruncationU128(word)).toBe(255n << BigInt(8 * index));
+      },
+    );
+
+    it.each(Array.from({ length: 16 }, (_, i) => 16 + i))(
+      "aborts on a word whose only set byte is high byte %i",
+      (index) => {
+        const word = new Uint8Array(32);
+        word[index] = 1;
+        expect(() => pureCircuits.checkedTruncationU128(word)).toThrow(EXCEEDS);
+      },
+    );
+
+    it("reads the bytes little-endian, not as an ABI word", () => {
+      // 42 as a big-endian ABI word has its low byte LAST: read little-endian
+      // that byte is the top of the high half, so the circuit aborts.
+      expect(() => pureCircuits.checkedTruncationU128(numericAbiWord(42n))).toThrow(EXCEEDS);
+    });
   });
 
   it("evmAddressAbiWord: 12 zero bytes, then the display-order address, circuit and TS", () => {
@@ -428,11 +502,12 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
     signatureDest: MPCDestination.unused,
     params: bytes(64, 0),
     outputDeserializationSchema: bytes(34, 0x07),
-    respondSerializationSchema: bytes(34, 0x08),
+    // Reserved: constructSignBidirectionalEventV1 pins it to Bytes<0>.
+    respondSerializationSchema: new Uint8Array(0),
   };
 
   it("constructs requests with unused reserved fields", () => {
-    expect(pureCircuits.constructSignBidirectionalEventV1_1_0_0_34_34(RECORD)).toEqual(RECORD);
+    expect(pureCircuits.constructSignBidirectionalEventV1_1_0_0_34(RECORD)).toEqual(RECORD);
   });
 
   const INVALID_RESERVED_FIELDS: {
@@ -463,9 +538,7 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
   ];
 
   it.each(INVALID_RESERVED_FIELDS)("refuses a reserved $name", ({ request, error }) => {
-    expect(() => pureCircuits.constructSignBidirectionalEventV1_1_0_0_34_34(request)).toThrow(
-      error,
-    );
+    expect(() => pureCircuits.constructSignBidirectionalEventV1_1_0_0_34(request)).toThrow(error);
   });
 
   it("the TS request id equals the compiled circuit over the same preimage", () => {
@@ -524,14 +597,12 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
   it.each([
     {
       name: "<1, 0, 0>",
-      oracle: (r: SignBidirectionalEvent) =>
-        pureCircuits.calculateEvmType2RequestIdV1_1_0_0_34_34(r),
+      oracle: (r: SignBidirectionalEvent) => pureCircuits.calculateEvmType2RequestIdV1_1_0_0_34(r),
       record: RECORD,
     },
     {
       name: "<2, 1, 2> with a used access list",
-      oracle: (r: SignBidirectionalEvent) =>
-        pureCircuits.calculateEvmType2RequestIdV1_2_1_2_34_34(r),
+      oracle: (r: SignBidirectionalEvent) => pureCircuits.calculateEvmType2RequestIdV1_2_1_2_34(r),
       record: RECORD_2_1_2,
     },
   ])(
@@ -562,15 +633,15 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
         ],
       },
     };
-    const requestId: Uint8Array = pureCircuits.calculateEvmType2RequestIdV1_1_0_0_34_34(RECORD);
-    expect(pureCircuits.calculateEvmType2RequestIdV1_2_1_2_34_34(wider)).toEqual(requestId);
+    const requestId: Uint8Array = pureCircuits.calculateEvmType2RequestIdV1_1_0_0_34(RECORD);
+    expect(pureCircuits.calculateEvmType2RequestIdV1_2_1_2_34(wider)).toEqual(requestId);
     expect(calculateRequestId(RECORD)).toEqual(requestId);
     expect(calculateRequestId(wider)).toEqual(requestId);
   });
 
   it("the circuit refuses a request whose tag is not evmType2", () => {
     expect(() =>
-      pureCircuits.calculateEvmType2RequestIdV1_1_0_0_34_34({
+      pureCircuits.calculateEvmType2RequestIdV1_1_0_0_34({
         ...RECORD,
         txParamType: TxParamType.reserved,
       }),

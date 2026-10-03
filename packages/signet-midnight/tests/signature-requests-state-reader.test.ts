@@ -192,6 +192,33 @@ describe("state-reader (MPC-style raw decode)", () => {
     expect(requestsIndex.get(requestIdHex(id))).toEqual(request);
   });
 
+  it("decodes a record whose reserved respond schema is Bytes<0>", () => {
+    // constructSignBidirectionalEventV1 pins respondSerializationSchema to
+    // Bytes<0>: the stored cell's last atom is declared at width 0, and the
+    // reader must size the field from that declaration.
+    const request: SignBidirectionalEvent = {
+      ...SAMPLE_REQUEST,
+      respondSerializationSchema: new Uint8Array(0),
+    };
+    const id = calculateRequestId(request);
+    const state = StateValue.newArray()
+      .arrayPush(
+        StateValue.newMap(
+          new StateMap().insert(
+            {
+              value: requestIdType.toValue(id),
+              alignment: requestIdType.alignment(),
+            },
+            requestCell(request, CAPACITIES.sample),
+          ),
+        ),
+      )
+      .arrayPush(counterCell(0n));
+
+    const { requestsIndex } = readSignetRequestsLedgerFromState(state, [0]);
+    expect(requestsIndex.get(requestIdHex(id))).toEqual(request);
+  });
+
   it("returns an empty index for a fresh contract", () => {
     const fresh = StateValue.newArray()
       .arrayPush(StateValue.newMap(new StateMap()))
