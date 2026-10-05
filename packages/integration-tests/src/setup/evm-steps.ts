@@ -54,7 +54,7 @@ export async function deployEvmTargetStep(env: NodeJS.ProcessEnv): Promise<void>
   // before hardhat can compile anything.
   await runCommand(
     "yarn",
-    ["workspace", "@midnight-protocol/integration-tests", "compile:evm"],
+    ["workspace", "@midnight-integration/integration-tests", "compile:evm"],
     env,
     5 * MINUTE,
   );

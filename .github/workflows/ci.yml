@@ -129,7 +129,7 @@ jobs:
         run: yarn test
       - name: Compiler-backed Borsh response sweep
         if: steps.serde.outputs.changed == 'true'
-        run: yarn workspace @midnight-protocol/midnight-serde-conformance test:sweep
+        run: yarn workspace @midnight-integration/midnight-serde-conformance test:sweep
 
   rust:
     name: rust (fmt → clippy → test against the committed corpus)

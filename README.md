@@ -554,8 +554,9 @@ yarn install
 # Runs the compact compiler for each package without generating zk keys (compiler output in the package's src/managed/)
 yarn compile
 
-# Longer compile: all packages that require zk keys (checks syntax, generates circuits and zk keys)
-# Runs the compact compiler with zk keys for each package that has a :zk option (compiler output in the package's src/managed/)
+# Full compile: everything 'yarn compile' does, plus zk keys
+# Runs 'yarn compile' for all packages, then the compact compiler with zk keys for each package that has a :zk option
+# (compiler output in the package's src/managed/). On its own it leaves the whole workspace ready to build and deploy.
 yarn compile:zk
 
 # Test: all packages (typecheck + unit tests: offline simulator-only)
@@ -563,8 +564,8 @@ yarn compile:zk
 yarn test
 
 # Build: all packages
-# Requires both 'yarn compile' and 'yarn compile:zk': packages that ship
-# zk keys refuse to build without them.
+# Requires 'yarn compile:zk': packages that ship zk keys refuse to build
+# without them.
 yarn build
 
 ## --- Linting and formatting: All packages (whole workspace, from repository root) ---
@@ -593,7 +594,7 @@ yarn test:signet-midnight     # requires 'yarn compile:signet-midnight'
 yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
 ```
 
-> **NOTE:** A build error about missing prover keys (for example "no prover keys in src/managed/keys") means the package's zk compile has not been run yet: run the associated `compile:...:zk` script to generate them.
+> **NOTE:** A build error about missing prover keys (for example "no prover keys in src/managed/keys") means the package has no zk keys: run `yarn compile:zk` (or the associated `compile:...:zk` script) to generate them. A plain `yarn compile` deletes the keys of every package it recompiles, so run the zk compile again after it.
 
 ## Integration Tests
 

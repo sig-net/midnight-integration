@@ -1,4 +1,4 @@
-# `@midnight-protocol/lib` — agent notes
+# `@midnight-integration/lib` — agent notes
 
 Workspace-wide rules live in the repo-root [`/AGENTS.md`](../../AGENTS.md) and apply
 here too. Member-specific rules:
