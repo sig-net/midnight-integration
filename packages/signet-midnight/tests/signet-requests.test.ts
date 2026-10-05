@@ -27,11 +27,10 @@ const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill
 /** Known-good request record: the base every test uses. NEVER mutate. */
 const SAMPLE_REQUEST: SignBidirectionalEvent = {
   sender: { bytes: bytes(32, 0x01) },
-  requestNonce: 7n,
   keyVersion: 1n,
   path: bytes(32, 0x03),
   algo: MPCSignatureAlgorithm.ecdsa,
-  dest: MPCDestination.unused,
+  signatureDest: MPCDestination.unused,
   params: bytes(64, 0x06),
   txParamType: TxParamType.evmType2,
   txParams: {
@@ -53,7 +52,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
       },
     },
   },
-  caip2Id: bytes(32, 0x02),
+  executionDest: bytes(32, 0x02),
   outputDeserializationSchema: bytes(34, 0x07),
   respondSerializationSchema: bytes(34, 0x08),
 };

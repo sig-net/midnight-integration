@@ -628,6 +628,91 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@midnight-integration/integration-tests@workspace:packages/integration-tests":
+  version: 0.0.0-use.local
+  resolution: "@midnight-integration/integration-tests@workspace:packages/integration-tests"
+  dependencies:
+    "@midnight-integration/test-caller-contract": "npm:*"
+    "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "npm:5.0.0-beta.6"
+    "@sig-net/midnight": "workspace:*"
+    "@sig-net/midnight-contract-deploy": "workspace:*"
+    "@types/node": "npm:^26.1.0"
+    "@vitest/coverage-v8": "npm:^5.0.0"
+    ethers: "npm:^6.17.0"
+    hardhat: "npm:^3.9.1"
+    typescript: "npm:^7.0.2"
+    vite: "npm:^8.2.2"
+    vitest: "npm:^5.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@midnight-integration/lib@npm:*, @midnight-integration/lib@workspace:packages/lib":
+  version: 0.0.0-use.local
+  resolution: "@midnight-integration/lib@workspace:packages/lib"
+  dependencies:
+    "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "npm:5.0.0-beta.6"
+    "@midnightntwrk/ledger-v9": "npm:1.0.0-rc.3"
+    "@midnightntwrk/wallet-sdk-facade": "npm:5.0.0-beta.2"
+    "@sig-net/midnight-contract-deploy": "workspace:*"
+    "@types/node": "npm:^26.1.0"
+    "@vitest/coverage-v8": "npm:^5.0.0"
+    typescript: "npm:^7.0.2"
+    vite: "npm:^8.2.2"
+    vitest: "npm:^5.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@midnight-integration/midnight-serde-conformance@workspace:packages/midnight-serde-conformance":
+  version: 0.0.0-use.local
+  resolution: "@midnight-integration/midnight-serde-conformance@workspace:packages/midnight-serde-conformance"
+  dependencies:
+    "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
+    "@sig-net/midnight-serde": "workspace:*"
+    "@types/node": "npm:^26.1.0"
+    tsx: "npm:^4.23.0"
+    typescript: "npm:^7.0.2"
+    vite: "npm:^8.2.2"
+    vitest: "npm:^5.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@midnight-integration/test-caller-contract-20-field@workspace:packages/test-caller-contract-20-field":
+  version: 0.0.0-use.local
+  resolution: "@midnight-integration/test-caller-contract-20-field@workspace:packages/test-caller-contract-20-field"
+  dependencies:
+    "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
+    "@sig-net/midnight": "workspace:*"
+    "@types/node": "npm:^26.1.0"
+    "@vitest/coverage-v8": "npm:^5.0.0"
+    typescript: "npm:^7.0.2"
+    vite: "npm:^8.2.2"
+    vitest: "npm:^5.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@midnight-integration/test-caller-contract@npm:*, @midnight-integration/test-caller-contract@workspace:packages/test-caller-contract":
+  version: 0.0.0-use.local
+  resolution: "@midnight-integration/test-caller-contract@workspace:packages/test-caller-contract"
+  dependencies:
+    "@midnight-integration/lib": "npm:*"
+    "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
+    "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "npm:5.0.0-beta.6"
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "npm:5.0.0-beta.6"
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "npm:5.0.0-beta.6"
+    "@sig-net/midnight": "workspace:*"
+    "@sig-net/midnight-contract-deploy": "workspace:*"
+    "@types/node": "npm:^26.1.0"
+    "@vitest/coverage-v8": "npm:^5.0.0"
+    tsx: "npm:^4.23.0"
+    typescript: "npm:^7.0.2"
+    vite: "npm:^8.2.2"
+    vitest: "npm:^5.0.0"
+  languageName: unknown
+  linkType: soft
+
 "@midnight-ntwrk/compact-js-node@npm:2.5.5-rc.7":
   version: 2.5.5-rc.7
   resolution: "@midnight-ntwrk/compact-js-node@npm:2.5.5-rc.7"
@@ -825,78 +910,6 @@ __metadata:
   checksum: 10c0/cf139a9dc6834d5e4036af6c65a40d384a02e66c4ef14d1e948fc690be62ce1bcf79d468efb2df719ff573c1825251c9c65630f287fbc76d2026482a13b907ef
   languageName: node
   linkType: hard
-
-"@midnight-protocol/integration-tests@workspace:packages/integration-tests":
-  version: 0.0.0-use.local
-  resolution: "@midnight-protocol/integration-tests@workspace:packages/integration-tests"
-  dependencies:
-    "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
-    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "npm:5.0.0-beta.6"
-    "@midnight-protocol/test-caller-contract": "npm:*"
-    "@sig-net/midnight": "workspace:*"
-    "@sig-net/midnight-contract-deploy": "workspace:*"
-    "@types/node": "npm:^26.1.0"
-    "@vitest/coverage-v8": "npm:^5.0.0"
-    ethers: "npm:^6.17.0"
-    hardhat: "npm:^3.9.1"
-    typescript: "npm:^7.0.2"
-    vite: "npm:^8.2.2"
-    vitest: "npm:^5.0.0"
-  languageName: unknown
-  linkType: soft
-
-"@midnight-protocol/lib@npm:*, @midnight-protocol/lib@workspace:packages/lib":
-  version: 0.0.0-use.local
-  resolution: "@midnight-protocol/lib@workspace:packages/lib"
-  dependencies:
-    "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
-    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "npm:5.0.0-beta.6"
-    "@midnightntwrk/ledger-v9": "npm:1.0.0-rc.3"
-    "@midnightntwrk/wallet-sdk-facade": "npm:5.0.0-beta.2"
-    "@sig-net/midnight-contract-deploy": "workspace:*"
-    "@types/node": "npm:^26.1.0"
-    "@vitest/coverage-v8": "npm:^5.0.0"
-    typescript: "npm:^7.0.2"
-    vite: "npm:^8.2.2"
-    vitest: "npm:^5.0.0"
-  languageName: unknown
-  linkType: soft
-
-"@midnight-protocol/test-caller-contract-20-field@workspace:packages/test-caller-contract-20-field":
-  version: 0.0.0-use.local
-  resolution: "@midnight-protocol/test-caller-contract-20-field@workspace:packages/test-caller-contract-20-field"
-  dependencies:
-    "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
-    "@sig-net/midnight": "workspace:*"
-    "@types/node": "npm:^26.1.0"
-    "@vitest/coverage-v8": "npm:^5.0.0"
-    typescript: "npm:^7.0.2"
-    vite: "npm:^8.2.2"
-    vitest: "npm:^5.0.0"
-  languageName: unknown
-  linkType: soft
-
-"@midnight-protocol/test-caller-contract@npm:*, @midnight-protocol/test-caller-contract@workspace:packages/test-caller-contract":
-  version: 0.0.0-use.local
-  resolution: "@midnight-protocol/test-caller-contract@workspace:packages/test-caller-contract"
-  dependencies:
-    "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
-    "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
-    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "npm:5.0.0-beta.6"
-    "@midnight-ntwrk/midnight-js-level-private-state-provider": "npm:5.0.0-beta.6"
-    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "npm:5.0.0-beta.6"
-    "@midnight-protocol/lib": "npm:*"
-    "@sig-net/midnight": "workspace:*"
-    "@sig-net/midnight-contract-deploy": "workspace:*"
-    "@sig-net/midnight-serde": "workspace:*"
-    "@types/node": "npm:^26.1.0"
-    "@vitest/coverage-v8": "npm:^5.0.0"
-    tsx: "npm:^4.23.0"
-    typescript: "npm:^7.0.2"
-    vite: "npm:^8.2.2"
-    vitest: "npm:^5.0.0"
-  languageName: unknown
-  linkType: soft
 
 "@midnightntwrk/ledger-v9@npm:1.0.0-rc.3":
   version: 1.0.0-rc.3
@@ -2275,8 +2288,8 @@ __metadata:
     "@midnightntwrk/wallet-sdk-shielded": "npm:4.0.0-beta.2"
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "npm:4.0.0-beta.2"
     "@scure/bip39": "npm:^2.2.0"
-    "@sig-net/midnight": "npm:^0.23.0"
-    "@sig-net/midnight-contract": "npm:^0.23.0"
+    "@sig-net/midnight": "npm:^0.24.0"
+    "@sig-net/midnight-contract": "npm:^0.24.0"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^5.0.0"
     effect: "npm:^3.22.2"
@@ -2287,13 +2300,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight-contract@npm:^0.23.0, @sig-net/midnight-contract@workspace:packages/signet-contract":
+"@sig-net/midnight-contract@npm:^0.24.0, @sig-net/midnight-contract@workspace:packages/signet-contract":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight-contract@workspace:packages/signet-contract"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@midnight-ntwrk/midnight-js": "npm:5.0.0-beta.6"
-    "@sig-net/midnight": "npm:^0.23.0"
+    "@sig-net/midnight": "npm:^0.24.0"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^5.0.0"
     typescript: "npm:^7.0.2"
@@ -2302,27 +2315,27 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight-serde@npm:^0.23.0, @sig-net/midnight-serde@workspace:*, @sig-net/midnight-serde@workspace:packages/midnight-serde":
+"@sig-net/midnight-serde@npm:^0.24.0, @sig-net/midnight-serde@workspace:*, @sig-net/midnight-serde@workspace:packages/midnight-serde-ts":
   version: 0.0.0-use.local
-  resolution: "@sig-net/midnight-serde@workspace:packages/midnight-serde"
+  resolution: "@sig-net/midnight-serde@workspace:packages/midnight-serde-ts"
   dependencies:
-    "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^5.0.0"
+    borsh: "npm:2.0.0"
     typescript: "npm:^7.0.2"
     vite: "npm:^8.2.2"
     vitest: "npm:^5.0.0"
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight@npm:^0.23.0, @sig-net/midnight@workspace:*, @sig-net/midnight@workspace:packages/signet-midnight":
+"@sig-net/midnight@npm:^0.24.0, @sig-net/midnight@workspace:*, @sig-net/midnight@workspace:packages/signet-midnight":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight@workspace:packages/signet-midnight"
   dependencies:
     "@midnight-ntwrk/compact-runtime": "npm:0.18.0-rc.1"
     "@midnight-ntwrk/midnight-js-types": "npm:5.0.0-beta.6"
     "@noble/curves": "npm:^2.2.0"
-    "@sig-net/midnight-serde": "npm:^0.23.0"
+    "@sig-net/midnight-serde": "npm:^0.24.0"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^5.0.0"
     ethers: "npm:^6.17.0"
@@ -3205,6 +3218,13 @@ __metadata:
   version: 5.2.5
   resolution: "bn.js@npm:5.2.5"
   checksum: 10c0/4c47bcb261950086a9d5d311bea97197b5950703e0a80caf6e226f3bb049954a864c80b0fca7f70149c74c2e255cb4a63d0da2c425d7b15f9051a042a4e12095
+  languageName: node
+  linkType: hard
+
+"borsh@npm:2.0.0":
+  version: 2.0.0
+  resolution: "borsh@npm:2.0.0"
+  checksum: 10c0/59a96dd9c707450862198510fc518dff92ac7f0ed0d228c9b38affd968bb4debec805c6e2afed8ec13efd9fad63fd47f8e6ed420253542a8d10fb59f28fc7d01
   languageName: node
   linkType: hard
 
@@ -4330,9 +4350,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"midnight-protocol@workspace:.":
+"midnight-integration@workspace:.":
   version: 0.0.0-use.local
-  resolution: "midnight-protocol@workspace:."
+  resolution: "midnight-integration@workspace:."
   dependencies:
     "@eslint/js": "npm:^10.0.1"
     "@vitest/eslint-plugin": "npm:^1.6.26"

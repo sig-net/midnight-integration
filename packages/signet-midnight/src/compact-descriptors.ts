@@ -21,23 +21,28 @@
 // Delete each piece of this file the moment compact-runtime exports a
 // supported equivalent.
 //
-// These are NOT the `CompactType` schema types of @sig-net/midnight-serde
-// (that package describes the `serialize<T, N>` wire format, a different
-// layer). Package-internal: consumers use the reader/request functions built
-// on top, never these directly.
 
 import {
   type AlignedValue,
   type CompactType,
   CompactTypeBoolean,
   CompactTypeBytes,
+  CompactTypeEnum,
+  CompactTypeField,
   CompactTypeUnsignedInteger,
 } from "@midnight-ntwrk/compact-runtime";
 
 // Runtime descriptors of the Compact base types, at the same literals the
 // compiler emits.
 
-/** Descriptor of a Compact `Bytes<4>`. */
+/** Protocol HashDomain enum, matching the Compact variant indices and byte width. */
+export const HASH_DOMAIN = new CompactTypeEnum(5, 1);
+
+/** `Boolean`. */
+export const BOOLEAN = CompactTypeBoolean;
+/** `Field`: the accumulator of the transaction digest folds. */
+export const FIELD = CompactTypeField;
+/** `Bytes<4>`. */
 export const BYTES_4 = new CompactTypeBytes(4);
 /** Descriptor of a Compact `Bytes<20>`. */
 export const BYTES_20 = new CompactTypeBytes(20);
@@ -191,29 +196,49 @@ export function declaredWidths(cell: AlignedValue, what: string): number[] {
 }
 
 /**
- * Descriptor of the Compact tuple `[RequestId, Bytes<serializedOutputLength>]`
- * the attestation digest hashes, composed the way the compiler composes a
- * tuple: the elements' alignments and values concatenated in order. The output
- * width enters the descriptor, so it is fixed per call rather than a constant.
+ * Descriptor of Signet.compact's three-variant `OutputKind` enum, at the
+ * literal the compiler emits (highest variant index 2, one byte). Adding a
+ * variant to the Compact enum means raising the index here in lockstep.
+ */
+const OUTPUT_KIND = new CompactTypeEnum(2, 1);
+
+/**
+ * Descriptor of a Compact tuple, composed the way the compiler composes one:
+ * the elements' alignments and values concatenated in order.
+ *
+ * @param elements - One descriptor per tuple element, in order.
+ * @returns The tuple's descriptor.
+ */
+export function compactTupleDescriptor<T extends unknown[]>(elements: {
+  [K in keyof T]: CompactType<T[K]>;
+}): CompactType<T> {
+  return {
+    alignment: () => elements.flatMap((element) => element.alignment()),
+    toValue: (values) =>
+      elements.flatMap((element: CompactType<unknown>, index) => element.toValue(values[index])),
+    fromValue: (value) => elements.map((element) => element.fromValue(value)) as T,
+  };
+}
+
+/**
+ * Descriptor of the Compact tuple
+ * `[HashDomain, RequestId, Uint<64>, OutputKind, Uint<64>, Bytes<serializedOutputLength>]`
+ * the attestation digest hashes (domain tag, request id, block height, output kind,
+ * output length, output). The output width enters the descriptor, so it is
+ * built per call.
  *
  * @param serializedOutputLength - Declared width of the output element, in bytes.
- * @returns The triple descriptor for {@link calculateSignetAttestationDigest}.
+ * @returns The tuple descriptor for {@link calculateSignetAttestationDigest}.
  */
 export function attestationPreimageDescriptor(
   serializedOutputLength: number,
-): CompactType<[Uint8Array, bigint, Uint8Array]> {
-  const output = new CompactTypeBytes(serializedOutputLength);
-  return {
-    alignment: () => [...BYTES_32.alignment(), ...UINT_64.alignment(), ...output.alignment()],
-    toValue: ([requestId, outputLength, serializedOutput]) => [
-      ...BYTES_32.toValue(requestId),
-      ...UINT_64.toValue(outputLength),
-      ...output.toValue(serializedOutput),
-    ],
-    fromValue: (value) => [
-      BYTES_32.fromValue(value),
-      UINT_64.fromValue(value),
-      output.fromValue(value),
-    ],
-  };
+): CompactType<[number, Uint8Array, bigint, number, bigint, Uint8Array]> {
+  return compactTupleDescriptor<[number, Uint8Array, bigint, number, bigint, Uint8Array]>([
+    HASH_DOMAIN,
+    BYTES_32,
+    UINT_64,
+    OUTPUT_KIND,
+    UINT_64,
+    new CompactTypeBytes(serializedOutputLength),
+  ]);
 }

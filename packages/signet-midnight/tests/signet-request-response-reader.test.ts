@@ -18,6 +18,7 @@ import {
   MPCDestination,
   MPCSignatureAlgorithm,
   numericAbiWord,
+  OutputKind,
   pureCircuits,
   requestIdHex,
   type RespondBidirectionalEvent,
@@ -34,10 +35,9 @@ import { signBidirectionalEventDescriptor } from "../src/signet-evtype2tx-reques
 // Package-internal descriptors, imported from their defining modules.
 import { requestIdType } from "../src/signet-requests.ts";
 import {
-  calculateSignetAttestationDigest,
+  attestRespondBidirectional,
   ecdsaSignatureToMpcSignature,
   secp256k1PublicKeyOf,
-  signAttestationDigest,
 } from "../src/testing.ts";
 import {
   notificationEventOf,
@@ -73,11 +73,10 @@ const SIGNET_CONTRACT_ADDRESS = "signet-contract-address";
  */
 const REQUEST: SignBidirectionalEvent = {
   sender: { bytes: new Uint8Array(32) },
-  requestNonce: 0n,
   keyVersion: 1n,
   path: new Uint8Array(32),
   algo: MPCSignatureAlgorithm.ecdsa,
-  dest: MPCDestination.unused,
+  signatureDest: MPCDestination.unused,
   params: new Uint8Array(64),
   txParamType: TxParamType.evmType2,
   txParams: {
@@ -99,7 +98,7 @@ const REQUEST: SignBidirectionalEvent = {
       },
     },
   },
-  caip2Id: pureCircuits.ethereumCaip2Id(),
+  executionDest: pureCircuits.ethereumCaip2Id(),
   outputDeserializationSchema: bytes(34, 0x07),
   respondSerializationSchema: bytes(34, 0x08),
 };
@@ -120,6 +119,7 @@ const IMPOSTER_ADDRESS = computeAddress(IMPOSTER_KEY.publicKey);
 const signResponse = (key: SigningKey): SignatureRespondedEvent => {
   const signature = key.sign(signBidirectionalEventToUnsignedEvmTransaction(REQUEST).unsignedHash);
   return {
+    requestId: REQUEST_ID,
     signature: ecdsaSignatureToMpcSignature({
       r: BigInt(signature.r),
       s: BigInt(signature.s),
@@ -132,6 +132,7 @@ const GENUINE_RESPONSE = signResponse(MPC_KEY);
 const IMPOSTER_RESPONSE = signResponse(IMPOSTER_KEY);
 // A recovery id byte of 5 cannot decode into a signature at all.
 const UNDECODABLE_RESPONSE: SignatureRespondedEvent = {
+  ...GENUINE_RESPONSE,
   signature: { ...GENUINE_RESPONSE.signature, recoveryId: 5n },
 };
 
@@ -155,8 +156,13 @@ const requesterState = (): StateValue => {
 };
 
 // A respond-bidirectional record for the response tests: a synthetic
-// signature (the reader decodes, verification is the CLIENT's job).
+// signature and digest (the reader decodes, verification is the CLIENT's job).
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
+  requestId: REQUEST_ID,
+  blockHeight: 500n,
+  outputKind: OutputKind.executed,
+  serializedOutputLength: 1n,
+  digest: bytes(32, 0x5f),
   signature: {
     bigR: { x: bytes(32, 0x5c), y: bytes(32, 0x5d) },
     s: bytes(32, 0x5e),
@@ -171,14 +177,16 @@ const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
 const MPC_RESPONSE_SECRET = bytes(32, 0x11);
 const MPC_RESPONSE_KEY = secp256k1PublicKeyOf(MPC_RESPONSE_SECRET);
 const ATTESTED_OUTPUT = Uint8Array.from([1]);
-const ATTESTED_RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
-  signature: ecdsaSignatureToMpcSignature(
-    signAttestationDigest(
-      calculateSignetAttestationDigest(REQUEST_ID, ATTESTED_OUTPUT),
-      MPC_RESPONSE_SECRET,
-    ),
-  ),
-};
+const ATTESTED_BLOCK_HEIGHT = 7_654_321n;
+const ATTESTED_RESPOND_BIDIRECTIONAL = attestRespondBidirectional(
+  {
+    requestId: REQUEST_ID,
+    blockHeight: ATTESTED_BLOCK_HEIGHT,
+    outputKind: OutputKind.executed,
+    serializedOutput: ATTESTED_OUTPUT,
+  },
+  MPC_RESPONSE_SECRET,
+);
 
 // ---- Harness ----
 
@@ -223,8 +231,9 @@ const makeReader = (
     signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     publicDataProvider,
     eventSource: {
-      streamSignetEvents: (contractAddress) => {
+      streamSignetEvents: (contractAddress, options) => {
         expect(contractAddress).toBe(SIGNET_CONTRACT_ADDRESS);
+        expect(options).toBeUndefined();
         queries.events += 1;
         return streamOf(events);
       },
@@ -316,6 +325,27 @@ describe("getSignatureRespondedEvents", () => {
       },
     });
     expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
+  });
+
+  it("bounds the event scan by signetEventsFromBlock", async () => {
+    const seen: unknown[] = [];
+    const reader = new SignetRequestResponseReader({
+      requesterContractAddress: REQUESTER_ADDRESS,
+      requesterRequestsPath: [0],
+      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      publicDataProvider: {
+        queryContractState: () => Promise.resolve({ data: requesterState() }),
+      },
+      eventSource: {
+        streamSignetEvents: (_contractAddress, options) => {
+          seen.push(options);
+          return streamOf([signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE)]);
+        },
+      },
+      signetEventsFromBlock: 382000,
+    });
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
+    expect(seen).toStrictEqual([{ fromBlock: 382000 }]);
   });
 });
 

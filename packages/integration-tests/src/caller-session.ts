@@ -4,11 +4,6 @@
 // The lazy construction keeps the offline path (RUN_INTEGRATION_TESTS unset)
 // from ever touching the network.
 
-import { findDeployedContract, type FoundContract } from "@midnight-ntwrk/midnight-js/contracts";
-// midnight-js reads a process-global network id (unlike compact-js, which
-// takes it explicitly). The context builder sets it once per session.
-import { setNetworkId } from "@midnight-ntwrk/midnight-js/network-id";
-import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import {
   buildCallerProviders,
   CALLER_PRIVATE_STATE_ID,
@@ -17,8 +12,14 @@ import {
   type CallerProviders,
   type Contract as CallerContract,
   createCallerPrivateState,
+  type Ledger as CallerLedger,
   ledger as callerContractLedger,
-} from "@midnight-protocol/test-caller-contract";
+} from "@midnight-integration/test-caller-contract";
+import { findDeployedContract, type FoundContract } from "@midnight-ntwrk/midnight-js/contracts";
+// midnight-js reads a process-global network id (unlike compact-js, which
+// takes it explicitly). The context builder sets it once per session.
+import { setNetworkId } from "@midnight-ntwrk/midnight-js/network-id";
+import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import {
   hexToBytes,
   type RequestIdHex,
@@ -68,7 +69,7 @@ export interface CallerE2eSession {
    * The shared MPC-style request/response reader for one of the caller's
    * request maps; see {@link createCallerE2eSession}. The caller contract
    * keeps one map per schema width, so the reader is keyed by the map's
-   * ledger field position (default 4, the bool-schema map).
+   * ledger field position (default 3, the bool-schema map).
    */
   responseReader(requestsIndexField?: number): SignetRequestResponseReader;
   /** Stop the wallet facade (call from afterAll); safe when never started. */
@@ -129,9 +130,9 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
       return sharedWallet.context;
     },
 
-    // Default field 4: the bool-schema map every submit circuit's
-    // notification names except submitCheckAndDoubleRequest's (field 7).
-    responseReader(requestsIndexField = 4): SignetRequestResponseReader {
+    // Default field 3: the bool-schema map every submit circuit's
+    // notification names except submitCheckAndDoubleRequest's (field 6).
+    responseReader(requestsIndexField = 3): SignetRequestResponseReader {
       let reader = sharedReaders.get(requestsIndexField);
       if (!reader) {
         const nodeConfig = getMidnightNodeConfig(env);
@@ -171,6 +172,25 @@ const MINUTE = 60_000;
 export type CallerRequestMap = "signBidirectionalEventMap" | "signBidirectionalEventMap69";
 
 /**
+ * Read the caller contract's current ledger, decoded with its generated
+ * `ledger` reader: the request maps and the settlement records the verify
+ * circuits write.
+ *
+ * @param context - The session's caller context.
+ * @returns The decoded ledger.
+ * @throws {Error} When the contract has no state on-chain.
+ */
+export async function readCallerLedger(context: CallerContext): Promise<CallerLedger> {
+  const contractState = await context.providers.publicDataProvider.queryContractState(
+    context.contractAddress,
+  );
+  if (!contractState) {
+    throw new Error(`no contract state found at ${context.contractAddress}`);
+  }
+  return callerContractLedger(contractState.data);
+}
+
+/**
  * Read one caller request map's keys, presented as hex request ids.
  *
  * @param context - The session's caller context.
@@ -182,15 +202,7 @@ export async function readCallerRequestIds(
   context: CallerContext,
   map: CallerRequestMap = "signBidirectionalEventMap",
 ): Promise<Set<RequestIdHex>> {
-  const contractState = await context.providers.publicDataProvider.queryContractState(
-    context.contractAddress,
-  );
-  if (!contractState) {
-    throw new Error(`no contract state found at ${context.contractAddress}`);
-  }
-  return new Set(
-    toSignBidirectionalEventIndex(callerContractLedger(contractState.data)[map]).keys(),
-  );
+  return new Set(toSignBidirectionalEventIndex((await readCallerLedger(context))[map]).keys());
 }
 
 /**
@@ -210,13 +222,7 @@ export async function ensureMpcResponseKeyStored(
   mpcResponseKey: Secp256k1Point,
 ): Promise<"stored" | "already-stored"> {
   const readKeyState = async () => {
-    const state = await context.providers.publicDataProvider.queryContractState(
-      context.contractAddress,
-    );
-    if (!state) {
-      throw new Error(`no contract state found at ${context.contractAddress}`);
-    }
-    const decoded = callerContractLedger(state.data);
+    const decoded = await readCallerLedger(context);
     return { initialised: decoded.initialised, storedKey: decoded.mpcResponseKey };
   };
 

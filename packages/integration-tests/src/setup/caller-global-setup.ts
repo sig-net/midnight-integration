@@ -5,8 +5,8 @@
 // Without RUN_INTEGRATION_TESTS this is a no-op so plain `yarn test` stays
 // offline.
 //
-// The pipeline serves BOTH flow files: the EVM-free base flow (whose request
-// exists to be SIGNED, never broadcast) and the real-EVM flow (which
+// The pipeline serves BOTH flow files: the base flow (whose request exists
+// to be SIGNED, never broadcast) and the real-EVM flow (which
 // broadcasts against the SignetEvmTarget contract on the local anvil). So on
 // top of the stack checks, MPC keys, dust preflight, signet compile/deploy,
 // fakenet hand-off and caller compile/deploy, it deploys the EVM target

@@ -22,7 +22,7 @@ import "@sig-net/midnight/src/Signet";
 
 // signBidirectional should be called (cross-contract) by clients to notify the MPC
 // that a SignBidirectionalEvent has been written to their canonical
-// SignBidirectionalEventMap state map. The MPC does not trust the notification's
+// SignBidirectionalEventMapV1 state map. The MPC does not trust the notification's
 // content. It authenticates by:
 //   (a) reading the event back from the named caller's own ledger and refusing entries
 //       whose recomputed request id or sender does not match, and
@@ -50,13 +50,12 @@ export circuit signBidirectional(
 // when its signature recovers to the caller's derived key over that request's
 // transaction.
 export circuit respond(
-    requestId: RequestId,
-    signatureRespondedEvent: SignatureRespondedEvent,
+    signatureRespondedEvent: SignatureRespondedEventV1,
 ): [] {
     emit (Misc {
         name: pad(32, "SignatureRespondedEvent"),
         payload: Bytes[
-            ...disclose(requestId),                                 //  32
+            ...disclose(signatureRespondedEvent.requestId),         //  32
             ...disclose(signatureRespondedEvent.signature.bigR.x),  // +32
             ...disclose(signatureRespondedEvent.signature.bigR.y),  // +32
             ...disclose(signatureRespondedEvent.signature.s),       // +32
@@ -68,26 +67,31 @@ export circuit respond(
 
 // respondBidirectional emits the MPC's respond-bidirectional response as a
 // RespondBidirectionalEvent contract event: the ECDSA signature that attests
-// the foreign transaction execution (never the digest or the output itself).
+// the foreign transaction execution, with the block height, output kind and
+// output width it signs over and the digest it is over (never the output
+// itself).
 // The payload leads with the request id the post answers. The id is
 // unauthenticated routing data, and the post is emitted unverified: callers
 // read their request's posts by id and verify each candidate themselves
 // against their MPC response key (derived from the caller contract's address
 // + the fixed path "midnight response key", see
-// verifyRespondBidirectionalEvent in Signet.compact).
+// verifyRespondBidirectionalEventV1 in Signet.compact).
 export circuit respondBidirectional(
-    requestId: RequestId,
-    respondBidirectionalEvent: RespondBidirectionalEvent
+    respondBidirectionalEvent: RespondBidirectionalEventV1
 ): [] {
     emit (Misc {
         name: pad(32, "RespondBidirectionalEvent"),
         payload: Bytes[
-            ...disclose(requestId),                                   //  32
-            ...disclose(respondBidirectionalEvent.signature.bigR.x),  // +32
-            ...disclose(respondBidirectionalEvent.signature.bigR.y),  // +32
-            ...disclose(respondBidirectionalEvent.signature.s),       // +32
-            disclose(respondBidirectionalEvent.signature.recoveryId), // +1
-            ...default<Bytes<127>>,                                   // +127
-        ],                                                            // = 256 bytes
+            ...disclose(respondBidirectionalEvent.requestId),                            //  32
+            ...(disclose(respondBidirectionalEvent.blockHeight) as Bytes<8>),            // +8, little-endian
+            disclose(respondBidirectionalEvent.outputKind) as Uint<8>,                   // +1, the enum's variant index
+            ...(disclose(respondBidirectionalEvent.serializedOutputLength) as Bytes<8>), // +8, little-endian
+            ...disclose(respondBidirectionalEvent.digest),                               // +32
+            ...disclose(respondBidirectionalEvent.signature.bigR.x),                     // +32
+            ...disclose(respondBidirectionalEvent.signature.bigR.y),                     // +32
+            ...disclose(respondBidirectionalEvent.signature.s),                          // +32
+            disclose(respondBidirectionalEvent.signature.recoveryId),                    // +1
+            ...default<Bytes<78>>,                                                       // +78
+        ],                                                                               // = 256 bytes
     });
 }

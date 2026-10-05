@@ -2,8 +2,8 @@
 // MPC attests for a bidirectional request, stored as one object per request
 // id in a public bucket BEFORE the attestation is posted on chain. A Compact
 // circuit fixes its byte-payload width at compile time while serialised
-// outputs vary in size across requests, so the signet contract carries the
-// signature alone and the cache carries the bytes. An object holds nothing
+// outputs vary in size across requests, so the attestation event carries the
+// output's digest and width and the cache carries the bytes. An object holds nothing
 // but the packed output, and is UNTRUSTED until the attestation signature
 // verifies over it (`verifyRespondBidirectionalSignature`).
 

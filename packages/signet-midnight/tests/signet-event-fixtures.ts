@@ -7,6 +7,7 @@
 // fixtures shows up there, not here.
 
 import {
+  bigintToBytes32,
   type RespondBidirectionalEvent,
   type SignatureRespondedEvent,
   type SignBidirectionalNotificationRecord,
@@ -62,6 +63,8 @@ export function notificationEventOf(
  * ++ zeros.
  *
  * @param requestId - The request id the post declares it answers, 32 bytes.
+ *   Packed in place of the record's own, so a test can serve a record under
+ *   a foreign id.
  * @param record - The response record.
  * @returns The event as a stub source serves it.
  */
@@ -83,10 +86,15 @@ export function signatureRespondedEventOf(
 
 /**
  * The event the `respondBidirectional` circuit emits for an attestation:
- * the same packed requestId ++ `Signature` layout as
- * {@link signatureRespondedEventOf} under its own name.
+ * requestId (32) ++ blockHeight (8) ++ outputKind (1) ++
+ * serializedOutputLength (8) ++ digest (32) ++ bigR.x (32) ++ bigR.y (32)
+ * ++ s (32) ++ recoveryId (1) ++ zeros. The two `Uint<64>` leaves are
+ * little-endian (Compact's `Uint<64>` to `Bytes<8>` cast) and the kind is
+ * the enum's variant index.
  *
  * @param requestId - The request id the post declares it answers, 32 bytes.
+ *   Packed in place of the record's own, so a test can serve a record under
+ *   a foreign id.
  * @param record - The attestation record.
  * @returns The event as a stub source serves it.
  */
@@ -98,6 +106,10 @@ export function respondBidirectionalEventOf(
     name: SignetEventName.RespondBidirectionalEvent,
     payload: packSignetEventPayload(
       requestId,
+      bigintToBytes32(record.blockHeight).subarray(0, 8),
+      record.outputKind,
+      bigintToBytes32(record.serializedOutputLength).subarray(0, 8),
+      record.digest,
       record.signature.bigR.x,
       record.signature.bigR.y,
       record.signature.s,

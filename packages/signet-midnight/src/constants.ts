@@ -7,8 +7,8 @@
 // The routing constants belong in github.com/sig-net/signet.js, kept here
 // until upstreamed.
 
-/** Width of `SignBidirectionalEvent.caip2Id` (`Bytes<32>`). */
-export const CAIP2_ID_BYTES = 32;
+/** Width of `SignBidirectionalEvent.executionDest` (`Bytes<32>`): a zero-padded CAIP-2 id. */
+export const EXECUTION_DEST_BYTES = 32;
 
 /** Width of `SignBidirectionalEvent.params` (`Bytes<64>`). */
 export const MPC_PARAMS_BYTES = 64;
@@ -17,34 +17,8 @@ export const MPC_PARAMS_BYTES = 64;
 export const SELECTOR_BYTES = 4;
 
 /**
- * The complete serialised output the MPC attests for a FAILED remote
- * execution (reverted or replaced transaction): the 4-byte error marker
- * `0xdeadbeef` followed by one `0x01` byte, mirroring the canonical MPC's
- * failure payload (sig-net/mpc, node/src/respond_bidirectional.rs). A
- * respond schema whose packed width is exactly 5 bytes could produce a
- * legitimate output equal to this sentinel: such clients must route
- * settlement by digest-candidate matching, never by inspecting output
- * bytes. See {@link isMpcFailureOutput}.
- */
-export const MPC_FAILURE_OUTPUT = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0x01]);
-
-/**
- * Whether an attested serialised output IS the MPC's fixed failure payload:
- * exact byte equality with the 5-byte {@link MPC_FAILURE_OUTPUT}.
- *
- * @param serializedOutput - The attested serialised output.
- * @returns `true` when the output equals the MPC failure payload exactly.
- */
-export function isMpcFailureOutput(serializedOutput: Uint8Array): boolean {
-  return (
-    serializedOutput.length === MPC_FAILURE_OUTPUT.length &&
-    MPC_FAILURE_OUTPUT.every((byte, index) => serializedOutput[index] === byte)
-  );
-}
-
-/**
  * Default MPC key version (`keyVersion` field value). The canonical MPC
- * (and `constructSignBidirectionalEvent`) requires `keyVersion >= 1`.
+ * (and `constructSignBidirectionalEventV1`) requires `keyVersion >= 1`.
  */
 export const SIGNET_DEFAULT_KEY_VERSION = 1n;
 
@@ -148,7 +122,7 @@ export function getMpcRootPublicKey(networkId: DeployedNetwork): string {
 // singleton is deployed there. An empty string means "not yet deployed or
 // published" and makes getSignetContractAddress throw for that network.
 const signetContractAddresses: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]: "1df4ce25fc9f9c03dc6f4d0eb12ddf3d0db094995d4c70aca1142eebb3b77a5d",
+  [MidnightNetwork.Stagenet]: "5ecbb10ce05c9e55d1990048aec4c0a5669036fb1c1f5922b900880047d8e2bf",
   [MidnightNetwork.Preview]: "",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",

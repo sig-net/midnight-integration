@@ -18,6 +18,7 @@ import {
   abiWordToUint128,
   assembleCalldata,
   bytesToHex,
+  calculateRequestId,
   evmAddressAbiWord,
   type EvmCalldata,
   type EvmType2TxParams,
@@ -105,11 +106,10 @@ describe("no translation between stored record and signed transaction", () => {
     const to = bytes(20, 0xaa);
     const tx = signBidirectionalEventToUnsignedEvmTransaction({
       sender: { bytes: new Uint8Array(32) },
-      requestNonce: 0n,
       keyVersion: 1n,
       path: new Uint8Array(32),
       algo: MPCSignatureAlgorithm.ecdsa,
-      dest: MPCDestination.unused,
+      signatureDest: MPCDestination.unused,
       params: new Uint8Array(64),
       txParamType: TxParamType.evmType2,
       txParams: {
@@ -124,7 +124,7 @@ describe("no translation between stored record and signed transaction", () => {
         accessList: [],
         calldata: someCalldata(ERC20_TRANSFER_SELECTOR, [word0, word1]),
       },
-      caip2Id: new Uint8Array(32),
+      executionDest: new Uint8Array(32),
       outputDeserializationSchema: new Uint8Array(34),
       respondSerializationSchema: new Uint8Array(34),
     });
@@ -159,15 +159,14 @@ describe("access list in the rebuilt transaction", () => {
 
   const request = (txParams: EvmType2TxParams): SignBidirectionalEvent => ({
     sender: { bytes: new Uint8Array(32) },
-    requestNonce: 0n,
     keyVersion: 1n,
     path: new Uint8Array(32),
     algo: MPCSignatureAlgorithm.ecdsa,
-    dest: MPCDestination.unused,
+    signatureDest: MPCDestination.unused,
     params: new Uint8Array(64),
     txParamType: TxParamType.evmType2,
     txParams,
-    caip2Id: new Uint8Array(32),
+    executionDest: new Uint8Array(32),
     outputDeserializationSchema: new Uint8Array(34),
     respondSerializationSchema: new Uint8Array(34),
   });
@@ -230,11 +229,10 @@ const ERC20 = bytes(20, 0xaa);
  */
 const REQUEST: SignBidirectionalEvent = {
   sender: { bytes: new Uint8Array(32) },
-  requestNonce: 0n,
   keyVersion: 1n,
   path: new Uint8Array(32),
   algo: MPCSignatureAlgorithm.ecdsa,
-  dest: MPCDestination.unused,
+  signatureDest: MPCDestination.unused,
   params: new Uint8Array(64),
   txParamType: TxParamType.evmType2,
   txParams: {
@@ -256,7 +254,7 @@ const REQUEST: SignBidirectionalEvent = {
       },
     },
   },
-  caip2Id: pureCircuits.ethereumCaip2Id(),
+  executionDest: pureCircuits.ethereumCaip2Id(),
   outputDeserializationSchema: new Uint8Array(34),
   respondSerializationSchema: new Uint8Array(34),
 };
@@ -273,6 +271,7 @@ const signResponse = (
 ): SignatureRespondedEvent => {
   const signature = key.sign(signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash);
   return {
+    requestId: calculateRequestId(request),
     signature: ecdsaSignatureToMpcSignature({
       r: BigInt(signature.r),
       s: BigInt(signature.s),
@@ -285,6 +284,7 @@ const VALID_RESPONSE = signResponse(MPC_KEY, REQUEST);
 
 /** VALID_RESPONSE with its signature's recovery id overwritten. */
 const withRecoveryId = (value: bigint): SignatureRespondedEvent => ({
+  ...VALID_RESPONSE,
   signature: { ...VALID_RESPONSE.signature, recoveryId: value },
 });
 

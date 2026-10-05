@@ -24,6 +24,7 @@ import {
   decodeSignetEventNamed,
   decodeSignetLogEvents,
   type IndexedSignetMiscEvent,
+  OutputKind,
   pureCircuits,
   requestIdHex,
   type RespondBidirectionalEvent,
@@ -79,6 +80,7 @@ const NOTIFICATION = pureCircuits.constructSignBidirectionalEventNotificationV1(
 // decoder that dropped the byte cannot match a 0 default.
 const REQUEST_ID = bytes(32, 0x2f);
 const RESPONSE: SignatureRespondedEvent = {
+  requestId: REQUEST_ID,
   signature: {
     bigR: { x: bytes(32, 0xa0), y: bytes(32, 0xa1) },
     s: bytes(32, 0xa2),
@@ -86,6 +88,11 @@ const RESPONSE: SignatureRespondedEvent = {
   },
 };
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
+  requestId: REQUEST_ID,
+  blockHeight: 0x0102030405060708n,
+  outputKind: OutputKind.unviable,
+  serializedOutputLength: 33n,
+  digest: bytes(32, 0x60),
   signature: {
     bigR: { x: bytes(32, 0x5c), y: bytes(32, 0x5d) },
     s: bytes(32, 0x5e),
@@ -418,7 +425,7 @@ interface ServedRow {
 
 /** What the indexer stand-in answered for one request: the variables the adapter sent. */
 interface ServedQuery {
-  filter: { contractAddress: string; types: string[] };
+  filter: { contractAddress: string; types: string[]; fromBlock?: number };
   limit: number;
   offset: number;
 }
@@ -678,6 +685,34 @@ describe("signetEventSourceFromIndexer", () => {
     expect(events).toHaveLength(120);
     expect(eventAt(events, 119).id).toBe(120);
     expect(queries.map((query) => query.offset)).toEqual([0, 100]);
+  });
+
+  it("sends no fromBlock key when no bound is given", async () => {
+    const queries: ServedQuery[] = [];
+    const queryUrl = await serveHistory([MISC_ROW], queries);
+    await collect(signetEventSourceFromIndexer({ queryUrl }).streamSignetEvents(SIGNET_ADDRESS));
+    expect(Object.keys(queries[0]?.filter ?? {})).toStrictEqual(["contractAddress", "types"]);
+  });
+
+  it("passes fromBlock to every page's filter and still ends at the pinned tip", async () => {
+    const history = [...historyOf(100, 120), ...historyOf(150, 150).slice(100)];
+    const queries: ServedQuery[] = [];
+    const queryUrl = await serveHistory(history, queries);
+
+    const events = await collect(
+      signetEventSourceFromIndexer({ queryUrl }).streamSignetEvents(SIGNET_ADDRESS, {
+        fromBlock: 382000,
+      }),
+    );
+
+    expect(queries).toStrictEqual(
+      [0, 100].map((offset) => ({
+        filter: { contractAddress: SIGNET_ADDRESS, types: ["MISC"], fromBlock: 382000 },
+        limit: 100,
+        offset,
+      })),
+    );
+    expect(events).toHaveLength(120);
   });
 
   it("stops requesting pages when the consumer leaves the loop", async () => {

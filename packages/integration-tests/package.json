@@ -1,5 +1,5 @@
 {
-  "name": "@midnight-protocol/integration-tests",
+  "name": "@midnight-integration/integration-tests",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,9 +13,9 @@
     "test:integration:signet-caller-evm-e2e": "yarn test:integration tests/signet-caller-evm-e2e.test.ts"
   },
   "dependencies": {
+    "@midnight-integration/test-caller-contract": "*",
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.6",
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.6",
-    "@midnight-protocol/test-caller-contract": "*",
     "@sig-net/midnight": "workspace:*",
     "@sig-net/midnight-contract-deploy": "workspace:*",
     "ethers": "^6.17.0"

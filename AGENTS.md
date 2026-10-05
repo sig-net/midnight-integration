@@ -1,4 +1,4 @@
-# midnight-protocol — workspace-wide agent rules
+# midnight-integration — workspace-wide agent rules
 
 This repository is a single **Yarn workspace** (Yarn 4 via corepack, `nodeLinker:
 node-modules`). Its members live under `packages/`:
@@ -20,7 +20,17 @@ node-modules`). Its members live under `packages/`:
   tooling: the signet-contract deploy flow plus the generic deploy/wallet/config
   plumbing (`src/plumbing/`) every contract package's deploy script composes.
 - **`packages/integration-tests`** — everything that needs a running stack:
-  the generic signet-caller e2e and its setup pipeline.
+  the signet-caller e2e flows (generic and real-EVM) and their setup pipeline.
+- **`packages/midnight-serde-ts`**: `@sig-net/midnight-serde`, a thin wrapper
+  over native borsh-js schemas and values with optional zero padding.
+- **`packages/midnight-serde-conformance`**: private compiler-backed evidence
+  for the documented Compact-compatible Borsh subset. Its committed
+  `corpus/borsh-corpus.json` also drives the Rust wrapper tests.
+- **`packages/midnight-serde-rs`**: `signet-midnight-serde`, an isolated Rust
+  crate using native Borsh types and derives. It has a committed Cargo.lock
+  and pinned rust-toolchain.toml. Rust tests replay the shared corpus without
+  Node or compactc. Rustfmt and `clippy -D warnings` apply to the crate.
+
 Example applications built on these packages (e.g. the ERC20 vault) live in
 `sig-net/midnight-examples`, consuming the published `@sig-net/*` packages
 from npm.
@@ -35,8 +45,8 @@ Member-specific rules live in that member's own `AGENTS.md`.
 
 # Running the integration e2e suite
 
-The operational runbook for `yarn test:integration-tests` — the generic
-signet-caller e2e — lives in
+The operational runbook for `yarn test:integration-tests` — the
+signet-caller e2e flows — lives in
 [`.claude/skills/e2e/SKILL.md`](.claude/skills/e2e/SKILL.md) — read it BEFORE
 running or re-deploying the e2e stack. It covers what the test pipeline docs
 (`packages/integration-tests/README.md`) do not: the fresh-clone path, clean
@@ -84,7 +94,9 @@ exception for that specific case.
   (`compact update 0.33.0-rc.2`) or your `managed/` output will diverge. The
   launcher tag, the compiler URL, the SHA-256 checksums the workflows verify for
   the two downloads (installer script and compactc zip), the workflow cache
-  keys, the npm `@midnightntwrk/*` stack, and the README's Prerequisites and
+  keys, `COMPACTC_VERSION`, `RUNTIME_VERSION` and every platform hash in
+  `COMPILER_BUILDS` in `packages/midnight-serde-conformance/src/toolchain.ts`,
+  the npm `@midnightntwrk/*` stack, and the README's Prerequisites and
   Matched set tables are a MATCHED SET — bump them together in one change
   (recompute each checksum from a fresh download of the new URL). This trigger
   is bidirectional: a request to "update the compact version" AND a request to
@@ -102,7 +114,7 @@ exception for that specific case.
   ask — a build step is a defect in this workspace, not a missing feature.
   **The one exception is publishing:** the npm-published packages
   (`@sig-net/midnight`, `@sig-net/midnight-contract`,
-  `@sig-net/midnight-contract-deploy`) additionally emit `dist/` via a
+  `@sig-net/midnight-contract-deploy`, `@sig-net/midnight-serde`) additionally emit `dist/` via a
   `tsconfig.build.json`, ship ONLY `dist/` (`files: ["dist"]`), and swap their
   entry to it through `publishConfig.exports` at pack time — the monorepo itself
   still resolves their raw `src/index.ts`, never `dist/`.
@@ -159,7 +171,13 @@ exception for that specific case.
 - **NEVER commit generated compiler output.** Each contract package's
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
   compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run
-  `compile:zk` only when proving keys are actually needed (real deploys).
+  `compile:zk` only when proving keys are actually needed (real deploys, and
+  signet-contract's `build`). The root `yarn compile:zk` is a SUPERSET of
+  `yarn compile`: it runs `yarn compile` over every member first, then each
+  member's `compile:zk`, so members with no `compile:zk` script still get
+  their `src/managed/`. Keep it that way: a root `compile:zk` that covers only
+  the zk members leaves signet-midnight uncompiled and every deploy script
+  failing on a missing `managed/contract/index.js`.
 - **Shared plumbing lives ONCE.** Generic deploy/wallet/config plumbing lives in
   `packages/signet-contract-deploy/src/plumbing/` (published, so external
   consumers get it too); repo-private shared helpers (the midnight-js provider

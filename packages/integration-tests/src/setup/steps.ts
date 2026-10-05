@@ -360,5 +360,5 @@ export async function startFakenetResponder(env: NodeJS.ProcessEnv): Promise<voi
   }
   console.log("fakenet-responder container is running");
   console.log(" ➜ watch it: `docker logs -f fakenet-responder` — healthy startup prints");
-  console.log('   "MidnightMonitor: polling signet contract registry at <signet address>"');
+  console.log('   "MidnightMonitor: polling signet contract events at <signet address>"');
 }

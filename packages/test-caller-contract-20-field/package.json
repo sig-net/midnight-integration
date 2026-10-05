@@ -1,5 +1,5 @@
 {
-  "name": "@midnight-protocol/test-caller-contract-20-field",
+  "name": "@midnight-integration/test-caller-contract-20-field",
   "version": "0.0.0",
   "private": true,
   "type": "module",
