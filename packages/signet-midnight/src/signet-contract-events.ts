@@ -79,6 +79,16 @@ export interface IndexedSignetMiscEvent extends SignetMiscEvent {
   blockTimestamp: Date;
 }
 
+/** Bounds on a {@link SignetEventSource.streamSignetEvents} walk. */
+export interface SignetEventStreamOptions {
+  /**
+   * Inclusive lowest Midnight block height to read events from. Omit to
+   * read the whole history. Events below it are not seen at all, so it must
+   * not exceed the block of the oldest request whose responses are wanted.
+   */
+  readonly fromBlock?: number;
+}
+
 /**
  * Source of the signet contract's emitted events, the event-side sibling of
  * `SignetPublicStateSource`. Structural, so tests can stub it with a stream
@@ -93,9 +103,13 @@ export interface SignetEventSource<TEvent extends SignetMiscEvent = SignetMiscEv
    * per page, and leaving the `for await` loop early stops further requests.
    *
    * @param contractAddress - The signet contract to read events of.
+   * @param options - Bounds on the walk, see {@link SignetEventStreamOptions}.
    * @returns The decoded events, oldest first.
    */
-  streamSignetEvents(contractAddress: string): AsyncIterable<TEvent>;
+  streamSignetEvents(
+    contractAddress: string,
+    options?: SignetEventStreamOptions,
+  ): AsyncIterable<TEvent>;
 }
 
 /** Descriptor re-padding a name ++ payload event atom to its full width. */
@@ -291,7 +305,8 @@ interface IndexerContractEventsResponse {
  *
  * @param queryUrl - The indexer's GraphQL query endpoint.
  * @param contractAddress - The contract whose events to read.
- * @param offset - Events to skip from the start of the history.
+ * @param offset - Events to skip from the start of the walk.
+ * @param fromBlock - Inclusive lowest block height to read from, or undefined for the whole history.
  * @returns The page's rows, oldest first.
  * @throws {Error} When the indexer cannot be reached, answers a status other
  *   than 200, rejects the query, or answers without a page.
@@ -300,6 +315,7 @@ async function fetchContractEventPage(
   queryUrl: string,
   contractAddress: string,
   offset: number,
+  fromBlock: number | undefined,
 ): Promise<IndexerContractEventRow[]> {
   const response = await fetch(queryUrl, {
     method: "POST",
@@ -307,7 +323,11 @@ async function fetchContractEventPage(
     body: JSON.stringify({
       query: SIGNET_CONTRACT_EVENTS_QUERY,
       variables: {
-        filter: { contractAddress, types: ["MISC"] },
+        filter: {
+          contractAddress,
+          types: ["MISC"],
+          ...(fromBlock === undefined ? {} : { fromBlock }),
+        },
         limit: EVENT_PAGE_LIMIT,
         offset,
       },
@@ -346,11 +366,16 @@ export function signetEventSourceFromIndexer(
   config: SignetIndexerConfig,
 ): SignetEventSource<IndexedSignetMiscEvent> {
   return {
-    async *streamSignetEvents(contractAddress) {
+    async *streamSignetEvents(contractAddress, options) {
       const address = bytesToHex(contractAddressFromHex(contractAddress).bytes);
       let tipId: number | undefined;
       for (let offset = 0; ; offset += EVENT_PAGE_LIMIT) {
-        const page = await fetchContractEventPage(config.queryUrl, address, offset);
+        const page = await fetchContractEventPage(
+          config.queryUrl,
+          address,
+          offset,
+          options?.fromBlock,
+        );
         for (const row of page) {
           const event = signetMiscEventFromIndexerRow(row);
           if (event === undefined) continue;

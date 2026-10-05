@@ -57,9 +57,10 @@ and two flow files:
   exactly those bytes, picks the attestation that verifies over them, and
   verifies it in-circuit. Every outcome kind reaches settlement:
   - `executed`: `isEven` and `checkAndDouble` mine and return data, settled
-    by the verify circuit of their respond schema's packed width.
-    `checkAndDouble`'s verify deserialises the output in-circuit and the
-    suite checks the returned amount it recorded on the ledger.
+    by the verify circuit of the width their output schema derives (1 and
+    33 bytes). `checkAndDouble`'s verify deserialises the output in-circuit,
+    narrows the attested uint256 to `Uint<128>` with `checkedTruncationU128`,
+    and the suite checks the amount it recorded on the ledger.
   - `failed`: `revertIf(true)` mines reverted (status 0). The fakenet
     attests it over an EMPTY output and the suite settles it with the
     caller's width-0 `verifyFailureResponse`, checking the recorded verdict.

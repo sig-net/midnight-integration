@@ -1,0 +1,21 @@
+pragma language_version >= 0.25;
+import CompactStandardLibrary;
+
+export struct Result { ok: Boolean; amount: Uint<128>; }
+export enum Status { Pending, Ready, Done }
+export pure circuit serResult(value: Result): Bytes<17> { return serialize<Result, 17>(value); }
+export pure circuit deResult(bytes: Bytes<17>): Result { return deserialize<Result, 17>(bytes); }
+export pure circuit serU8(value: Uint<8>): Bytes<1> { return serialize<Uint<8>, 1>(value); }
+export pure circuit serU16(value: Uint<16>): Bytes<2> { return serialize<Uint<16>, 2>(value); }
+export pure circuit serU32(value: Uint<32>): Bytes<4> { return serialize<Uint<32>, 4>(value); }
+export pure circuit serU64(value: Uint<64>): Bytes<8> { return serialize<Uint<64>, 8>(value); }
+export pure circuit serU128(value: Uint<128>): Bytes<16> { return serialize<Uint<128>, 16>(value); }
+export pure circuit serBytes(value: Bytes<4>): Bytes<4> { return serialize<Bytes<4>, 4>(value); }
+export pure circuit serVector(value: Vector<3, Uint<16>>): Bytes<6> { return serialize<Vector<3, Uint<16>>, 6>(value); }
+export pure circuit serMaybe(value: Maybe<Uint<64>>): Bytes<9> { return serialize<Maybe<Uint<64>>, 9>(value); }
+export pure circuit serEither(value: Either<Uint<16>, Bytes<4>>): Bytes<7> { return serialize<Either<Uint<16>, Bytes<4>>, 7>(value); }
+export pure circuit serStatus(value: Status): Bytes<1> { return serialize<Status, 1>(value); }
+export pure circuit deU12(bytes: Bytes<2>): Uint<12> { return deserialize<Uint<12>, 2>(bytes); }
+export pure circuit deBool(bytes: Bytes<1>): Boolean { return deserialize<Boolean, 1>(bytes); }
+export pure circuit serNone(): Bytes<9> { return serialize<Maybe<Uint<64>>, 9>(none<Uint<64>>()); }
+export pure circuit serEmpty(): Bytes<1> { return serialize<[Bytes<0>, Uint<8>], 1>([Bytes [], 90]); }

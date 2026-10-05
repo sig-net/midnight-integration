@@ -231,8 +231,9 @@ const makeReader = (
     signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     publicDataProvider,
     eventSource: {
-      streamSignetEvents: (contractAddress) => {
+      streamSignetEvents: (contractAddress, options) => {
         expect(contractAddress).toBe(SIGNET_CONTRACT_ADDRESS);
+        expect(options).toBeUndefined();
         queries.events += 1;
         return streamOf(events);
       },
@@ -324,6 +325,27 @@ describe("getSignatureRespondedEvents", () => {
       },
     });
     expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
+  });
+
+  it("bounds the event scan by signetEventsFromBlock", async () => {
+    const seen: unknown[] = [];
+    const reader = new SignetRequestResponseReader({
+      requesterContractAddress: REQUESTER_ADDRESS,
+      requesterRequestsPath: [0],
+      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      publicDataProvider: {
+        queryContractState: () => Promise.resolve({ data: requesterState() }),
+      },
+      eventSource: {
+        streamSignetEvents: (_contractAddress, options) => {
+          seen.push(options);
+          return streamOf([signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE)]);
+        },
+      },
+      signetEventsFromBlock: 382000,
+    });
+    expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
+    expect(seen).toStrictEqual([{ fromBlock: 382000 }]);
   });
 });
 

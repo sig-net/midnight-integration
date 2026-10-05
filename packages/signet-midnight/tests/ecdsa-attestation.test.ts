@@ -58,7 +58,7 @@ const BLOCK_HEIGHT = 21_000_000n;
 
 // A 32-byte serialised output (one ABI word's worth) for the verify tests.
 // The exact unpadded respond payload of a real request follows from its
-// respond schema. The verify circuit never inspects the content.
+// output schema. The verify circuit never inspects the content.
 const OUTPUT_32 = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
 
 /**

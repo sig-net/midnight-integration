@@ -18,7 +18,8 @@ export {
   numericAbiWord,
   boolAbiWord,
   abiWordToUint128,
-  abiWordToBool
+  abiWordToBool,
+  checkedTruncationU128
 };
 
 // ---- Fixed-width attestation oracles (tests only) --------------------------
@@ -93,16 +94,16 @@ export pure circuit calculateEvmType2TxParamsDigestV1_2_1_2(
 // Pin the TS twin calculateRequestId against the composed request id circuit
 // at the same two shapes, and its tag assert.
 
-export pure circuit calculateEvmType2RequestIdV1_1_0_0_34_34(
-  request: SignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>
+export pure circuit calculateEvmType2RequestIdV1_1_0_0_34(
+  request: SignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 0>
 ): RequestId {
-  return calculateEvmType2RequestIdV1<1, 0, 0, 34, 34>(request);
+  return calculateEvmType2RequestIdV1<1, 0, 0, 34>(request);
 }
 
-export pure circuit calculateEvmType2RequestIdV1_2_1_2_34_34(
-  request: SignBidirectionalEventV1<EvmType2TxParams<2, 1, 2>, 34, 34>
+export pure circuit calculateEvmType2RequestIdV1_2_1_2_34(
+  request: SignBidirectionalEventV1<EvmType2TxParams<2, 1, 2>, 34, 0>
 ): RequestId {
-  return calculateEvmType2RequestIdV1<2, 1, 2, 34, 34>(request);
+  return calculateEvmType2RequestIdV1<2, 1, 2, 34>(request);
 }
 
 export pure circuit verifyRespondBidirectionalEvent0(
@@ -129,10 +130,10 @@ export pure circuit verifyRespondBidirectionalEvent32(
   );
 }
 
-export pure circuit constructSignBidirectionalEventV1_1_0_0_34_34(
-  request: SignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>
-): SignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34> {
-  return constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 34>(
+export pure circuit constructSignBidirectionalEventV1_1_0_0_34(
+  request: SignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 0>
+): SignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 0> {
+  return constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34>(
     request.keyVersion,
     request.sender,
     request.path,
@@ -142,7 +143,6 @@ export pure circuit constructSignBidirectionalEventV1_1_0_0_34_34(
     request.executionDest,
     request.signatureDest,
     request.params,
-    request.outputDeserializationSchema,
-    request.respondSerializationSchema
+    request.outputDeserializationSchema
   );
 }

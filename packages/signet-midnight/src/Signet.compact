@@ -117,14 +117,22 @@ module Signet {
     signatureDest: MPCDestination;  // Destination field reserved for future use. Set to unused.
     params: Bytes<64>;              // Extra MPC parameters reserved for future use. Zero-fill.
 
-    // Serialisation Schemas.
-    // outputDeserializationSchema tells the MPC how to deserialise the destination chain's
-    // execution output (destination chain -> MPC). respondSerializationSchema tells the MPC
-    // how to serialise that output into the RespondBidirectionalEvent it posts back
-    // (MPC -> Midnight).
-    // Both are ABI-style JSON schema strings, sized per client contract
-    // (see: https://docs.soliditylang.org/en/v0.8.30/abi-spec.html#json)
+    // ---- Serialisation Schemas ----
+    
+    // outputDeserializationSchema tells the MPC how to decode the destination chain's
+    // execution output (destination chain -> MPC).
+    // The value is execution chain specific and sized per client contract: 
+    // - Ethereum: an ABI JSON schema string (see https://docs.soliditylang.org/en/v0.8.30/abi-spec.html#json)
+    //   in canonical form: `[{"name":"<identifier>","type":"<abi type>"},...]` with no
+    //   whitespace, NUL-padded to LenOutputDeserialization (see the README's "Output
+    //   Recovery and Serialisation"). The MPC drops a request whose bytes differ.
     outputDeserializationSchema: Bytes<LenOutputDeserialization>;
+
+    // respondSerializationSchema is reserved for future use and IGNORED by the MPC. The
+    // MPC serialises the decoded output with Borsh against a schema it derives from the
+    // output types itself (see the README's "Output Recovery and Serialisation"). Leave it
+    // empty: constructSignBidirectionalEventV1 pins it to Bytes<0>, and a request built by
+    // hand must do the same.    
     respondSerializationSchema: Bytes<LenRespondSerialization>;
   }
 
@@ -150,7 +158,7 @@ module Signet {
   }
 
   // Construction helper for the canonical Signet SignBidirectionalEventV1.
-  export pure circuit constructSignBidirectionalEventV1<TxParams, #LenOutputDeserialization, #LenRespondSerialization>(
+  export pure circuit constructSignBidirectionalEventV1<TxParams, #LenOutputDeserialization>(
     keyVersion: Uint<8>,
     sender: ContractAddress,
     path: Bytes<32>,
@@ -161,8 +169,7 @@ module Signet {
     signatureDest: MPCDestination,
     params: Bytes<64>,
     outputDeserializationSchema: Bytes<LenOutputDeserialization>,
-    respondSerializationSchema: Bytes<LenRespondSerialization>,
-  ): SignBidirectionalEventV1<TxParams, LenOutputDeserialization, LenRespondSerialization> {
+  ): SignBidirectionalEventV1<TxParams, LenOutputDeserialization, 0> {
     assert(keyVersion >= 1, "keyVersion must be >= 1");
     assert(signatureDest == MPCDestination.unused, "signatureDest must be unused");
     assert(params == default<Bytes<64>>, "params must be zero");
@@ -172,7 +179,7 @@ module Signet {
     assert(path != pad(32, "midnight response key"), "path is reserved for the MPC response key");
 
     // Shorthand struct fields bind positionally: this list follows the declaration order.
-    return SignBidirectionalEventV1<TxParams, LenOutputDeserialization, LenRespondSerialization> {
+    return SignBidirectionalEventV1<TxParams, LenOutputDeserialization, 0> {
       keyVersion,
       sender,
       path,
@@ -183,7 +190,7 @@ module Signet {
       signatureDest,
       params,
       outputDeserializationSchema,
-      respondSerializationSchema,
+      default<Bytes<0>>,
     };
   }
 
@@ -226,7 +233,7 @@ module Signet {
   // in their ledger. Client contract tells MPC field location of this map when making a cross
   // contract call, via SignetSigner, to the Signet singleton. The MPC looks here to find
   // SignBidirectionalEvents.
-  export new type SignBidirectionalEventMapV1<TxParams, #LenOutputDeserialization, #LenRespondSerialization> = Map<RequestId, SignBidirectionalEventV1<TxParams, LenOutputDeserialization, LenRespondSerialization>>;
+  export new type SignBidirectionalEventMapV1<TxParams, #LenOutputDeserialization> = Map<RequestId, SignBidirectionalEventV1<TxParams, LenOutputDeserialization, 0>>;
 
   // ---- Cross Contract SignBidirectionalEventNotification ---------------------------------------------
 
@@ -361,7 +368,7 @@ module Signet {
   // the protocol's outcome (kind, data). The block height the attestation
   // commits to is the finalised destination block that settled the verdict.
   export enum OutputKind {
-    executed, // finalised and succeeded: the attested output is the return data, serialised per the respond schema
+    executed, // finalised and succeeded: the attested output is the decoded return data, Borsh-serialised by the MPC (empty when the call returns nothing)
     failed,   // finalised and reverted: the attested output is empty (Bytes<0>)
     unviable, // a finalised transaction carrying other bytes took the nonce: the attested output is empty (Bytes<0>)
   }
@@ -582,8 +589,8 @@ module Signet {
   // The request id of an EVM type-2 request: its preimage with the transaction digested
   // by calculateEvmType2TxParamsDigestV1. Off-chain code uses the TypeScript twin:
   //    import { calculateRequestId } from "@sig-net/midnight";
-  export pure circuit calculateEvmType2RequestIdV1<#maxCalldataWords, #maxAccessListEntries, #maxStorageKeysPerEntry, #LenOutputDeserialization, #LenRespondSerialization>(
-    request: SignBidirectionalEventV1<EvmType2TxParams<maxCalldataWords, maxAccessListEntries, maxStorageKeysPerEntry>, LenOutputDeserialization, LenRespondSerialization>
+  export pure circuit calculateEvmType2RequestIdV1<#maxCalldataWords, #maxAccessListEntries, #maxStorageKeysPerEntry, #LenOutputDeserialization>(
+    request: SignBidirectionalEventV1<EvmType2TxParams<maxCalldataWords, maxAccessListEntries, maxStorageKeysPerEntry>, LenOutputDeserialization, 0>
   ): RequestId {
     assert(request.txParamType == TxParamType.evmType2, "txParamType must tag txParams as evmType2");
     const preimage = RequestIdPreimageV1 {
@@ -667,6 +674,17 @@ module Signet {
     const b14 = b13 * 256 + (v[30] as Field);
     const b15 = b14 * 256 + (v[31] as Field);
     return b15 as Uint<128>;
+  }
+
+  // ---- Attested output readers ------------------------------------------------------------------
+
+  // Narrow an attested uint256 (32 little-endian bytes) to Uint<128>.
+  // Aborts if the value is 2^128 or more.
+  export pure circuit checkedTruncationU128(x: Bytes<32>): Uint<128> {
+    // This check seems pointless but is important. DO NOT REMOVE.
+    const v = x as Vector<32, Uint<8>>;
+    assert(v[31] == 0, "Value exceeds Uint<128>");
+    return x as Uint<128>;
   }
 
   // Read a Boolean ABI word back into a Boolean. The first 31 bytes must be

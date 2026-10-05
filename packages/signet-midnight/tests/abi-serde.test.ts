@@ -1,31 +1,12 @@
-// Table-driven tests for the headline abi-serde functions.
-//
-// deserializeEvmOutput: golden against ethers itself. Every case ENCODES the
-// values with ethers' canonical AbiCoder, then decodes through our function,
-// so the tables prove faithful round-trips through the real ABI grammar
-// (including types outside the Compact vocabulary: signed ints, tuples,
-// unbounded arrays, exactly what the MPC's alloy delegation accepts).
-//
-// serializeRespondOutput: byte-exact hex pins. The expected bytes follow the
-// builtin serialize<T, N> layout verified against COMPILED circuits by
-// @sig-net/midnight-serde's fixture suite and the serde-builtin experiment,
-// so these tables transitively pin the wire format a Compact contract reads
-// with deserialize<T, N>.
-//
-// executedEvmRespondOutput, isEvmContractCall and evmTraceOutputFromCallFrame:
-// the MPC's own build_serialized_output, is_contract_call and
-// trace_output_to_bytes test cases (bracketed in each row name) under the
-// Midnight respond format, plus a row for every other branch and error of
-// each rule.
-
 import { ethers } from "ethers";
 import { describe, expect, it } from "vitest";
 
 import {
   type AbiDecodedOutput,
-  type AbiSchema,
-  type AbiSchemaInput,
+  canonicalSchemaText,
+  deriveRespondSchema,
   deserializeEvmOutput,
+  type EvmSchemaField,
   type EvmSchemaInput,
   type EvmTraceOutput,
   evmTraceOutputFromCallFrame,
@@ -33,8 +14,9 @@ import {
   executedEvmRespondOutput,
   isEvmContractCall,
   type JsonValue,
-  type RespondPathSchemas,
+  respondOutputWidth,
   serializeRespondOutput,
+  unsupportedEvmOutputFields,
 } from "../src/index.ts";
 
 const coder = ethers.AbiCoder.defaultAbiCoder();
@@ -174,12 +156,124 @@ describe("deserializeEvmOutput: empty schemas decode to no values", () => {
   const forms: { name: string; input: EvmSchemaInput }[] = [
     { name: "empty typed array", input: [] },
     { name: "empty-array JSON text", input: "[]" },
-    { name: "blank text", input: "  " },
+    { name: "empty text", input: "" },
+    { name: "no bytes", input: new Uint8Array(0) },
     { name: "an unset all-NUL on-chain field", input: new Uint8Array(34) },
   ];
 
   it.each(forms)("$name", ({ input }) => {
     expect(deserializeEvmOutput(input, "0x")).toEqual({});
+  });
+});
+
+describe("schema text and bytes must be canonical", () => {
+  const fields: EvmSchemaField[] = [
+    { name: "ok", type: "bool" },
+    { name: "amount", type: "uint256" },
+  ];
+  const canonical = '[{"name":"ok","type":"bool"},{"name":"amount","type":"uint256"}]';
+
+  /**
+   * RFC 8785 (JCS) for the value shapes a schema holds: arrays in order,
+   * object keys sorted by UTF-16 code unit, strings as JSON.stringify
+   * serialises them (the escaping JCS specifies).
+   */
+  const jcs = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(jcs).join(",")}]`;
+    if (typeof value === "object" && value !== null) {
+      return `{${Object.entries(value)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, member]) => `${JSON.stringify(key)}:${jcs(member)}`)
+        .join(",")}}`;
+    }
+    return JSON.stringify(value);
+  };
+
+  it.each([
+    { name: "two fields", fields },
+    { name: "an empty schema", fields: [] as EvmSchemaField[] },
+    {
+      name: "fields written with type before name",
+      fields: [
+        { type: "address", name: "to" },
+        { type: "bytes4", name: "tag" },
+      ],
+    },
+    { name: "a digit-heavy identifier", fields: [{ name: "_1z9$", type: "uint256" }] },
+  ])(
+    "canonicalSchemaText is the RFC 8785 encoding of the reduced fields: $name",
+    ({ fields: f }) => {
+      expect(canonicalSchemaText(f)).toBe(jcs(f.map(({ name, type }) => ({ name, type }))));
+    },
+  );
+
+  it("canonicalSchemaText is JSON.stringify of {name, type} in order", () => {
+    expect(canonicalSchemaText(fields)).toBe(canonical);
+    expect(canonicalSchemaText([])).toBe("[]");
+    expect(canonicalSchemaText([{ name: "ok", type: "bool", extra: 1 } as EvmSchemaField])).toBe(
+      '[{"name":"ok","type":"bool"}]',
+    );
+  });
+
+  it.each([
+    { name: "the canonical text", input: canonical },
+    { name: "the canonical bytes", input: new TextEncoder().encode(canonical) },
+    { name: "the canonical bytes NUL-padded", input: nulPadded(fields, 100) },
+  ])("accepts $name", ({ input }) => {
+    expect(deserializeEvmOutput(input, coder.encode(["bool", "uint256"], [true, 1n]))).toEqual({
+      ok: true,
+      amount: 1n,
+    });
+  });
+
+  const rejected: { name: string; input: string | Uint8Array; error: RegExp }[] = [
+    { name: "blank text", input: "  ", error: /not valid JSON/ },
+    {
+      name: "whitespace inside",
+      input: '[ {"name": "ok", "type": "bool"} ]',
+      error: /not canonical/,
+    },
+    {
+      name: "a trailing newline",
+      input: '[{"name":"ok","type":"bool"}]\n',
+      error: /not canonical/,
+    },
+    { name: "type before name", input: '[{"type":"bool","name":"ok"}]', error: /not canonical/ },
+    {
+      name: "an extra key",
+      input: '[{"name":"ok","type":"bool","maxBytes":1}]',
+      error: /not canonical/,
+    },
+    {
+      name: "a duplicate JSON key",
+      input: '[{"name":"x","name":"ok","type":"bool"}]',
+      error: /not canonical/,
+    },
+    {
+      name: "a unicode escape",
+      input: '[{"name":"\\u006fk","type":"bool"}]',
+      error: /not canonical/,
+    },
+    {
+      name: "bytes after the first NUL",
+      input: new Uint8Array([...new TextEncoder().encode("[]"), 0, 0x78]),
+      error: /from the first NUL on must be NUL/,
+    },
+    {
+      name: "invalid UTF-8",
+      input: new Uint8Array([0x5b, 0xff, 0x5d]),
+      error: /not valid JSON/,
+    },
+  ];
+
+  it.each(rejected)("rejects $name", ({ input, error }) => {
+    expect(() => deserializeEvmOutput(input, "0x")).toThrow(error);
+  });
+
+  it("names the canonical text in the rejection", () => {
+    expect(() => deserializeEvmOutput('[ {"name":"ok","type":"bool"} ]', "0x")).toThrow(
+      'expected exactly [{"name":"ok","type":"bool"}]',
+    );
   });
 });
 
@@ -191,16 +285,11 @@ describe("deserializeEvmOutput: rejections", () => {
     callResult?: string;
     error?: RegExp;
   }[] = [
-    {
-      name: "unknown type string (rejected by ethers, the grammar authority)",
-      schema: [{ name: "x", type: "banana" }],
-      callResult: good,
-    },
-    {
-      name: "'field' is not an ABI type (respond-side only)",
-      schema: [{ name: "x", type: "field" }],
-      callResult: good,
-    },
+    ...["banana", "field", "bytes0", "bytes33", "uint256 ", "bool "].map((type) => ({
+      name: `type '${type}' is not an ABI type (ethers.ParamType is the grammar authority)`,
+      schema: [{ name: "x", type }],
+      error: /has an invalid ABI type/,
+    })),
     {
       name: "schema JSON that is not an array",
       schema: '{"name":"x","type":"bool"}',
@@ -234,6 +323,16 @@ describe("deserializeEvmOutput: rejections", () => {
       ],
       error: /duplicate field name 'x'/,
     },
+    ...["1", "0x1", "a b", "a-b", " a", "a ", "a.b", "é"].map((name) => ({
+      name: `field name '${name}' is not a Solidity identifier`,
+      schema: [{ name, type: "bool" }],
+      error: /is not a Solidity identifier/,
+    })),
+    {
+      name: "field named __proto__ (a valid identifier no object can carry)",
+      schema: [{ name: "__proto__", type: "bool" }],
+      error: /'__proto__' is refused/,
+    },
     {
       name: "truncated call result (rejected by ethers)",
       schema: [{ name: "x", type: "uint256" }],
@@ -247,424 +346,17 @@ describe("deserializeEvmOutput: rejections", () => {
   });
 });
 
-// ===========================================================================
-// serializeRespondOutput
-// ===========================================================================
-
-describe("serializeRespondOutput: byte-exact layout pins (circuit-verified)", () => {
-  const cases: {
-    name: string;
-    schema: AbiSchemaInput;
-    output: AbiDecodedOutput;
-    expectedHex: string;
-  }[] = [
-    {
-      name: "bool true is one byte (the erc20-vault respond schema)",
-      schema: [{ name: "success", type: "bool" }],
-      output: { success: true },
-      expectedHex: "01",
+describe("deserializeEvmOutput: field names are own properties of the output", () => {
+  // Every Solidity identifier is accepted, including names that exist on
+  // Object.prototype, and each lands as the output's own property.
+  it.each(["_x", "$y", "ok1", "__proto", "constructor", "hasOwnProperty", "toString"])(
+    "'%s'",
+    (name) => {
+      const output = deserializeEvmOutput([{ name, type: "bool" }], coder.encode(["bool"], [true]));
+      expect(Object.hasOwn(output, name)).toBe(true);
+      expect(output[name]).toBe(true);
     },
-    {
-      name: "bool false",
-      schema: [{ name: "success", type: "bool" }],
-      output: { success: false },
-      expectedHex: "00",
-    },
-    {
-      name: "uint128 + uint64 pair: natural widths, LE, declaration order",
-      schema: [
-        { name: "a", type: "uint128" },
-        { name: "b", type: "uint64" },
-      ],
-      output: { a: 4242n, b: 7n },
-      expectedHex: "9210" + "00".repeat(14) + "07" + "00".repeat(7),
-    },
-    {
-      name: "uint8 is a single byte",
-      schema: [{ name: "small", type: "uint8" }],
-      output: { small: 255n },
-      expectedHex: "ff",
-    },
-    {
-      name: "uint256 rides the 32-byte LE Field carrier",
-      schema: [{ name: "v", type: "uint256" }],
-      output: { v: 0x0102030405060708n },
-      expectedHex: "0807060504030201" + "00".repeat(24),
-    },
-    {
-      name: "field type is the same carrier",
-      schema: [{ name: "v", type: "field" }],
-      output: { v: 1n },
-      expectedHex: "01" + "00".repeat(31),
-    },
-    {
-      name: "address as 32-byte LE numeric",
-      schema: [{ name: "to", type: "address" }],
-      output: { to: "0x0000000000000000000000000000000000000102" },
-      expectedHex: "0201" + "00".repeat(30),
-    },
-    {
-      name: "bytes32 verbatim",
-      schema: [{ name: "hash", type: "bytes32" }],
-      output: { hash: "0x" + "ab".repeat(32) },
-      expectedHex: "ab".repeat(32),
-    },
-    {
-      name: "bytes4 verbatim",
-      schema: [{ name: "sel", type: "bytes4" }],
-      output: { sel: "0xdeadbeef" },
-      expectedHex: "deadbeef",
-    },
-    {
-      name: "string: Uint<64> LE length + payload padded to maxBytes",
-      schema: [{ name: "s", type: "string", maxBytes: 32 }],
-      output: { s: "hi" },
-      expectedHex: "02" + "00".repeat(7) + "6869" + "00".repeat(30),
-    },
-    {
-      name: "dynamic bytes: same convention",
-      schema: [{ name: "blob", type: "bytes", maxBytes: 8 }],
-      output: { blob: "0xdeadbeef" },
-      expectedHex: "04" + "00".repeat(7) + "deadbeef" + "00".repeat(4),
-    },
-    {
-      name: "uint128[]: Uint<64> LE count + maxItems elements at natural width",
-      schema: [{ name: "xs", type: "uint128[]", maxItems: 3 }],
-      output: { xs: [7n, 8n] },
-      expectedHex:
-        "02" + "00".repeat(7) + "07" + "00".repeat(15) + "08" + "00".repeat(15) + "00".repeat(16),
-    },
-    {
-      name: "multi-field schema packs in declaration order with no gaps",
-      schema: [
-        { name: "ok", type: "bool" },
-        { name: "amount", type: "uint128" },
-        { name: "tag", type: "bytes4" },
-      ],
-      output: { ok: true, amount: 123456789n, tag: "0xcafebabe" },
-      expectedHex: "01" + "15cd5b07" + "00".repeat(12) + "cafebabe",
-    },
-  ];
-
-  it.each(cases)("$name", ({ schema, output, expectedHex }) => {
-    const bytes = serializeRespondOutput(schema, output);
-    expect(hex(bytes)).toBe(expectedHex);
-    // UNBOUNDED: the packed size follows from the schema, nothing pads to 128.
-    expect(bytes).toHaveLength(expectedHex.length / 2);
-  });
-});
-
-describe("serializeRespondOutput: value-form coercions agree byte for byte", () => {
-  const schema: AbiSchemaInput = [{ name: "v", type: "uint64" }];
-  const expected = "05" + "00".repeat(7);
-
-  const forms: { name: string; output: AbiDecodedOutput }[] = [
-    { name: "bigint", output: { v: 5n } },
-    { name: "number", output: { v: 5 } },
-    { name: "decimal string", output: { v: "5" } },
-    { name: "hex string", output: { v: "0x5" } },
-  ];
-
-  it.each(forms)("$name", ({ output }) => {
-    expect(hex(serializeRespondOutput(schema, output))).toBe(expected);
-  });
-
-  it("bytes accept Uint8Array and hex string equally", () => {
-    const s: AbiSchemaInput = [{ name: "hash", type: "bytes32" }];
-    const asHex = serializeRespondOutput(s, { hash: "0x" + "5e".repeat(32) });
-    const asBytes = serializeRespondOutput(s, { hash: new Uint8Array(32).fill(0x5e) });
-    expect(hex(asHex)).toBe(hex(asBytes));
-  });
-});
-
-describe("serializeRespondOutput: schema input forms are equivalent", () => {
-  const schema = [{ name: "success", type: "bool" }];
-  const output = { success: true };
-
-  const forms: { name: string; input: AbiSchemaInput }[] = [
-    { name: "typed array", input: schema as AbiSchemaInput },
-    { name: "JSON string", input: JSON.stringify(schema) },
-    { name: "NUL-padded on-chain bytes", input: nulPadded(schema, 64) },
-  ];
-
-  it.each(forms)("$name", ({ input }) => {
-    expect(hex(serializeRespondOutput(input, output))).toBe("01");
-  });
-});
-
-describe("serializeRespondOutput: rejections", () => {
-  const cases: {
-    name: string;
-    schema: AbiSchemaInput;
-    output: AbiDecodedOutput;
-    error: RegExp;
-  }[] = [
-    {
-      name: "missing value for a schema field",
-      schema: [{ name: "success", type: "bool" }],
-      output: {},
-      error: /missing value for 'success'/,
-    },
-    {
-      // Also a compile error with the typed schema union, hence the cast:
-      // this row pins the runtime rejection for JS/JSON callers.
-      name: "signed integer types have no Compact carrier",
-      schema: [{ name: "delta", type: "int64" }] as never,
-      output: { delta: 1n },
-      error: /no signed integers/,
-    },
-    {
-      name: "uint widths between 249 and 255 have no carrier",
-      schema: [{ name: "v", type: "uint250" }],
-      output: { v: 1n },
-      error: /'v' \(uint250\) has no respond carrier/,
-    },
-    {
-      name: "non-whole-byte uint widths are rejected (uint7)",
-      schema: [{ name: "v", type: "uint7" }],
-      output: { v: 1n },
-      error: /'v' \(uint7\) has no respond carrier.*multiples of 8/,
-    },
-    {
-      name: "non-whole-byte uint widths are rejected inside arrays (uint12[])",
-      schema: [{ name: "xs", type: "uint12[]", maxItems: 2 }],
-      output: { xs: [1n] },
-      error: /'xs' \(uint12\) has no respond carrier.*multiples of 8/,
-    },
-    {
-      name: "bytes33 is not a valid bytesN",
-      schema: [{ name: "v", type: "bytes33" }],
-      output: { v: new Uint8Array(33) },
-      error: /not a valid bytesN/,
-    },
-    {
-      // Also a compile error with the typed schema union, hence the cast.
-      name: "tuples are decode-side only",
-      schema: [{ name: "pair", type: "(uint256,bool)" }] as never,
-      output: { pair: [1n, true] },
-      error: /unsupported type/,
-    },
-    {
-      name: "string without maxBytes",
-      schema: [{ name: "s", type: "string" }] as never,
-      output: { s: "x" },
-      error: /maxBytes.*required/,
-    },
-    {
-      name: "array without maxItems",
-      schema: [{ name: "xs", type: "uint64[]" }] as never,
-      output: { xs: [1n] },
-      error: /maxItems.*required/,
-    },
-    {
-      name: "string with a non-positive maxBytes",
-      schema: [{ name: "s", type: "string", maxBytes: 0 }] as never,
-      output: { s: "x" },
-      error: /maxBytes.*positive integer/,
-    },
-    {
-      name: "array with a fractional maxItems",
-      schema: [{ name: "xs", type: "uint64[]", maxItems: 2.5 }] as never,
-      output: { xs: [1n] },
-      error: /maxItems.*positive integer/,
-    },
-    {
-      name: "oversized string payload is never truncated",
-      schema: [{ name: "s", type: "string", maxBytes: 4 }],
-      output: { s: "toolong" },
-      error: /maxBytes is 4/,
-    },
-    {
-      name: "oversized array is never truncated",
-      schema: [{ name: "xs", type: "uint64[]", maxItems: 1 }],
-      output: { xs: [1n, 2n] },
-      error: /maxItems is 1/,
-    },
-    {
-      name: "negative value for an unsigned carrier",
-      schema: [{ name: "v", type: "uint64" }],
-      output: { v: -1n },
-      error: /negative/,
-    },
-    {
-      name: "uint value above its width",
-      schema: [{ name: "v", type: "uint8" }],
-      output: { v: 256n },
-      error: /exceeds Uint<8>/,
-    },
-    {
-      name: "uint256 value at the Field modulus",
-      schema: [{ name: "v", type: "uint256" }],
-      output: {
-        v: 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001n,
-      },
-      error: /Field modulus/,
-    },
-    {
-      name: "address value above 2^160",
-      schema: [{ name: "to", type: "address" }],
-      output: { to: 1n << 160n },
-      error: /exceeds an address/,
-    },
-    {
-      name: "bytesN value of the wrong width",
-      schema: [{ name: "hash", type: "bytes32" }],
-      output: { hash: "0xdeadbeef" },
-      error: /exactly 32 bytes/,
-    },
-    {
-      name: "bool field given a non-boolean",
-      schema: [{ name: "ok", type: "bool" }],
-      output: { ok: 1n },
-      error: /expects a boolean/,
-    },
-    {
-      name: "array field given a scalar",
-      schema: [{ name: "xs", type: "uint64[]", maxItems: 2 }],
-      output: { xs: 1n },
-      error: /expects an array/,
-    },
-    {
-      name: "non-integer string for a numeric carrier",
-      schema: [{ name: "v", type: "uint64" }],
-      output: { v: "not-a-number" },
-      error: /cannot parse/,
-    },
-    {
-      name: "non-integer value for a numeric carrier",
-      schema: [{ name: "v", type: "uint64" }],
-      output: { v: true },
-      error: /expected an integer-like value/,
-    },
-    {
-      name: "non-bytes value for a bytesN carrier",
-      schema: [{ name: "hash", type: "bytes32" }],
-      output: { hash: 42n },
-      error: /expected bytes/,
-    },
-    {
-      name: "non-string value for a string field",
-      schema: [{ name: "s", type: "string", maxBytes: 8 }],
-      output: { s: 42n },
-      error: /expected a string/,
-    },
-    {
-      name: "schema field that is not an object",
-      schema: [42] as never,
-      output: {},
-      error: /is not an object/,
-    },
-    {
-      name: "empty respond schema array",
-      schema: [],
-      output: {},
-      error: /respond schema is empty/,
-    },
-    {
-      name: "an unset all-NUL respond schema field",
-      schema: new Uint8Array(34),
-      output: {},
-      error: /respond schema is empty/,
-    },
-    {
-      name: "malformed respond schema JSON",
-      schema: "not json at all",
-      output: {},
-      error: /schema is not valid JSON/,
-    },
-    {
-      name: "zero-padded uint width (uint08)",
-      schema: [{ name: "v", type: "uint08" }] as never,
-      output: { v: 1n },
-      error: /unsupported type 'uint08'/,
-    },
-    {
-      name: "zero-padded bytes width (bytes05)",
-      schema: [{ name: "v", type: "bytes05" }] as never,
-      output: { v: new Uint8Array(5) },
-      error: /unsupported type 'bytes05'/,
-    },
-    {
-      name: "a maxBytes capacity above the packed ceiling",
-      schema: [{ name: "blob", type: "bytes", maxBytes: 100_000 }],
-      output: { blob: new Uint8Array(1) },
-      error: /above the 65536-byte ceiling/,
-    },
-    {
-      name: "an array capacity above the packed ceiling",
-      schema: [{ name: "xs", type: "bytes32[]", maxItems: 50_000_000 }],
-      output: { xs: [] },
-      error: /above the 65536-byte ceiling/,
-    },
-    {
-      name: "a bytesN value that is not valid hex, named by field",
-      schema: [{ name: "hash", type: "bytes32" }],
-      output: { hash: "zz" },
-      error: /'hash': not a valid 0x hex byte string/,
-    },
-    {
-      name: "duplicate field names",
-      schema: [
-        { name: "x", type: "bool" },
-        { name: "x", type: "bool" },
-      ],
-      output: { x: true },
-      error: /duplicate field name 'x'/,
-    },
-  ];
-
-  it.each(cases)("$name", ({ schema, output, error }) => {
-    expect(() => serializeRespondOutput(schema, output)).toThrow(error);
-  });
-});
-
-// ===========================================================================
-// The full pipeline, as fakenet and verifying clients run it
-// ===========================================================================
-
-describe("serializeRespondOutput: packed-width ceiling boundary", () => {
-  it("a schema packing to exactly the ceiling is accepted", () => {
-    // 8 length-prefix bytes + 65528 capacity = 65536, the ceiling itself.
-    const packed = serializeRespondOutput([{ name: "blob", type: "bytes", maxBytes: 65_528 }], {
-      blob: new Uint8Array([1]),
-    });
-    expect(packed.length).toBe(65_536);
-  });
-});
-
-describe("pipeline: EVM output -> deserializeEvmOutput -> serializeRespondOutput", () => {
-  it("the ERC20 transfer flow produces the exact respond byte", () => {
-    // The vault's schema, both directions.
-    const schema = '[{"name":"success","type":"bool"}]';
-    const callResult = coder.encode(["bool"], [true]);
-
-    const decoded = deserializeEvmOutput(schema, callResult);
-    expect(decoded).toEqual({ success: true });
-
-    const respond = serializeRespondOutput(schema, decoded);
-    expect(hex(respond)).toBe("01");
-  });
-
-  it("decode schema may be broader than the respond schema (MPC-style subset)", () => {
-    // Decode with a broad schema including an int256 the respond side never
-    // touches, then respond with the Compact-carrier subset, fields matched
-    // by name.
-    const decodeSchema = [
-      { name: "amount", type: "uint256" },
-      { name: "delta", type: "int256" },
-      { name: "ok", type: "bool" },
-    ];
-    const callResult = coder.encode(["uint256", "int256", "bool"], [4242n, -5n, true]);
-    const decoded = deserializeEvmOutput(decodeSchema, callResult);
-    expect(decoded).toEqual({ amount: 4242n, delta: -5n, ok: true });
-
-    const respondSchema: AbiSchemaInput = [
-      { name: "ok", type: "bool" },
-      { name: "amount", type: "uint128" },
-    ];
-    const respond = serializeRespondOutput(respondSchema, decoded);
-    expect(hex(respond)).toBe("01" + "9210" + "00".repeat(14));
-  });
+  );
 });
 
 // ===========================================================================
@@ -706,286 +398,6 @@ describe("isEvmContractCall: more than two input bytes, as the MPC decides", () 
 
   it("rejects input that is not 0x hex", () => {
     expect(() => isEvmContractCall("0xzz")).toThrow();
-  });
-});
-
-// ===========================================================================
-// executedEvmRespondOutput
-// ===========================================================================
-
-const BOOL_SCHEMA: AbiSchema = [{ name: "success", type: "bool" }];
-const STRING_SCHEMA: AbiSchema = [{ name: "message", type: "string", maxBytes: 32 }];
-const UINT64_SCHEMA: AbiSchema = [{ name: "amount", type: "uint64" }];
-const UINT256_SCHEMA: AbiSchema = [{ name: "amount", type: "uint256" }];
-
-/** A plain transfer's request: the vault-style bool schema in both directions. */
-const PLAIN_TRANSFER_SCHEMAS: RespondPathSchemas = {
-  outputDeserializationSchema: BOOL_SCHEMA,
-  respondSerializationSchema: BOOL_SCHEMA,
-};
-
-/** A void call's request: nothing to decode, a bool to respond with. */
-const VOID_CALL_SCHEMAS: RespondPathSchemas = {
-  outputDeserializationSchema: "[]",
-  respondSerializationSchema: BOOL_SCHEMA,
-};
-
-const NOT_TRACED: EvmTraceOutput = { kind: EvmTraceOutputKind.NotTraced };
-const NO_RETURN_DATA: EvmTraceOutput = { kind: EvmTraceOutputKind.NoReturnData };
-
-/** The UTF-8 bytes of the MPC's synthesised string default, `non_function_call_success` (25 bytes). */
-const NON_FUNCTION_CALL_SUCCESS_HEX = "6e6f6e5f66756e6374696f6e5f63616c6c5f73756363657373";
-
-describe("executedEvmRespondOutput: the bytes the MPC attests", () => {
-  const cases: {
-    name: string;
-    schemas: RespondPathSchemas;
-    isContractCall: boolean;
-    trace: EvmTraceOutput;
-    expectedHex: string;
-  }[] = [
-    {
-      name: "plain transfer under a bool field synthesises true [build_serialized_output_non_contract_call_uses_defaults]",
-      schemas: PLAIN_TRANSFER_SCHEMAS,
-      isContractCall: false,
-      trace: NOT_TRACED,
-      expectedHex: "01",
-    },
-    {
-      name: "plain transfer never parses its output schema [build_serialized_output_fab_non_contract_default_skips_output_schema]",
-      schemas: { ...PLAIN_TRANSFER_SCHEMAS, outputDeserializationSchema: "not JSON" },
-      isContractCall: false,
-      trace: NOT_TRACED,
-      expectedHex: "01",
-    },
-    {
-      name: "plain transfer ignores a trace it was given",
-      schemas: PLAIN_TRANSFER_SCHEMAS,
-      isContractCall: false,
-      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [false]) },
-      expectedHex: "01",
-    },
-    {
-      name: "plain transfer under a string field fills its maxBytes buffer",
-      schemas: { ...PLAIN_TRANSFER_SCHEMAS, respondSerializationSchema: STRING_SCHEMA },
-      isContractCall: false,
-      trace: NOT_TRACED,
-      expectedHex: "1900000000000000" + NON_FUNCTION_CALL_SUCCESS_HEX + "00".repeat(7),
-    },
-    {
-      name: "plain transfer under a string field of exactly the default's length",
-      schemas: {
-        ...PLAIN_TRANSFER_SCHEMAS,
-        respondSerializationSchema: [{ name: "message", type: "string", maxBytes: 25 }],
-      },
-      isContractCall: false,
-      trace: NOT_TRACED,
-      expectedHex: "1900000000000000" + NON_FUNCTION_CALL_SUCCESS_HEX,
-    },
-    {
-      name: "plain transfer under bool and string fields keeps declaration order",
-      schemas: {
-        ...PLAIN_TRANSFER_SCHEMAS,
-        respondSerializationSchema: [...BOOL_SCHEMA, ...STRING_SCHEMA],
-      },
-      isContractCall: false,
-      trace: NOT_TRACED,
-      expectedHex: "01" + "1900000000000000" + NON_FUNCTION_CALL_SUCCESS_HEX + "00".repeat(7),
-    },
-    {
-      name: "void call without return data synthesises defaults [build_serialized_output_fab_void_call_uses_default]",
-      schemas: VOID_CALL_SCHEMAS,
-      isContractCall: true,
-      trace: NO_RETURN_DATA,
-      expectedHex: "01",
-    },
-    {
-      name: "void call under empty output schema bytes [build_serialized_output_accepts_missing_trace_output_for_empty_schema_bytes]",
-      schemas: { ...VOID_CALL_SCHEMAS, outputDeserializationSchema: new Uint8Array(0) },
-      isContractCall: true,
-      trace: NO_RETURN_DATA,
-      expectedHex: "01",
-    },
-    {
-      name: "void call under an unset all-NUL on-chain output schema",
-      schemas: { ...VOID_CALL_SCHEMAS, outputDeserializationSchema: new Uint8Array(34) },
-      isContractCall: true,
-      trace: NO_RETURN_DATA,
-      expectedHex: "01",
-    },
-    {
-      name: "void call with empty hex return data [build_serialized_output_accepts_explicit_empty_trace_output_for_empty_schema]",
-      schemas: VOID_CALL_SCHEMAS,
-      isContractCall: true,
-      trace: { kind: EvmTraceOutputKind.Output, returnData: "0x" },
-      expectedHex: "01",
-    },
-    {
-      name: "void call with empty byte return data, string respond field",
-      schemas: { ...VOID_CALL_SCHEMAS, respondSerializationSchema: STRING_SCHEMA },
-      isContractCall: true,
-      trace: { kind: EvmTraceOutputKind.Output, returnData: new Uint8Array(0) },
-      expectedHex: "1900000000000000" + NON_FUNCTION_CALL_SUCCESS_HEX + "00".repeat(7),
-    },
-    {
-      name: "contract call returning bool true decodes [build_serialized_output_fab_contract_bool]",
-      schemas: PLAIN_TRANSFER_SCHEMAS,
-      isContractCall: true,
-      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [true]) },
-      expectedHex: "01",
-    },
-    {
-      name: "contract call returning bool false decodes, never defaults",
-      schemas: PLAIN_TRANSFER_SCHEMAS,
-      isContractCall: true,
-      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [false]) },
-      expectedHex: "00",
-    },
-    {
-      name: "contract call returning uint64 decodes to its 8 LE bytes",
-      schemas: {
-        outputDeserializationSchema: UINT64_SCHEMA,
-        respondSerializationSchema: UINT64_SCHEMA,
-      },
-      isContractCall: true,
-      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["uint64"], [12_345n]) },
-      expectedHex: "3930000000000000",
-    },
-    {
-      name: "contract call returning uint256 decodes to a LE Field [build_serialized_output_decodes_contract_call]",
-      schemas: {
-        outputDeserializationSchema: UINT256_SCHEMA,
-        respondSerializationSchema: UINT256_SCHEMA,
-      },
-      isContractCall: true,
-      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["uint256"], [12_345n]) },
-      expectedHex: "3930" + "00".repeat(30),
-    },
-    {
-      name: "contract call returning a string decodes into its maxBytes buffer [all_response_formats_share_evm_decode_acceptance]",
-      schemas: {
-        outputDeserializationSchema: [{ name: "message", type: "string" }],
-        respondSerializationSchema: STRING_SCHEMA,
-      },
-      isContractCall: true,
-      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["string"], ["hello"]) },
-      expectedHex: "0500000000000000" + "68656c6c6f" + "00".repeat(27),
-    },
-  ];
-
-  it.each(cases)("$name", ({ schemas, isContractCall, trace, expectedHex }) => {
-    expect(hex(executedEvmRespondOutput(schemas, isContractCall, trace))).toBe(expectedHex);
-  });
-});
-
-describe("executedEvmRespondOutput: throws where the MPC refuses to attest", () => {
-  const cases: {
-    name: string;
-    schemas: RespondPathSchemas;
-    isContractCall: boolean;
-    trace: EvmTraceOutput;
-    error: RegExp;
-  }[] = [
-    {
-      name: "plain transfer under a uint field has no default",
-      schemas: { ...PLAIN_TRANSFER_SCHEMAS, respondSerializationSchema: UINT64_SCHEMA },
-      isContractCall: false,
-      trace: NOT_TRACED,
-      error: /'amount' \(uint64\) has no non-function-call default/,
-    },
-    {
-      name: "plain transfer under a bytes field has no default",
-      schemas: {
-        ...PLAIN_TRANSFER_SCHEMAS,
-        respondSerializationSchema: [{ name: "blob", type: "bytes", maxBytes: 32 }],
-      },
-      isContractCall: false,
-      trace: NOT_TRACED,
-      error: /'blob' \(bytes\) has no non-function-call default/,
-    },
-    {
-      name: "plain transfer under a string field too narrow for the default",
-      schemas: {
-        ...PLAIN_TRANSFER_SCHEMAS,
-        respondSerializationSchema: [{ name: "message", type: "string", maxBytes: 24 }],
-      },
-      isContractCall: false,
-      trace: NOT_TRACED,
-      error: /payload is 25 bytes, maxBytes is 24/,
-    },
-    {
-      name: "plain transfer under an empty respond schema",
-      schemas: { ...PLAIN_TRANSFER_SCHEMAS, respondSerializationSchema: "[]" },
-      isContractCall: false,
-      trace: NOT_TRACED,
-      error: /respond schema is empty/,
-    },
-    {
-      name: "void call under empty respond schema bytes [build_serialized_output_rejects_empty_byte_response_schema]",
-      schemas: { ...VOID_CALL_SCHEMAS, respondSerializationSchema: new Uint8Array(0) },
-      isContractCall: true,
-      trace: NO_RETURN_DATA,
-      error: /respond schema is empty/,
-    },
-    {
-      name: "void call under a uint respond field has no default",
-      schemas: { ...VOID_CALL_SCHEMAS, respondSerializationSchema: UINT64_SCHEMA },
-      isContractCall: true,
-      trace: NO_RETURN_DATA,
-      error: /'amount' \(uint64\) has no non-function-call default/,
-    },
-    {
-      name: "empty output schema but the call returned data [build_serialized_output_rejects_output_when_schema_declares_no_values]",
-      schemas: { ...VOID_CALL_SCHEMAS, outputDeserializationSchema: new Uint8Array(0) },
-      isContractCall: true,
-      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["uint256"], [1n]) },
-      error: /output schema declares no return values/,
-    },
-    {
-      name: "non-empty output schema without return data [build_serialized_output_rejects_missing_trace_output_for_non_empty_schema]",
-      schemas: {
-        outputDeserializationSchema: UINT256_SCHEMA,
-        respondSerializationSchema: UINT256_SCHEMA,
-      },
-      isContractCall: true,
-      trace: NO_RETURN_DATA,
-      error: /no return data for a non-empty output schema/,
-    },
-    {
-      name: "non-empty output schema not traced [build_serialized_output_requires_trace_for_contract_call]",
-      schemas: {
-        outputDeserializationSchema: UINT256_SCHEMA,
-        respondSerializationSchema: UINT256_SCHEMA,
-      },
-      isContractCall: true,
-      trace: NOT_TRACED,
-      error: /needs its trace/,
-    },
-    {
-      name: "empty output schema not traced",
-      schemas: VOID_CALL_SCHEMAS,
-      isContractCall: true,
-      trace: NOT_TRACED,
-      error: /needs its trace/,
-    },
-    {
-      name: "non-empty output schema with empty return data fails the ABI decode",
-      schemas: PLAIN_TRANSFER_SCHEMAS,
-      isContractCall: true,
-      trace: { kind: EvmTraceOutputKind.Output, returnData: "0x" },
-      error: /data out-of-bounds/,
-    },
-    {
-      name: "a contract call's malformed output schema",
-      schemas: { ...PLAIN_TRANSFER_SCHEMAS, outputDeserializationSchema: "not JSON" },
-      isContractCall: true,
-      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [true]) },
-      error: /schema is not valid JSON/,
-    },
-  ];
-
-  it.each(cases)("$name", ({ schemas, isContractCall, trace, error }) => {
-    expect(() => executedEvmRespondOutput(schemas, isContractCall, trace)).toThrow(error);
   });
 });
 
@@ -1119,5 +531,789 @@ describe("evmTraceOutputFromCallFrame: refusals", () => {
 
   it.each(cases)("$name", ({ frame, error }) => {
     expect(() => evmTraceOutputFromCallFrame(frame)).toThrow(error);
+  });
+});
+
+const BOOL_ABI_SCHEMA: EvmSchemaField[] = [{ name: "success", type: "bool" }];
+const BOOL_UINT_ABI_SCHEMA: EvmSchemaField[] = [
+  { name: "success", type: "bool" },
+  { name: "amount", type: "uint256" },
+];
+
+/** The 32 little-endian bytes of `value`: the Borsh integer byte order, the ABI word reversed. */
+const word = (value: bigint): number[] =>
+  Array.from(ethers.getBytes(ethers.toBeHex(value, 32))).reverse();
+
+// ===========================================================================
+// deriveRespondSchema / respondOutputWidth / unsupportedEvmOutputFields
+// ===========================================================================
+
+describe("deriveRespondSchema: the Borsh struct an output schema derives", () => {
+  const cases: {
+    name: string;
+    schema: EvmSchemaField[];
+    derived: ReturnType<typeof deriveRespondSchema>;
+    width: number;
+  }[] = [
+    { name: "bool", schema: BOOL_ABI_SCHEMA, derived: { struct: { success: "bool" } }, width: 1 },
+    {
+      name: "bool + uint256",
+      schema: BOOL_UINT_ABI_SCHEMA,
+      derived: { struct: { success: "bool", amount: { array: { type: "u8", len: 32 } } } },
+      width: 33,
+    },
+    {
+      name: "bytes4 + bytes32",
+      schema: [
+        { name: "selector", type: "bytes4" },
+        { name: "hash", type: "bytes32" },
+      ],
+      derived: {
+        struct: {
+          selector: { array: { type: "u8", len: 4 } },
+          hash: { array: { type: "u8", len: 32 } },
+        },
+      },
+      width: 36,
+    },
+    {
+      name: "address",
+      schema: [{ name: "to", type: "address" }],
+      derived: { struct: { to: { array: { type: "u8", len: 20 } } } },
+      width: 20,
+    },
+    { name: "empty", schema: [], derived: { struct: {} }, width: 0 },
+  ];
+
+  it.each(cases)("$name", ({ schema, derived, width }) => {
+    expect(deriveRespondSchema(schema)).toEqual(derived);
+    expect(respondOutputWidth(schema)).toBe(width);
+    expect(unsupportedEvmOutputFields(schema)).toEqual([]);
+  });
+
+  it.each([
+    { name: "JSON text", input: JSON.stringify(BOOL_UINT_ABI_SCHEMA) },
+    { name: "NUL-padded on-chain bytes", input: nulPadded(BOOL_UINT_ABI_SCHEMA, 128) },
+  ])("derives the same struct from the $name form", ({ input }) => {
+    expect(deriveRespondSchema(input)).toEqual(deriveRespondSchema(BOOL_UINT_ABI_SCHEMA));
+  });
+
+  it("keeps the schema's field order", () => {
+    const reversed = [...BOOL_UINT_ABI_SCHEMA].reverse();
+    expect(Object.keys((deriveRespondSchema(reversed) as { struct: object }).struct)).toEqual([
+      "amount",
+      "success",
+    ]);
+  });
+
+  it("serialises members in schema order whatever the names", () => {
+    // Names an object would not reorder: identifiers, however digit-heavy.
+    const schema: EvmSchemaField[] = [
+      { name: "z9", type: "bool" },
+      { name: "_1", type: "bytes1" },
+      { name: "a", type: "bool" },
+    ];
+    expect(Object.keys((deriveRespondSchema(schema) as { struct: object }).struct)).toEqual([
+      "z9",
+      "_1",
+      "a",
+    ]);
+    expect(hex(serializeRespondOutput(schema, { z9: true, _1: "0xab", a: false }))).toBe("01ab00");
+  });
+});
+
+describe("unsupportedEvmOutputFields: the MPC's drop decision", () => {
+  it.each([
+    "int256",
+    "uint8",
+    "uint128",
+    "string",
+    "bytes",
+    "uint256[]",
+    "bool[2]",
+    "(uint256,bool)",
+    "tuple(uint256,bool)",
+    // Valid ABI spellings ethers normalises to a supported type, refused
+    // because the match is on the raw string, as the MPC's is.
+    "uint",
+    " uint256",
+    "address payable",
+  ])("names a %s field without throwing, and derivation refuses it", (type) => {
+    const schema: EvmSchemaField[] = [
+      { name: "ok", type: "bool" },
+      { name: "x", type },
+    ];
+    expect(unsupportedEvmOutputFields(schema)).toEqual([{ name: "x", type }]);
+    expect(() => deriveRespondSchema(schema)).toThrow(/unsupported ABI output type 'x' \(/);
+    expect(() => respondOutputWidth(schema)).toThrow(/unsupported ABI output type/);
+    expect(() => serializeRespondOutput(schema, { ok: true, x: 0n })).toThrow(
+      /unsupported ABI output type/,
+    );
+  });
+
+  it("lists every unsupported field in schema order", () => {
+    expect(
+      unsupportedEvmOutputFields([
+        { name: "a", type: "int256" },
+        { name: "ok", type: "bool" },
+        { name: "s", type: "string" },
+      ]),
+    ).toEqual([
+      { name: "a", type: "int256" },
+      { name: "s", type: "string" },
+    ]);
+  });
+
+  it("still refuses a malformed schema shape", () => {
+    expect(() => unsupportedEvmOutputFields("not json at all")).toThrow(/JSON/);
+    expect(() => unsupportedEvmOutputFields('{"name":"x","type":"bool"}')).toThrow(/JSON array/);
+    expect(() => unsupportedEvmOutputFields([{ name: "x", type: "bytes33" }])).toThrow(
+      /invalid ABI type/,
+    );
+  });
+
+  it("drops 'uint' although ethers decodes it as uint256", () => {
+    const schema: EvmSchemaField[] = [{ name: "x", type: "uint" }];
+    expect(deserializeEvmOutput(schema, coder.encode(["uint256"], [7n]))).toEqual({ x: 7n });
+    expect(unsupportedEvmOutputFields(schema)).toEqual(schema);
+  });
+});
+
+// ===========================================================================
+// serializeRespondOutput
+// ===========================================================================
+
+describe("serializeRespondOutput: ABI values to the attested bytes", () => {
+  it.each([0n, 42n, (1n << 128n) - 1n, 1n << 128n, (1n << 256n) - 1n])(
+    "carries uint256 %s whole as 32 little-endian bytes after a bool",
+    (amount) => {
+      const output = deserializeEvmOutput(
+        BOOL_UINT_ABI_SCHEMA,
+        coder.encode(["bool", "uint256"], [true, amount]),
+      );
+      const bytes = serializeRespondOutput(BOOL_UINT_ABI_SCHEMA, output);
+      expect(bytes).toHaveLength(33);
+      expect(bytes).toEqual(Uint8Array.from([1, ...word(amount)]));
+    },
+  );
+
+  it.each([
+    { name: "typed array", schema: BOOL_UINT_ABI_SCHEMA },
+    { name: "JSON text", schema: JSON.stringify(BOOL_UINT_ABI_SCHEMA) },
+    { name: "NUL-padded on-chain bytes", schema: nulPadded(BOOL_UINT_ABI_SCHEMA, 128) },
+  ])("accepts the schema as $name", ({ schema }) => {
+    expect(serializeRespondOutput(schema, { success: true, amount: 42n })).toEqual(
+      Uint8Array.from([1, ...word(42n)]),
+    );
+  });
+
+  it.each([
+    { name: "a bigint", amount: 42n },
+    { name: "a number", amount: 42 },
+    { name: "a decimal string", amount: "42" },
+  ])("accepts a uint256 as $name", ({ amount }) => {
+    expect(serializeRespondOutput(BOOL_UINT_ABI_SCHEMA, { success: true, amount })).toEqual(
+      Uint8Array.from([1, ...word(42n)]),
+    );
+  });
+
+  it.each([
+    { name: "negative", amount: -1n },
+    { name: "2^256", amount: 1n << 256n },
+    { name: "a fraction", amount: 1.5 },
+    { name: "an unsafe number", amount: Number.MAX_SAFE_INTEGER + 1 },
+    { name: "a hex string", amount: "0x2a" },
+    { name: "an empty string", amount: "" },
+  ])("rejects a uint256 value that is $name", ({ amount }) => {
+    expect(() => serializeRespondOutput(BOOL_UINT_ABI_SCHEMA, { success: true, amount })).toThrow(
+      RangeError,
+    );
+  });
+
+  it("rejects a non-integer kind for uint256 and a non-boolean for bool", () => {
+    expect(() =>
+      serializeRespondOutput(BOOL_UINT_ABI_SCHEMA, { success: true, amount: true }),
+    ).toThrow(TypeError);
+    expect(() => serializeRespondOutput(BOOL_ABI_SCHEMA, { success: 1n })).toThrow(TypeError);
+  });
+
+  it.each([
+    { name: "a hex string", value: "0x" + "ab".repeat(32) },
+    { name: "bytes", value: new Uint8Array(32).fill(0xab) },
+  ])("carries bytes32 given as $name", ({ value }) => {
+    expect(serializeRespondOutput([{ name: "hash", type: "bytes32" }], { hash: value })).toEqual(
+      new Uint8Array(32).fill(0xab),
+    );
+  });
+
+  it.each([
+    { name: "the checksummed hex string ethers decodes", value: ethers.getAddress(ADDRESS) },
+    { name: "lowercase hex", value: ADDRESS },
+    { name: "bytes", value: ethers.getBytes(ADDRESS) },
+  ])("carries an address given as $name, in wire byte order", ({ value }) => {
+    expect(serializeRespondOutput([{ name: "to", type: "address" }], { to: value })).toEqual(
+      ethers.getBytes(ADDRESS),
+    );
+  });
+
+  it("carries an address decoded from return data byte for byte", () => {
+    const output = deserializeEvmOutput(
+      [{ name: "to", type: "address" }],
+      coder.encode(["address"], [ADDRESS]),
+    );
+    expect(serializeRespondOutput([{ name: "to", type: "address" }], output)).toEqual(
+      ethers.getBytes(ADDRESS),
+    );
+  });
+
+  it("rejects an address of the wrong length", () => {
+    expect(() =>
+      serializeRespondOutput([{ name: "to", type: "address" }], { to: "0xabcd" }),
+    ).toThrow();
+  });
+
+  it("rejects bytesN of the wrong length", () => {
+    expect(() =>
+      serializeRespondOutput([{ name: "hash", type: "bytes32" }], { hash: "0xabcd" }),
+    ).toThrow();
+  });
+
+  it("rejects a missing field", () => {
+    expect(() => serializeRespondOutput(BOOL_UINT_ABI_SCHEMA, { success: true })).toThrow(
+      /missing value for 'amount'/,
+    );
+  });
+
+  it("serialises an empty schema to no bytes", () => {
+    expect(serializeRespondOutput([], {})).toEqual(new Uint8Array(0));
+  });
+});
+
+// ===========================================================================
+// executedEvmRespondOutput
+// ===========================================================================
+
+const NOT_TRACED: EvmTraceOutput = { kind: EvmTraceOutputKind.NotTraced };
+const NO_RETURN_DATA: EvmTraceOutput = { kind: EvmTraceOutputKind.NoReturnData };
+const EMPTY_RETURN: EvmTraceOutput = { kind: EvmTraceOutputKind.Output, returnData: "0x" };
+
+describe("executedEvmRespondOutput: the attested output of an executed transaction", () => {
+  it.each([
+    {
+      name: "a plain transfer under an empty schema attests an empty output",
+      schema: [],
+      call: false,
+      trace: NOT_TRACED,
+      expected: "",
+    },
+    {
+      name: "a call without return data under an empty schema attests an empty output",
+      schema: [],
+      call: true,
+      trace: NO_RETURN_DATA,
+      expected: "",
+    },
+    {
+      name: "a call with empty return data under an empty schema attests an empty output",
+      schema: [],
+      call: true,
+      trace: EMPTY_RETURN,
+      expected: "",
+    },
+    {
+      name: "a bool result",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [false]) },
+      expected: "00",
+    },
+    {
+      name: "a bool and a uint256 result",
+      schema: BOOL_UINT_ABI_SCHEMA,
+      call: true,
+      trace: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: coder.encode(["bool", "uint256"], [true, 42n]),
+      },
+      expected: "01" + "2a" + "00".repeat(31),
+    },
+    {
+      name: "an address result, the 20 wire bytes",
+      schema: [{ name: "to", type: "address" }],
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["address"], [ADDRESS]) },
+      expected: ADDRESS.slice(2),
+    },
+    {
+      name: "a uint256 at the type's maximum, carried whole",
+      schema: BOOL_UINT_ABI_SCHEMA,
+      call: true,
+      trace: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: coder.encode(["bool", "uint256"], [true, (1n << 256n) - 1n]),
+      },
+      expected: "01" + "ff".repeat(32),
+    },
+    {
+      name: "a bytes4 result, zero-padded as the ABI requires",
+      schema: [{ name: "tag", type: "bytes4" }],
+      call: true,
+      trace: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: coder.encode(["bytes4"], ["0xdeadbeef"]),
+      },
+      expected: "deadbeef",
+    },
+    {
+      name: "return data with words past the declared fields",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: coder.encode(["bool", "uint256"], [true, 7n]),
+      },
+      expected: "01",
+    },
+  ])("$name", ({ schema, call, trace, expected }) => {
+    expect(hex(executedEvmRespondOutput(schema, call, trace))).toBe(expected);
+  });
+
+  // The schema and the return data must agree, and the schema's types are
+  // checked on every path, so nothing the MPC should have dropped attests.
+  it.each([
+    {
+      name: "a plain transfer under a non-empty schema",
+      schema: BOOL_ABI_SCHEMA,
+      call: false,
+      trace: NOT_TRACED,
+      error: /plain transfer returns nothing, but the output schema declares return values/,
+    },
+    {
+      name: "a plain transfer under a malformed schema",
+      schema: "bad",
+      call: false,
+      trace: NOT_TRACED,
+      error: /not valid JSON/,
+    },
+    {
+      name: "a plain transfer under an unsupported output type",
+      schema: [{ name: "note", type: "string" }],
+      call: false,
+      trace: NOT_TRACED,
+      error: /unsupported ABI output type 'note' \(string\)/,
+    },
+    {
+      name: "a contract call that was not traced",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: NOT_TRACED,
+      error: /needs its trace/,
+    },
+    {
+      name: "a contract call that was not traced, even under an empty schema",
+      schema: [],
+      call: true,
+      trace: NOT_TRACED,
+      error: /needs its trace/,
+    },
+    {
+      name: "no return data under a non-empty schema",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: NO_RETURN_DATA,
+      error: /returned no data, but the output schema declares return values/,
+    },
+    {
+      name: "empty return data under a non-empty schema",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: EMPTY_RETURN,
+      error: /returned no data, but the output schema declares return values/,
+    },
+    {
+      name: "return data under an empty schema",
+      schema: [],
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [true]) },
+      error: /returned data, but the output schema declares no return values/,
+    },
+    {
+      name: "return data a non-empty schema cannot decode",
+      schema: BOOL_UINT_ABI_SCHEMA,
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: "0x01" },
+      error: /./,
+    },
+    {
+      name: "a malformed schema on a call without return data",
+      schema: "bad",
+      call: true,
+      trace: NO_RETURN_DATA,
+      error: /not valid JSON/,
+    },
+    {
+      name: "an unsupported output type on a call without return data",
+      schema: [{ name: "note", type: "string" }],
+      call: true,
+      trace: NO_RETURN_DATA,
+      error: /unsupported ABI output type 'note' \(string\)/,
+    },
+    {
+      name: "an unsupported output type on a call that returned data",
+      schema: [{ name: "note", type: "string" }],
+      call: true,
+      trace: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: coder.encode(["string"], ["hello"]),
+      },
+      error: /unsupported ABI output type 'note' \(string\)/,
+    },
+    // Return data must be canonical ABI: the ABI library would decode every
+    // row below, so the refusal is this module's.
+    {
+      name: "a bool word of 2",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: "0x" + "00".repeat(31) + "02" },
+      error: /'success' \(bool\) word 0x0{62}02 is not canonical ABI/,
+    },
+    {
+      name: "a bool word with a dirty high byte",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: "0x01" + "00".repeat(30) + "01" },
+      error: /'success' \(bool\) word .* is not canonical ABI/,
+    },
+    {
+      name: "an address word with dirty high bytes",
+      schema: [{ name: "to", type: "address" }],
+      call: true,
+      trace: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: "0x" + "ff".repeat(12) + ADDRESS.slice(2),
+      },
+      error: /'to' \(address\) word .* is not canonical ABI/,
+    },
+    {
+      name: "a bytes4 word with dirty padding",
+      schema: [{ name: "tag", type: "bytes4" }],
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: "0xdeadbeef" + "ff".repeat(28) },
+      error: /'tag' \(bytes4\) word .* is not canonical ABI/,
+    },
+    {
+      name: "return data that is not whole words",
+      schema: BOOL_ABI_SCHEMA,
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [true]) + "00" },
+      error: /return data of 33 bytes is not whole ABI words/,
+    },
+    {
+      name: "fewer words than declared fields",
+      schema: BOOL_UINT_ABI_SCHEMA,
+      call: true,
+      trace: { kind: EvmTraceOutputKind.Output, returnData: coder.encode(["bool"], [true]) },
+      error: /holds 1 word but the output schema declares 2 fields/,
+    },
+  ])("refuses $name", ({ schema, call, trace, error }) => {
+    expect(() => executedEvmRespondOutput(schema, call, trace)).toThrow(error);
+  });
+});
+
+// ===========================================================================
+// checkCanonicalReturnData, through executedEvmRespondOutput's decode path
+// ===========================================================================
+
+/** A 32-byte ABI word from its hex digits, left-padded with zeros. */
+const abiWord = (hexDigits: string): string => hexDigits.padStart(64, "0");
+/** Return data from words, as the trace output a contract call yields. */
+const returned = (...words: string[]): EvmTraceOutput => ({
+  kind: EvmTraceOutputKind.Output,
+  returnData: "0x" + words.join(""),
+});
+/** A word of `byte` repeated 32 times. */
+const filled = (byte: number): string => byte.toString(16).padStart(2, "0").repeat(32);
+/** A zero word with one byte set, by position 0..31. */
+const wordWithByte = (position: number, byte: number): string => {
+  const bytes = new Array<string>(32).fill("00");
+  bytes[position] = byte.toString(16).padStart(2, "0");
+  return bytes.join("");
+};
+
+describe("checkCanonicalReturnData: bool words", () => {
+  it.each([0, 1])("accepts a last byte of %i", (last) => {
+    expect(
+      hex(executedEvmRespondOutput(BOOL_ABI_SCHEMA, true, returned(wordWithByte(31, last)))),
+    ).toBe(last.toString(16).padStart(2, "0"));
+  });
+
+  it.each(Array.from({ length: 254 }, (_, i) => i + 2))("refuses a last byte of %i", (last) => {
+    expect(() =>
+      executedEvmRespondOutput(BOOL_ABI_SCHEMA, true, returned(wordWithByte(31, last))),
+    ).toThrow(/'success' \(bool\) word .* is not canonical ABI/);
+  });
+
+  it.each(Array.from({ length: 31 }, (_, i) => i))(
+    "refuses a set byte at position %i above a last byte of 1",
+    (position) => {
+      const word = wordWithByte(position, 0x01).slice(0, 62) + "01";
+      expect(() => executedEvmRespondOutput(BOOL_ABI_SCHEMA, true, returned(word))).toThrow(
+        /'success' \(bool\) word .* is not canonical ABI/,
+      );
+    },
+  );
+});
+
+describe("checkCanonicalReturnData: address words", () => {
+  const schema: EvmSchemaField[] = [{ name: "to", type: "address" }];
+
+  it("accepts any 20 low bytes", () => {
+    expect(hex(executedEvmRespondOutput(schema, true, returned(abiWord("ff".repeat(20)))))).toBe(
+      "ff".repeat(20),
+    );
+  });
+
+  it.each(Array.from({ length: 12 }, (_, i) => i))(
+    "refuses a set high byte at position %i",
+    (position) => {
+      const word = wordWithByte(position, 0x01).slice(0, 24) + "11".repeat(20);
+      expect(() => executedEvmRespondOutput(schema, true, returned(word))).toThrow(
+        /'to' \(address\) word .* is not canonical ABI/,
+      );
+    },
+  );
+});
+
+describe("checkCanonicalReturnData: bytesN words", () => {
+  const sizes = Array.from({ length: 32 }, (_, i) => i + 1);
+
+  it.each(sizes)("accepts bytes%i filled to exactly N bytes", (n) => {
+    const schema: EvmSchemaField[] = [{ name: "b", type: `bytes${String(n)}` }];
+    const word = "ff".repeat(n) + "00".repeat(32 - n);
+    expect(hex(executedEvmRespondOutput(schema, true, returned(word)))).toBe("ff".repeat(n));
+  });
+
+  it.each(sizes.filter((n) => n < 32))("refuses bytes%i with its first padding byte set", (n) => {
+    const schema: EvmSchemaField[] = [{ name: "b", type: `bytes${String(n)}` }];
+    const word = "ff".repeat(n) + "01" + "00".repeat(31 - n);
+    expect(() => executedEvmRespondOutput(schema, true, returned(word))).toThrow(
+      new RegExp(`'b' \\(bytes${String(n)}\\) word .* is not canonical ABI`),
+    );
+  });
+
+  it.each(sizes.filter((n) => n < 32))("refuses bytes%i with its last padding byte set", (n) => {
+    const schema: EvmSchemaField[] = [{ name: "b", type: `bytes${String(n)}` }];
+    const word = "ff".repeat(n) + "00".repeat(31 - n) + "01";
+    expect(() => executedEvmRespondOutput(schema, true, returned(word))).toThrow(
+      /is not canonical ABI/,
+    );
+  });
+
+  it("bytes32 has no padding, so every word is canonical", () => {
+    const schema: EvmSchemaField[] = [{ name: "b", type: "bytes32" }];
+    expect(hex(executedEvmRespondOutput(schema, true, returned(filled(0xff))))).toBe(filled(0xff));
+  });
+});
+
+describe("checkCanonicalReturnData: uint256 words and data shape", () => {
+  const uint: EvmSchemaField[] = [{ name: "n", type: "uint256" }];
+
+  it("accepts every uint256 word", () => {
+    for (const byte of [0x00, 0x01, 0x7f, 0x80, 0xff]) {
+      expect(executedEvmRespondOutput(uint, true, returned(filled(byte)))).toHaveLength(32);
+    }
+  });
+
+  it.each(Array.from({ length: 31 }, (_, i) => i + 1))(
+    "refuses return data of %i bytes as not whole words",
+    (length) => {
+      expect(() =>
+        executedEvmRespondOutput(uint, true, {
+          kind: EvmTraceOutputKind.Output,
+          returnData: new Uint8Array(length),
+        }),
+      ).toThrow(new RegExp(`return data of ${String(length)} bytes is not whole ABI words`));
+    },
+  );
+
+  it.each([33, 63, 65, 95])("refuses return data of %i bytes", (length) => {
+    expect(() =>
+      executedEvmRespondOutput(uint, true, {
+        kind: EvmTraceOutputKind.Output,
+        returnData: new Uint8Array(length),
+      }),
+    ).toThrow(/is not whole ABI words/);
+  });
+
+  it.each([
+    { fields: 2, words: 1 },
+    { fields: 3, words: 2 },
+    { fields: 4, words: 1 },
+  ])("refuses $words word(s) for $fields fields", ({ fields, words }) => {
+    const schema: EvmSchemaField[] = Array.from({ length: fields }, (_, i) => ({
+      name: `f${String(i)}`,
+      type: "uint256",
+    }));
+    expect(() =>
+      executedEvmRespondOutput(schema, true, returned(...Array<string>(words).fill(abiWord("1")))),
+    ).toThrow(
+      new RegExp(
+        `holds ${String(words)} word${words === 1 ? "" : "s"} but the output schema declares ${String(fields)} fields`,
+      ),
+    );
+  });
+
+  it("ignores trailing words, whatever they hold", () => {
+    expect(
+      hex(
+        executedEvmRespondOutput(
+          BOOL_ABI_SCHEMA,
+          true,
+          returned(abiWord("1"), filled(0xff), wordWithByte(0, 0x80), filled(0x02)),
+        ),
+      ),
+    ).toBe("01");
+  });
+
+  it("blames the field whose word is dirty, by position", () => {
+    const schema: EvmSchemaField[] = [
+      { name: "ok", type: "bool" },
+      { name: "to", type: "address" },
+      { name: "tag", type: "bytes4" },
+      { name: "n", type: "uint256" },
+    ];
+    const clean = [
+      abiWord("1"),
+      abiWord("11".repeat(20)),
+      "deadbeef" + "00".repeat(28),
+      filled(0xff),
+    ];
+    expect(hex(executedEvmRespondOutput(schema, true, returned(...clean)))).toBe(
+      "01" + "11".repeat(20) + "deadbeef" + "ff".repeat(32),
+    );
+    const dirtyAt = (index: number, word: string): string[] =>
+      clean.map((w, i) => (i === index ? word : w));
+    expect(() =>
+      executedEvmRespondOutput(schema, true, returned(...dirtyAt(0, abiWord("2")))),
+    ).toThrow(/'ok' \(bool\)/);
+    expect(() =>
+      executedEvmRespondOutput(schema, true, returned(...dirtyAt(1, filled(0x11)))),
+    ).toThrow(/'to' \(address\)/);
+    expect(() =>
+      executedEvmRespondOutput(schema, true, returned(...dirtyAt(2, "deadbeef" + "ff".repeat(28)))),
+    ).toThrow(/'tag' \(bytes4\)/);
+  });
+});
+
+describe("checkCanonicalReturnData: the ABI library alone would accept what it refuses", () => {
+  // The reason the check exists: ethers decodes each of these without error.
+  // (An address word with dirty high bytes is the one case ethers refuses itself.)
+  it.each([
+    { name: "a bool word of 2", schema: BOOL_ABI_SCHEMA, data: wordWithByte(31, 2) },
+    {
+      name: "bytes4 with dirty padding",
+      schema: [{ name: "tag", type: "bytes4" }],
+      data: "deadbeef" + "ff".repeat(28),
+    },
+    { name: "33 bytes", schema: BOOL_ABI_SCHEMA, data: abiWord("1") + "00" },
+  ])("$name", ({ schema, data }) => {
+    expect(() => deserializeEvmOutput(schema, "0x" + data)).not.toThrow();
+    expect(() => executedEvmRespondOutput(schema, true, returned(data))).toThrow(
+      /is not canonical ABI|is not whole ABI words/,
+    );
+  });
+});
+
+describe("checkCanonicalReturnData: seeded mutation sweep over canonical encodings", () => {
+  // xorshift32: deterministic, so a failure reproduces from the seed.
+  let state = 0x9e3779b9;
+  const random = (): number => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return (state >>> 0) / 0x100000000;
+  };
+  const randomInt = (max: number): number => Math.floor(random() * max);
+  const randomHex = (bytes: number): string =>
+    Array.from({ length: bytes }, () => randomInt(256).toString(16).padStart(2, "0")).join("");
+
+  /** A random schema field with a canonical word for it and the word's padding byte positions. */
+  const randomField = (
+    index: number,
+  ): { field: EvmSchemaField; word: string; padding: number[]; valueBytes: number[] } => {
+    const name = `f${String(index)}`;
+    const all = Array.from({ length: 32 }, (_, i) => i);
+    switch (randomInt(4)) {
+      case 0:
+        return {
+          field: { name, type: "bool" },
+          word: wordWithByte(31, randomInt(2)),
+          padding: all.slice(0, 31),
+          valueBytes: [],
+        };
+      case 1:
+        return {
+          field: { name, type: "uint256" },
+          word: randomHex(32),
+          padding: [],
+          valueBytes: all,
+        };
+      case 2:
+        return {
+          field: { name, type: "address" },
+          word: "00".repeat(12) + randomHex(20),
+          padding: all.slice(0, 12),
+          valueBytes: all.slice(12),
+        };
+      default: {
+        const n = randomInt(32) + 1;
+        return {
+          field: { name, type: `bytes${String(n)}` },
+          word: randomHex(n) + "00".repeat(32 - n),
+          padding: all.slice(n),
+          valueBytes: all.slice(0, n),
+        };
+      }
+    }
+  };
+
+  const setByte = (words: string[], wordIndex: number, byte: number, value: number): string[] =>
+    words.map((w, i) =>
+      i === wordIndex
+        ? w.slice(0, byte * 2) + value.toString(16).padStart(2, "0") + w.slice(byte * 2 + 2)
+        : w,
+    );
+
+  it("accepts every canonical encoding, refuses every padding mutation, keeps every value mutation", () => {
+    let paddingMutations = 0;
+    let valueMutations = 0;
+    for (let round = 0; round < 60; round += 1) {
+      const fields = Array.from({ length: randomInt(4) + 1 }, (_, i) => randomField(i));
+      const schema = fields.map(({ field }) => field);
+      const words = fields.map(({ word }) => word);
+      expect(executedEvmRespondOutput(schema, true, returned(...words))).toHaveLength(
+        respondOutputWidth(schema),
+      );
+      fields.forEach(({ field, padding, valueBytes }, wordIndex) => {
+        for (const byte of padding) {
+          const mutated = setByte(words, wordIndex, byte, randomInt(255) + 1);
+          // A plain substring match: the type string is data, never a pattern.
+          expect(() => executedEvmRespondOutput(schema, true, returned(...mutated))).toThrow(
+            `'${field.name}' (${field.type}) word`,
+          );
+          paddingMutations += 1;
+        }
+        for (const byte of valueBytes) {
+          const mutated = setByte(words, wordIndex, byte, randomInt(256));
+          expect(executedEvmRespondOutput(schema, true, returned(...mutated))).toHaveLength(
+            respondOutputWidth(schema),
+          );
+          valueMutations += 1;
+        }
+      });
+    }
+    // The sweep must have exercised both branches, or it proves nothing.
+    expect(paddingMutations).toBeGreaterThan(500);
+    expect(valueMutations).toBeGreaterThan(500);
   });
 });
