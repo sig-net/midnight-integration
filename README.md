@@ -145,6 +145,8 @@ The MPC only generates signatures for **Verified Request Events**, which it disc
 
 If any of these checks fail the request is dropped silently.
 
+> **⚠️ ONLY Fully Applied Transactions are Indexed!** The MPC *only* reads notifications from transactions that Midnight applied in full (`TxApplied`). A request made in a partially successful transaction (`TxPartialSuccess`) is **NEVER** signed.
+
 ## Derived Keys
 
 Every key the MPC uses is derived for the **requesting contract** and a **path**. There are two kinds: the *request signing key*, whose path each contract chooses, and the *response signing key*, whose path is fixed by the protocol. Both key derivations are **scoped by the address** of the requesting contract.
@@ -665,7 +667,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.24.0-rc.10 | [`packages/*/package.json`](packages) |
+| `@sig-net/*` npm packages | 0.24.0 | [`packages/*/package.json`](packages) |
 | fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.34.0` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
 | Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
