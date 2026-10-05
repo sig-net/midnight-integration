@@ -1,7 +1,6 @@
-// Minimal repo-root .env reader + append-only writer. Nothing else in the
-// repo loads .env files (lib/cli read the provided env map directly), and
-// vitest/node cannot be told to (--env-file is banned in NODE_OPTIONS) — so
-// the suite loads it itself into its env accumulator. Deliberately minimal:
+// Minimal repo-root .env reader + append-only writer. vitest cannot be told
+// to load the file (--env-file is banned in NODE_OPTIONS), so the suite loads
+// it itself into its env accumulator. Deliberately minimal:
 // KEY=VALUE lines, #-comments, optional single/double quotes; no
 // interpolation, no multiline. Writing is append-only BY DESIGN: the file is
 // hand-edited by operators, and an append can never corrupt or reorder what

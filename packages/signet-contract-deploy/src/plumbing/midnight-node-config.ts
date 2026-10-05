@@ -17,6 +17,18 @@ export interface MidnightNodeConfig {
   readonly networkId: NetworkId; // which network these endpoints belong to
 }
 
+/** The environment variable that sets each {@link MidnightNodeConfig} field. */
+export const MIDNIGHT_NODE_CONFIG_ENV_VARS = {
+  networkId: "NETWORK_ID",
+  nodeUrl: "MIDNIGHT_NODE_URL",
+  indexerUrl: "MIDNIGHT_NODE_INDEXER_URL",
+  indexerWsUrl: "MIDNIGHT_NODE_INDEXER_WS_URL",
+  proofServerUrl: "MIDNIGHT_NODE_PROOF_SERVER_URL",
+} as const satisfies Record<keyof MidnightNodeConfig, string>;
+
+/** The environment variable that names the faucet (see {@link getFaucetUrl}). */
+export const FAUCET_URL_ENV_VAR = "MIDNIGHT_FAUCET_URL";
+
 /** A network's four service endpoints, without the network id itself. */
 export type Endpoints = Omit<MidnightNodeConfig, "networkId">;
 
@@ -89,7 +101,7 @@ export function getFaucetUrl(
   env: Record<string, string | undefined>,
   networkId: NetworkId,
 ): string | undefined {
-  return envOrUndefined(env, "MIDNIGHT_FAUCET_URL") ?? FAUCET_URLS[networkId];
+  return envOrUndefined(env, FAUCET_URL_ENV_VAR) ?? FAUCET_URLS[networkId];
 }
 
 // Derive the indexer WebSocket URL from the indexer HTTP URL: swap the scheme
@@ -127,7 +139,8 @@ export function indexerWsUrlFromIndexerUrl(indexerUrl: string): string {
 export function getMidnightNodeConfig(
   env: Record<string, string | undefined> = process.env,
 ): MidnightNodeConfig {
-  const networkId: NetworkId = envOrUndefined(env, "NETWORK_ID") ?? MidnightNetwork.Undeployed;
+  const networkId: NetworkId =
+    envOrUndefined(env, MIDNIGHT_NODE_CONFIG_ENV_VARS.networkId) ?? MidnightNetwork.Undeployed;
   // NetworkId widens the enum with the SDK's bare-string type, so the baseline
   // lookup can miss. Both failures name the same fix, so they share a throw.
   const defaults = DEFAULT_ENDPOINTS[networkId];
@@ -137,10 +150,10 @@ export function getMidnightNodeConfig(
     );
   }
 
-  const indexerOverride = envOrUndefined(env, "MIDNIGHT_NODE_INDEXER_URL");
+  const indexerOverride = envOrUndefined(env, MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerUrl);
   const indexerUrl = indexerOverride ?? defaults.indexerUrl;
   const indexerWsUrl =
-    envOrUndefined(env, "MIDNIGHT_NODE_INDEXER_WS_URL") ??
+    envOrUndefined(env, MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerWsUrl) ??
     (indexerOverride === undefined
       ? defaults.indexerWsUrl
       : indexerWsUrlFromIndexerUrl(indexerUrl));
@@ -149,8 +162,8 @@ export function getMidnightNodeConfig(
     networkId,
     indexerUrl,
     indexerWsUrl,
-    nodeUrl: envOrUndefined(env, "MIDNIGHT_NODE_URL") ?? defaults.nodeUrl,
+    nodeUrl: envOrUndefined(env, MIDNIGHT_NODE_CONFIG_ENV_VARS.nodeUrl) ?? defaults.nodeUrl,
     proofServerUrl:
-      envOrUndefined(env, "MIDNIGHT_NODE_PROOF_SERVER_URL") ?? defaults.proofServerUrl,
+      envOrUndefined(env, MIDNIGHT_NODE_CONFIG_ENV_VARS.proofServerUrl) ?? defaults.proofServerUrl,
   };
 }

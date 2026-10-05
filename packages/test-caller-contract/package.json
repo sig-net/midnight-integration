@@ -13,7 +13,7 @@
     "compile:zk": "COMPACT_PATH=../../node_modules compact compile --feature-zkir-v3 src/test-caller-contract.compact src/managed/test-caller-contract && rm -f src/managed/SignetNotifier && ln -sfn ../../../signet-contract/src/managed src/managed/SignetSigner",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "deploy": "tsx deploy.ts"
+    "deploy": "tsx --env-file-if-exists=../../.env deploy.ts"
   },
   "dependencies": {
     "@midnight-integration/lib": "*",

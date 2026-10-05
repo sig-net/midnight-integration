@@ -25,6 +25,8 @@ Everything is read from the environment:
 | `MPC_SECP256K1_PUBKEY` | Optional on a deployed network: the MPC root public key a requester's derived accounts start from, in SEC1 hex or NEAR `secp256k1:<base58>` form. `resolveMpcRootPublicKey` takes the key `@sig-net/midnight` publishes for the network when it is unset, refuses a set value that disagrees with it, and returns `0x04…` uncompressed hex either way. |
 | `MIDNIGHT_FAUCET_URL` | The faucet named in the unfunded-wallet hint. Built in per network: stagenet `https://faucet.stagenet.shielded.tools`, preview `https://midnight-tmnight-preview.nethermind.dev`, preprod `https://midnight-tmnight-preprod.nethermind.dev`. Set it to override one of those, or to name a faucet for a network without one. |
 
+In a checkout of the [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration) repository, `yarn deploy:signet-contract` also loads the repository root's `.env` file whenever one exists. A variable already set in the shell takes precedence over the same key in the file.
+
 ## Usage
 
 ```ts

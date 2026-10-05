@@ -19,7 +19,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig.build.json",
     "prepack": "yarn build",
     "test": "vitest run",
-    "deploy": "tsx deploy.ts"
+    "deploy": "tsx --env-file-if-exists=../../.env deploy.ts"
   },
   "publishConfig": {
     "access": "public",
