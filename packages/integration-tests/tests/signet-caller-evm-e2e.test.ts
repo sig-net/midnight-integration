@@ -35,7 +35,7 @@
 // deploy will fail: unset it (plus MPC_RESPONSE_KEY and any CALLER_*
 // request-id resume vars) for one clean redeploy.
 
-import type { Ledger as CallerLedger } from "@midnight-protocol/test-caller-contract";
+import type { Ledger as CallerLedger } from "@midnight-integration/test-caller-contract";
 import {
   type AbiDecodedOutput,
   boolAbiWord,

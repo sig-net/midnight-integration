@@ -4,11 +4,6 @@
 // The lazy construction keeps the offline path (RUN_INTEGRATION_TESTS unset)
 // from ever touching the network.
 
-import { findDeployedContract, type FoundContract } from "@midnight-ntwrk/midnight-js/contracts";
-// midnight-js reads a process-global network id (unlike compact-js, which
-// takes it explicitly). The context builder sets it once per session.
-import { setNetworkId } from "@midnight-ntwrk/midnight-js/network-id";
-import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import {
   buildCallerProviders,
   CALLER_PRIVATE_STATE_ID,
@@ -19,7 +14,12 @@ import {
   createCallerPrivateState,
   type Ledger as CallerLedger,
   ledger as callerContractLedger,
-} from "@midnight-protocol/test-caller-contract";
+} from "@midnight-integration/test-caller-contract";
+import { findDeployedContract, type FoundContract } from "@midnight-ntwrk/midnight-js/contracts";
+// midnight-js reads a process-global network id (unlike compact-js, which
+// takes it explicitly). The context builder sets it once per session.
+import { setNetworkId } from "@midnight-ntwrk/midnight-js/network-id";
+import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import {
   hexToBytes,
   type RequestIdHex,

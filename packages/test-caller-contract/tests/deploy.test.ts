@@ -28,7 +28,7 @@ const DEPLOYER_COMMITMENT = pureCircuits.deployerCommitment(DEPLOYER_SECRET);
 const CPK = "0".repeat(64);
 
 describe.skipIf(!HAS_VERIFIER_KEYS)(
-  "caller deploy tx (SKIPPED without src/managed/keys — run `yarn workspace @midnight-protocol/test-caller-contract compile:zk`)",
+  "caller deploy tx (SKIPPED without src/managed/keys — run `yarn workspace @midnight-integration/test-caller-contract compile:zk`)",
   () => {
     it("builds an unproven deploy transaction from the real managed output", async () => {
       const deployTransaction = await buildDeployTransaction(

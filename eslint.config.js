@@ -25,7 +25,7 @@ import tseslint from "typescript-eslint";
 const MANAGED_DEEP_IMPORTS = [
   "@sig-net/*/managed/**",
   "@sig-net/*/src/managed/**",
-  "@midnight-protocol/*/src/managed/**",
+  "@midnight-integration/*/src/managed/**",
 ];
 
 export default defineConfig([

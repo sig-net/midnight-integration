@@ -3,19 +3,19 @@
 // module + witnesses + this package's managed assets), the zk-config path the
 // proof provider reads keys from, the circuit-id union, and the private-state
 // store id. The generic wallet comes from @sig-net/midnight-contract-deploy,
-// the provider adapters from @midnight-protocol/lib; clients compose the
+// the provider adapters from @midnight-integration/lib; clients compose the
 // pieces and call `findDeployedContract(providers, ...)`.
 
 import { fileURLToPath } from "node:url";
 
+import {
+  createCrossContractProofServerProvider,
+  createWalletAndMidnightProvider,
+} from "@midnight-integration/lib";
 import type { MidnightProviders } from "@midnight-ntwrk/midnight-js/types";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
-import {
-  createCrossContractProofServerProvider,
-  createWalletAndMidnightProvider,
-} from "@midnight-protocol/lib";
 import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
 import {
   type AccountKeys,

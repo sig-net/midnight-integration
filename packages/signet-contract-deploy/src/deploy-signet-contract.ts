@@ -7,8 +7,14 @@
 // always does; an in-repo checkout needs `yarn compile:zk`).
 
 import { buildDeployTransaction, getDeployConfig } from "./plumbing/deploy.ts";
+import { envOrUndefined } from "./plumbing/env.ts";
 import { ensureFeeReady } from "./plumbing/funding.ts";
-import { getFaucetUrl } from "./plumbing/midnight-node-config.ts";
+import {
+  FAUCET_URL_ENV_VAR,
+  getFaucetUrl,
+  MIDNIGHT_NODE_CONFIG_ENV_VARS,
+  type MidnightNodeConfig,
+} from "./plumbing/midnight-node-config.ts";
 import {
   estimateUnprovenTransactionFee,
   submitUnprovenTransaction,
@@ -26,6 +32,56 @@ export interface SignetContractDeployment {
   contractAddress: string;
   /** Identifier of the submitted deploy transaction. */
   txId: TransactionIdentifier;
+}
+
+/** Where a deploy setting's effective value came from. */
+export enum DeploySettingSource {
+  /** The environment variable is set. */
+  Environment = "environment",
+  /** The variable is unset or blank, so the built-in value applies. */
+  Default = "default",
+}
+
+/** One row of {@link deployEnvironmentTable}. */
+export interface DeploySettingRow {
+  /** The value the deploy runs with. */
+  value: string;
+  /** Whether the environment or the built-in default supplied {@link value}. */
+  source: DeploySettingSource;
+}
+
+/**
+ * Tabulate every environment variable a signet-contract deploy runs with,
+ * except the secret `DEPLOYER_SEED`, each with its effective value.
+ *
+ * @param env - The environment the deploy reads.
+ * @param midnightNodeConfig - The node config resolved from `env`.
+ * @returns One row per variable, keyed by variable name.
+ */
+export function deployEnvironmentTable(
+  env: Record<string, string | undefined>,
+  midnightNodeConfig: MidnightNodeConfig,
+): Record<string, DeploySettingRow> {
+  const values: Record<string, string> = {
+    [MIDNIGHT_NODE_CONFIG_ENV_VARS.networkId]: midnightNodeConfig.networkId,
+    [MIDNIGHT_NODE_CONFIG_ENV_VARS.nodeUrl]: midnightNodeConfig.nodeUrl,
+    [MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerUrl]: midnightNodeConfig.indexerUrl,
+    [MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerWsUrl]: midnightNodeConfig.indexerWsUrl,
+    [MIDNIGHT_NODE_CONFIG_ENV_VARS.proofServerUrl]: midnightNodeConfig.proofServerUrl,
+    [FAUCET_URL_ENV_VAR]: getFaucetUrl(env, midnightNodeConfig.networkId) ?? "(none)",
+  };
+  return Object.fromEntries(
+    Object.entries(values).map(([name, value]) => [
+      name,
+      {
+        value,
+        source:
+          envOrUndefined(env, name) === undefined
+            ? DeploySettingSource.Default
+            : DeploySettingSource.Environment,
+      },
+    ]),
+  );
 }
 
 /**
@@ -56,9 +112,8 @@ export async function deploySignetContract(
   const { networkId } = deployConfig.midnightNodeConfig;
   const registry = wallets ?? new WalletRegistry(deployConfig.midnightNodeConfig);
 
-  console.log(
-    `deploying signet-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`,
-  );
+  console.log(`deploying signet-contract to ${networkId} with:`);
+  console.table(deployEnvironmentTable(env, deployConfig.midnightNodeConfig));
 
   try {
     const { facade, keys } = await registry.wallet(deployConfig.deployerSeed, "deployer");

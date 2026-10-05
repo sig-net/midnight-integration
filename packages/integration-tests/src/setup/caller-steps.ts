@@ -5,7 +5,7 @@
 // keys, dust preflight, signet compile/deploy, fakenet hand-off) in
 // steps.ts.
 
-import { deployCaller } from "@midnight-protocol/test-caller-contract";
+import { deployCaller } from "@midnight-integration/test-caller-contract";
 import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 
 import { requireEnv } from "../e2e-env.ts";

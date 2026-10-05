@@ -1,5 +1,5 @@
 {
-  "name": "@midnight-protocol/test-caller-contract",
+  "name": "@midnight-integration/test-caller-contract",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,14 +13,14 @@
     "compile:zk": "COMPACT_PATH=../../node_modules compact compile --feature-zkir-v3 src/test-caller-contract.compact src/managed/test-caller-contract && rm -f src/managed/SignetNotifier && ln -sfn ../../../signet-contract/src/managed src/managed/SignetSigner",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "deploy": "tsx deploy.ts"
+    "deploy": "tsx --env-file-if-exists=../../.env deploy.ts"
   },
   "dependencies": {
+    "@midnight-integration/lib": "*",
     "@midnight-ntwrk/midnight-js": "5.0.0-beta.6",
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "5.0.0-beta.6",
     "@midnight-ntwrk/midnight-js-level-private-state-provider": "5.0.0-beta.6",
     "@midnight-ntwrk/midnight-js-node-zk-config-provider": "5.0.0-beta.6",
-    "@midnight-protocol/lib": "*",
     "@sig-net/midnight": "workspace:*",
     "@sig-net/midnight-contract-deploy": "workspace:*"
   },

@@ -1,5 +1,5 @@
 {
-  "name": "@midnight-protocol/midnight-serde-conformance",
+  "name": "@midnight-integration/midnight-serde-conformance",
   "version": "0.0.0",
   "private": true,
   "type": "module",

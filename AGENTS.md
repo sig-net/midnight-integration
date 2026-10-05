@@ -1,4 +1,4 @@
-# midnight-protocol — workspace-wide agent rules
+# midnight-integration — workspace-wide agent rules
 
 This repository is a single **Yarn workspace** (Yarn 4 via corepack, `nodeLinker:
 node-modules`). Its members live under `packages/`:
@@ -171,7 +171,13 @@ exception for that specific case.
 - **NEVER commit generated compiler output.** Each contract package's
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
   compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run
-  `compile:zk` only when proving keys are actually needed (real deploys).
+  `compile:zk` only when proving keys are actually needed (real deploys, and
+  signet-contract's `build`). The root `yarn compile:zk` is a SUPERSET of
+  `yarn compile`: it runs `yarn compile` over every member first, then each
+  member's `compile:zk`, so members with no `compile:zk` script still get
+  their `src/managed/`. Keep it that way: a root `compile:zk` that covers only
+  the zk members leaves signet-midnight uncompiled and every deploy script
+  failing on a missing `managed/contract/index.js`.
 - **Shared plumbing lives ONCE.** Generic deploy/wallet/config plumbing lives in
   `packages/signet-contract-deploy/src/plumbing/` (published, so external
   consumers get it too); repo-private shared helpers (the midnight-js provider

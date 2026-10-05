@@ -145,6 +145,8 @@ The MPC only generates signatures for **Verified Request Events**, which it disc
 
 If any of these checks fail the request is dropped silently.
 
+> **⚠️ ONLY Fully Applied Transactions are Indexed!** The MPC *only* reads notifications from transactions that Midnight applied in full (`TxApplied`). A request made in a partially successful transaction (`TxPartialSuccess`) is **NEVER** signed.
+
 ## Derived Keys
 
 Every key the MPC uses is derived for the **requesting contract** and a **path**. There are two kinds: the *request signing key*, whose path each contract chooses, and the *response signing key*, whose path is fixed by the protocol. Both key derivations are **scoped by the address** of the requesting contract.
@@ -554,8 +556,9 @@ yarn install
 # Runs the compact compiler for each package without generating zk keys (compiler output in the package's src/managed/)
 yarn compile
 
-# Longer compile: all packages that require zk keys (checks syntax, generates circuits and zk keys)
-# Runs the compact compiler with zk keys for each package that has a :zk option (compiler output in the package's src/managed/)
+# Full compile: everything 'yarn compile' does, plus zk keys
+# Runs 'yarn compile' for all packages, then the compact compiler with zk keys for each package that has a :zk option
+# (compiler output in the package's src/managed/). On its own it leaves the whole workspace ready to build and deploy.
 yarn compile:zk
 
 # Test: all packages (typecheck + unit tests: offline simulator-only)
@@ -563,8 +566,8 @@ yarn compile:zk
 yarn test
 
 # Build: all packages
-# Requires both 'yarn compile' and 'yarn compile:zk': packages that ship
-# zk keys refuse to build without them.
+# Requires 'yarn compile:zk': packages that ship zk keys refuse to build
+# without them.
 yarn build
 
 ## --- Linting and formatting: All packages (whole workspace, from repository root) ---
@@ -593,7 +596,7 @@ yarn test:signet-midnight     # requires 'yarn compile:signet-midnight'
 yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
 ```
 
-> **NOTE:** A build error about missing prover keys (for example "no prover keys in src/managed/keys") means the package's zk compile has not been run yet: run the associated `compile:...:zk` script to generate them.
+> **NOTE:** A build error about missing prover keys (for example "no prover keys in src/managed/keys") means the package has no zk keys: run `yarn compile:zk` (or the associated `compile:...:zk` script) to generate them. A plain `yarn compile` deletes the keys of every package it recompiles, so run the zk compile again after it.
 
 ## Integration Tests
 
@@ -664,7 +667,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.24.0-rc.10 | [`packages/*/package.json`](packages) |
+| `@sig-net/*` npm packages | 0.24.0 | [`packages/*/package.json`](packages) |
 | fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.34.0` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
 | Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |

@@ -9,8 +9,8 @@ The suite records incompatible cases too: Borsh options, empty arrays in borsh-j
 From the repository root:
 
 ```sh
-yarn workspace @midnight-protocol/midnight-serde-conformance compile
-yarn workspace @midnight-protocol/midnight-serde-conformance generate
+yarn workspace @midnight-integration/midnight-serde-conformance compile
+yarn workspace @midnight-integration/midnight-serde-conformance generate
 ```
 
 Generation is a deliberate fixture update. Review and retain the updated corpus with the source change. The pinned compiler identity protects fixture provenance. The ordinary unit suite checks fixture compatibility and corpus drift. The Rust job replays the corpus once. The separate 1,000-value response sweep runs only when one of the three serde package folders changes in CI and uses the fixtures already compiled by the unit job.
@@ -18,7 +18,7 @@ Generation is a deliberate fixture update. Review and retain the updated corpus 
 For a local sweep after compilation:
 
 ```sh
-yarn workspace @midnight-protocol/midnight-serde-conformance test:sweep
+yarn workspace @midnight-integration/midnight-serde-conformance test:sweep
 ```
 
 The verified compiler builds cover macOS and Linux on x64 and arm64. Keep `COMPACTC_VERSION`, `RUNTIME_VERSION` and every `COMPILER_BUILDS` hash in `src/toolchain.ts` aligned with the repository's compiler and runtime pins. Each hash is SHA-256 of `compactc.bin` extracted from that platform's official release archive, not the archive checksum. The selected default compiler must match that verified build.
