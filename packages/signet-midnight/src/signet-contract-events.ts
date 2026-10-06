@@ -308,8 +308,8 @@ interface IndexerContractEventsResponse {
  * @param offset - Events to skip from the start of the walk.
  * @param fromBlock - Inclusive lowest block height to read from, or undefined for the whole history.
  * @returns The page's rows, oldest first.
- * @throws {Error} When the indexer cannot be reached, answers a status other
- *   than 200, rejects the query, or answers without a page.
+ * @throws {Error} When the indexer cannot be reached, answers a status that
+ *   is not 2xx, rejects the query, or answers without a page.
  */
 async function fetchContractEventPage(
   queryUrl: string,
@@ -447,9 +447,11 @@ export interface RespondBidirectionalEvent {
    */
   requestId: Uint8Array;
   /**
-   * Height of the finalised destination block holding the attested
-   * transaction, in the destination chain's own numbering (a slot on
-   * Solana). Compact `Uint<64>`, signed into the digest.
+   * Height of the finalised destination block holding the transaction the
+   * outcome describes (the requested transaction for executed and failed,
+   * the transaction that used up its replay protection for unviable), in the
+   * destination chain's own numbering (a slot on Solana). Compact `Uint<64>`,
+   * signed into the digest.
    */
   blockHeight: bigint;
   /** The MPC's verdict on the execution, signed into the digest. */

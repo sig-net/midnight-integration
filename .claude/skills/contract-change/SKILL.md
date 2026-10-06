@@ -24,9 +24,6 @@ how to prove it. It does not restate what already has a home:
   `AGENTS.md`. Read them: this skill assumes them.
 - **Running / redeploying the stack** (fakenet responder hand-off, pacing,
   failure playbooks) → the [`/e2e`](../e2e/SKILL.md) skill.
-- **Invariants worth remembering** (enum ≥2 variants, compact-js symbol
-  identity, response-server dependency boundary, cross-contract calls) →
-  the project memory index.
 
 ## The four layers, and the one question that places any change
 
@@ -36,8 +33,8 @@ the central notifier, a client contract, or the driver?*
 | Layer | Package | Owns | NEVER holds |
 |---|---|---|---|
 | **Seed SDK** | `packages/signet-midnight` | Client-agnostic protocol: request/response structs, request-id hashing, secp256k1 ECDSA attestations, the `CompactType` descriptors and readers, `pureCircuits` (compiled `circuits.compact`) | Anything specific to one client contract |
-| **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to emit a `SignBidirectionalNotification` event. The MPC discovers requesters by polling ITS events | Application logic, per-client state |
-| **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit requests (contract-fixed calldata, plus one circuit per real-EVM target method), verify the MPC's ECDSA attestation in-circuit and settle every outcome kind (`executed` at the schema's packed width, `failed` and `unviable` at width 0). Seals the signet contract address and the MPC key at deploy | Reusable protocol code (that belongs in the seed). Business logic beyond what exercising the singleton needs |
+| **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to emit a `SignBidirectionalEvent` event. The MPC discovers requesters by polling ITS events | Application logic, per-client state |
+| **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit requests (contract-fixed calldata, plus one circuit per real-EVM target method), verify the MPC's ECDSA attestation in-circuit and settle every outcome kind (`executed` at the schema's packed width, `failed` and `unviable` at width 0). Seals the signet contract address at deploy and pins the MPC response key once after deploy, through `initialise` | Reusable protocol code (that belongs in the seed). Business logic beyond what exercising the singleton needs |
 | **Driver** | `packages/integration-tests` | Orchestration a downstream app would do: build circuit args, submit calls via midnight-js, poll the signet contract, verify responses. The e2e drives the caller THROUGH these sequences | Rules a contract should enforce |
 
 Placement rule of thumb: **if a second contract would ever want it, it goes in
@@ -58,7 +55,7 @@ map before touching any stage:
 1. **Request**: the client circuit (`submitSignatureRequest`) builds the
    contract-enforced calldata, inserts the request into its request index,
    and cross-contract-calls the signet contract to emit a
-   `SignBidirectionalNotification` event. The e2e recomputes the
+   `SignBidirectionalEvent` event. The e2e recomputes the
    request id off-chain (`calculateRequestId`) and asserts it landed on the
    ledger.
 2. **Discover + sign**: the MPC responder (external, `/e2e` starts it) polls
@@ -110,7 +107,9 @@ ledger/state exactly as the MPC does: the same view on both sides is the point.
 **3. Retest end to end.** Hand off to [`/e2e`](../e2e/SKILL.md):
 
 - **TS-only or skip-zk change** → `/e2e` (rerun): setup steps skip against
-  the kept addresses, and only the flow re-runs. ~2 min.
+  the kept addresses, and only the flow re-runs. ~2 min. A skip-zk compile
+  deletes the prover keys the flow proves with: restore them first with
+  `yarn compile:signet-contract:zk` and `yarn compile:test-caller-contract:zk`.
 - **Circuit/struct/hash change** → `/e2e redeploy`: zk keygen (~10+ min) +
   the responder hand-off, all in one run. Background it.
 
@@ -135,20 +134,21 @@ the submit leg short-circuits and the suite reaches your stage on real state
   must instead be called as `pureCircuits.<name>`, never re-ported in TS.
 - **Ledger field ordering is load-bearing.** A client contract's request maps
   can sit at ANY ledger field: each notification the contract registers names
-  the field position holding the map (`requestsIndexField`), and the MPC reads
+  the ledger-tree path of the map (`requestsPathDepth` and `requestsPath`), and the MPC reads
   the authenticated request from that position knowing only the contract
   address. The test caller keeps its two per-schema-width maps at fields 3 and
   6 (its `requestLog` List deliberately occupies field 0), so the positions its
   submit circuits pass in the notification are 3 and 6. Reordering ledger
   declarations changes those positions: the notification literals (and any
-  reader configured with a `requestsIndexField`) must move with them.
+  reader configured with a `requesterRequestsPath`) must move with them.
 - **Keep enums in hashed structs ≥ 2 variants**: a 1-variant enum hashes as a
   zero-width atom and desynchronizes the compiler from the ledger (see the
-  memory on this and AGENTS `TxParamType`'s padding variant).
-- **A client seals the signet contract address and the MPC key at deploy.**
+  `TxParamType` padding variant in `packages/signet-midnight/src/signet-requests.ts`).
+- **A client seals the signet contract address at deploy and pins the MPC
+  response key once after it, through `initialise`.**
   Its EVM accounts are epsilon-derived from its contract address, so a
-  redeploy moves them. On the local loop nothing is funded, so this costs
-  nothing (the parked Sepolia sweep lives in `docs/e2e-sepolia-runbook.md`).
+  redeploy moves them. On the local loop the derived EVM sender holds only
+  free anvil ETH, so this costs nothing.
 
 ## Infra failures that surface during retest (not your change)
 

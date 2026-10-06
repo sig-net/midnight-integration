@@ -1,5 +1,5 @@
 // The generic setup steps shared by the caller pipeline: MPC key derivation,
-// the deployer dust preflight, signet compile + deploy, and the fakenet
+// the dust-spend rejection translation, signet compile + deploy, and the fakenet
 // responder hand-off. Each step keeps its skip-if-env-var-set semantics
 // (presence of the canonical env var doubles as the skip signal) and mutates
 // the shared env accumulator. Run by setup/caller-global-setup.ts in vitest's

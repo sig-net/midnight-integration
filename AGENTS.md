@@ -36,7 +36,9 @@ Example applications built on these packages (e.g. the ERC20 vault) live in
 from npm.
 
 Run `yarn install` from the repo root — never from inside a member.
-Run `yarn compile` once before `build`/`test`: the contract packages AND
+Run `yarn compile` once before `test`, and `yarn compile:zk` before `build`
+(signet-contract's `build` refuses to run without its prover keys): the
+contract packages AND
 `packages/signet-midnight` typecheck against their generated `src/managed/`
 output (signet-midnight compiles its Compact module's pure circuits via
 `src/circuits.compact` — skip-zk only, no `compile:zk` script on purpose).
@@ -96,7 +98,8 @@ exception for that specific case.
   the two downloads (installer script and compactc zip), the workflow cache
   keys, `COMPACTC_VERSION`, `RUNTIME_VERSION` and every platform hash in
   `COMPILER_BUILDS` in `packages/midnight-serde-conformance/src/toolchain.ts`,
-  the npm `@midnightntwrk/*` stack, and the README's Prerequisites and
+  the npm `@midnightntwrk/*` and `@midnight-ntwrk/*` stack, the image tags in
+  `docker-compose.yaml`, and the README's Prerequisites and
   Matched set tables are a MATCHED SET — bump them together in one change
   (recompute each checksum from a fresh download of the new URL). This trigger
   is bidirectional: a request to "update the compact version" AND a request to
@@ -115,12 +118,12 @@ exception for that specific case.
   **The one exception is publishing:** the npm-published packages
   (`@sig-net/midnight`, `@sig-net/midnight-contract`,
   `@sig-net/midnight-contract-deploy`, `@sig-net/midnight-serde`) additionally emit `dist/` via a
-  `tsconfig.build.json`, ship ONLY `dist/` (`files: ["dist"]`), and swap their
+  `tsconfig.build.json`, ship ONLY `dist/` (`files: ["dist"]`; `@sig-net/midnight` also ships `src/*.compact`), and swap their
   entry to it through `publishConfig.exports` at pack time — the monorepo itself
   still resolves their raw `src/index.ts`, never `dist/`.
 - **ALWAYS finish a change with `yarn format:check && yarn lint && yarn build &&
-  yarn test`** in the member you touched (or from the root). `tsx` and vitest
-  execute without typechecking — "it runs" is NOT verification. If you add a new
+  yarn test`** from the root (the lint and format scripts are root-only).
+  `tsx` and vitest execute without typechecking — "it runs" is NOT verification. If you add a new
   top-level TS directory to a member, add it to that member's tsconfig `include`
   in the same change; a file outside `include` passes silently and then breaks in
   the IDE — and `projectService` has no program for it, so type-aware lint rules
@@ -136,11 +139,14 @@ exception for that specific case.
   `src/managed/` types, so **`yarn lint` runs AFTER `yarn compile`**, the same
   ordering `yarn build` needs — this is why CI's `unit` job runs format-check
   before compile and lint after it.
-- **`eslint.config.js` turns NO rule off. Keep it that way.** The config has
-  zero `"off"` entries: every finding is fixed in the code instead. The only
-  non-default rule options either widen coverage (`require-jsdoc` reaching
-  types, interfaces and exported consts) or teach a rule about an API it
-  predates (`expect-expect` knowing vitest's `expectTypeOf`). If a rule fires,
+- **`eslint.config.js` turns NO rule off beyond `eslint-config-prettier`,
+  which turns off the rules that would fight Prettier. Keep it that way.** The
+  config has zero `"off"` entries: every finding is fixed in the code instead.
+  The non-default rule options widen coverage (`require-jsdoc` reaching
+  types, interfaces and exported consts), teach a rule about an API it
+  predates (`expect-expect` knowing vitest's `expectTypeOf`), match tsc's
+  `_` exemption for unused names (`no-unused-vars`), or set a style
+  (`consistent-type-imports` `fixStyle`, `jsdoc/tag-lines`). If a rule fires,
   fix the code; adding an `"off"` needs a reason good enough to write down here
   first. An `eslint-disable` likewise carries a `--` explanation, and
   `linterOptions.reportUnusedDisableDirectives` is `error`, so a directive that
@@ -247,7 +253,7 @@ exception for that specific case.
   could be exported.** Export the circuit through the shared module's compiled
   surface (signet-midnight's `circuits.compact`) and call the compiled artifact
   (`pureCircuits.<name>`). TS may only implement what circuits cannot:
-  secret-key signing, witness computations (e.g. `callerSecretKey`), and
+  secret-key signing, witness computations (e.g. `deployerSecretKey`), and
   byte plumbing. A TS twin of provable logic WILL drift from the circuit and
   break agreement with the proofs silently.
 - **Declare types and helpers immediately above their single consumer; the top
@@ -273,7 +279,8 @@ exception for that specific case.
 
 # Contract packages (`packages/*-contract`)
 
-The two contract packages are deliberately identical in shape; these rules apply to
+The two contract packages share one core layout (the `.compact` source,
+`src/index.ts`, `src/witnesses.ts`, `tests/contract.test.ts`); these rules apply to
 both (and to any additional contract package):
 
 - **Compile before you check.** `yarn compile` regenerates `src/managed/`;
@@ -292,7 +299,9 @@ both (and to any additional contract package):
   promise (`await expect(...).rejects.toThrow(...)`). Pure circuits are synchronous,
   called directly via `pureCircuits.<name>(...)`.
 - **The deploy split: generic plumbing in `@sig-net/midnight-contract-deploy`,
-  everything contract-specific in this package's `deploy.ts`.** The deploy
+  everything contract-specific in the contract's deploy script
+  (`packages/test-caller-contract/deploy.ts`; for signet-contract,
+  `packages/signet-contract-deploy`).** The deploy
   package's deploy/wallet helpers
   (`buildDeployTransaction`, `makeCompiledContract`, `submitUnprovenTransaction`,
   …) know no contract; the deploy script owns the constructor args, witnesses,

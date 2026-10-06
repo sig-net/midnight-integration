@@ -8,7 +8,7 @@
 // pinned to this package's decoders.
 //
 // The canonical fixture:
-//   attestRespondBidirectional({ requestId, blockHeight, outputKind, serializedOutput }, secretKey)
+//   respondBidirectionalEventToCircuitInput(attestRespondBidirectional({ requestId, blockHeight, outputKind, serializedOutput }, secretKey))
 // verifies in-circuit against secp256k1PublicKeyOf(secretKey).
 
 export {

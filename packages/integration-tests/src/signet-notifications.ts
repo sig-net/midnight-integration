@@ -1,6 +1,6 @@
 // The one indexer poll loop behind the golden-notification tests. Event
 // indexing lags finalization, so matching an emitted signet notification
-// means polling (gotcha #15). This module owns only that plumbing. Every
+// means polling. This module owns only that plumbing. Every
 // assertion on the decoded notification stays in the test bodies.
 
 import {

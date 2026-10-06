@@ -968,8 +968,8 @@ describe("executedEvmRespondOutput: the attested output of an executed transacti
       },
       error: /unsupported ABI output type 'note' \(string\)/,
     },
-    // Return data must be canonical ABI: the ABI library would decode every
-    // row below, so the refusal is this module's.
+    // Return data must be canonical ABI: most rows below decode in the ABI
+    // library, so the refusal is this module's.
     {
       name: "a bool word of 2",
       schema: BOOL_ABI_SCHEMA,

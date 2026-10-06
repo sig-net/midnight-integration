@@ -51,10 +51,9 @@ const ROOT: RoleWallet = { label: "root", envVar: "ROOT_SEED", shares: 1n };
 /**
  * The role wallets funded from root, in setup order: `deployer` deploys the
  * contracts, `invoker` drives the caller contract's circuits, `mpc responder`
- * is the fakenet responder's fee-paying wallet ({@link MPC_RESPONDER wallet}).
- * The deployer weighs three shares: it pays one transaction per deploy and,
- * for a split deploy, one per deferred circuit, where every other role pays
- * one or two.
+ * is the fakenet responder's fee-paying wallet (MPC_RESPONDER_SEED).
+ * The deployer weighs three shares: it pays one transaction per deploy,
+ * where every other role pays one or two.
  */
 const CHILDREN: readonly RoleWallet[] = [
   { label: "deployer", envVar: "DEPLOYER_SEED", shares: 3n },

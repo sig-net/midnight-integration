@@ -30,15 +30,14 @@ import { signBidirectionalEventDescriptor } from "../src/signet-evtype2tx-reques
 // Package-internal descriptors, imported from their defining modules.
 import { requestIdType } from "../src/signet-requests.ts";
 
-// The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
-// (the app-level constant lives in the cli).
+// The ERC20 transfer(address,uint256) selector: a realistic calldata fixture.
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
 const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
 // Shared across tests: NEVER mutate. Build a variation as an explicit spread.
-// The vault's shape: <2 calldata words, 0 access-list entries, 0 keys> with
-// 34-byte schemas.
+// The vault's tx shape: <2 calldata words, 0 access-list entries, 0 keys>,
+// here with 34-byte schema fields.
 const SAMPLE_REQUEST: SignBidirectionalEvent = {
   sender: { bytes: bytes(32, 0x01) },
   keyVersion: 1n,

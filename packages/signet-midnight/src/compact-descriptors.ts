@@ -8,7 +8,7 @@
 //     it under
 // These descriptors are required as Midnight libraries expose no supported equivalent:
 //  - A compiled contract module (`src/managed/`) builds one such codec per
-//    ledger type but keeps them module-private, exporting only `ledger()`,
+//    ledger type but keeps them module-private: its only decoder is `ledger()`,
 //    which decodes the FULL state of the one contract it was compiled from.
 //    Signet readers hold neither that contract's compiled module nor its
 //    full state: just a cell.

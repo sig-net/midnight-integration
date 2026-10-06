@@ -440,11 +440,11 @@ function decodeAccessList(
  * byte-identical to the one the MPC assembles and signs. The canonical
  * request-to-transaction transform: response-side verification and
  * {@link signBidirectionalEventToSignedEvmTransaction} both go through it.
+ * A count past its stored slots is not refused here, only by {@link calculateEvmType2TxParamsDigest}.
  *
  * @param request - The on-ledger request record.
  * @returns The unsigned ethers transaction (`unsignedHash` is the digest the
  *   MPC signs).
- * @throws {Error} If a calldata count overruns its stored slots.
  */
 export function signBidirectionalEventToUnsignedEvmTransaction(
   request: SignBidirectionalEvent,
@@ -477,9 +477,7 @@ export function signBidirectionalEventToUnsignedEvmTransaction(
  * @returns The signed ethers transaction: `serialized` is the raw payload for
  *   `eth_sendRawTransaction`, `hash` its on-chain hash, `from` the recovered
  *   sender.
- * @throws {Error} If the request record is malformed (see
- *   {@link signBidirectionalEventToUnsignedEvmTransaction}) or the response
- *   is not a decodable signature.
+ * @throws {Error} If the response is not a decodable signature.
  */
 export function signBidirectionalEventToSignedEvmTransaction(
   request: SignBidirectionalEvent,

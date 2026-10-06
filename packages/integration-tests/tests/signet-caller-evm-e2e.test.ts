@@ -1,6 +1,6 @@
 // The REAL-EVM signet e2e flow: the caller contract requests calls against
 // the SignetEvmTarget Solidity contract on the local anvil, the MPC signs,
-// THIS SUITE broadcasts (the MPC only signs: broadcasting is a client
+// THIS SUITE broadcasts (the MPC never broadcasts: broadcasting is a client
 // responsibility), the fakenet observes the mined execution (via
 // debug_traceTransaction, the same RPC method the real MPC uses) and posts
 // a respond-bidirectional attestation. The suite then recomputes the respond
@@ -109,7 +109,7 @@ const session = createCallerE2eSession(env);
 
 // TS mirrors of the contract-fixed output schema literals (the submit stage
 // pins them against the live ledger record). The respond bytes derive from
-// these: a bool is 1 byte, a uint256 its whole 32-byte word.
+// these: a bool is 1 byte, a uint256 its 32 bytes in little-endian order.
 const BOOL_ABI_SCHEMA: EvmSchemaField[] = [{ name: "success", type: "bool" }];
 const BOOL_UINT_ABI_SCHEMA: EvmSchemaField[] = [
   { name: "success", type: "bool" },

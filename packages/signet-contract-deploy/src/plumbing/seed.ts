@@ -10,7 +10,7 @@ import { hexToBytes } from "@sig-net/midnight";
 const toHex = (bytes: Uint8Array) =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
-/** How the input seed was supplied. (Const object + union — see network.ts.) */
+/** How the input seed was supplied. */
 export const SeedFormat = {
   Mnemonic: "mnemonic",
   Hex: "hex",

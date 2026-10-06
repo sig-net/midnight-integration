@@ -5,9 +5,10 @@ A thin wrapper around the real Rust `borsh` crate, pinned to 1.8.1. Values use n
 ## Use
 
 ```rust
-use signet_midnight_serde::{borsh, BorshDeserialize, BorshSerialize, deserialize, serialize};
+use signet_midnight_serde::{BorshDeserialize, BorshSerialize, deserialize, serialize};
 
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
+#[borsh(crate = "signet_midnight_serde::borsh")]
 struct ResultValue {
     ok: bool,
     amount: u128,

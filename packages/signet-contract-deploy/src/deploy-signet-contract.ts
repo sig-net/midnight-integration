@@ -99,8 +99,8 @@ export function deployEnvironmentTable(
  *   keeps wallets open across steps. Without one, a private registry is opened
  *   for this deploy and closed after it.
  * @returns The deployed contract address and deploy transaction id.
- * @throws {WalletUnfundedError} If the deployer wallet holds neither NIGHT
- *   nor DUST: the error carries the wallet's NIGHT receive address to fund.
+ * @throws {WalletUnfundedError} If the deployer wallet holds no NIGHT and
+ *   less DUST than the deploy fee: the error carries the wallet's NIGHT receive address to fund.
  * @throws {Error} If the deploy's fee does not generate in spendable DUST after
  *   registering the wallet's NIGHT, or submission fails.
  */

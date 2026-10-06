@@ -329,7 +329,8 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
  *
  * @param requestId - The 32-byte request id the response answers.
  * @param blockHeight - Height of the finalised destination block holding the
- *   attested transaction, in the destination chain's own numbering.
+ *   transaction the outcome describes (for unviable, the transaction that
+ *   used up the replay protection), in the destination chain's own numbering.
  * @param outputKind - The MPC's verdict on the execution.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @returns The 32-byte attestation digest.
@@ -356,7 +357,11 @@ export function calculateSignetAttestationDigest(
 export interface RespondBidirectionalAttestation {
   /** The 32-byte request id the response answers. */
   requestId: RequestId;
-  /** Height of the finalised destination block holding the attested transaction. */
+  /**
+   * Height of the finalised destination block holding the transaction the
+   * outcome describes (for unviable, the transaction that used up the replay
+   * protection).
+   */
   blockHeight: bigint;
   /** The MPC's verdict on the execution. */
   outputKind: OutputKind;

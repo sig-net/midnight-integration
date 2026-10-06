@@ -14,8 +14,8 @@ import "@sig-net/midnight/src/Signet";
 // Every method here is unauthenticated by design to keep proving time as low as possible.
 // Verification is deliberately the reader's job: 
 // - MPC authenticates notifications by:
-//   - confirming via the indexer that the transaction which emitted this notification event
-//     also contains a contract call on the callerAddress named in the notification event.
+//   - confirming that the callerAddress named in the notification event is the contract
+//     that called this circuit in the same transaction.
 //   - reading the event back from the named caller's own ledger and refusing entries
 //     whose recomputed request id or sender does not match
 // - Clients verify posted signatures and attestations themselves (off-chain or in their own circuits).
@@ -26,8 +26,8 @@ import "@sig-net/midnight/src/Signet";
 // content. It authenticates by:
 //   (a) reading the event back from the named caller's own ledger and refusing entries
 //       whose recomputed request id or sender does not match, and
-//   (b) confirming via the indexer that the transaction which emitted this notification event
-//       also contains a contract call on the callerAddress named in the notification event.
+//   (b) confirming that the callerAddress named in the notification event is the contract
+//       that called this circuit in the same transaction.
 export circuit signBidirectional(
       requestId: RequestId,
       notification: SignBidirectionalEventNotification
@@ -67,7 +67,8 @@ export circuit respond(
 
 // respondBidirectional emits the MPC's respond-bidirectional response as a
 // RespondBidirectionalEvent contract event: the ECDSA signature that attests
-// the foreign transaction execution, with the block height, output kind and
+// the foreign transaction's outcome (executed, failed or unviable), with the
+// block height, output kind and
 // output width it signs over and the digest it is over (never the output
 // itself).
 // The payload leads with the request id the post answers. The id is

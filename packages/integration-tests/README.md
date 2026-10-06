@@ -5,14 +5,18 @@ repo touches a network from tests). The pipeline has a shared setup half
 and two flow files:
 
 - **Setup** (`src/setup/`, run by vitest **globalSetup** — see
-  `vitest.config.ts`): environment preflight → MPC key derivation → the
-  deployer dust preflight → zk-compile + deploy the signet contract →
-  persist the fakenet hand-off values to `.env` (append-only) + start the
-  responder container → zk-compile + deploy the caller contract. Runs ONCE
+  `vitest.config.ts`): environment preflight → deploy the `SignetEvmTarget`
+  EVM contract → resolve or generate the wallet seeds → preflight root
+  funding + fund the role wallets → MPC key derivation → zk-compile + deploy
+  the signet contract → persist the fakenet hand-off values to `.env`
+  (append-only) + start the responder container → zk-compile + deploy the
+  caller contract → derive `MPC_RESPONSE_KEY` → fund the caller's derived
+  EVM sender. Runs ONCE
   in vitest's main process before ANY test file, including single-file runs.
-  Every step skips itself when its env var is already set (the hand-off
-  steps: when the values are already in `.env` / the responder already runs
-  with them). The setup pipeline also prepares the EVM side for the
+  Every step that produces a value skips itself when its env var is already
+  set (the hand-off steps: when the values are already in `.env` / the
+  responder already runs with them); the funding steps check balances and
+  top up only a shortfall. The setup pipeline also prepares the EVM side for the
   real-EVM flow: it deploys the `SignetEvmTarget` contract (hardhat compile
   + anvil deploy) and funds the caller's derived EVM sender from the anvil
   dev funder account. The generic flow itself never broadcasts: its request
@@ -25,13 +29,13 @@ and two flow files:
      derived from the caller contract's OWN address (the sender-scoped
      derivation the MPC uses for respond-bidirectional signing), so it only
      exists after the deploy and cannot be a constructor argument: the
-     contract pins its hash via this one-shot circuit instead. Idempotent
+     contract pins the key via this one-shot circuit instead. Idempotent
      across reruns.
   2. `submitSignatureRequest` — drive the caller contract's request circuit
      (contract-fixed minimal calldata) and read the request back MPC-style
      from the raw ledger.
   3. Golden notification: the submit emitted a decodable
-     `SignBidirectionalNotification` event on the signet contract declaring
+     `SignBidirectionalEvent` event on the signet contract declaring
      the stored request's id, read through the indexer's contract-events
      query and the shared event decoders, exactly as the MPC reads it.
   4. `pollSignatureResponse` — the fakenet's ECDSA response arrives on the
@@ -72,9 +76,10 @@ and two flow files:
   Self-sufficient (its own idempotent initialise stage), so it
   never depends on the generic flow file having run first.
 
-The unit tests beside it (`tests/env-file.test.ts`, `tests/mpc-keys.test.ts`)
-run offline under plain `yarn test`; the flow file gates itself with
-`describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)`.
+The unit tests beside them (`tests/env-file.test.ts`,
+`tests/funding-split.test.ts`, `tests/local-evm.test.ts`,
+`tests/mpc-keys.test.ts`) run offline under plain `yarn test`; each flow file
+gates itself with `describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)`.
 
 ## Prerequisites
 
@@ -158,7 +163,8 @@ Every other setup step (MPC keys, compile/deploy, fakenet hand-off) behaves
 exactly as on the local stack, and the same `.env`-skip rules apply: set a
 contract address to skip its compile+deploy.
 
-Every setup step is **skippable via `.env`**: when its variable is set, the
+Every setup step that produces a value is **skippable via `.env`**: when
+its variable is set, the
 step verifies it and logs `SKIPPED`, so a populated `.env` goes straight to
 the contract calls (~2 min total). Unset, the step does the work, prints
 the value to save — and for the fakenet hand-off pair
@@ -196,10 +202,10 @@ the address vars, rerun the suite and watch the run for you.
 | `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (deploy-package config); `undeployed` \| `preview` \| `preprod` \| `stagenet` \| `mainnet` | `undeployed` (local stack) |
 | `MIDNIGHT_FAUCET_URL` | The faucet the root-preflight stop message names when root needs funding on a deployed network (deploy-package config) | built in for `stagenet`, `preview` and `preprod` (none otherwise) |
 | `ROOT_SEED` | Funds the role wallets; does no test work. Faucet-funded on a deployed network | genesis seed `00…01` (undeployed); generated (deployed) |
-| `DEPLOYER_SEED`, `INVOKER_SEED`, `MPC_RESPONDER_SEED` | The role wallets (deploy / invoke / fakenet responder); generated + persisted to `.env` and funded from root, or set to reuse | generated per run |
+| `DEPLOYER_SEED`, `INVOKER_SEED`, `MPC_RESPONDER_SEED` | The role wallets (deploy / invoke / fakenet responder); generated + persisted to `.env` and funded from root, or set to reuse | generated on the first run and persisted to `.env` (reused after that) |
 | `FUND_CHILD_NIGHT` | NIGHT (base units) to move from root into each role wallet that needs funding | unset (split root's balance by weight: deployer 3 shares, every other role 1, root keeps 1) |
 | `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | deployed by setup (signet appended to `.env` automatically; caller printed — save it to skip redeploys) |
-| `MPC_ROOT_KEY` | Fakenet signer root key | derived by setup, appended to `.env` |
+| `MPC_ROOT_KEY` | Fakenet signer root key | generated (random) by setup, appended to `.env` |
 | `MPC_SECP256K1_PUBKEY` | MPC root public key | derived from root key |
 | `MPC_RESPONSE_KEY` | The MPC respond-bidirectional key for the caller contract (pinned on-chain by the flow's initialise leg) | derived from root key + caller contract address |
 | `FAKENET_MANAGED` | `0` = setup neither writes the hand-off values to `.env` nor touches the responder container — you run the responder yourself (responder development) | unset (setup manages the responder) |

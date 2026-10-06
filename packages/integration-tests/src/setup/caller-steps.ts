@@ -2,7 +2,7 @@
 // caller-global-setup.ts). The steps HERE are EVM-free (Midnight stack
 // checks, caller compile/deploy); the real-EVM flow's steps (target deploy,
 // derived-sender funding) live in evm-steps.ts, and the generic steps (MPC
-// keys, dust preflight, signet compile/deploy, fakenet hand-off) in
+// keys, dust-spend rejection translation, signet compile/deploy, fakenet hand-off) in
 // steps.ts.
 
 import { deployCaller } from "@midnight-integration/test-caller-contract";
@@ -18,8 +18,8 @@ const MINUTE = 60_000;
 
 /**
  * Assert the Midnight stack is reachable and the compact CLI is on PATH.
- * Deliberately checks no EVM endpoint — this pipeline has no EVM
- * requirement.
+ * Checks no EVM endpoint here: the EVM steps (evm-steps.ts) check the local
+ * anvil themselves.
  *
  * @param env - The suite's env accumulator.
  * @throws {Error} If a stack endpoint is unreachable or `compact` is missing.

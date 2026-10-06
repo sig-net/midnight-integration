@@ -26,13 +26,13 @@
 //  - SignBidirectionalEventNotification: the notification delivered through that call, versioned by
 //    the version byte it carries.
 //  - SignatureRespondedEventV1: the MPC's posted signature answering a request.
-//  - RespondBidirectionalEventV1: the MPC's posted attestation that the foreign chain executed the
-//    signed transaction.
+//  - RespondBidirectionalEventV1: the MPC's posted attestation of the signed transaction's outcome
+//    (executed, failed or unviable).
 //
 //  The V1 suffix marks the wire and hash-domain artefacts of protocol version 1 (the structs the
-//  ledger stores and the singleton emits, and the circuits that hash or verify them). Vocabulary
-//  shared across versions (RequestId, OutputKind, Signature, the enums, the transaction parameter
-//  structs, which TxParamType tags) and the version-tagged notification carry no suffix.
+//  ledger stores and the singleton emits, and the circuits that hash, verify or construct them).
+//  Vocabulary shared across versions (RequestId, OutputKind, Signature, the enums, the transaction
+//  parameter structs, which TxParamType tags) and the version-tagged notification carry no suffix.
 //
 // These key types are best understood within the sign bidirectional flow that they enable:
 // 1. Client contract stores a SignBidirectionalEvent in a SignBidirectionalEventMap in its own ledger
@@ -46,17 +46,20 @@
 // 3. Client polls the Signet singleton contract's SignatureRespondedEvent events, identifying the response
 //    associated with their request by RequestId. Clients validate the signature is correct by checking with
 //    the requested signing key. Then it broadcasts the signed txn to the destination chain.
-// 4. MPC observes txn execution on destination chain and posts a RespondBidirectionalEvent attestation
-//    through the Signet singleton, which emits it as a contract event beside the request id.
+// 4. MPC observes the txn's outcome in a final block on the destination chain (executed, failed,
+//    or unviable when another request's transaction took its nonce) and posts a
+//    RespondBidirectionalEvent attestation through the Signet singleton, which emits it as a
+//    contract event beside the request id.
 //    The client polls its request's posts and takes the first one that verifies over the request id,
 //    block height, output kind and output. The client obtains the execution output off chain (for EVM: the mined
-//    call's return data via debug_traceTransaction, or the exact attested bytes from the
-//    MPC's output cache) and hands output plus attestation to its verify circuit. See
-//    "Output Recovery" in the repository README.
+//    call's return data via debug_traceTransaction, re-serialised exactly as the MPC did with
+//    executedEvmRespondOutput, or the exact attested bytes from the MPC's output cache) and hands the
+//    serialised output plus attestation to its verify circuit. See
+//    "Output Recovery and Serialisation" in the repository README.
 //
 // Read more:
-//   - The sign bidirectional flow and key derivation: this package's README
-//     ("Sign bidirectional flow", "Derived keys").
+//   - The sign bidirectional flow and key derivation: the repository README
+//     ("Sign Bidirectional Protocol Flow", "Derived Keys").
 //   - For full integration examples (such as an ERC20 cross chain vault example) see
 //     the Midnight Examples repository at: https://github.com/sig-net/midnight-examples.
 //   - Compact language reference (modules, types):
@@ -92,7 +95,8 @@ module Signet {
     // variant for requests made from Midnight contracts), not this record's target
     // executionDest. The path is 32 opaque bytes of the client contract's choosing (e.g. a
     // fixed literal for a contract-owned account or a hash of a caller's secret for
-    // per-user accounts): no format is enforced, any 32 bytes are valid.
+    // per-user accounts): no format is enforced, and any 32 bytes are valid except
+    // pad(32, "midnight response key"), which is reserved for the MPC response key and refused.
     // CRITICAL: the MPC renders the path as hex::encode(path) for key derivation (lowercase hex
     // of the full 32 bytes, no trimming, no 0x prefix). The sender is always part
     // of the derivation, so no contract can reach another contract's derived keys.
@@ -370,7 +374,7 @@ module Signet {
   export enum OutputKind {
     executed, // finalised and succeeded: the attested output is the decoded return data, Borsh-serialised by the MPC (empty when the call returns nothing)
     failed,   // finalised and reverted: the attested output is empty (Bytes<0>)
-    unviable, // a finalised transaction carrying other bytes took the nonce: the attested output is empty (Bytes<0>)
+    unviable, // a finalised transaction of another request from the same account took the nonce: the attested output is empty (Bytes<0>)
   }
 
   // The 32-byte attestation digest of a remote execution output:
