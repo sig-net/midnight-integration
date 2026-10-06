@@ -17,7 +17,8 @@ export interface MpcOutputCacheConfig {
    * `https://storage.googleapis.com/<bucket>/<prefix>`. A trailing slash is
    * tolerated. Defaults to the cache this package publishes for `networkId`
    * ({@link getMpcOutputCacheUrl}), so a network with none (the local
-   * standalone stack) must pass it.
+   * standalone stack, and any deployed network with no published cache yet)
+   * must pass it.
    */
   readonly cacheUrl?: string;
   /** The Midnight network id the MPC serves: the path segment after the prefix. */
@@ -53,8 +54,8 @@ function publishedCacheUrl(networkId: string): string {
  * writes a request's bytes to
  * `<prefix>/<networkId>/<signetContractAddress>/<requestId>.bin` before it
  * posts the matching attestation, so once an attestation is on chain a
- * missing object is the MPC's cache write being lost, and an object found
- * before any attestation is still unverified.
+ * missing object means the cache write was lost or the deployment provides
+ * no cache, and an object found before any attestation is still unverified.
  */
 export class MpcOutputCacheReader {
   private readonly namespaceUrl: string;
@@ -88,9 +89,10 @@ export class MpcOutputCacheReader {
    *
    * @param requestId - The request whose attested output to fetch.
    * @returns The cached bytes, or `undefined` when the cache holds no object
-   *   for the request (the MPC has not written it yet).
+   *   for the request (the MPC has not written it yet, or does not provide a
+   *   cache).
    * @throws {Error} If the cache cannot be reached or answers with a status
-   *   other than 200 or 404.
+   *   that is neither 2xx nor 404.
    */
   async fetchSerializedOutput(requestId: RequestIdHex): Promise<Uint8Array | undefined> {
     const url = this.objectUrl(requestId);

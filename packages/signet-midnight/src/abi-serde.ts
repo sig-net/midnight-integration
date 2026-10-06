@@ -134,12 +134,14 @@ function classifyEvmOutputType(
 /**
  * The fields of an outputDeserializationSchema whose ABI type is outside the
  * supported subset ({@link EvmOutputTypeKind}). The check itself never
- * throws on an unsupported type: an empty result means the MPC attests the
- * request, a non-empty one means it drops it.
+ * throws on an unsupported type: an empty result means the output types do
+ * not stop the MPC from admitting the request, a non-empty one means it drops it.
  *
  * @param schema - The outputDeserializationSchema: parsed, JSON text, or the raw NUL-padded on-chain bytes.
  * @returns The unsupported fields in schema order, empty when every field is supported.
- * @throws {Error} If the schema is not an array of uniquely named fields (its shape, not its types).
+ * @throws {Error} If the schema is malformed: text or bytes not in canonical form, a
+ *   field name that is not a unique Solidity identifier (or is `__proto__`), or a
+ *   type that is not a valid ABI type string.
  */
 export function unsupportedEvmOutputFields(schema: EvmSchemaInput): EvmSchemaField[] {
   return parseSchemaShape(schema).filter(
@@ -224,7 +226,8 @@ export function respondOutputWidth(schema: EvmSchemaInput): number {
  * @param value - The decoded value.
  * @param name - The field name, for the error message.
  * @returns The value's 32 little-endian bytes.
- * @throws {RangeError} If the value is not an integer in `0 <= value < 2^256`.
+ * @throws {TypeError} If the value is not a bigint, number or string.
+ * @throws {RangeError} If it is not an integer in `0 <= value < 2^256`.
  */
 function uint256Word(value: AbiDecodedValue, name: string): number[] {
   if (typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string") {
@@ -347,13 +350,13 @@ export enum EvmTraceOutputKind {
  */
 export type EvmTraceOutput =
   | {
-      /** The frame carried an `output` field. */
+      /** The frame carried a string `output` field. */
       readonly kind: EvmTraceOutputKind.Output;
       /** The frame's `output`: the ABI-encoded return data (hex string or bytes). */
       readonly returnData: ethers.BytesLike;
     }
   | {
-      /** The frame carried no `output` field. */
+      /** The frame carried no string `output` field. */
       readonly kind: EvmTraceOutputKind.NoReturnData;
     }
   | {
@@ -560,8 +563,8 @@ export function evmTraceOutputFromCallFrame(frame: JsonValue): EvmTraceOutput {
 }
 
 // ===========================================================================
-// Helpers from here down. The exports above are the whole public surface:
-// everything below serves them.
+// Helpers from here down. Apart from canonicalSchemaText, everything below
+// serves the exports above.
 // ===========================================================================
 
 function toPlainValue(value: unknown, label: string): AbiDecodedValue {

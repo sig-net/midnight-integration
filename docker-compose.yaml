@@ -55,7 +55,7 @@ services:
 
   evm:
     # anvil dev chain (id 31337, pre-funded dev-mnemonic accounts): the
-    # destination chain of the real-EVM e2e flow, which deploys its target
+    # target chain of the real-EVM e2e flow, which deploys its target
     # contract here and broadcasts the MPC-signed transactions, and the chain
     # the fakenet responder observes executions on.
     container_name: 'local-evm'

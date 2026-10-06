@@ -8,7 +8,7 @@
 // The pipeline serves BOTH flow files: the base flow (whose request exists
 // to be SIGNED, never broadcast) and the real-EVM flow (which
 // broadcasts against the SignetEvmTarget contract on the local anvil). So on
-// top of the stack checks, MPC keys, dust preflight, signet compile/deploy,
+// top of the stack checks, wallet seeds and funding, MPC keys, signet compile/deploy,
 // fakenet hand-off and caller compile/deploy, it deploys the EVM target
 // (early: fast and midnight-free) and funds the caller's derived EVM sender
 // (last: the derivation needs the deployed caller's address).

@@ -46,8 +46,7 @@ import {
   streamOf,
 } from "./signet-event-fixtures.ts";
 
-// The ERC20 transfer(address,uint256) selector: a realistic calldata fixture
-// (the app-level constant lives in the cli).
+// The ERC20 transfer(address,uint256) selector: a realistic calldata fixture.
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
 
 // ---- Fixtures ----

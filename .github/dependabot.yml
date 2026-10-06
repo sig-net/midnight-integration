@@ -6,7 +6,7 @@ updates:
     schedule:
       interval: "weekly"
     # A week's quarantine on fresh releases before Dependabot proposes
-    # them, the same window yarn's npmMinimalAgeGate enforces at install.
+    # them.
     cooldown:
       default-days: 7
     # 0 suppresses scheduled version-update PRs, which would be noisy for
@@ -24,8 +24,8 @@ updates:
       - dependency-name: "@midnightntwrk/*"
       - dependency-name: "@sig-net/*"
   # github-actions: version updates for the actions used in workflow
-  # files. Once those are pinned to commit SHAs, these PRs are what keep
-  # the pins current.
+  # files. They are pinned to commit SHAs, and these PRs keep the pins
+  # current.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

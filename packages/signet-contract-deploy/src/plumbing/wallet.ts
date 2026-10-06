@@ -1,7 +1,6 @@
-// Seed → account construction utilities shared by every wallet host (the UI's
-// SeedWallet and the integration tests' buildWallet): key derivation, address
-// encoding and WalletFacade wiring. Pure crypto + facade construction — no
-// network I/O happens here (the facade connects only when started).
+// Seed → account construction utilities: key derivation, address encoding,
+// WalletFacade wiring, and the facade-driven steps (sync, balance, submit,
+// NIGHT transfer, dust registration) the deploy flow is built from.
 import * as ledger from "@midnightntwrk/ledger-v9";
 import { InMemoryTransactionHistoryStorage } from "@midnightntwrk/wallet-sdk-abstractions";
 import {
@@ -402,8 +401,9 @@ export async function submitUnprovenTransaction(
 /**
  * Transfer unshielded NIGHT from a started wallet to another wallet's
  * unshielded (NIGHT receive) address: build the transfer recipe, sign its
- * inputs, prove, and submit. Fees are paid in the sender's DUST (`payFees`),
- * so the sender must already be dust-generating. The NIGHT token type is read
+ * inputs, prove, and submit. Fees are paid in the sender's DUST (balanced in
+ * a separate dust-only step; the transfer itself is built with
+ * `payFees: false`), so the sender must already be dust-generating. The NIGHT token type is read
  * from the sender's synced state (these chains carry a single unshielded
  * token), so no token constant is hard-coded.
  *

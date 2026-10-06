@@ -13,7 +13,7 @@ description: Run the integration e2e suite (packages/integration-tests), the
 This runbook is plain markdown on purpose: any agent or human can follow it.
 The pipeline itself (the globalSetup steps + the flow
 file) is documented in `packages/integration-tests/README.md`. This file is
-the *operational* knowledge around it. Setup (MPC keys, dust preflight,
+the *operational* knowledge around it. Setup (wallet seeds and funding, MPC keys,
 compile, deploy, fakenet hand-off) runs in vitest globalSetup before ANY
 test, including single-file runs.
 
@@ -41,10 +41,10 @@ yarn test:integration-tests > /tmp/caller-e2e.log 2>&1 &
 ```
 
 Watch the log. No pre-existing `.env` is required: the setup creates it when
-it appends the fakenet hand-off values (`MPC_ROOT_KEY`,
-`MIDNIGHT_SIGNET_CONTRACT_ADDRESS`). Appends never modify existing lines,
-and a value that conflicts with the shell environment is a hard error, never
-an overwrite. The first run zk-compiles BOTH contracts (~10–25 min of
+it appends the generated wallet seeds, then appends the fakenet hand-off
+values (`MPC_ROOT_KEY`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`). Appends never
+modify existing lines, and a value that conflicts with the shell
+environment is a hard error, never an overwrite. The first run zk-compiles BOTH contracts (~10–25 min of
 keygen, machine-dependent: background the run and never diagnose a hang
 from duration alone), deploys them, starts the responder mid-setup, and the
 flow files run to the end (generic flow 5/5, real-EVM flow 30/30). Save the
@@ -55,17 +55,20 @@ compile + deploy (the signet address is appended automatically).
 ## Modes
 
 - **`/e2e`** (default): rerun against the addresses already in `.env`.
-  Every skippable setup step logs `SKIPPED`, only the flow runs (~2 min).
+  Every skippable setup step logs `SKIPPED`, then the flow runs (~2 min).
+  The `SignetEvmTarget` deploy still runs unless `EVM_TARGET_CONTRACT_ADDRESS`
+  is set to an address with code (setup never appends it to `.env`), and the
+  funding checks run every time.
 - **`/e2e redeploy`**: a circuit changed (any `.compact` edit that alters a
   circuit, struct layout, or the request-id hash domain): comment out
-  `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and `MIDNIGHT_CALLER_CONTRACT_ADDRESS`
-  in `.env` (delete the appended signet line or comment it), then run as in
+  `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS`,
+  `MPC_RESPONSE_KEY` and any `CALLER_*` resume ids in `.env` (delete the
+  appended signet line or comment it), then run as in
   the quickstart. The setup re-keygens, redeploys, and **recreates the
   responder itself** (`--force-recreate` exactly when hand-off values newly
   land in `.env`: that re-reads `.env` AND resets the responder's LevelDB
-  private state). One run, no manual hand-off. There are no funded derived
-  accounts to sweep on the local loop. The parked Sepolia sweep procedure
-  lives in `docs/e2e-sepolia-runbook.md` + `scripts/sweep-derived-funds.ts`.
+  private state). One run, no manual hand-off. The local loop funds the
+  derived EVM sender only with free anvil ETH, so there is nothing to sweep.
 
 ## Ground rules (violating these wastes 10+ minutes per mistake)
 
@@ -106,8 +109,8 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 - `FAKENET_MANAGED=0` = you run the responder yourself (responder
   development: `yarn response` in a solana-signet-program checkout with the
   current signet address in its `.env`). The setup then leaves the container
-  AND `.env` alone. That checkout consumes the published `@sig-net/midnight`
-  / `@sig-net/midnight-contract` from npm — the same releases the pinned
+  alone and appends no hand-off values to `.env`. That checkout consumes the
+  published `@sig-net/midnight` / `@sig-net/midnight-contract` from npm — the same releases the pinned
   image bundles — so by default no linking of any kind is involved. Rotate
   the responder's `fakenet-signer/midnight-level-db` aside, set its `.env`
   `MPC_ROOT_KEY` / `MIDNIGHT_WALLET_SEED` (the funded `MPC_RESPONDER_SEED`)

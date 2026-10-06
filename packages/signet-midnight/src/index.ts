@@ -1,5 +1,5 @@
 // Midnight-side sig-net integration: the client-agnostic signet protocol
-// library (wire structs, state readers, event decoders, request feed,
+// library (wire structs, state readers, event decoders, event source,
 // crypto) plus the compiled pure circuits of the shared Compact module.
 
 export * from "./abi-serde.ts";

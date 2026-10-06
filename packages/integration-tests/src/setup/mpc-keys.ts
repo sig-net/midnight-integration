@@ -9,7 +9,7 @@ import { SigningKey } from "ethers";
 
 /**
  * The root public key the MPC network presents for a given root key: the
- * secp256k1 key its EVM signing accounts (and its per-signet-deployment
+ * secp256k1 key its EVM signing accounts (and the per-client-contract
  * response key) epsilon-derive from.
  */
 export interface MpcPublicKeys {

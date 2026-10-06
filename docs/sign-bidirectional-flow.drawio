@@ -66,16 +66,16 @@
                     <mxGeometry x="34" width="153" height="26" as="geometry"/>
                 </mxCell>
                 <mxCell id="event-map" value="" style="group;align=left;" parent="cl" vertex="1" connectable="0">
-                    <mxGeometry x="20" y="49" width="292" height="64" as="geometry"/>
+                    <mxGeometry x="20" y="49" width="307" height="64" as="geometry"/>
                 </mxCell>
                 <mxCell id="event-map-box" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;dashed=1;dashPattern=1 2;strokeColor=default;align=left;" parent="event-map" vertex="1">
-                    <mxGeometry width="292" height="64" as="geometry"/>
+                    <mxGeometry width="307" height="64" as="geometry"/>
                 </mxCell>
                 <mxCell id="event-map-icon" value="" style="strokeWidth=1.6;html=1;shape=mxgraph.flowchart.database;whiteSpace=wrap;align=left;" parent="event-map" vertex="1">
                     <mxGeometry x="8" y="24" width="15" height="16" as="geometry"/>
                 </mxCell>
-                <mxCell id="event-map-text" value="&lt;div style=&quot;font-family: Menlo, Monaco, &#39;Courier New&#39;, monospace; font-size: 12px; line-height: 18px; white-space: pre;&quot;&gt;&lt;span style=&quot;color: rgb(175, 0, 219);&quot;&gt;ledger&lt;/span&gt;&lt;span style=&quot;color: rgb(32, 32, 32);&quot;&gt; &lt;b&gt;signBidirectionalEventMap {&lt;/b&gt;&lt;br&gt;&amp;nbsp;&amp;nbsp;RequestId: SignBidirectionalEvent&lt;br&gt;&lt;b&gt;}&lt;/b&gt;&lt;/span&gt;&lt;/div&gt;" style="text;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacing=0;spacingLeft=0;spacingRight=8;" parent="event-map" vertex="1">
-                    <mxGeometry x="30" width="254" height="64" as="geometry"/>
+                <mxCell id="event-map-text" value="&lt;div style=&quot;font-family: Menlo, Monaco, &#39;Courier New&#39;, monospace; font-size: 12px; line-height: 18px; white-space: pre;&quot;&gt;&lt;span style=&quot;color: rgb(175, 0, 219);&quot;&gt;ledger&lt;/span&gt;&lt;span style=&quot;color: rgb(32, 32, 32);&quot;&gt; &lt;b&gt;SignBidirectionalEventMapV1 {&lt;/b&gt;&lt;br&gt;&amp;nbsp;&amp;nbsp;RequestId: SignBidirectionalEventV1&lt;br&gt;&lt;b&gt;}&lt;/b&gt;&lt;/span&gt;&lt;/div&gt;" style="text;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacing=0;spacingLeft=0;spacingRight=8;" parent="event-map" vertex="1">
+                    <mxGeometry x="30" width="269" height="64" as="geometry"/>
                 </mxCell>
                 <mxCell id="code-start" value="" style="group;align=left;" parent="cl" vertex="1" connectable="0">
                     <mxGeometry x="20" y="188" width="238" height="28" as="geometry"/>
@@ -98,7 +98,7 @@
                 <mxCell id="code-complete-icon" value="" style="shape=mxgraph.ios7.icons.settings;html=1;align=left;" parent="code-complete" vertex="1">
                     <mxGeometry x="8" y="7" width="16" height="16" as="geometry"/>
                 </mxCell>
-                <mxCell id="code-complete-text" value="&lt;div style=&quot;font-family: Menlo, Monaco, &#39;Courier New&#39;, monospace; font-size: 12px; line-height: 18px; white-space: pre;&quot;&gt;&lt;span style=&quot;color: rgb(175, 0, 219);&quot;&gt;circuit&lt;/span&gt;&lt;span style=&quot;color: rgb(32, 32, 32);&quot;&gt; completeCrossChain(...)&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;font-size: 12px; line-height: 15px;&quot;&gt;• verifies the attested execution&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;output in-circuit&lt;/div&gt;" style="text;whiteSpace=wrap;html=1;verticalAlign=middle;spacing=0;spacingLeft=0;spacingRight=8;align=left;" parent="code-complete" vertex="1">
+                <mxCell id="code-complete-text" value="&lt;div style=&quot;font-family: Menlo, Monaco, &#39;Courier New&#39;, monospace; font-size: 12px; line-height: 18px; white-space: pre;&quot;&gt;&lt;span style=&quot;color: rgb(175, 0, 219);&quot;&gt;circuit&lt;/span&gt;&lt;span style=&quot;color: rgb(32, 32, 32);&quot;&gt; completeCrossChain(...)&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;font-size: 12px; line-height: 15px;&quot;&gt;• verifies the attested execution&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;outcome in-circuit&lt;/div&gt;" style="text;whiteSpace=wrap;html=1;verticalAlign=middle;spacing=0;spacingLeft=0;spacingRight=8;align=left;" parent="code-complete" vertex="1">
                     <mxGeometry x="30" width="222" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="sl" value="" style="swimlane;whiteSpace=wrap;html=1;startSize=36;align=left;" parent="ml" vertex="1">
@@ -149,7 +149,7 @@
                 <mxCell id="code-respondbi-text" value="&lt;div style=&quot;font-family: Menlo, Monaco, &#39;Courier New&#39;, monospace; font-size: 12px; line-height: 18px; white-space: pre;&quot;&gt;&lt;span style=&quot;color: rgb(175, 0, 219);&quot;&gt;circuit&lt;/span&gt;&lt;span style=&quot;color: rgb(32, 32, 32);&quot;&gt; respondBidirectional(...)&lt;/span&gt;&lt;/div&gt;" style="text;whiteSpace=wrap;html=1;verticalAlign=middle;spacing=0;spacingLeft=0;spacingRight=8;align=left;" parent="code-respondbi" vertex="1">
                     <mxGeometry x="30" width="237" height="28" as="geometry"/>
                 </mxCell>
-                <mxCell id="hex-notif" value="Event&lt;br&gt;&lt;b&gt;SignBidirectionalEventNotification&lt;/b&gt;" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;size=19;spacingBottom=2;align=center;" parent="ml" vertex="1">
+                <mxCell id="hex-notif" value="Event&lt;br&gt;&lt;b&gt;SignBidirectionalEvent&lt;/b&gt;" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;size=19;spacingBottom=2;align=center;" parent="ml" vertex="1">
                     <mxGeometry x="479" y="428" width="240" height="38" as="geometry"/>
                 </mxCell>
                 <mxCell id="hex-respbi" value="Event&lt;br&gt;&lt;b&gt;RespondBidirectionalEvent&lt;/b&gt;" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;size=19;spacingBottom=2;align=center;" parent="ml" vertex="1">
@@ -202,7 +202,7 @@
                 <mxCell id="n-sign" value="&lt;b&gt;Signs:&lt;/b&gt;&lt;br&gt;the foreign transaction&lt;br&gt;&lt;b&gt;With:&lt;/b&gt;&lt;br&gt;&lt;b&gt;requestSigningKey&lt;/b&gt;" style="text;whiteSpace=wrap;html=1;horizontal=1;verticalAlign=middle;spacing=0;spacingLeft=8;spacingRight=8;dashed=1;dashPattern=1 2;strokeColor=default;align=left;" parent="mpc" vertex="1">
                     <mxGeometry x="15" y="375" width="156" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="n-attest" value="&lt;b&gt;Attests:&lt;/b&gt;&lt;br&gt;the execution output&lt;br&gt;&lt;b&gt;With:&lt;/b&gt;&lt;br&gt;&lt;b&gt;responseKey&lt;/b&gt;" style="text;whiteSpace=wrap;html=1;horizontal=1;verticalAlign=middle;spacing=0;spacingLeft=8;spacingRight=8;dashed=1;dashPattern=1 2;strokeColor=default;align=left;" parent="mpc" vertex="1">
+                <mxCell id="n-attest" value="&lt;b&gt;Attests:&lt;/b&gt;&lt;br&gt;the outcome&lt;br&gt;&lt;b&gt;With:&lt;/b&gt;&lt;br&gt;&lt;b&gt;responseKey&lt;/b&gt;" style="text;whiteSpace=wrap;html=1;horizontal=1;verticalAlign=middle;spacing=0;spacingLeft=8;spacingRight=8;dashed=1;dashPattern=1 2;strokeColor=default;align=left;" parent="mpc" vertex="1">
                     <mxGeometry x="31" y="489" width="124" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="fl" value="" style="swimlane;whiteSpace=wrap;html=1;startSize=36;align=left;" parent="1" vertex="1">
@@ -254,7 +254,7 @@
                 <mxCell id="e-start-map" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;arcSize=20;strokeWidth=2;strokeColor=#E73F74;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=1;entryDx=119;entryDy=0;align=left;" parent="1" source="code-start" target="event-map" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="e-start-map-l" value="&lt;b&gt;startCrossChain circuit:&lt;/b&gt;&lt;br&gt;Constructs &amp;amp; stores the&lt;br&gt;&lt;b&gt;SignBidirectionalEvent&lt;/b&gt; signature request" style="edgeLabel;html=1;align=center;verticalAlign=middle;" parent="e-start-map" vertex="1" connectable="0">
+                <mxCell id="e-start-map-l" value="&lt;b&gt;startCrossChain circuit:&lt;/b&gt;&lt;br&gt;Constructs &amp;amp; stores the&lt;br&gt;&lt;b&gt;SignBidirectionalEventV1&lt;/b&gt; signature request" style="edgeLabel;html=1;align=center;verticalAlign=middle;" parent="e-start-map" vertex="1" connectable="0">
                     <mxGeometry relative="1" as="geometry">
                         <mxPoint y="4" as="offset"/>
                     </mxGeometry>
@@ -288,7 +288,7 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-read-map-l" value="&lt;b&gt;MPC:&lt;/b&gt;&lt;br&gt;Reads the stored&lt;br&gt;&lt;b&gt;SignBidirectionalEvent&lt;/b&gt;&lt;br&gt;request" style="edgeLabel;html=1;align=left;verticalAlign=middle;" parent="e-read-map" vertex="1" connectable="0">
+                <mxCell id="e-read-map-l" value="&lt;b&gt;MPC:&lt;/b&gt;&lt;br&gt;Reads the stored&lt;br&gt;signature request" style="edgeLabel;html=1;align=left;verticalAlign=middle;" parent="e-read-map" vertex="1" connectable="0">
                     <mxGeometry x="-0.195" relative="1" as="geometry">
                         <mxPoint x="6" as="offset"/>
                     </mxGeometry>
@@ -350,7 +350,7 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-extract-output-l" value="&lt;b&gt;dApp/relayer:&lt;/b&gt;&lt;br&gt;Extracts the transaction&lt;br&gt;execution output" style="edgeLabel;html=1;align=left;verticalAlign=middle;" parent="e-extract-output" vertex="1" connectable="0">
+                <mxCell id="e-extract-output-l" value="&lt;b&gt;dApp/relayer:&lt;/b&gt;&lt;br&gt;Extracts the execution&lt;br&gt;output if &lt;b&gt;executed&lt;/b&gt;" style="edgeLabel;html=1;align=left;verticalAlign=middle;" parent="e-extract-output" vertex="1" connectable="0">
                     <mxGeometry x="0.7612" relative="1" as="geometry">
                         <mxPoint x="-134" as="offset"/>
                     </mxGeometry>
@@ -376,7 +376,7 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="e-watch-foreign-l" value="&lt;b&gt;MPC:&lt;/b&gt;&lt;br&gt;Picks up Signed&lt;br&gt;Transaction Execution" style="edgeLabel;html=1;align=left;verticalAlign=middle;" parent="e-watch-foreign" vertex="1" connectable="0">
+                <mxCell id="e-watch-foreign-l" value="&lt;b&gt;MPC:&lt;/b&gt;&lt;br&gt;Picks up the outcome&lt;br&gt;in final blocks" style="edgeLabel;html=1;align=left;verticalAlign=middle;" parent="e-watch-foreign" vertex="1" connectable="0">
                     <mxGeometry x="0.56" relative="1" as="geometry">
                         <mxPoint x="-37" y="-1" as="offset"/>
                     </mxGeometry>

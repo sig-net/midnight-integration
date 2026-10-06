@@ -1,6 +1,6 @@
 # Test Caller Contract
 
-A minimal caller [contract](./src/test-caller-contract.compact) used for integration testing only. It is the smallest client that drives the central signet contract through the full request/response protocol:
+A minimal caller [contract](./src/test-caller-contract.compact) used for integration testing only. It is the smallest client that drives the central signet contract through the request/response flow. It skips the attested block height check (`lastSeen`) that the root README's [Integrator Guide](../../README.md#integrator-guide) requires, so it is not a client to copy. Its circuits:
 
 - `initialise`: pins the contract's MPC response key once after deploy
 - `submitSignatureRequest`: submits a signature request with contract-fixed calldata (signed, never broadcast)

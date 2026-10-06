@@ -84,9 +84,9 @@ export function isFeeReady(funding: AccountFunding, minimumDust = 1n): boolean {
 }
 
 /**
- * A wallet holds no NIGHT and no DUST, so it cannot pay fees until its NIGHT
- * receive address is funded (on a deployed network, via the network's
- * faucet). Thrown by {@link ensureFeeReady} and {@link assertRootFunded},
+ * A wallet holds no NIGHT and not enough DUST, so it cannot pay fees until
+ * its NIGHT receive address is funded (on a deployed network, via the
+ * network's faucet). Thrown by {@link ensureFeeReady} and {@link assertRootFunded},
  * carrying the exact address and faucet URL to act on, so a setup pipeline
  * can STOP printing them.
  */

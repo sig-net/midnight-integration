@@ -40,10 +40,9 @@ sealed ledger signetSigner: SignetSigner;
 // Type 2 transactions with <1 calldata word, 0 access-list entries,
 // 0 storage keys> and a 34-byte ABI output schema. Shared by every request
 // of that shape: submitSignatureRequest, submitIsEvenRequest and
-// submitRevertIfRequest. Schemas are EXACT-length by protocol convention
-// (never NUL-padded: the MPC's raw reader recovers the width from the
-// stored bytes, and trailing zeros would be trimmed), so a request with a
-// different schema length needs its own map: see field 6.
+// submitRevertIfRequest. The schema fills its field exactly here. A shorter
+// canonical schema can share this map when NUL-padded to the field width,
+// and a longer one needs its own map: see field 6.
 export ledger signBidirectionalEventMap: SignBidirectionalEventMapV1<EvmType2TxParams<1, 0, 0>, 34>;
 
 // field 4: identity commitment of the deployer, gating initialise().
@@ -365,7 +364,7 @@ struct BoolResponse {
 // output width follows from the output schema: the single-bool schema
 // (submitSignatureRequest, submitIsEvenRequest and submitRevertIfRequest)
 // serialises to exactly 1 byte (no padding: the digest hashes the output at
-// its exact length, and the destination block height beside it). The caller hands the event over in
+// its exact length, and the target-chain block height beside it). The caller hands the event over in
 // verifyRespondBidirectionalEventV1's circuit-input form (signature scalars
 // byte-reversed off-chain, see that circuit's contract): the attested bytes
 // deserialize into BoolResponse in-circuit and the decoded value gates

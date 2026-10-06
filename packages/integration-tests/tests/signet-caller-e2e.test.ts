@@ -180,9 +180,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       const context = await session.callerContext();
 
       // The derived sender's current nonce on the chain the fakenet admits
-      // against: the fakenet refuses to sign a request whose nonce the
-      // account has already spent at finality, and the real-EVM flow file
-      // spends this same account's nonces.
+      // against: a transaction whose nonce the account has already spent at
+      // finality can never execute, and the real-EVM flow file spends this
+      // same account's nonces.
       const evmNonce = await getEvmNonce(evmRpcUrl(env), derivedSender());
 
       const before = await readRequestIds(context);
@@ -347,7 +347,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
     "verifyResponse [signet-caller contract method call]: verify an ECDSA respond-bidirectional response in-circuit and consume the request",
     async () => {
       // The fakenet posts its own respond-bidirectional response only after
-      // observing the requested transaction on the destination chain: the
+      // observing the requested transaction on the target chain: the
       // post-broadcast leg this generic exercise deliberately omits. The
       // caller contract's VERIFICATION of a response is what this leg proves,
       // so the response is signed here with the MPC response key derived from
@@ -382,7 +382,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
         hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
       );
-      // This suite plays the MPC, so the attested destination height is
+      // This suite plays the MPC, so the attested target-chain height is
       // whatever it claims: the circuit checks the height is signed, not
       // that it is real.
       const blockHeight = 1n;
@@ -393,7 +393,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
 
       // No key argument: verifyResponse reads the stored MPC response key
       // straight from the ledger (the initialise leg put it there), and takes
-      // the response record in the shape the singleton emits it. The record
+      // the response record in the circuit-input form
+      // (respondBidirectionalEventToCircuitInput flips bigR.x and s). The record
       // never carries the output: the circuit recomputes the digest from the
       // output handed in beside it.
       await context.caller.callTx.verifyResponse(
@@ -403,7 +404,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
 
       // The consumption is the observable effect: present before (checked
       // above), absent after. Removal only happens if every in-circuit
-      // check (response-key hash, ECDSA signature) passed. Poll briefly for
+      // check (stored response key set, ECDSA signature, executed kind,
+      // success flag) passed. Poll briefly for
       // the indexer to catch up.
       const deadline = Date.now() + MINUTE;
       let stillPresent = true;
