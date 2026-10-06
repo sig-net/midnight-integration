@@ -91,7 +91,7 @@ export interface EvmType2TxParams {
   maxFeePerGas: bigint;
   /** Gas ceiling for the call. */
   gasLimit: bigint;
-  /** Call target (e.g. the ERC20 contract), 20 bytes. */
+  /** Recipient (e.g. the ERC20 contract), 20 bytes. */
   to: Uint8Array;
   /** ETH sent with the call, wei. */
   value: bigint;

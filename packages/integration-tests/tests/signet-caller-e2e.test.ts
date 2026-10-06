@@ -347,7 +347,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
     "verifyResponse [signet-caller contract method call]: verify an ECDSA respond-bidirectional response in-circuit and consume the request",
     async () => {
       // The fakenet posts its own respond-bidirectional response only after
-      // observing the requested transaction on the destination chain: the
+      // observing the requested transaction on the target chain: the
       // post-broadcast leg this generic exercise deliberately omits. The
       // caller contract's VERIFICATION of a response is what this leg proves,
       // so the response is signed here with the MPC response key derived from
@@ -382,7 +382,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
         hexToBytes(stripHexPrefix(requireEnv("MPC_ROOT_KEY"))),
         requireEnv("MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
       );
-      // This suite plays the MPC, so the attested destination height is
+      // This suite plays the MPC, so the attested target-chain height is
       // whatever it claims: the circuit checks the height is signed, not
       // that it is real.
       const blockHeight = 1n;

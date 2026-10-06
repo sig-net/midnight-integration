@@ -364,7 +364,7 @@ struct BoolResponse {
 // output width follows from the output schema: the single-bool schema
 // (submitSignatureRequest, submitIsEvenRequest and submitRevertIfRequest)
 // serialises to exactly 1 byte (no padding: the digest hashes the output at
-// its exact length, and the destination block height beside it). The caller hands the event over in
+// its exact length, and the target-chain block height beside it). The caller hands the event over in
 // verifyRespondBidirectionalEventV1's circuit-input form (signature scalars
 // byte-reversed off-chain, see that circuit's contract): the attested bytes
 // deserialize into BoolResponse in-circuit and the decoded value gates

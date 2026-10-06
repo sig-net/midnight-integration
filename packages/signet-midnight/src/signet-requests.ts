@@ -155,7 +155,7 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
   signatureDest: number;
   /** Extra MPC parameters: 64 opaque bytes, reserved, zero-filled. */
   params: Uint8Array;
-  /** MPC output_deserialization_schema (destination chain -> MPC), contract-declared width. */
+  /** MPC output_deserialization_schema (target chain -> MPC), contract-declared width. */
   outputDeserializationSchema: Uint8Array;
   /** Reserved and ignored by the MPC, contract-declared width (zero in the V1 helper). */
   respondSerializationSchema: Uint8Array;

@@ -328,9 +328,9 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
  * twin of the size-generic Compact circuit `calculateSignetAttestationDigestV1`.
  *
  * @param requestId - The 32-byte request id the response answers.
- * @param blockHeight - Height of the finalised destination block holding the
+ * @param blockHeight - Height of the finalised target-chain block holding the
  *   transaction the outcome describes (for unviable, the transaction that
- *   used up the replay protection), in the destination chain's own numbering.
+ *   used up the replay protection), in the target chain's own numbering.
  * @param outputKind - The MPC's verdict on the execution.
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @returns The 32-byte attestation digest.
@@ -358,7 +358,7 @@ export interface RespondBidirectionalAttestation {
   /** The 32-byte request id the response answers. */
   requestId: RequestId;
   /**
-   * Height of the finalised destination block holding the transaction the
+   * Height of the finalised target-chain block holding the transaction the
    * outcome describes (for unviable, the transaction that used up the replay
    * protection).
    */

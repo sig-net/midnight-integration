@@ -45,8 +45,8 @@
 //    signature) through the Signet singleton, which emits it as a contract event.
 // 3. Client polls the Signet singleton contract's SignatureRespondedEvent events, identifying the response
 //    associated with their request by RequestId. Clients validate the signature is correct by checking with
-//    the requested signing key. Then it broadcasts the signed txn to the destination chain.
-// 4. MPC observes the txn's outcome in a final block on the destination chain (executed, failed,
+//    the requested signing key. Then it broadcasts the signed txn to the target chain.
+// 4. MPC observes the txn's outcome in a final block on the target chain (executed, failed,
 //    or unviable when another request's transaction took its nonce) and posts a
 //    RespondBidirectionalEvent attestation through the Signet singleton, which emits it as a
 //    contract event beside the request id.
@@ -108,7 +108,7 @@ module Signet {
     // MPC Parameters.
     algo: MPCSignatureAlgorithm;    // Signature algorithm scheme, e.g. ecdsa
 
-    // Specific destination chain Transaction parameters.
+    // Target chain transaction parameters.
     txParamType: TxParamType;  // Off-chain tag indicating what type txParams is set to.
     txParams: TxParams;        // The generic transaction-param payload
     executionDest: Bytes<32>;  // The MPC's routing key for the target chain, in CAIP-2 form
@@ -123,8 +123,8 @@ module Signet {
 
     // ---- Serialisation Schemas ----
     
-    // outputDeserializationSchema tells the MPC how to decode the destination chain's
-    // execution output (destination chain -> MPC).
+    // outputDeserializationSchema tells the MPC how to decode the target chain's
+    // execution output (target chain -> MPC).
     // The value is execution chain specific and sized per client contract: 
     // - Ethereum: an ABI JSON schema string (see https://docs.soliditylang.org/en/v0.8.30/abi-spec.html#json)
     //   in canonical form: `[{"name":"<identifier>","type":"<abi type>"},...]` with no
@@ -350,8 +350,8 @@ module Signet {
     // post settles exactly the request it names, so a client consumes this id
     // and never one taken from elsewhere.
     requestId: RequestId;
-    // Height of the finalised destination block holding the transaction the
-    // attestation describes, in the destination chain's own numbering (a slot
+    // Height of the finalised target-chain block holding the transaction the
+    // attestation describes, in the target chain's own numbering (a slot
     // on Solana). Signed into the digest.
     blockHeight: Uint<64>;
     // The MPC's verdict on the execution, signed into the digest.
@@ -370,7 +370,7 @@ module Signet {
 
   // OutputKind is the MPC's verdict on a request's execution, the kind half of
   // the protocol's outcome (kind, data). The block height the attestation
-  // commits to is the finalised destination block that settled the verdict.
+  // commits to is the finalised target-chain block that settled the verdict.
   export enum OutputKind {
     executed, // finalised and succeeded: the attested output is the decoded return data, Borsh-serialised by the MPC (empty when the call returns nothing)
     failed,   // finalised and reverted: the attested output is empty (Bytes<0>)
@@ -379,8 +379,8 @@ module Signet {
 
   // The 32-byte attestation digest of a remote execution output:
   //    attestationDigest = upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]))
-  // blockHeight is the height of the finalised destination block holding the
-  // transaction the attestation describes, in the destination chain's own
+  // blockHeight is the height of the finalised target-chain block holding the
+  // transaction the attestation describes, in the target chain's own
   // numbering (a slot on Solana).
   // Off-chain code uses the TypeScript twin:
   //    import { calculateSignetAttestationDigest } from "@sig-net/midnight/testing";
@@ -435,7 +435,7 @@ module Signet {
   // ---- EVM Type2 Transaction Parameters --------------------------------------------------------------
 
   // The caip2Id of every request targeting Ethereum, whichever Ethereum network the
-  // MPC node watches (mainnet, Sepolia or a local anvil: node configuration picks it).
+  // MPC deployment watches (mainnet, Sepolia or a local anvil: set per deployment).
   // The MPC routes on this exact string (Chain::Ethereum in sig-net/mpc
   // signet-primitives/src/chain.rs) and rejects the request for any other value,
   // the network's own CAIP-2 id included. EvmType2TxParams.chainId is what binds
@@ -466,7 +466,7 @@ module Signet {
     maxPriorityFeePerGas: Uint<128>; // wei
     maxFeePerGas: Uint<128>;         // wei
     gasLimit: Uint<64>;              // gas ceiling for the call
-    to: Bytes<20>;                   // call target (e.g. the ERC20 contract)
+    to: Bytes<20>;                   // recipient (e.g. the ERC20 contract)
     value: Uint<128>;                // ETH sent with the call, in wei
     calldata: Maybe<EvmCalldata<maxCalldataWords>>; // none = plain ETH transfer ("0x" data)
     accessListEntryCount: Uint<8>;   // how many leading accessList entries are real

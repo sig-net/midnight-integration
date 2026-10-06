@@ -447,10 +447,10 @@ export interface RespondBidirectionalEvent {
    */
   requestId: Uint8Array;
   /**
-   * Height of the finalised destination block holding the transaction the
+   * Height of the finalised target-chain block holding the transaction the
    * outcome describes (the requested transaction for executed and failed,
    * the transaction that used up its replay protection for unviable), in the
-   * destination chain's own numbering (a slot on Solana). Compact `Uint<64>`,
+   * target chain's own numbering (a slot on Solana). Compact `Uint<64>`,
    * signed into the digest.
    */
   blockHeight: bigint;

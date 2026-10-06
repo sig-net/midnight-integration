@@ -47,7 +47,7 @@ and two flow files:
      the request. The event never carries the
      output, so the circuit takes the output bytes as an argument
      and re-hashes them into the digest the signature must cover. The
-     fakenet only attests after observing a broadcast on the destination
+     fakenet only attests after observing a broadcast on the target
      chain (a leg this generic exercise deliberately omits), so the
      attestation is signed in-test with the MPC response key derived from
      the suite's shared `MPC_ROOT_KEY` and the caller contract address (the

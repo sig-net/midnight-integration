@@ -50,7 +50,7 @@ The protocol is best understood in 5 steps:
       - `executed`: the transaction was finalised and succeeded.
       - `failed`: the transaction was finalised and reverted.
       - `unviable`: a finalised transaction of another request from the same account took its nonce, so it can never execute.
-    - **`blockHeight`**: the height of the finalised destination block that settled the verdict, in that chain's own numbering (a slot on Solana).
+    - **`blockHeight`**: the height of the finalised target-chain block that settled the verdict, in that chain's own numbering (a slot on Solana).
     - **`serializedOutput`**: only present under `executed`, and possibly empty. The MPC extracts the output of the transaction execution (if any) and decodes it using the `outputDeserializationSchema` given in the **SignBidirectionalEvent** from step **2.**. It maps the decoded values to Compact-compatible types and serialises them with Borsh against a schema derived from that mapping. The integrating contract reads the result in-circuit with Compact's built-in `deserialize<T, N>(...)`. See [Output Recovery and Serialisation](#output-recovery-and-serialisation) for detail. Under `failed` and `unviable` the output is empty (zero bytes).
   - The MPC creates the attestation as the ECDSA signature over the **attestation digest**, signed with the integrating contract's own **Response Signing Key** (see [Derived Keys](#derived-keys)). The digest is `upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]))` (see [`calculateSignetAttestationDigestV1`](./packages/signet-midnight/src/Signet.compact#L388)).
   - The output attestation is then made available on Midnight with the MPC calling the [`respondBidirectional`](./packages/signet-contract/src/signet-contract.compact#L80) circuit on the **Sig Network Singleton**, emitting a **[RespondBidirectionalEventV1](./packages/signet-midnight/src/Signet.compact#L348)**. The output itself never travels on chain: the event carries the request id, the attested block height, the output kind, the output's byte width, the attestation digest and the attesting signature.
@@ -189,7 +189,7 @@ A signet-compliant client contract:
 - it pins its counterparties: the Signet singleton contract and its own MPC response key
 - it submits signature requests
 - it verifies execution responses in-circuit
-- it records the destination height known when each request is made and accepts only responses above that height
+- it records the target-chain height known when each request is made and accepts only responses above that height
 
 Integrating a contract on Midnight with the Sig Network MPC consists of:
 
@@ -198,7 +198,7 @@ Integrating a contract on Midnight with the Sig Network MPC consists of:
 
 ## Setup
 
-Set up your contract for integration with the Sig Network MPC's sign bidirectional flow. This basic example targets one destination chain, Ethereum Sepolia, so it uses one `lastSeen` height. This is the highest destination height the contract has accepted in an attestation, initially zero, not a height supplied by the client. A contract supporting multiple destination chains needs a separate `lastSeen` per chain.
+Set up your contract for integration with the Sig Network MPC's sign bidirectional flow. This basic example targets one target chain, Ethereum (here on Sepolia), so it uses one `lastSeen` height. This is the highest target-chain height the contract has accepted in an attestation, initially zero, not a height supplied by the client. A contract supporting multiple target chains needs a separate `lastSeen` per chain.
 
 1. Add the protocol library to your project:
    ```sh
@@ -365,7 +365,7 @@ const expectedSigner = deriveEvmAddress(
    const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34>(request));
 
    // One lastSeen value is safe only when every request targets this chain.
-   assert(request.executionDest == ethereumCaip2Id(), "Expected Ethereum destination");
+   assert(request.executionDest == ethereumCaip2Id(), "Expected Ethereum target");
    assert(request.txParams.chainId == 11155111, "Expected Sepolia chain id");
    assert(!signBidirectionalEventMap.member(requestId), "Request already outstanding");
    signBidirectionalEventMap.insert(requestId, disclose(request));
@@ -457,7 +457,7 @@ An `EvmType2TxParams` request decomposes the EVM transaction into typed fields, 
 The request names its target network in two fields, for two different readers:
 
 - **`txParams.chainId`** is the EIP-155 chain id the signed transaction is valid on: `11155111` for Sepolia, `31337` for a bare local anvil. It is the only field that differs between Ethereum networks.
-- **`executionDest`** is the MPC's routing key for the target chain, in CAIP-2 form. For Ethereum it is `eip155:1` on every Ethereum network, whichever one (mainnet, Sepolia or a local anvil) the MPC node is configured to watch. Build it with the module's `ethereumCaip2Id()` circuit (`pureCircuits.ethereumCaip2Id()` off chain). The MPC routes on that exact string and rejects the request for any other value, the network's own CAIP-2 id (`eip155:11155111`) included, so never derive it from the chain id.
+- **`executionDest`** is the MPC's routing key for the target chain, in CAIP-2 form. For Ethereum it is `eip155:1` on every Ethereum network, whichever one (mainnet, Sepolia or a local anvil) the MPC deployment watches. Build it with the module's `ethereumCaip2Id()` circuit (`pureCircuits.ethereumCaip2Id()` off chain). The MPC routes on that exact string and rejects the request for any other value, the network's own CAIP-2 id (`eip155:11155111`) included, so never derive it from the chain id.
 
 `ethereumCaip2Id()` is for Ethereum targets only. Another EVM chain, such as BNB Smart Chain (`eip155:56`), is a separate chain to the MPC, never one of Ethereum's networks.
 
