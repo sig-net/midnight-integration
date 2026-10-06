@@ -1,4 +1,5 @@
 // Midnight node connection config — everything needed to talk to one Midnight
+// network.
 
 import { envOrUndefined } from "./env.ts";
 import { MidnightNetwork, NETWORK_IDS, type NetworkId } from "./network-id.ts";

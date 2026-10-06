@@ -102,8 +102,9 @@ export const MPCDestination = {
 /**
  * The fields of a {@link SignBidirectionalEvent} that mint its
  * {@link RequestId} (Compact: `RequestIdPreimageV1`), in Compact declaration
- * order: the signing key, the requesting contract, a digest of the
- * transaction and its execution destination. The transaction enters as the
+ * order: the key version and the requesting contract, the path and
+ * algorithm (with those two, the signing key), the transaction-parameter type
+ * tag, a digest of the transaction and its execution destination. The transaction enters as the
  * digest its decomposition's own function computes over the used entries
  * only, so the id is the same whatever capacities the requester compiled its
  * struct with and whatever bytes sit in unused slots. The serialisation
@@ -154,9 +155,9 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
   signatureDest: number;
   /** Extra MPC parameters: 64 opaque bytes, reserved, zero-filled. */
   params: Uint8Array;
-  /** MPC output_deserialization_schema (destination chain -> MPC), contract-declared width. */
+  /** MPC output_deserialization_schema (target chain -> MPC), contract-declared width. */
   outputDeserializationSchema: Uint8Array;
-  /** MPC respond_serialization_schema (MPC -> Midnight), contract-declared width. */
+  /** Reserved and ignored by the MPC, contract-declared width (zero in the V1 helper). */
   respondSerializationSchema: Uint8Array;
 }
 

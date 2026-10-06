@@ -1,5 +1,5 @@
 // The worker-side half of the setup/flow split: what every flow test FILE
-// imports to join the pipeline. Counterpart of setup/global-setup.ts, and the
+// imports to join the pipeline. Counterpart of setup/caller-global-setup.ts, and the
 // only src module that imports `vitest` test APIs — keep it out of anything
 // globalSetup loads (vitest's worker-only APIs are unavailable in the main
 // process).
@@ -13,7 +13,7 @@ const MINUTE = 60_000;
 
 declare module "vitest" {
   interface ProvidedContext {
-    /** The setup-populated env accumulator, provided by setup/global-setup.ts. */
+    /** The setup-populated env accumulator, provided by setup/caller-global-setup.ts. */
     e2eEnv?: Record<string, string>;
   }
 }

@@ -1,9 +1,9 @@
 // Caller deploy flow: builds, balances, proves and submits the caller's
 // deploy transaction using the generic plumbing in
 // @sig-net/midnight-contract-deploy. Everything contract-specific lives HERE:
-// the constructor arg (the signet contract reference) and the (empty)
-// private state. Requires `yarn compile:zk` output (verifier keys) in
-// src/managed.
+// the constructor args (the deployer commitment and the signet contract
+// reference) and the private state (the deployer's identity secret).
+// Requires `yarn compile:zk` output (verifier keys) in src/managed.
 //
 // The MPC response key is NOT a deploy input: it is derived from THIS
 // contract's address (which only exists once the deploy transaction is
@@ -61,8 +61,9 @@ export interface CallerDeployment {
 /**
  * Deploy the signet caller contract: read config from `env`, build/prove the
  * deploy transaction and submit it through a synced wallet. Progress is
- * logged to the console. The one constructor argument is the signet contract
- * address, sealed as the cross-contract notification target. The MPC
+ * logged to the console. The constructor takes the deployer's identity
+ * commitment (which gates initialise) and the signet contract address,
+ * sealed as the cross-contract notification target. The MPC
  * response key for the freshly deployed contract must then be pinned with a
  * separate `initialise` call (derive it from the MPC root public key + the
  * NEW contract address + the fixed path "midnight response key").

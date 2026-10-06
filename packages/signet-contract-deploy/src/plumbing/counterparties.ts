@@ -1,9 +1,10 @@
 // The two protocol counterparty values a requester contract seals for good:
 // the signet singleton it notifies (a deploy-time constructor argument) and
-// the MPC root public key its derived accounts start from (pinned at
-// initialise). On a deployed network this SDK publishes both, so a deploy
-// needs neither in its environment, and a value that IS set is checked
-// against the published one: a mismatch would seal an address the real MPC
+// the MPC root public key its derived accounts and its response key start
+// from (the response key derived from it is pinned at initialise). On a
+// deployed network this SDK publishes both, so a deploy needs neither in its
+// environment, and a value that IS set is checked against the published one:
+// a mismatch would seal an address the real MPC
 // never answers or a key it never signs under. The local standalone stack
 // publishes nothing: its setup deploys a singleton and generates a root key
 // per stack, and passes them through the same environment variables.

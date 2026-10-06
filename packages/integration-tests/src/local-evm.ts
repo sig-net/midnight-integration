@@ -1,9 +1,10 @@
 // Local-EVM (anvil dev chain) plumbing for the real-EVM signet-caller e2e:
 // generic contract deployment from a compiled artifact, derived-sender ETH
 // funding, nonce reads, and idempotent broadcast of an MPC-signed
-// transaction. Everything here signs with the universally-known dev funder
-// account, which only exists pre-funded on a throwaway local chain, so every
-// entry point is gated on chain id 31337.
+// transaction. The dev-funder actions (deploy, top-up) sign with the
+// universally-known dev funder account, which only exists pre-funded on a
+// throwaway local chain, so their callers gate them on chain id 31337 with
+// assertLocalDevChain.
 //
 // Adapted from the midnight-examples test harness (local-evm.ts and the
 // erc20-vault broadcast flow), trimmed to what this suite needs.

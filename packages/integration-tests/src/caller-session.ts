@@ -1,5 +1,5 @@
-// Per-flow-file wallet + reader lifecycle for the generic signet-caller e2e —
-// the caller-shaped sibling of session.ts. The flow file creates ONE session
+// Per-flow-file wallet + reader lifecycle for the generic signet-caller e2e.
+// The flow file creates ONE session
 // at module scope, uses it lazily from its tests, and stops it in afterAll.
 // The lazy construction keeps the offline path (RUN_INTEGRATION_TESTS unset)
 // from ever touching the network.
@@ -55,7 +55,7 @@ export type DeployedCallerContract = FoundContract<CallerContract<CallerPrivateS
 export interface CallerContext {
   /** The caller's provider set (public data / proof / zk-config / private state / wallet). */
   readonly providers: CallerProviders;
-  /** The caller contract, joined with its (empty) private state. */
+  /** The caller contract, joined with its private state (the deployer identity secret). */
   readonly caller: DeployedCallerContract;
   /** The joined contract's Midnight address. */
   readonly contractAddress: string;

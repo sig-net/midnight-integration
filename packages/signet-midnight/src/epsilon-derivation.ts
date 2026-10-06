@@ -2,7 +2,7 @@
 //
 // This belongs in github.com/sig-net/signet.js, kept here until upstreamed.
 //
-// v2.0.0 (COLON-separated) is the only scheme the MPC answers: the Compact
+// v2.0.0 (COLON-separated) is the only scheme this SDK derives: the Compact
 // contracts assert `keyVersion >= 1`, which selects v2.
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
@@ -40,16 +40,17 @@ export const MIDNIGHT_CAIP2_ID = "midnight:mainnet";
  * (sig-net/mpc chain-signatures/node/src/respond_bidirectional.rs). The
  * response key is derived PER CLIENT CONTRACT from (the client contract's
  * own address, this path): it is not the MPC root key and not the key that
- * signs the requested transaction. Client contracts pin its hash with a
- * one-shot `initialise` circuit after deploy and verify
- * RespondBidirectionalEvents against the pin.
+ * signs the requested transaction. Client contracts store the key itself
+ * with a one-shot `initialise` circuit after deploy and verify
+ * RespondBidirectionalEvents against it.
  */
 export const MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH = "midnight response key";
 
 /**
- * The two fields of a request record that select its request signing key.
- * The record's tx-params decomposition plays no part, so a record over any
- * decomposition satisfies it.
+ * The two fields of a request record that, with the root key of its
+ * `keyVersion`, select its request signing key. The record's tx-params
+ * decomposition plays no part, so a record over any decomposition satisfies
+ * it.
  */
 export type SignBidirectionalEventKeySelector = Pick<SignBidirectionalEvent, "sender" | "path">;
 
@@ -156,7 +157,8 @@ export function deriveSignBidirectionalEventSigningKey(
 /**
  * Derive the EVM address of an on-ledger request record's request signing
  * key (see {@link deriveSignBidirectionalEventSigningKey}): the signer a
- * response to that request must recover to.
+ * signature response (SignatureRespondedEvent) to that request must recover
+ * to.
  *
  * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key of the
  *   record's `keyVersion`, in any spelling `parseSecp256k1PublicKey`

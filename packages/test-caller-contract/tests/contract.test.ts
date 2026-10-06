@@ -560,7 +560,7 @@ const IMPOSTER_PUBLIC = secp256k1PublicKeyOf(IMPOSTER_SECRET);
 const OUTPUT_SUCCESS = Uint8Array.of(1);
 const OUTPUT_FAILURE = Uint8Array.of(0);
 
-/** The destination block height every attestation below claims. */
+/** The target-chain block height every attestation below claims. */
 const BLOCK_HEIGHT = 21_000_000n;
 
 /**

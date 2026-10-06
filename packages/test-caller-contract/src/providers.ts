@@ -37,7 +37,7 @@ export type CallerCircuitId = keyof InstanceType<typeof Contract>["provableCircu
 export type CallerPrivateStateId = "test-caller-contract";
 
 /**
- * Key under which midnight-js persists the caller's (empty) private state
+ * Key under which midnight-js persists the caller's private state
  * locally (in the private-state store from {@link buildCallerProviders}).
  * Distinct per contract so two clients don't share an entry.
  */
@@ -49,7 +49,7 @@ export type CallerProviders = MidnightProviders<
   CallerCircuitId,
   // PSI: the private-state storage key literal.
   CallerPrivateStateId,
-  // PS: the shape of the contract's (empty) private state object.
+  // PS: the shape of the contract's private state object.
   CallerPrivateState
 >;
 
@@ -100,8 +100,8 @@ export function buildCallerProviders(
 
   return {
     // Manages the private state of a contract, plus contract-maintenance
-    // signing keys. Storage is LevelDB; nothing sensitive is stored here (the
-    // caller's private state is empty), so the constant password below is
+    // signing keys. Storage is LevelDB; it holds the caller's private state
+    // (the deployer's identity secret), and the constant password below is
     // format compliance, not secrecy. Store names are distinct per contract
     // so two clients don't share an entry.
     privateStateProvider: levelPrivateStateProvider({
