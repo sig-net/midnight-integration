@@ -1,13 +1,14 @@
 // secp256k1 ECDSA helpers: the TS side of Signet.compact's respond flows:
 // SIGNING (which needs the secret scalar, so it cannot be a circuit), key
 // parsing/formatting, the signature-record codecs both respond events
-// share, and the attestation digest's TS twin.
+// share, and the TS twins of the size-generic output circuits.
 // Everything provable stays in Compact where possible: in-circuit
-// verification is `verifyRespondBidirectionalEventV1`. The digest circuit is
-// size-generic and the compiler cannot export size-generic circuits
-// top-level, so the digest is
-// the ONE sanctioned TS twin here, pinned byte-for-byte against the
-// fixed-width oracle circuits circuits.compact exports (see
+// verification is `verifyRespondBidirectionalEventV1`, and the attestation
+// digest is the compiled `calculateSignetAttestationDigestV1`. The output
+// hash and output check circuits are size-generic and the compiler cannot
+// export size-generic circuits top-level, so `calculateAttestedOutputHash`
+// and `verifyAttestedOutput` are the sanctioned TS twins here, pinned against
+// the fixed-width oracle circuits circuits.compact exports (see
 // tests/ecdsa-attestation.test.ts).
 //
 // This belongs in github.com/sig-net/signet.js as its Midnight adapter,
@@ -21,9 +22,9 @@ import {
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { decodeBase58, Signature, toBeHex } from "ethers";
 
-import { bigintToBytes32BE, bytesToBigintBE, stripHexPrefix } from "./byte-codecs.ts";
-import { attestationPreimageDescriptor } from "./compact-descriptors.ts";
-import { HashDomain, type OutputKind } from "./managed/contract/index.js";
+import { bigintToBytes32BE, bytesToBigintBE, bytesToHex, stripHexPrefix } from "./byte-codecs.ts";
+import { attestedOutputPreimageDescriptor } from "./compact-descriptors.ts";
+import { HashDomain, type OutputKind, pureCircuits } from "./managed/contract/index.js";
 import type {
   MpcSignature,
   RespondBidirectionalEvent,
@@ -322,10 +323,55 @@ export function secp256k1PublicKeyOf(secretKey: Uint8Array): Secp256k1Point {
 }
 
 /**
- * The attestation digest of a respond-bidirectional response:
- * `upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, outputLength, serializedOutput]))`,
- * the 32-byte digest the MPC ECDSA-signs to attest a remote execution. TS
- * twin of the size-generic Compact circuit `calculateSignetAttestationDigestV1`.
+ * The hash of a serialised execution output that the attestation digest
+ * commits to: `upgradeFromTransient(transientHash([HashDomain.attestedOutput, serializedOutput]))`.
+ * TS twin of the size-generic Compact circuit `calculateAttestedOutputHashV1`.
+ * The hash does not commit to the output's width (outputs that differ only
+ * in trailing zero bytes hash alike), so the attestation commits to the
+ * width separately and a verifier checks both.
+ *
+ * @param serializedOutput - The serialised execution output, exact unpadded bytes.
+ * @returns The 32-byte output hash.
+ */
+export function calculateAttestedOutputHash(serializedOutput: Uint8Array): Uint8Array {
+  return upgradeFromTransient(
+    transientHash(attestedOutputPreimageDescriptor(serializedOutput.length), [
+      HashDomain.attestedOutput,
+      serializedOutput,
+    ]),
+  );
+}
+
+/**
+ * Whether `serializedOutput` is the output an attestation declares: its width
+ * is `attestedOutputLength` and its {@link calculateAttestedOutputHash} is
+ * `attestedOutputHash`. TS twin of the size-generic Compact circuit
+ * `verifyAttestedOutputV1`. Both checks are needed, as the hash alone does not
+ * commit to the width. Proves nothing about the attestation itself: the length
+ * and hash must come from a post that passed
+ * {@link verifyRespondBidirectionalAttestation}.
+ *
+ * @param serializedOutput - The serialised execution output, exact unpadded bytes.
+ * @param attestedOutputLength - The attested output width, in bytes.
+ * @param attestedOutputHash - The attested 32-byte output hash.
+ * @returns Whether the output is the attested one.
+ */
+export function verifyAttestedOutput(
+  serializedOutput: Uint8Array,
+  attestedOutputLength: bigint,
+  attestedOutputHash: Uint8Array,
+): boolean {
+  return (
+    attestedOutputLength === BigInt(serializedOutput.length) &&
+    bytesToHex(attestedOutputHash) === bytesToHex(calculateAttestedOutputHash(serializedOutput))
+  );
+}
+
+/**
+ * The attestation digest of a respond-bidirectional response for an output
+ * in hand: the compiled `calculateSignetAttestationDigestV1` over the
+ * output's width and {@link calculateAttestedOutputHash}. The 32-byte digest
+ * the MPC ECDSA-signs to attest a remote execution.
  *
  * @param requestId - The 32-byte request id the response answers.
  * @param blockHeight - Height of the finalised target-chain block holding the
@@ -341,15 +387,12 @@ export function calculateSignetAttestationDigest(
   outputKind: OutputKind,
   serializedOutput: Uint8Array,
 ): Uint8Array {
-  return upgradeFromTransient(
-    transientHash(attestationPreimageDescriptor(serializedOutput.length), [
-      HashDomain.attestationDigest,
-      requestId,
-      blockHeight,
-      outputKind,
-      BigInt(serializedOutput.length),
-      serializedOutput,
-    ]),
+  return pureCircuits.calculateSignetAttestationDigestV1(
+    requestId,
+    blockHeight,
+    outputKind,
+    BigInt(serializedOutput.length),
+    calculateAttestedOutputHash(serializedOutput),
   );
 }
 
@@ -386,17 +429,21 @@ export function attestRespondBidirectional(
   secretKey: Uint8Array,
 ): RespondBidirectionalEvent {
   const { requestId, blockHeight, outputKind, serializedOutput } = attestation;
-  const digest = calculateSignetAttestationDigest(
+  const serializedOutputLength = BigInt(serializedOutput.length);
+  const outputHash = calculateAttestedOutputHash(serializedOutput);
+  const digest = pureCircuits.calculateSignetAttestationDigestV1(
     requestId,
     blockHeight,
     outputKind,
-    serializedOutput,
+    serializedOutputLength,
+    outputHash,
   );
   return {
     requestId,
     blockHeight,
     outputKind,
-    serializedOutputLength: BigInt(serializedOutput.length),
+    serializedOutputLength,
+    outputHash,
     digest,
     signature: ecdsaSignatureToMpcSignature(signAttestationDigest(digest, secretKey)),
   };
@@ -444,40 +491,39 @@ export function respondBidirectionalEventToCircuitInput(
 }
 
 /**
- * Off-chain twin of the in-circuit `verifyRespondBidirectionalEventV1`: checks
- * a posted respond-bidirectional attestation against the execution output
- * and the contract's pinned MPC response key, over the request id, block
- * height and output kind the post declares. Clients run it to sift candidate posts
- * before calling a contract: a post this accepts verifies in-circuit (once
- * flipped to circuit-input form, see
- * {@link respondBidirectionalEventToCircuitInput}). Takes the record as read
- * off the ledger (big-endian). Malformed records return `false` rather than
+ * Off-chain twin of the in-circuit `verifyRespondBidirectionalAttestationV1`:
+ * checks a posted respond-bidirectional attestation's signature against the
+ * contract's pinned MPC response key, over the request id, block height,
+ * output kind, output length and output hash the post declares, without the
+ * output. A post this accepts is an outcome the MPC attested for the request
+ * it names; the output it attests is checked by
+ * {@link verifyRespondBidirectionalSignature}. Takes the record as read off
+ * the ledger (big-endian). Malformed records return `false` rather than
  * throwing.
  *
- * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @param event - The posted record to check, as read off the ledger.
  * @param mpcResponseKey - The response key the requesting contract pinned
  *   (see {@link deriveMidnightResponseKey}).
- * @returns Whether the post is a genuine attestation of that output for the
- *   request it names.
+ * @returns Whether the post is a genuine attestation for the request it names.
  */
-export function verifyRespondBidirectionalSignature(
-  serializedOutput: Uint8Array,
+export function verifyRespondBidirectionalAttestation(
   event: RespondBidirectionalEvent,
   mpcResponseKey: Secp256k1Point,
 ): boolean {
   let signature: EcdsaSignature;
+  let digest: Uint8Array;
   try {
     signature = mpcSignatureToEcdsaSignature(event.signature);
+    digest = pureCircuits.calculateSignetAttestationDigestV1(
+      event.requestId,
+      event.blockHeight,
+      event.outputKind,
+      event.serializedOutputLength,
+      event.outputHash,
+    );
   } catch {
     return false;
   }
-  const digest = calculateSignetAttestationDigest(
-    event.requestId,
-    event.blockHeight,
-    event.outputKind,
-    serializedOutput,
-  );
   // Compact form the verifier takes: r || s big-endian, and the key as
   // uncompressed SEC1 (0x04 || x || y).
   const compactSignature = new Uint8Array(64);
@@ -495,4 +541,33 @@ export function verifyRespondBidirectionalSignature(
   } catch {
     return false;
   }
+}
+
+/**
+ * Off-chain twin of the in-circuit `verifyRespondBidirectionalEventV1`: checks
+ * that `serializedOutput` is the output a posted respond-bidirectional
+ * attestation declares ({@link verifyAttestedOutput}) and
+ * that the post's signature verifies ({@link verifyRespondBidirectionalAttestation}).
+ * Clients run it to sift candidate posts before calling a contract: a post
+ * this accepts verifies in-circuit (once flipped to circuit-input form, see
+ * {@link respondBidirectionalEventToCircuitInput}). Takes the record as read
+ * off the ledger (big-endian). Malformed records return `false` rather than
+ * throwing.
+ *
+ * @param serializedOutput - The serialised execution output, exact unpadded bytes.
+ * @param event - The posted record to check, as read off the ledger.
+ * @param mpcResponseKey - The response key the requesting contract pinned
+ *   (see {@link deriveMidnightResponseKey}).
+ * @returns Whether the post is a genuine attestation of that output for the
+ *   request it names.
+ */
+export function verifyRespondBidirectionalSignature(
+  serializedOutput: Uint8Array,
+  event: RespondBidirectionalEvent,
+  mpcResponseKey: Secp256k1Point,
+): boolean {
+  return (
+    verifyAttestedOutput(serializedOutput, event.serializedOutputLength, event.outputHash) &&
+    verifyRespondBidirectionalAttestation(event, mpcResponseKey)
+  );
 }

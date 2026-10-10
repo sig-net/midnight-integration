@@ -77,6 +77,7 @@ export {
 // its record decoder (mpcSignatureToEcdsaSignature) and noble-point parser
 // (parseSecp256k1PublicKeyToNoblePoint) are package-internal.
 export {
+  calculateAttestedOutputHash,
   formatSecp256k1PublicKey,
   normaliseSecp256k1PublicKey,
   parseSecp256k1PublicKey,
@@ -84,6 +85,8 @@ export {
   SECP256K1_ORDER,
   type Secp256k1Point,
   signatureRespondedEventToSignature,
+  verifyAttestedOutput,
+  verifyRespondBidirectionalAttestation,
   verifyRespondBidirectionalSignature,
 } from "./ecdsa-attestation.ts";
 

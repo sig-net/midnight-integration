@@ -565,8 +565,8 @@ const BLOCK_HEIGHT = 21_000_000n;
 
 /**
  * Sign a REAL respond-bidirectional response for (requestId, BLOCK_HEIGHT,
- * outputKind, output) with `secretKey`: the digest comes from the TS twin
- * (pinned against the compiled oracle circuits), exactly like the MPC. The
+ * outputKind, output) with `secretKey`: the output hash comes from the TS
+ * twin (pinned against the compiled oracle circuits), exactly like the MPC. The
  * wire event (full R point, big-endian bytes) is flipped to
  * verifyRespondBidirectionalEventV1's circuit-input form, which is what a
  * client hands to verifyResponse (the flip lockstep itself is pinned in
@@ -626,6 +626,20 @@ describe("verifyResponse", () => {
     const response = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
     const tamperedOutput = OUTPUT_FAILURE;
     await expect(contract.circuits.verifyResponse(ctx, response, tamperedOutput)).rejects.toThrow(
+      /Invalid attestation signature/,
+    );
+  });
+
+  it("rejects an attestation over the output with a trailing zero, which hashes alike", async () => {
+    // [1, 0] and [1] share an output hash: the signed width tells them apart.
+    const { contract, ctx, requestId } = await requestSubmitted();
+    const response = respond(
+      MPC_RESPONSE_SECRET,
+      requestId,
+      OutputKind.executed,
+      Uint8Array.of(1, 0),
+    );
+    await expect(contract.circuits.verifyResponse(ctx, response, OUTPUT_SUCCESS)).rejects.toThrow(
       /Invalid attestation signature/,
     );
   });
@@ -866,7 +880,7 @@ describe("verifyCheckAndDoubleResponse", () => {
   });
 
   it("rejects a cross-width replay: a 1-byte-output attestation cannot verify at width 33", async () => {
-    // The digest hashes the output at its exact length, so an attestation
+    // The digest commits to the output's exact width, so an attestation
     // over the 1-byte bool payload can never match a 33-byte presentation,
     // even with the honest first byte and zero padding.
     const { contract, ctx, requestId } = await checkAndDoubleSubmitted();

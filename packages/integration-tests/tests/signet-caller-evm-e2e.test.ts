@@ -39,6 +39,7 @@ import type { Ledger as CallerLedger } from "@midnight-integration/test-caller-c
 import {
   type AbiDecodedOutput,
   boolAbiWord,
+  calculateAttestedOutputHash,
   calculateRequestId,
   deriveEvmAddress,
   deserializeEvmOutput,
@@ -748,7 +749,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           bytes,
         );
 
-        // The signature seals the round trip: the post attests a digest over
+        // The signature seals the round trip: the post attests the hash of
         // respond bytes only the fakenet's side produced, so it verifies
         // against the pinned response key ONLY if the fakenet ran the SAME
         // conversions and got the same bytes we did.
@@ -779,6 +780,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         );
         expect(attested.serializedOutputLength, "the posted output width").toBe(
           BigInt(bytes.length),
+        );
+        expect(attested.outputHash, "the posted output hash").toEqual(
+          calculateAttestedOutputHash(bytes),
         );
         const digest = calculateSignetAttestationDigest(
           requestIdBytes(requestId),
@@ -827,8 +831,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
 
         // The recomputed respond bytes go into the circuit, and the sifted
         // event goes in flipped to the verify circuit's input form. The
-        // in-circuit digest recompute + signature check is what
-        // authenticates them: a tampered output yields a digest the MPC
+        // in-circuit output hash check + signature check is what
+        // authenticates them: a tampered output yields a hash the MPC
         // never signed.
         await verifyAndAwaitConsumption(context, method.map, requestId, () =>
           method.verify(

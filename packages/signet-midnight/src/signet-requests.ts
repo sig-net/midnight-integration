@@ -123,7 +123,7 @@ export interface RequestIdPreimage {
   txParamType: number;
   /** The 32-byte digest of the transaction decomposition over its used entries. */
   txParamsDigest: Uint8Array;
-  /** Execution destination: the target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 32 bytes. */
+  /** Execution destination: the target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 64 bytes. */
   executionDest: Uint8Array;
 }
 
@@ -149,7 +149,7 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
   txParamType: number;
   /** The transaction decomposition. */
   txParams: TxParams;
-  /** Execution destination: the target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 32 bytes. */
+  /** Execution destination: the target chain in CAIP-2 form (https://chainagnostic.org/CAIPs/caip-2), zero-padded, 64 bytes. */
   executionDest: Uint8Array;
   /** An {@link MPCDestination} value: the signature destination, reserved. */
   signatureDest: number;
@@ -195,7 +195,7 @@ export const requestIdPreimageDescriptor: CompactType<RequestIdPreimage> =
     algo: MPC_SIGNATURE_ALGORITHM,
     txParamType: TX_PARAM_TYPE,
     txParamsDigest: BYTES_32,
-    executionDest: BYTES_32,
+    executionDest: BYTES_64,
   });
 
 /**
@@ -225,7 +225,7 @@ export function signBidirectionalEventDescriptorWith<TxParams>(
     algo: MPC_SIGNATURE_ALGORITHM,
     txParamType: TX_PARAM_TYPE,
     txParams,
-    executionDest: BYTES_32,
+    executionDest: BYTES_64,
     signatureDest: MPC_DESTINATION,
     params: BYTES_64,
     outputDeserializationSchema: new CompactTypeBytes(lenOutputDeserialization),
