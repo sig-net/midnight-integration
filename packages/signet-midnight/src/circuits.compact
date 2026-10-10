@@ -12,6 +12,8 @@ export {
   HashDomain,
   OutputKind,
   calculateRequestIdV1,
+  calculateSignetAttestationDigestV1,
+  verifyRespondBidirectionalAttestationV1,
   constructSignBidirectionalEventNotificationV1,
   ethereumCaip2Id,
   evmAddressAbiWord,
@@ -22,56 +24,62 @@ export {
   checkedTruncationU128
 };
 
-// ---- Fixed-width attestation oracles (tests only) --------------------------
-// The size-generic digest and verify circuits cannot appear in the export
-// list above. These fixed-width instantiations exist solely to pin the TS
-// twin in ecdsa-attestation.ts against the compiled circuits (widths 0, 1, 2,
-// 32 and 100, where 0 is the empty output of a failed or unviable execution).
-// Client contracts instantiate the generic circuits at their own width.
+// ---- Fixed-width output hash oracles (tests only) --------------------------
+// The size-generic output hash and verify circuits cannot appear in the
+// export list above. These fixed-width instantiations exist solely to pin
+// the TS twin in ecdsa-attestation.ts against the compiled circuits (widths
+// 0, 1, 2, 32 and 100, where 0 is the empty output of a failed or unviable
+// execution). Client contracts instantiate the generic circuits at their own
+// width.
 
-export pure circuit calculateSignetAttestationDigest0(
-  requestId: RequestId,
-  blockHeight: Uint<64>,
-  outputKind: OutputKind,
+export pure circuit calculateAttestedOutputHash0(
   serializedOutput: Bytes<0>
 ): Bytes<32> {
-  return calculateSignetAttestationDigestV1<0>(requestId, blockHeight, outputKind, serializedOutput);
+  return calculateAttestedOutputHashV1<0>(serializedOutput);
 }
 
-export pure circuit calculateSignetAttestationDigest1(
-  requestId: RequestId,
-  blockHeight: Uint<64>,
-  outputKind: OutputKind,
+export pure circuit calculateAttestedOutputHash1(
   serializedOutput: Bytes<1>
 ): Bytes<32> {
-  return calculateSignetAttestationDigestV1<1>(requestId, blockHeight, outputKind, serializedOutput);
+  return calculateAttestedOutputHashV1<1>(serializedOutput);
 }
 
-export pure circuit calculateSignetAttestationDigest2(
-  requestId: RequestId,
-  blockHeight: Uint<64>,
-  outputKind: OutputKind,
+export pure circuit calculateAttestedOutputHash2(
   serializedOutput: Bytes<2>
 ): Bytes<32> {
-  return calculateSignetAttestationDigestV1<2>(requestId, blockHeight, outputKind, serializedOutput);
+  return calculateAttestedOutputHashV1<2>(serializedOutput);
 }
 
-export pure circuit calculateSignetAttestationDigest32(
-  requestId: RequestId,
-  blockHeight: Uint<64>,
-  outputKind: OutputKind,
+export pure circuit calculateAttestedOutputHash32(
   serializedOutput: Bytes<32>
 ): Bytes<32> {
-  return calculateSignetAttestationDigestV1<32>(requestId, blockHeight, outputKind, serializedOutput);
+  return calculateAttestedOutputHashV1<32>(serializedOutput);
 }
 
-export pure circuit calculateSignetAttestationDigest100(
-  requestId: RequestId,
-  blockHeight: Uint<64>,
-  outputKind: OutputKind,
+export pure circuit calculateAttestedOutputHash100(
   serializedOutput: Bytes<100>
 ): Bytes<32> {
-  return calculateSignetAttestationDigestV1<100>(requestId, blockHeight, outputKind, serializedOutput);
+  return calculateAttestedOutputHashV1<100>(serializedOutput);
+}
+
+// Fixed-width instantiations of verifyAttestedOutputV1, pinning its TS twin
+// verifyAttestedOutput, including the trailing-zero case the length check
+// exists for (a 2-byte output against a 1-byte attestation).
+
+export pure circuit verifyAttestedOutput1(
+  serializedOutput: Bytes<1>,
+  attestedOutputLength: Uint<64>,
+  attestedOutputHash: Bytes<32>
+): Boolean {
+  return verifyAttestedOutputV1<1>(serializedOutput, attestedOutputLength, attestedOutputHash);
+}
+
+export pure circuit verifyAttestedOutput2(
+  serializedOutput: Bytes<2>,
+  attestedOutputLength: Uint<64>,
+  attestedOutputHash: Bytes<32>
+): Boolean {
+  return verifyAttestedOutputV1<2>(serializedOutput, attestedOutputLength, attestedOutputHash);
 }
 
 // ---- Fixed-width transaction digest oracles (tests only) --------------------

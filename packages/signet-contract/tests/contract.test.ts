@@ -98,6 +98,7 @@ const RESPOND_1: RespondBidirectionalEvent = {
   blockHeight: 0x0102030405060708n,
   outputKind: OutputKind.failed,
   serializedOutputLength: 0x1112131415161718n,
+  outputHash: bytes(32, 0x0f),
   digest: bytes(32, 0x0d),
   signature: {
     bigR: { x: bytes(32, 0x07), y: bytes(32, 0x08) },
@@ -110,6 +111,7 @@ const RESPOND_2: RespondBidirectionalEvent = {
   blockHeight: 2n ** 64n - 1n,
   outputKind: OutputKind.unviable,
   serializedOutputLength: 33n,
+  outputHash: bytes(32, 0x10),
   digest: bytes(32, 0x0e),
   signature: {
     bigR: { x: bytes(32, 0x0a), y: bytes(32, 0x0b) },
@@ -324,12 +326,13 @@ describe("respondBidirectional", () => {
     expect(payload.slice(41, 49)).toEqual(
       Uint8Array.from([0x18, 0x17, 0x16, 0x15, 0x14, 0x13, 0x12, 0x11]),
     );
-    expect(payload.slice(49, 81)).toEqual(RESPOND_1.digest);
-    expect(payload.slice(81, 113)).toEqual(RESPOND_1.signature.bigR.x);
-    expect(payload.slice(113, 145)).toEqual(RESPOND_1.signature.bigR.y);
-    expect(payload.slice(145, 177)).toEqual(RESPOND_1.signature.s);
-    expect(payload.at(177)).toBe(0);
-    expectZeroPadding(payload, 178);
+    expect(payload.slice(49, 81)).toEqual(RESPOND_1.outputHash);
+    expect(payload.slice(81, 113)).toEqual(RESPOND_1.digest);
+    expect(payload.slice(113, 145)).toEqual(RESPOND_1.signature.bigR.x);
+    expect(payload.slice(145, 177)).toEqual(RESPOND_1.signature.bigR.y);
+    expect(payload.slice(177, 209)).toEqual(RESPOND_1.signature.s);
+    expect(payload.at(209)).toBe(0);
+    expectZeroPadding(payload, 210);
   });
 
   it("emits a second post for the same request as its own event, nothing replaced", async () => {

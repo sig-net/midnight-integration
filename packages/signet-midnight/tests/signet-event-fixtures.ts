@@ -87,8 +87,8 @@ export function signatureRespondedEventOf(
 /**
  * The event the `respondBidirectional` circuit emits for an attestation:
  * requestId (32) ++ blockHeight (8) ++ outputKind (1) ++
- * serializedOutputLength (8) ++ digest (32) ++ bigR.x (32) ++ bigR.y (32)
- * ++ s (32) ++ recoveryId (1) ++ zeros. The two `Uint<64>` leaves are
+ * serializedOutputLength (8) ++ outputHash (32) ++ digest (32) ++ bigR.x (32)
+ * ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros. The two `Uint<64>` leaves are
  * little-endian (Compact's `Uint<64>` to `Bytes<8>` cast) and the kind is
  * the enum's variant index.
  *
@@ -109,6 +109,7 @@ export function respondBidirectionalEventOf(
       bigintToBytes32(record.blockHeight).subarray(0, 8),
       record.outputKind,
       bigintToBytes32(record.serializedOutputLength).subarray(0, 8),
+      record.outputHash,
       record.digest,
       record.signature.bigR.x,
       record.signature.bigR.y,

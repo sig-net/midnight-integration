@@ -354,8 +354,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // the suite's shared MPC_ROOT_KEY + the CALLER contract's address (the
       // exact sender-scoped derivation the fakenet and the real MPC use, and
       // the initialise leg pinned the matching MPC_RESPONSE_KEY), using the
-      // same digest construction the MPC uses (the TS twin, pinned against
-      // the compiled oracle circuits).
+      // same digest construction the MPC uses (the output hash TS twin,
+      // pinned against the compiled oracle circuits).
       expect(signatureRequestId).toBeDefined();
 
       const context = await session.callerContext();
@@ -395,8 +395,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // straight from the ledger (the initialise leg put it there), and takes
       // the response record in the circuit-input form
       // (respondBidirectionalEventToCircuitInput flips bigR.x and s). The record
-      // never carries the output: the circuit recomputes the digest from the
-      // output handed in beside it.
+      // never carries the output: the circuit checks the output handed in
+      // beside it against the record's width and hash.
       await context.caller.callTx.verifyResponse(
         respondBidirectionalEventToCircuitInput(attestation),
         serializedOutput,

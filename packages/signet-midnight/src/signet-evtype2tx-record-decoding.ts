@@ -33,8 +33,8 @@ interface EvmType2Capacities {
  * Recover the sizing parameters the requester's contract was compiled with
  * (`#maxCalldataWords`, `#maxAccessListEntries`, `#maxStorageKeysPerEntry`)
  * from the declared widths alone. The tail anchors from the end: calldata
- * words, storage keys and `executionDest` are all `Bytes<32>`, so no forward scan
- * can find the boundaries.
+ * words and storage keys are both `Bytes<32>`, so no forward scan can find
+ * the boundaries.
  *
  * @param widths - The record's declared atom widths.
  * @param what - Error-message subject.

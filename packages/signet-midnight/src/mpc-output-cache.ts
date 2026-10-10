@@ -3,7 +3,7 @@
 // id in a public bucket BEFORE the attestation is posted on chain. A Compact
 // circuit fixes its byte-payload width at compile time while serialised
 // outputs vary in size across requests, so the attestation event carries the
-// output's digest and width and the cache carries the bytes. An object holds nothing
+// output's hash and width and the cache carries the bytes. An object holds nothing
 // but the packed output, and is UNTRUSTED until the attestation signature
 // verifies over it (`verifyRespondBidirectionalSignature`).
 

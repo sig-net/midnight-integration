@@ -43,10 +43,10 @@ and two flow files:
      account.
   5. `verifyResponse`: verify an ECDSA respond-bidirectional attestation
      (the MPC's signature over the digest of the request id, block height,
-     output kind, output width and serialised output) in-circuit and consume
+     output kind, output width and output hash) in-circuit and consume
      the request. The event never carries the
      output, so the circuit takes the output bytes as an argument
-     and re-hashes them into the digest the signature must cover. The
+     and checks them against the width and hash the signature covers. The
      fakenet only attests after observing a broadcast on the target
      chain (a leg this generic exercise deliberately omits), so the
      attestation is signed in-test with the MPC response key derived from

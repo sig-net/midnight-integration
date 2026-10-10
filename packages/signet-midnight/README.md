@@ -56,7 +56,7 @@ What your contract imports with `import "@sig-net/midnight/src/Signet"`:
 | Notify the MPC of the request (runtime step 1) | `constructSignBidirectionalEventNotificationV1`: packs your contract's address and the request map's ledger-tree path. |
 | Narrow an attested `uint256` in-circuit | `checkedTruncationU128`: the `Bytes<32>` the MPC attests (little-endian) to a `Uint<128>`, aborting unless the high 16 bytes are zero (see [Output Recovery and Serialisation](https://github.com/sig-net/midnight-integration/blob/main/README.md#output-recovery-and-serialisation)). |
 | Build and read calldata words in-circuit | The builders `evmAddressAbiWord`, `numericAbiWord` and `boolAbiWord`, and the readers `abiWordToUint128` and `abiWordToBool` (see [EVM Type 2 transactions and ABI calldata words](https://github.com/sig-net/midnight-integration/blob/main/README.md#evm-type-2-transactions-and-abi-calldata-words)). |
-| Verify the execution attestation (runtime step 5) | `verifyRespondBidirectionalEventV1`: recomputes the attestation digest from the output bytes and the posted request id, output kind and block height, and checks the MPC's signature against your pinned response key. |
+| Verify the execution attestation (runtime step 5) | `verifyRespondBidirectionalEventV1`: checks that the output bytes have the posted width and output hash, recomputes the attestation digest from the posted request id, block height, output kind, width and hash, and checks the MPC's signature against your pinned response key. Its two halves are exported for a contract that verifies an attestation before it has the output: `verifyRespondBidirectionalAttestationV1` (the signature, without the output) and `verifyAttestedOutputV1` (the output against an attested width and hash, taken from the event or from the copy your contract stored when it verified the event). |
 
 ### TypeScript library
 
@@ -80,7 +80,7 @@ What clients import from `@sig-net/midnight`:
 | Recognise a failed remote execution | `OutputKind` on the verified `RespondBidirectionalEvent`: `failed` or `unviable` beside an empty output (see [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure)). |
 | Read the attested output bytes from the MPC's output cache | `MpcOutputCacheReader`: one reader per network and Signet singleton pair, over the public bucket an MPC configured with output storage writes each request's exact attested bytes to before posting, defaulting to the bucket `getMpcOutputCacheUrl` publishes for the network. `fetchSerializedOutput` yields the bytes step 5 verifies, `undefined` while the object is not in the cache (not written yet, or never written, since the cache is optional). |
 | Hand a verified attestation to your verify circuit (runtime step 5) | `respondBidirectionalEventToCircuitInput`: flips the wire event's big-endian `bigR.x` and `s` into the little-endian record `verifyRespondBidirectionalEventV1` reads. |
-| Verify attestations without the reader | `verifyRespondBidirectionalSignature`: the check the reader runs internally, exposed for custom pipelines. |
+| Verify attestations without the reader | `verifyRespondBidirectionalSignature`: the check the reader runs internally, exposed for custom pipelines. `verifyRespondBidirectionalAttestation` checks a post's signature without the output, `verifyAttestedOutput` checks an output against an attested width and hash, and `calculateAttestedOutputHash` gives the output hash a post commits to. |
 | Mint attestations in your contract's unit tests | The `@sig-net/midnight/testing` entry point, see [Testing entry point](#testing-entry-point). |
 | Discover requests MPC-side (responders, background workers) | The discovery primitives: decode the signet contract's emitted notification events with `decodeSignetEventNamed(event, SignetEventName.SignBidirectionalEvent)` (or every kind at once with `decodeSignetEvent`, which throws on an undecodable payload anyone can emit, or its non-throwing sibling `tryDecodeSignetEvent`), then resolve each pointer against the named caller's own request map with `lookupSignetRequestAt` (the authenticated read). The polling loop belongs to the responder. |
 | Call the compiled protocol circuits | `pureCircuits`: the compiled pure circuits of `circuits.compact`: the non-generic circuits of `Signet.compact` under their own names, for example the notification packer, and fixed-size instances of the generic ones with the sizes in the name, for example `calculateEvmType2RequestIdV1_1_0_0_34`. Off-chain code calls these compiled artefacts, so it always agrees with what the contracts prove. |
@@ -105,7 +105,7 @@ import { attestRespondBidirectional, secp256k1PublicKeyOf } from "@sig-net/midni
 
 // A real RespondBidirectionalEvent for (requestId, blockHeight, outputKind,
 // serializedOutput), signed by secretKey: the request id, block height, kind,
-// output width, attestation digest and signature the MPC would post. It
+// output width, output hash, attestation digest and signature the MPC would post. It
 // verifies, in-circuit and off chain, against secp256k1PublicKeyOf(secretKey).
 const event = attestRespondBidirectional(
   { requestId, blockHeight, outputKind, serializedOutput },
@@ -125,7 +125,8 @@ Developed in [sig-net/midnight-integration](https://github.com/sig-net/midnight-
 `HashDomain` is the shared append-only enum exported by the Compact module
 and the TypeScript SDK. Its indices are `requestId = 0`,
 `attestationDigest = 1`, `evmType2TxHeader = 2`, `evmType2TxWord = 3`,
-`evmType2TxAccessEntry = 4` and `evmType2TxStorageKey = 5`. Each protocol
+`evmType2TxAccessEntry = 4`, `evmType2TxStorageKey = 5` and
+`attestedOutput = 6`. Each protocol
 hash input starts with its domain tag. Off-chain recomputation must use
 the same tags and field order as the circuits.
 

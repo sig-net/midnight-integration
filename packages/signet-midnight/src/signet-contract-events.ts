@@ -5,8 +5,9 @@
 //   SignBidirectionalEvent    - version (1) ++ requestId (32) ++ notification payload (128) ++ zeros (95)
 //   SignatureRespondedEvent   - requestId (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (127)
 //   RespondBidirectionalEvent - requestId (32) ++ blockHeight (8, little-endian) ++ outputKind (1)
-//                               ++ serializedOutputLength (8, little-endian) ++ digest (32)
-//                               ++ bigR.x (32) ++ bigR.y (32) ++ s (32) ++ recoveryId (1) ++ zeros (78)
+//                               ++ serializedOutputLength (8, little-endian) ++ outputHash (32)
+//                               ++ digest (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32)
+//                               ++ recoveryId (1) ++ zeros (46)
 // The decoders here are the byte-plumbing twins of the emit literals in
 // signet-contract.compact: field order and offsets must match byte-for-byte
 // (the signet-contract simulator tests pin the lockstep against real emits).
@@ -434,10 +435,12 @@ export interface SignatureRespondedEvent {
  * The MPC's respond-bidirectional attestation of a request's remote EVM
  * execution (Compact `RespondBidirectionalEventV1`, in declaration order): the
  * ECDSA signature over the attestation digest
- * (`calculateSignetAttestationDigest`) with everything that digest commits to
- * except the output, which travels off chain. Emitted UNVERIFIED: verify
- * in-circuit via `verifyRespondBidirectionalEventV1` or off chain via
- * `verifyRespondBidirectionalSignature`. Mint one with the
+ * (`calculateSignetAttestationDigest`) with everything that digest is
+ * computed from, the output's length and hash standing in for the output,
+ * which travels off chain. Emitted UNVERIFIED: verify in-circuit via
+ * `verifyRespondBidirectionalEventV1` or off chain via
+ * `verifyRespondBidirectionalSignature` (with the output) or
+ * `verifyRespondBidirectionalAttestation` (without it). Mint one with the
  * `@sig-net/midnight/testing` entry point's `attestRespondBidirectional`.
  */
 export interface RespondBidirectionalEvent {
@@ -457,13 +460,18 @@ export interface RespondBidirectionalEvent {
   /** The MPC's verdict on the execution, signed into the digest. */
   outputKind: OutputKind;
   /**
-   * Byte width of the serialised output the digest commits to, 0 for a
-   * failed or unviable execution. Compact `Uint<64>`.
+   * Byte width of the serialised output, 0 for a failed or unviable
+   * execution, signed into the digest. Compact `Uint<64>`.
    */
   serializedOutputLength: bigint;
   /**
-   * The attestation digest the signature is over, 32 bytes: lets a reader
-   * with no output in hand check the signature. A verifier recomputes it.
+   * The 32-byte `calculateAttestedOutputHash` of the serialised output,
+   * signed into the digest.
+   */
+  outputHash: Uint8Array;
+  /**
+   * The attestation digest the signature is over, 32 bytes. A verifier
+   * recomputes it from the fields above.
    */
   digest: Uint8Array;
   /** ECDSA signature over the attestation digest. */
@@ -540,8 +548,9 @@ const RESPOND_BIDIRECTIONAL_REQUEST_ID_OFFSET = 0;
 const RESPOND_BIDIRECTIONAL_BLOCK_HEIGHT_OFFSET = 32;
 const RESPOND_BIDIRECTIONAL_OUTPUT_KIND_OFFSET = 40;
 const RESPOND_BIDIRECTIONAL_OUTPUT_LENGTH_OFFSET = 41;
-const RESPOND_BIDIRECTIONAL_DIGEST_OFFSET = 49;
-const RESPOND_BIDIRECTIONAL_SIGNATURE_OFFSET = 81;
+const RESPOND_BIDIRECTIONAL_OUTPUT_HASH_OFFSET = 49;
+const RESPOND_BIDIRECTIONAL_DIGEST_OFFSET = 81;
+const RESPOND_BIDIRECTIONAL_SIGNATURE_OFFSET = 113;
 
 /** Byte width of a packed `Uint<64>` (Compact's `as Bytes<8>` cast, little-endian). */
 const PACKED_UINT_64_LENGTH = 8;
@@ -610,6 +619,10 @@ export function decodeRespondBidirectionalEventPayload(
           RESPOND_BIDIRECTIONAL_OUTPUT_LENGTH_OFFSET,
           RESPOND_BIDIRECTIONAL_OUTPUT_LENGTH_OFFSET + PACKED_UINT_64_LENGTH,
         ),
+      ),
+      outputHash: payload.slice(
+        RESPOND_BIDIRECTIONAL_OUTPUT_HASH_OFFSET,
+        RESPOND_BIDIRECTIONAL_DIGEST_OFFSET,
       ),
       digest: payload.slice(
         RESPOND_BIDIRECTIONAL_DIGEST_OFFSET,

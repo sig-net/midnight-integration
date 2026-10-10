@@ -36,7 +36,7 @@ import {
 // compiler emits.
 
 /** Protocol HashDomain enum, matching the Compact variant indices and byte width. */
-export const HASH_DOMAIN = new CompactTypeEnum(5, 1);
+export const HASH_DOMAIN = new CompactTypeEnum(6, 1);
 
 /** `Boolean`. */
 export const BOOLEAN = CompactTypeBoolean;
@@ -196,13 +196,6 @@ export function declaredWidths(cell: AlignedValue, what: string): number[] {
 }
 
 /**
- * Descriptor of Signet.compact's three-variant `OutputKind` enum, at the
- * literal the compiler emits (highest variant index 2, one byte). Adding a
- * variant to the Compact enum means raising the index here in lockstep.
- */
-const OUTPUT_KIND = new CompactTypeEnum(2, 1);
-
-/**
  * Descriptor of a Compact tuple, composed the way the compiler composes one:
  * the elements' alignments and values concatenated in order.
  *
@@ -221,24 +214,18 @@ export function compactTupleDescriptor<T extends unknown[]>(elements: {
 }
 
 /**
- * Descriptor of the Compact tuple
- * `[HashDomain, RequestId, Uint<64>, OutputKind, Uint<64>, Bytes<serializedOutputLength>]`
- * the attestation digest hashes (domain tag, request id, block height, output kind,
- * output length, output). The output width enters the descriptor, so it is
- * built per call.
+ * Descriptor of the Compact tuple `[HashDomain, Bytes<serializedOutputLength>]`
+ * the attested output hash hashes (domain tag, output). The output width
+ * enters the descriptor, so it is built per call.
  *
  * @param serializedOutputLength - Declared width of the output element, in bytes.
- * @returns The tuple descriptor for {@link calculateSignetAttestationDigest}.
+ * @returns The tuple descriptor for {@link calculateAttestedOutputHash}.
  */
-export function attestationPreimageDescriptor(
+export function attestedOutputPreimageDescriptor(
   serializedOutputLength: number,
-): CompactType<[number, Uint8Array, bigint, number, bigint, Uint8Array]> {
-  return compactTupleDescriptor<[number, Uint8Array, bigint, number, bigint, Uint8Array]>([
+): CompactType<[number, Uint8Array]> {
+  return compactTupleDescriptor<[number, Uint8Array]>([
     HASH_DOMAIN,
-    BYTES_32,
-    UINT_64,
-    OUTPUT_KIND,
-    UINT_64,
     new CompactTypeBytes(serializedOutputLength),
   ]);
 }

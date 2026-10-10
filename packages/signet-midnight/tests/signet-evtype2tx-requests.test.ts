@@ -123,7 +123,7 @@ describe("no translation between stored record and signed transaction", () => {
         accessList: [],
         calldata: someCalldata(ERC20_TRANSFER_SELECTOR, [word0, word1]),
       },
-      executionDest: new Uint8Array(32),
+      executionDest: new Uint8Array(64),
       outputDeserializationSchema: new Uint8Array(34),
       respondSerializationSchema: new Uint8Array(34),
     });
@@ -165,7 +165,7 @@ describe("access list in the rebuilt transaction", () => {
     params: new Uint8Array(64),
     txParamType: TxParamType.evmType2,
     txParams,
-    executionDest: new Uint8Array(32),
+    executionDest: new Uint8Array(64),
     outputDeserializationSchema: new Uint8Array(34),
     respondSerializationSchema: new Uint8Array(34),
   });

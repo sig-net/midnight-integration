@@ -92,6 +92,7 @@ const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
   blockHeight: 0x0102030405060708n,
   outputKind: OutputKind.unviable,
   serializedOutputLength: 33n,
+  outputHash: bytes(32, 0x61),
   digest: bytes(32, 0x60),
   signature: {
     bigR: { x: bytes(32, 0x5c), y: bytes(32, 0x5d) },
