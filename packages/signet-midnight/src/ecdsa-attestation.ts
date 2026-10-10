@@ -1,14 +1,15 @@
 // secp256k1 ECDSA helpers: the TS side of Signet.compact's respond flows:
 // SIGNING (which needs the secret scalar, so it cannot be a circuit), key
 // parsing/formatting, the signature-record codecs both respond events
-// share, and the attested output hash's TS twin.
+// share, and the TS twins of the size-generic output circuits.
 // Everything provable stays in Compact where possible: in-circuit
 // verification is `verifyRespondBidirectionalEventV1`, and the attestation
 // digest is the compiled `calculateSignetAttestationDigestV1`. The output
-// hash circuit is size-generic and the compiler cannot export size-generic
-// circuits top-level, so the output hash is the ONE sanctioned TS twin here,
-// pinned byte-for-byte against the fixed-width oracle circuits
-// circuits.compact exports (see tests/ecdsa-attestation.test.ts).
+// hash and output check circuits are size-generic and the compiler cannot
+// export size-generic circuits top-level, so `calculateAttestedOutputHash`
+// and `verifyAttestedOutput` are the sanctioned TS twins here, pinned against
+// the fixed-width oracle circuits circuits.compact exports (see
+// tests/ecdsa-attestation.test.ts).
 //
 // This belongs in github.com/sig-net/signet.js as its Midnight adapter,
 // kept here until upstreamed.
