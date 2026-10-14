@@ -65,7 +65,7 @@ const SAMPLE_REQUEST: SignBidirectionalEvent = {
       },
     },
   },
-  executionDest: bytes(32, 0x02),
+  executionDest: bytes(64, 0x02),
   outputDeserializationSchema: bytes(34, 0x07),
   respondSerializationSchema: bytes(34, 0x08),
 };

@@ -498,7 +498,7 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
       accessListEntryCount: 0n,
       accessList: [],
     },
-    executionDest: bytes(32, 0x02),
+    executionDest: bytes(64, 0x02),
     signatureDest: MPCDestination.unused,
     params: bytes(64, 0),
     outputDeserializationSchema: bytes(34, 0x07),
@@ -574,24 +574,29 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
     },
   };
 
-  it("pins all six domains through a transaction, request and attestation vector", () => {
+  it("pins all seven domains through a transaction, request and attestation vector", () => {
     expect(bytesToHex(calculateEvmType2TxParamsDigest(RECORD_2_1_2.txParams))).toBe(
       "e5e11cd48153d16da6d9ec69b471848bafa6c1258a234b30359d383e3fba0b00",
     );
     const requestId: Uint8Array = calculateRequestId(RECORD_2_1_2);
     expect(bytesToHex(requestId)).toBe(
-      "4c4e839b3257b4d73de4a362aabf435de1a4a137c0b220479d874c6b6b80fd00",
+      "2985be91d1a1191749abaee288eed371d19607e69cec0b43468cb750a9dc8d00",
+    );
+    const outputHash = pureCircuits.calculateAttestedOutputHash32(bytes(32, 0xab));
+    expect(bytesToHex(outputHash)).toBe(
+      "ebb2798826150dd6a814821b318928f517888e8978ca5207a35b3fc5253d1f00",
     );
     expect(
       bytesToHex(
-        pureCircuits.calculateSignetAttestationDigest32(
+        pureCircuits.calculateSignetAttestationDigestV1(
           requestId,
           42n,
           OutputKind.executed,
-          bytes(32, 0xab),
+          32n,
+          outputHash,
         ),
       ),
-    ).toBe("41a1845ae55860bc1d9bf08d2581cbc5f2a34005e99ea51743db252040165400");
+    ).toBe("174ac56d23e49f26fc8dff9b72d76f3abaaae5867f03c8594122640585042300");
   });
 
   it.each([

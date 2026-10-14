@@ -68,9 +68,8 @@ export circuit respond(
 // respondBidirectional emits the MPC's respond-bidirectional response as a
 // RespondBidirectionalEvent contract event: the ECDSA signature that attests
 // the foreign transaction's outcome (executed, failed or unviable), with the
-// block height, output kind and
-// output width it signs over and the digest it is over (never the output
-// itself).
+// block height, output kind, output width and output hash it signs over and
+// the digest it is over (never the output itself).
 // The payload leads with the request id the post answers. The id is
 // unauthenticated routing data, and the post is emitted unverified: callers
 // read their request's posts by id and verify each candidate themselves
@@ -87,12 +86,13 @@ export circuit respondBidirectional(
             ...(disclose(respondBidirectionalEvent.blockHeight) as Bytes<8>),            // +8, little-endian
             disclose(respondBidirectionalEvent.outputKind) as Uint<8>,                   // +1, the enum's variant index
             ...(disclose(respondBidirectionalEvent.serializedOutputLength) as Bytes<8>), // +8, little-endian
+            ...disclose(respondBidirectionalEvent.outputHash),                           // +32
             ...disclose(respondBidirectionalEvent.digest),                               // +32
             ...disclose(respondBidirectionalEvent.signature.bigR.x),                     // +32
             ...disclose(respondBidirectionalEvent.signature.bigR.y),                     // +32
             ...disclose(respondBidirectionalEvent.signature.s),                          // +32
             disclose(respondBidirectionalEvent.signature.recoveryId),                    // +1
-            ...default<Bytes<78>>,                                                       // +78
+            ...default<Bytes<46>>,                                                       // +46
         ],                                                                               // = 256 bytes
     });
 }

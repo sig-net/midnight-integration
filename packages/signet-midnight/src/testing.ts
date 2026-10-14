@@ -2,7 +2,7 @@
 // entry point): mint a REAL respond-bidirectional attestation with a
 // throwaway secret key, so a claim circuit can be unit tested in-process
 // against the same record shape the MPC posts. Runtime integrations verify
-// posts (root entry: `verifyRespondBidirectionalSignature`,
+// posts (root entry: `verifyRespondBidirectionalEvent`,
 // `SignetRequestResponseReader`) and never sign. The fakenet responder, the
 // MPC's test double, posts through these same helpers, which keeps its bytes
 // pinned to this package's decoders.

@@ -76,6 +76,7 @@ module Signet {
     evmType2TxWord,
     evmType2TxAccessEntry,
     evmType2TxStorageKey,
+    attestedOutput,
   }
 
   // ---- SignBidirectionalEvent ------------------------------------------------------------------------
@@ -111,8 +112,9 @@ module Signet {
     // Target chain transaction parameters.
     txParamType: TxParamType;  // Off-chain tag indicating what type txParams is set to.
     txParams: TxParams;        // The generic transaction-param payload
-    executionDest: Bytes<32>;  // The MPC's routing key for the target chain, in CAIP-2 form
-                               // (https://chainagnostic.org/CAIPs/caip-2). An Ethereum target
+    executionDest: Bytes<64>;  // The MPC's routing key for the target chain, in CAIP-2 form
+                               // (https://chainagnostic.org/CAIPs/caip-2), zero-padded: 64 bytes
+                               // hold any CAIP-2 id (at most 41). An Ethereum target
                                // (mainnet, Sepolia or a local anvil) uses ethereumCaip2Id():
                                // the network itself is txParams' chainId.
 
@@ -169,7 +171,7 @@ module Signet {
     algo: MPCSignatureAlgorithm,
     txParamType: TxParamType,
     txParams: TxParams,
-    executionDest: Bytes<32>,
+    executionDest: Bytes<64>,
     signatureDest: MPCDestination,
     params: Bytes<64>,
     outputDeserializationSchema: Bytes<LenOutputDeserialization>,
@@ -221,7 +223,7 @@ module Signet {
     algo: MPCSignatureAlgorithm;
     txParamType: TxParamType;
     txParamsDigest: Bytes<32>;
-    executionDest: Bytes<32>;
+    executionDest: Bytes<64>;
   }
 
   // Off-chain recomputation must prefix the preimage with HashDomain.requestId
@@ -333,7 +335,8 @@ module Signet {
   // RespondBidirectionalEvent: the MPC's attestation of a foreign execution, the
   // final step of the sign bidirectional flow.
   //
-  //    attestationDigest = calculateSignetAttestationDigestV1(requestId, blockHeight, outputKind, serializedOutput)
+  //    outputHash = calculateAttestedOutputHashV1(serializedOutput)
+  //    attestationDigest = calculateSignetAttestationDigestV1(requestId, blockHeight, outputKind, serializedOutputLength, outputHash)
   //    signature = signSECP256k1(mpcResponseKey, attestationDigest)
   //
   // mpcResponseKey is derived like request signing keys, with the path set to the
@@ -341,10 +344,12 @@ module Signet {
   // verbatim, unlike a request's hex-encoded 32 path bytes):
   //  mpcResponseKey = f(mpcRootKey[keyVersion], caip2ChainId, sender, "midnight response key")
   //
-  // The output travels off chain and the digest is recomputed at verification
-  // time (verifyRespondBidirectionalEventV1). The signature is the ONLY thing that
-  // distinguishes a genuine post from garbage: the singleton emits every post
-  // unverified.
+  // The output travels off chain. The event carries everything the digest is
+  // computed from, so its signature checks without the output
+  // (verifyRespondBidirectionalAttestationV1), and the output checks against the
+  // event's length and hash (verifyAttestedOutputV1). The signature
+  // is the ONLY thing that distinguishes a genuine post from garbage: the
+  // singleton emits every post unverified.
   export struct RespondBidirectionalEventV1 {
     // The request this attestation answers. Signed into the digest: a verified
     // post settles exactly the request it names, so a client consumes this id
@@ -356,13 +361,17 @@ module Signet {
     blockHeight: Uint<64>;
     // The MPC's verdict on the execution, signed into the digest.
     outputKind: OutputKind;
-    // Byte width of the serialised output the digest commits to (0 for a failed
-    // or unviable execution), so a client holding no output yet knows which
-    // width to settle at.
+    // Byte width of the serialised output (0 for a failed or unviable
+    // execution), signed into the digest. The output hash does not commit to
+    // the width, so this does: a verifier checks it against the width of the
+    // output it was handed.
     serializedOutputLength: Uint<64>;
+    // calculateAttestedOutputHashV1 of the serialised output, signed into the
+    // digest.
+    outputHash: Bytes<32>;
     // The attestation digest the signature is over (calculateSignetAttestationDigestV1),
-    // so a reader holding no output can check the signature. The verifying
-    // circuit recomputes it from the output and never reads this copy.
+    // for off-chain readers. The verifying circuits recompute it from the
+    // fields above and never read this copy.
     digest: Bytes<32>;
     // The MPC's ECDSA signature over the attestation digest.
     signature: Signature;
@@ -377,49 +386,64 @@ module Signet {
     unviable, // a finalised transaction of another request from the same account took the nonce: the attested output is empty (Bytes<0>)
   }
 
-  // The 32-byte attestation digest of a remote execution output:
-  //    attestationDigest = upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]))
+  // The 32-byte hash of a serialised execution output that the attestation
+  // digest commits to:
+  //    outputHash = upgradeFromTransient(transientHash([HashDomain.attestedOutput, serializedOutput]))
+  // The hash packs the bytes into field elements without their width, so
+  // outputs that differ only in trailing zero bytes hash alike: the width is
+  // committed separately, as serializedOutputLength. Off-chain code uses the
+  // TypeScript twin:
+  //    import { calculateAttestedOutputHash } from "@sig-net/midnight";
+  export pure circuit calculateAttestedOutputHashV1<#serializedOutputLength>(
+    serializedOutput: Bytes<serializedOutputLength>,
+  ): Bytes<32> {
+    return upgradeFromTransient(transientHash<[HashDomain, Bytes<serializedOutputLength>]>([HashDomain.attestedOutput, serializedOutput]));
+  }
+
+  // The 32-byte attestation digest the MPC signs:
+  //    attestationDigest = upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, outputHash]))
   // blockHeight is the height of the finalised target-chain block holding the
   // transaction the attestation describes, in the target chain's own
-  // numbering (a slot on Solana).
-  // Off-chain code uses the TypeScript twin:
-  //    import { calculateSignetAttestationDigest } from "@sig-net/midnight/testing";
-  export pure circuit calculateSignetAttestationDigestV1<#serializedOutputLength>(
+  // numbering (a slot on Solana). Every input is fixed-width, so the digest of
+  // any output is computed by this one circuit.
+  export pure circuit calculateSignetAttestationDigestV1(
     requestId: RequestId,
     blockHeight: Uint<64>,
     outputKind: OutputKind,
-    serializedOutput: Bytes<serializedOutputLength>,
+    serializedOutputLength: Uint<64>,
+    outputHash: Bytes<32>,
   ): Bytes<32> {
-    return upgradeFromTransient(transientHash<[HashDomain, RequestId, Uint<64>, OutputKind, Uint<64>, Bytes<serializedOutputLength>]>([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, serializedOutput]));
+    return upgradeFromTransient(transientHash<[HashDomain, RequestId, Uint<64>, OutputKind, Uint<64>, Bytes<32>]>([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, outputHash]));
   }
 
-  // Verifies a RespondBidirectionalEvent against its execution output and MPC
-  // response key: recomputes the digest over the request id, block height,
-  // output kind, output length and caller's output, then verifies its signature. Client
-  // contracts run this before consuming outputs, as the singleton emits
-  // responses unverified. The caller supplies
-  // serializedOutput at its exact unpadded width, and the event record with
-  // signature.bigR.x and signature.s byte-reversed into LITTLE-endian: the
-  // scalar casts below read little-endian bytes, and the wire/ledger records
-  // are big-endian, so the reversal happens off-chain where it costs nothing
-  // (the TS SDK's respondBidirectionalEventToCircuitInput does it). A wrong
-  // byte order fails verification, never a false accept. Of the event, requestId,
-  // blockHeight, outputKind, signature.bigR.x and signature.s enter verification:
-  // serializedOutputLength and digest serve off-chain readers. The digest binds
-  // the event's requestId, so a client MUST consume that request and no other. An s
-  // that reduces to 0 mod the curve order aborts the
-  // circuit rather than returning false, so sift candidate posts off chain
-  // first (verifyRespondBidirectionalSignature).
-  export pure circuit verifyRespondBidirectionalEventV1<#serializedOutputLength>(
-    serializedOutput: Bytes<serializedOutputLength>,
+  // Verifies a RespondBidirectionalEvent's signature against the MPC response
+  // key, without the output: recomputes the digest from the event's request
+  // id, block height, output kind, output length and output hash. The event's
+  // digest field is never read. A true result proves the MPC attested this
+  // outcome for this request, and an output the event carries only as its
+  // length and hash: a client that consumes output bytes checks them against
+  // that length and hash with verifyAttestedOutputV1, or verifies with
+  // verifyRespondBidirectionalEventV1, which does both.
+  // The caller supplies the event record with signature.bigR.x and
+  // signature.s byte-reversed into LITTLE-endian: the scalar casts below read
+  // little-endian bytes, and the wire/ledger records are big-endian, so the
+  // reversal happens off-chain where it costs nothing (the TS SDK's
+  // respondBidirectionalEventToCircuitInput does it). A wrong byte order fails
+  // verification, never a false accept. The digest binds the event's
+  // requestId, so a client MUST consume that request and no other. An s that
+  // reduces to 0 mod the curve order aborts the circuit rather than returning
+  // false, so sift candidate posts off chain first
+  // (verifyRespondBidirectionalAttestation).
+  export pure circuit verifyRespondBidirectionalAttestationV1(
     respondBidirectionalEvent: RespondBidirectionalEventV1,
     mpcResponseKey: Secp256k1Point
   ): Boolean {
-    const digest = calculateSignetAttestationDigestV1<serializedOutputLength>(
+    const digest = calculateSignetAttestationDigestV1(
       respondBidirectionalEvent.requestId,
       respondBidirectionalEvent.blockHeight,
       respondBidirectionalEvent.outputKind,
-      serializedOutput,
+      respondBidirectionalEvent.serializedOutputLength,
+      respondBidirectionalEvent.outputHash,
     );
 
     return secp256k1EcdsaVerify(
@@ -432,6 +456,46 @@ module Signet {
     );
   }
 
+  // Whether serializedOutput is the output an attestation declares: its width
+  // is attestedOutputLength and its hash attestedOutputHash. Both checks are
+  // needed, as the hash alone does not commit to the width (see
+  // calculateAttestedOutputHashV1). Proves nothing about the attestation
+  // itself: the length and hash must come from a RespondBidirectionalEvent that
+  // passed verifyRespondBidirectionalAttestationV1, read from the event or
+  // from a copy the contract stored when it verified the event.
+  export pure circuit verifyAttestedOutputV1<#serializedOutputLength>(
+    serializedOutput: Bytes<serializedOutputLength>,
+    attestedOutputLength: Uint<64>,
+    attestedOutputHash: Bytes<32>
+  ): Boolean {
+    const lengthMatches = attestedOutputLength == serializedOutputLength;
+    const hashMatches = attestedOutputHash == calculateAttestedOutputHashV1<serializedOutputLength>(serializedOutput);
+    return lengthMatches && hashMatches;
+  }
+
+  // Verifies a RespondBidirectionalEvent against its execution output and MPC
+  // response key: the output is the one the event attests (verifyAttestedOutputV1
+  // against the event's length and hash) and the event's signature verifies
+  // (verifyRespondBidirectionalAttestationV1, whose byte-order and abort
+  // contract applies here too). Client contracts run this before consuming
+  // outputs, as the singleton emits responses unverified. The caller supplies
+  // serializedOutput at its exact unpadded width.
+  export pure circuit verifyRespondBidirectionalEventV1<#serializedOutputLength>(
+    serializedOutput: Bytes<serializedOutputLength>,
+    respondBidirectionalEvent: RespondBidirectionalEventV1,
+    mpcResponseKey: Secp256k1Point
+  ): Boolean {
+    // Both checks run unconditionally: the signature check's scalar casts
+    // cannot sit in the short-circuited operand of &&.
+    const outputMatches = verifyAttestedOutputV1<serializedOutputLength>(
+      serializedOutput,
+      respondBidirectionalEvent.serializedOutputLength,
+      respondBidirectionalEvent.outputHash
+    );
+    const attested = verifyRespondBidirectionalAttestationV1(respondBidirectionalEvent, mpcResponseKey);
+    return outputMatches && attested;
+  }
+
   // ---- EVM Type2 Transaction Parameters --------------------------------------------------------------
 
   // The caip2Id of every request targeting Ethereum, whichever Ethereum network the
@@ -441,8 +505,8 @@ module Signet {
   // the network's own CAIP-2 id included. EvmType2TxParams.chainId is what binds
   // the signed transaction to one network. Ethereum only: another EVM chain, such as
   // BNB Smart Chain, is a separate chain to the MPC, never one of Ethereum's networks.
-  export pure circuit ethereumCaip2Id(): Bytes<32> {
-    return pad(32, "eip155:1");
+  export pure circuit ethereumCaip2Id(): Bytes<64> {
+    return pad(64, "eip155:1");
   }
 
   // The EVM transaction to be signed, decomposed into typed fields

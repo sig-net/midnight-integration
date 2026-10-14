@@ -8,7 +8,11 @@
 import type { PublicDataProvider } from "@midnight-ntwrk/midnight-js-types";
 import type { Transaction } from "ethers";
 
-import { type Secp256k1Point, verifyRespondBidirectionalSignature } from "./ecdsa-attestation.ts";
+import {
+  type Secp256k1Point,
+  verifyAttestedOutput,
+  verifyRespondBidirectionalAttestation,
+} from "./ecdsa-attestation.ts";
 import type { RawContractState } from "./raw-contract-state.ts";
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
@@ -114,21 +118,31 @@ function assertEvmType2Request(request: SignBidirectionalEvent): void {
 
 /**
  * The first (oldest) of a request's respond-bidirectional posts whose
- * signature verifies over `serializedOutput` against `mpcResponseKey`.
+ * signature verifies against `mpcResponseKey`, provided it attests
+ * `serializedOutput`. Every genuine post for a request attests the same final
+ * outcome, so the output is hashed once, against that post alone.
  *
  * @param serializedOutput - The serialised execution output, exact unpadded bytes.
  * @param mpcResponseKey - The MPC response key the requesting contract pinned.
  * @param posts - The request's posts, in emission order.
- * @returns The first verifying post, or `undefined` when none verifies.
+ * @returns The first verifying post, or `undefined` when none verifies or it
+ *   attests another output.
  */
 function firstVerifiedRespondBidirectionalEvent(
   serializedOutput: Uint8Array,
   mpcResponseKey: Secp256k1Point,
   posts: readonly RespondBidirectionalEvent[],
 ): RespondBidirectionalEvent | undefined {
-  return posts.find((post) =>
-    verifyRespondBidirectionalSignature(serializedOutput, post, mpcResponseKey),
+  const attested = posts.find((post) =>
+    verifyRespondBidirectionalAttestation(post, mpcResponseKey),
   );
+  if (
+    attested === undefined ||
+    !verifyAttestedOutput(serializedOutput, attested.serializedOutputLength, attested.outputHash)
+  ) {
+    return undefined;
+  }
+  return attested;
 }
 
 /**
