@@ -60,7 +60,7 @@ export ledger signBidirectionalEventMap69: SignBidirectionalEventMapV1<EvmType2T
 
 // field 7: the amount each verified checkAndDouble response returned, keyed
 // by the request it settled: what a real client does with an attested
-// output once the signature over it has verified. The attested amount is the
+// output once it has matched a verified attestation. The attested amount is the
 // uint256 as 32 little-endian bytes, narrowed to Uint<128> in-circuit by
 // checkedTruncationU128.
 export ledger checkAndDoubleAmounts: Map<RequestId, Uint<128>>;
@@ -390,16 +390,16 @@ export circuit verifyResponse(
       disclose(respondBidirectionalEvent),
       mpcResponseKey
     ),
-    "Invalid attestation signature"
+    "Invalid attestation or output"
   );
   assert(
     respondBidirectionalEvent.outputKind == OutputKind.executed,
     "Attestation is not an execution"
   );
 
-  // The signature covered the output byte-for-byte, so the attested bytes
-  // can now be unpacked and acted on: deserialize is the compiled builtin,
-  // the true inverse of the MPC's off-chain packing.
+  // The output matched the width and hash the signature covers, so the
+  // attested bytes can now be unpacked and acted on: deserialize is the
+  // compiled builtin, the true inverse of the MPC's off-chain packing.
   const response = deserialize<BoolResponse, 1>(serializedOutput);
   assert(response.success, "Foreign call reported failure");
 
@@ -439,7 +439,7 @@ export circuit verifyCheckAndDoubleResponse(
       disclose(respondBidirectionalEvent),
       mpcResponseKey
     ),
-    "Invalid attestation signature"
+    "Invalid attestation or output"
   );
   assert(
     respondBidirectionalEvent.outputKind == OutputKind.executed,
@@ -479,7 +479,7 @@ export circuit verifyFailureResponse(
       disclose(respondBidirectionalEvent),
       mpcResponseKey
     ),
-    "Invalid attestation signature"
+    "Invalid attestation or output"
   );
   const outputKind = disclose(respondBidirectionalEvent.outputKind);
   assert(

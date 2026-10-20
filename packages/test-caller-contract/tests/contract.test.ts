@@ -617,7 +617,7 @@ describe("verifyResponse", () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(IMPOSTER_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
     await expect(contract.circuits.verifyResponse(ctx, event, OUTPUT_SUCCESS)).rejects.toThrow(
-      /Invalid attestation signature/,
+      /Invalid attestation or output/,
     );
   });
 
@@ -626,7 +626,7 @@ describe("verifyResponse", () => {
     const response = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
     const tamperedOutput = OUTPUT_FAILURE;
     await expect(contract.circuits.verifyResponse(ctx, response, tamperedOutput)).rejects.toThrow(
-      /Invalid attestation signature/,
+      /Invalid attestation or output/,
     );
   });
 
@@ -640,7 +640,7 @@ describe("verifyResponse", () => {
       Uint8Array.of(1, 0),
     );
     await expect(contract.circuits.verifyResponse(ctx, response, OUTPUT_SUCCESS)).rejects.toThrow(
-      /Invalid attestation signature/,
+      /Invalid attestation or output/,
     );
   });
 
@@ -653,7 +653,7 @@ describe("verifyResponse", () => {
         { ...response, signature: { ...response.signature, s: bytes(32, 0x99) } },
         OUTPUT_SUCCESS,
       ),
-    ).rejects.toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation or output/);
   });
 
   it("rejects a tampered block height", async () => {
@@ -665,7 +665,7 @@ describe("verifyResponse", () => {
         { ...response, blockHeight: BLOCK_HEIGHT + 1n },
         OUTPUT_SUCCESS,
       ),
-    ).rejects.toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation or output/);
   });
 
   it("rejects a tampered output kind", async () => {
@@ -677,7 +677,7 @@ describe("verifyResponse", () => {
         { ...response, outputKind: OutputKind.failed },
         OUTPUT_SUCCESS,
       ),
-    ).rejects.toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation or output/);
   });
 
   it("rejects a genuinely attested FAILURE output (deserialized success is false)", async () => {
@@ -728,7 +728,7 @@ describe("verifyResponse", () => {
         { ...event, requestId: bytes(32, 0xab) },
         OUTPUT_SUCCESS,
       ),
-    ).rejects.toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation or output/);
   });
 
   it("rejects a genuinely signed id that has no pending request", async () => {
@@ -876,7 +876,7 @@ describe("verifyCheckAndDoubleResponse", () => {
     tampered[32] = 13;
     await expect(
       contract.circuits.verifyCheckAndDoubleResponse(ctx, response, tampered),
-    ).rejects.toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation or output/);
   });
 
   it("rejects a cross-width replay: a 1-byte-output attestation cannot verify at width 33", async () => {
@@ -894,7 +894,7 @@ describe("verifyCheckAndDoubleResponse", () => {
     paddedOutput.set(OUTPUT_SUCCESS.subarray(0, 1), 0);
     await expect(
       contract.circuits.verifyCheckAndDoubleResponse(ctx, boolOnlyResponse, paddedOutput),
-    ).rejects.toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation or output/);
   });
 
   it("rejects an imposter's signature", async () => {
@@ -905,7 +905,7 @@ describe("verifyCheckAndDoubleResponse", () => {
         respond(IMPOSTER_SECRET, requestId, OutputKind.executed, OUTPUT_BOOL_UINT),
         OUTPUT_BOOL_UINT,
       ),
-    ).rejects.toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation or output/);
   });
 });
 
@@ -991,7 +991,7 @@ describe("verifyFailureResponse", () => {
     const { contract, ctx, requestId } = await requestSubmitted();
     const event = respond(IMPOSTER_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
     await expect(contract.circuits.verifyFailureResponse(ctx, event, OUTPUT_EMPTY)).rejects.toThrow(
-      /Invalid attestation signature/,
+      /Invalid attestation or output/,
     );
   });
 
@@ -1004,7 +1004,7 @@ describe("verifyFailureResponse", () => {
         { ...event, outputKind: OutputKind.unviable },
         OUTPUT_EMPTY,
       ),
-    ).rejects.toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation or output/);
   });
 
   it("rejects a cross-width replay: a 1-byte-output attestation cannot verify at width 0", async () => {
@@ -1018,7 +1018,7 @@ describe("verifyFailureResponse", () => {
         { ...event, outputKind: OutputKind.failed },
         OUTPUT_EMPTY,
       ),
-    ).rejects.toThrow(/Invalid attestation signature/);
+    ).rejects.toThrow(/Invalid attestation or output/);
   });
 
   it("rejects a genuinely signed id that has no pending request in either map", async () => {

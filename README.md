@@ -127,7 +127,7 @@ Hosted EVM providers often gate `debug_traceTransaction` behind a paid tier. An 
 - `fetchSerializedOutput(requestId)` returns the attested bytes. It returns `undefined` while the bytes are not in the cache (the MPC may not have written them yet, or may not write them at all, since the cache is optional), so poll it beside the attestation events.
 - The local fakenet responder simulates the same bucket on port 3040 under the prefix `v1/fakenet`. Pass `cacheUrl: "http://127.0.0.1:3040/v1/fakenet"` and the same reader works against the local stack.
 
-Whichever route supplies it, the serialised output is UNTRUSTED until step **5.**'s in-circuit signature verification: a wrong or forged output merely fails to verify.
+Whichever route supplies it, the serialised output is UNTRUSTED until step **5.**'s in-circuit verification checks it against the attested width and hash: a wrong or forged output merely fails to verify.
 
 ## Sign Bidirectional Event Discovery & Verification
 
@@ -427,7 +427,7 @@ const expectedSigner = deriveEvmAddress(
    ```compact
    assert(
       verifyRespondBidirectionalEventV1<1>(serializedOutput, respondBidirectionalEvent, mpcResponseKey),
-      "Invalid attestation signature"
+      "Invalid attestation or output"
    );
    const requestId = disclose(respondBidirectionalEvent.requestId);
    const height = disclose(respondBidirectionalEvent.blockHeight);
@@ -448,7 +448,7 @@ const expectedSigner = deriveEvmAddress(
 
    Apply the same height check, maximum update and request cleanup to `failed` and `unviable` responses, verifying their empty output at width 0. Route on the verified kind: see [Handling Failure](#handling-failure).
 
-   Preserve `lastSeen`, `heightAtRequest` and outstanding requests across upgrades. The SDK verification circuit authenticates the response but the integrating contract maintains and checks these records. See [the protocol's library rules](https://github.com/sig-net/mpc/blob/develop/doc/bidirectional_calls.md#41-library-inside-the-application-contract).
+   Preserve `lastSeen`, `heightAtRequest` and outstanding requests across upgrades. The SDK verification circuit authenticates the response but the integrating contract maintains and checks these records. See [the protocol's library rules](https://github.com/sig-net/mpc/blob/develop/doc/bidirectional-calls.md#41-library-inside-the-application-contract).
 
 ## EVM Type 2 Transactions and ABI Calldata Words
 
