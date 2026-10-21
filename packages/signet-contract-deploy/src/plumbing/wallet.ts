@@ -590,8 +590,8 @@ async function waitForSyncedStateLogging(
     const position =
       latest === undefined
         ? "no state yet"
-        : `shielded ${syncPosition(latest.shielded.progress.appliedIndex, latest.shielded.progress.highestIndex)}, ` +
-          `dust ${syncPosition(latest.dust.progress.appliedIndex, latest.dust.progress.highestIndex)}, ` +
+        : `shielded ${syncPosition(latest.shielded.progress.appliedIndex, latest.shielded.progress.highestRelevantWalletIndex)}, ` +
+          `dust ${syncPosition(latest.dust.progress.appliedIndex, latest.dust.progress.highestRelevantWalletIndex)}, ` +
           `unshielded ${syncPosition(latest.unshielded.progress.appliedId, latest.unshielded.progress.highestTransactionId)}`;
     console.log(`  ${label} wallet still syncing after ${elapsed()}: ${position}`);
   }, SYNC_HEARTBEAT_MS);
