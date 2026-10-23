@@ -88,6 +88,12 @@ export interface SignetEventStreamOptions {
    * not exceed the block of the oldest request whose responses are wanted.
    */
   readonly fromBlock?: number;
+  /**
+   * Inclusive highest Midnight block height to read events up to. Omit to
+   * read to the tip. With `fromBlock` it cuts one slice of the history, so
+   * a consumer can read the newest slice first and extend backwards.
+   */
+  readonly toBlock?: number;
 }
 
 /**
@@ -307,7 +313,7 @@ interface IndexerContractEventsResponse {
  * @param queryUrl - The indexer's GraphQL query endpoint.
  * @param contractAddress - The contract whose events to read.
  * @param offset - Events to skip from the start of the walk.
- * @param fromBlock - Inclusive lowest block height to read from, or undefined for the whole history.
+ * @param bounds - The block range to read, see {@link SignetEventStreamOptions}.
  * @returns The page's rows, oldest first.
  * @throws {Error} When the indexer cannot be reached, answers a status that
  *   is not 2xx, rejects the query, or answers without a page.
@@ -316,7 +322,7 @@ async function fetchContractEventPage(
   queryUrl: string,
   contractAddress: string,
   offset: number,
-  fromBlock: number | undefined,
+  bounds: SignetEventStreamOptions,
 ): Promise<IndexerContractEventRow[]> {
   const response = await fetch(queryUrl, {
     method: "POST",
@@ -327,7 +333,8 @@ async function fetchContractEventPage(
         filter: {
           contractAddress,
           types: ["MISC"],
-          ...(fromBlock === undefined ? {} : { fromBlock }),
+          ...(bounds.fromBlock === undefined ? {} : { fromBlock: bounds.fromBlock }),
+          ...(bounds.toBlock === undefined ? {} : { toBlock: bounds.toBlock }),
         },
         limit: EVENT_PAGE_LIMIT,
         offset,
@@ -371,12 +378,7 @@ export function signetEventSourceFromIndexer(
       const address = bytesToHex(contractAddressFromHex(contractAddress).bytes);
       let tipId: number | undefined;
       for (let offset = 0; ; offset += EVENT_PAGE_LIMIT) {
-        const page = await fetchContractEventPage(
-          config.queryUrl,
-          address,
-          offset,
-          options?.fromBlock,
-        );
+        const page = await fetchContractEventPage(config.queryUrl, address, offset, options ?? {});
         for (const row of page) {
           const event = signetMiscEventFromIndexerRow(row);
           if (event === undefined) continue;
