@@ -147,7 +147,9 @@ The MPC only generates signatures for **Verified Request Events**, which it disc
 
 If any of these checks fail the request is dropped silently.
 
-> **⚠️ ONLY Fully Applied Transactions are Indexed!** The MPC *only* reads notifications from transactions that Midnight applied in full (`TxApplied`). A request made in a partially successful transaction (`TxPartialSuccess`) is **NEVER** signed.
+> **⚠️ Partially Successful Transactions.** The MPC reads notifications from transactions that Midnight applied in full (`TxApplied`) and from partially successful ones (`TxPartialSuccess`), whose guaranteed section and some of whose fallible segments committed. The node does not say which fallible segments committed, so the MPC honours a notification from a fallible transcript of a partially successful transaction only when your contract's ledger holds the request at that block and did not at the block before. Two consequences for your contract:
+> - Write each request in the same circuit that notifies the MPC of it (step **1.** of [Runtime](#runtime)). A request written without a notification in that call is signed in the block it is written if any notification naming it appears in that block, even one whose segment rolled back.
+> - A request id that leaves your map and is written again within one block is not signed from such a notification, so do not let a request id recur within a block.
 
 ## Derived Keys
 
