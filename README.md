@@ -147,9 +147,9 @@ The MPC only generates signatures for **Verified Request Events**, which it disc
 
 If any of these checks fail the request is dropped silently.
 
-> **⚠️ Partially Successful Transactions.** The MPC reads notifications from transactions that Midnight applied in full (`TxApplied`) and from partially successful ones (`TxPartialSuccess`), whose guaranteed section and some of whose fallible segments committed. The node does not say which fallible segments committed, so the MPC honours a notification from a fallible transcript of a partially successful transaction only when your contract's ledger holds the request at that block and did not at the block before. Two consequences for your contract:
-> - Write each request in the same circuit that notifies the MPC of it (step **1.** of [Runtime](#runtime)). A request written without a notification in that call is signed in the block it is written if any notification naming it appears in that block, even one whose segment rolled back.
-> - A request id that leaves your map and is written again within one block is not signed from such a notification, so do not let a request id recur within a block.
+> **⚠️ Partially Successful Transactions.** The MPC reads notifications from transactions that Midnight applied in full (`TxApplied`) and from partially successful ones (`TxPartialSuccess`), whose guaranteed section committed but at least one fallible segment rolled back. The node does not say which fallible segments committed, so the MPC honours a notification from a fallible transcript of a partially successful transaction only when the caller contract's request map holds the request at that block and did not at the block before. Two consequences for the caller contract:
+> - Store each request in the same circuit that notifies the MPC of it (step **1.** of [Runtime](#runtime)). A request stored without a notification is signed if a notification naming it appears in the same block, even one whose segment rolled back.
+> - A request that the caller contract removes (step **5.**) and stores again with the same request id within one block is not signed from such a notification. Notify it again from a transaction that applies in full.
 
 ## Derived Keys
 
