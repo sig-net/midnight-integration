@@ -147,7 +147,13 @@ The MPC only generates signatures for **Verified Request Events**, which it disc
 
 If any of these checks fail the request is dropped silently.
 
-> **⚠️ ONLY Fully Applied Transactions are Indexed!** The MPC *only* reads notifications from transactions that Midnight applied in full (`TxApplied`). A request made in a partially successful transaction (`TxPartialSuccess`) is **NEVER** signed.
+> **⚠️ Partially Successful Transactions.** Midnight applies a transaction's [guaranteed section](https://docs.midnight.network/concepts/how-midnight-works/semantics#transaction-fallibility) first, then each fallible segment separately. A fallible segment that fails rolls back alone, and the transaction is then partially successful (`TxPartialSuccess`).
+>
+> The MPC reads partially successful transactions too, but the Midnight node does not report which segments rolled back. So a notification from a fallible segment of such a transaction is signed only if the request is new in that block: absent from the caller contract's request map at the block before and present at that block. Notifications from the guaranteed section, or from a fully applied transaction (`TxApplied`), need only the checks above.
+>
+> What this means for the caller contract:
+> - Store each request in the same circuit that notifies the MPC of it (step **1.** of [Runtime](#runtime)). The check compares blocks, not segments: a request stored in a block without a notification is signed if a rolled-back notification naming it appears in the same block.
+> - A notification from a fallible segment of a partially successful transaction is dropped if the request map already held the request at the block before. Two examples are a retry in a later block, and a request removed (step **5.**) and stored again with the same request id within one block. Send such a notification from the guaranteed section, or from a transaction that applies in full.
 
 ## Derived Keys
 
