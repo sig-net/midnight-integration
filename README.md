@@ -486,6 +486,7 @@ export ledger heightAtRequest: Map<RequestId, Uint<64>>;
 export struct AttestationRecord {
   blockHeight: Uint<64>;
   outputKind: OutputKind;
+  serializedOutputLength: Uint<64>;
   outputHash: Bytes<32>;
 }
 // Verified attestations wait here until a flush folds their height into lastSeen.
@@ -515,15 +516,15 @@ export circuit sendRequest(requestId: RequestId): [] {
 }
 ```
 
-Runtime step 5 splits the same way. Verification runs when the attestation is queued, so a stale or forged attestation never reaches the flush, and the application logic runs at completion, once the flush has folded the height. The queue circuit checks the output against the attestation's declared hash through `verifyRespondBidirectionalEventV1` and stores that hash, so completion can check the output presented to it without re-verifying the signature:
+Runtime step 5 splits the same way. Verification runs when the attestation is queued, so a stale or forged attestation never reaches the flush, and the application logic runs at completion, once the flush has folded the height. The queue circuit verifies the signature over the attestation alone with `verifyRespondBidirectionalAttestationV1` and stores the output length and hash the attestation declares, so one queue circuit serves every output width and completion checks the output presented to it with `verifyAttestedOutputV1` at its own width, without re-verifying the signature:
 
 ```compact
 // Step 5a: verify and queue the attestation.
-export circuit queueAttestation(respondBidirectionalEvent: RespondBidirectionalEventV1, serializedOutput: Bytes<1>): [] {
+export circuit queueAttestation(respondBidirectionalEvent: RespondBidirectionalEventV1): [] {
   const attestation = disclose(respondBidirectionalEvent);
   assert(
-    verifyRespondBidirectionalEventV1<1>(disclose(serializedOutput), attestation, mpcResponseKey),
-    "Invalid attestation or output"
+    verifyRespondBidirectionalAttestationV1(attestation, mpcResponseKey),
+    "Invalid attestation signature"
   );
   assert(heightAtRequest.member(attestation.requestId), "Request not flushed");
   assert(attestation.blockHeight > heightAtRequest.lookup(attestation.requestId), "Response is not above request height");
@@ -532,6 +533,7 @@ export circuit queueAttestation(respondBidirectionalEvent: RespondBidirectionalE
   inputAttestationBuffer.insert(attestation.requestId, AttestationRecord {
     blockHeight: attestation.blockHeight,
     outputKind: attestation.outputKind,
+    serializedOutputLength: attestation.serializedOutputLength,
     outputHash: attestation.outputHash,
   });
 }
@@ -545,7 +547,10 @@ export circuit complete(requestId: RequestId, serializedOutput: Bytes<1>): [] {
   assert(outputAttestationBuffer.member(id), "Attestation not flushed");
   const record = outputAttestationBuffer.lookup(id);
   assert(record.blockHeight > heightAtRequest.lookup(id), "Response is not above request height");
-  assert(record.outputHash == calculateAttestedOutputHashV1<1>(disclose(serializedOutput)), "Wrong output");
+  assert(
+    verifyAttestedOutputV1<1>(disclose(serializedOutput), record.serializedOutputLength, record.outputHash),
+    "Output does not match the attestation"
+  );
   signBidirectionalEventMap.remove(id);
   heightAtRequest.remove(id);
   outputAttestationBuffer.remove(id);
@@ -599,7 +604,7 @@ A round trip is six Midnight transactions, with the two flushes the only ones th
             .  MPC signs, the transaction executes on the target chain, the MPC attests it
             |
             v
-4. queueAttestation(event, output) anyone  verify signature, blockHeight > heightAtRequest
+4. queueAttestation(event)         anyone  verify signature, blockHeight > heightAtRequest
             |                              inputAttestationBuffer.insert(requestId, record)
             v
 5. flushQueue([attestation slot])  anyone  inputAttestationBuffer -> outputAttestationBuffer
@@ -609,7 +614,7 @@ A round trip is six Midnight transactions, with the two flushes the only ones th
                                            remove the request, its snapshot and the record, run the handler
 ```
 
-Users' own transactions never fail because of each other or because of a flush, and the ordering keeps the height check sound: a request's bound is taken when it is flushed, and an attestation is consumed only after its height is folded. The sketches leave out the ownership commitment, the one-size buffer entry and the per-width queue circuits a real contract wants. The ERC20 vault implements all of it: [`erc20-vault.compact`](https://github.com/sig-net/midnight-examples/blob/main/examples/erc20-vault/contract/src/erc20-vault.compact) is the contract and [`vault-queue.ts`](https://github.com/sig-net/midnight-examples/blob/main/examples/erc20-vault/contract/src/vault-queue.ts) the client side of the flush, with the retry loop and the fallible-section submission.
+Users' own transactions never fail because of each other or because of a flush, and the ordering keeps the height check sound: a request's bound is taken when it is flushed, and an attestation is consumed only after its height is folded. The sketches leave out the ownership commitment and the one-size buffer entry a real contract wants. The ERC20 vault implements all of it: [`erc20-vault.compact`](https://github.com/sig-net/midnight-examples/blob/main/examples/erc20-vault/contract/src/erc20-vault.compact) is the contract and [`vault-queue.ts`](https://github.com/sig-net/midnight-examples/blob/main/examples/erc20-vault/contract/src/vault-queue.ts) the client side of the flush, with the retry loop and the fallible-section submission.
 
 ## EVM Type 2 Transactions and ABI Calldata Words
 
