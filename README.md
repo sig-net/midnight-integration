@@ -456,7 +456,7 @@ const expectedSigner = deriveEvmAddress(
 
    For example, a request made when `lastSeen` is 100 records `heightAtRequest[requestId] = 100`. Its response must attest a height above 100. If another response advances `lastSeen` to 120 first, this request can still accept height 110, and `lastSeen` stays 120. Comparing against the current `lastSeen` would incorrectly reject that response.
 
-   **⚠️ WARNING:** Steps 1 and 5 as written both read the single `lastSeen` value, and step 5 writes it. A transaction that reads a value fails if that value changes before the transaction lands, so only one attestation can be processed at a time, and every other request or attestation in flight at that moment fails and must be proven again. Under load, or against someone deliberately sending attestations as fast as they can, users' requests and attestations keep failing and may never land. This is the naive form, kept for demonstration. See [Preventing Contention on `lastSeen`](#preventing-contention-on-lastseen) for the buffer-and-flush form the ERC20 vault example ships.
+   **⚠️ WARNING:** Steps 1 and 5 as written both read the single `lastSeen` value and step 5 writes it, the naive form the WARNING under [Setup](#setup) describes: ship the buffer-and-flush form in [Preventing Contention on `lastSeen`](#preventing-contention-on-lastseen) instead.
 
    Apply the same height check, maximum update and request cleanup to `failed` and `unviable` responses, verifying their empty output at width 0. Route on the verified kind: see [Handling Failure](#handling-failure).
 
@@ -464,11 +464,11 @@ const expectedSigner = deriveEvmAddress(
 
 ## Preventing Contention on `lastSeen`
 
-The Runtime steps above handle `lastSeen` naively: every request and every attestation reads the single value, and attestations write it, so only one attestation can be processed at a time and everything else in flight fails. This section describes a general fix, a buffer-and-flush pattern, in sketch form. The ERC20 cross chain vault in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples/tree/main/examples/erc20-vault) integrates the full pattern, where it handles contention on `lastSeen` and on the vault account's EVM nonce assignment alike. Its [contention handling](https://github.com/sig-net/midnight-examples/blob/main/examples/erc20-vault/docs/contention-handling.md) document is the complete reference.
+The Runtime steps above handle `lastSeen` naively, with the consequences the WARNING under [Setup](#setup) states. This section describes a general fix, a buffer-and-flush pattern, in sketch form. The ERC20 cross chain vault in [`sig-net/midnight-examples`](https://github.com/sig-net/midnight-examples/tree/main/examples/erc20-vault) integrates the full pattern, where it handles contention on `lastSeen` and on the vault account's EVM nonce assignment alike. Its [contention handling](https://github.com/sig-net/midnight-examples/blob/main/examples/erc20-vault/docs/contention-handling.md) document is the complete reference.
 
-The problem in detail. The Runtime steps above read and write one global `lastSeen` variable from the circuits every user calls. That is the shortest way to demonstrate the height check but will present contention issues under concurrent use in practice. A Midnight transaction is proven against the ledger state its prover saw, and every value it read must still hold when it reaches the chain. Step 1 reads `lastSeen` to snapshot it into `heightAtRequest`, and step 5 reads it and may update it to raise it. So every response that updates `lastSeen` invalidates every request and every response proven against the previous value, and each of those must be re-proven and resubmitted. Step 5 is the expensive one to re-prove, as `verifyRespondBidirectionalEventV1` runs an ECDSA verification in-circuit. A stale read in the transaction's guaranteed section rejects the transaction without a fee, one in the fallible section lands as a failure and still pays. Ordinary concurrent use produces this on its own, and anyone can turn it into a denial of service by delivering responses that advance `lastSeen` as fast as they can prove them, so that honest requests and settlements are rejected again on every retry and never land.
+The problem in detail. A Midnight transaction is proven against the ledger state its prover saw, and every value it read must still hold when it reaches the chain. Step 1 reads `lastSeen` to snapshot it into `heightAtRequest`, and step 5 reads it and may update it to raise it. So every response that updates `lastSeen` invalidates every request and every response proven against the previous value, and each of those must be re-proven and resubmitted. Step 5 is the expensive one to re-prove, as `verifyRespondBidirectionalEventV1` runs an ECDSA verification in-circuit. A stale read in the transaction's guaranteed section rejects the transaction without a fee, one in the fallible section lands as a failure and still pays. Ordinary concurrent use produces this on its own, and anyone can turn it into a denial of service by delivering responses that advance `lastSeen` as fast as they can prove them, so that honest requests and settlements are rejected again on every retry and never land.
 
-Operations that write without reading do not contend: `Counter.increment`, and `insert` or `remove` on a map key no other in-flight transaction touches. The pattern below lets the circuits users call touch only such operations, and gives `lastSeen` exactly one reader and writer after the constructor: a permissionless `flushQueue` circuit that moves entries between buffers. All contention is concentrated in the flush, where it is cheap to handle. A flush carries no user funds or secrets, anyone may submit one, and one that loses a race against another flush is rebuilt from the new state and resubmitted. The price of a lost race is the losing flush's fee.
+Two transactions conflict only when one writes a value the other read. Two that touch different keys of the same map never conflict, and a `Counter.increment` reads nothing. The pattern below lets the circuits users call read and write only entries keyed by their own request id, and gives `lastSeen` exactly one reader and writer after the constructor: a permissionless `flushQueue` circuit that moves entries between buffers. All contention is concentrated in the flush, where it is cheap to handle. A flush carries no user funds or secrets, anyone may submit one, and one that loses a race against another flush is rebuilt from the new state and resubmitted. The price of a lost race is the losing flush's fee.
 
 Requests and attestations each pass through a buffer the user circuits write to and a buffer only the flush inserts into. Replace the `lastSeen` and `heightAtRequest` declarations of Setup step 3 with:
 
@@ -498,10 +498,14 @@ export ledger outputAttestationBuffer: Map<RequestId, AttestationRecord>;
 Runtime step 1 splits in two. The request circuit only queues, so it reads nothing shared. Its `lastSeen` snapshot must be taken before the MPC learns of the request, otherwise a response could land at a height the snapshot later overtakes, so the notification moves into a send circuit that runs after the flush. The send stores the request in `signBidirectionalEventMap` and notifies in the same circuit, as the partial-success rule in [Sign Bidirectional Event Discovery & Verification](#sign-bidirectional-event-discovery--verification) requires:
 
 ```compact
-// Step 1a: queue. Build the request exactly as in step 1, then store it instead of notifying.
-assert(!inputRequestBuffer.member(requestId), "Request already queued");
-assert(!signBidirectionalEventMap.member(requestId), "Request already outstanding");
-inputRequestBuffer.insert(requestId, disclose(request));
+// Step 1a: queue. Build and check the request exactly as in step 1, then store it.
+export circuit queueRequest(/* ... */): [] {
+  const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34>(/* ... */);
+  const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34>(request));
+  assert(!inputRequestBuffer.member(requestId), "Request already queued");
+  assert(!signBidirectionalEventMap.member(requestId), "Request already outstanding");
+  inputRequestBuffer.insert(requestId, disclose(request));
+}
 
 // flushQueue runs here, in its own transaction (see below): it snapshots lastSeen into
 // heightAtRequest for the queued request.
@@ -531,7 +535,7 @@ export circuit queueAttestation(respondBidirectionalEvent: RespondBidirectionalE
     verifyRespondBidirectionalAttestationV1(attestation, mpcResponseKey),
     "Invalid attestation signature"
   );
-  assert(heightAtRequest.member(attestation.requestId), "Request not flushed");
+  assert(signBidirectionalEventMap.member(attestation.requestId), "Request not sent");
   assert(attestation.blockHeight > heightAtRequest.lookup(attestation.requestId), "Response is not above request height");
   assert(!inputAttestationBuffer.member(attestation.requestId), "Attestation already queued");
   assert(!outputAttestationBuffer.member(attestation.requestId), "Attestation already flushed");
@@ -546,21 +550,32 @@ export circuit queueAttestation(respondBidirectionalEvent: RespondBidirectionalE
 // flushQueue runs here, in its own transaction (see below): it moves the record into
 // outputAttestationBuffer and folds its block height into lastSeen.
 
-// Step 5b: complete, once the flush has folded the attestation's height.
+// Step 5b: complete, once the flush has folded the attestation's height. Callable by
+// anyone here: a real contract adds an ownership check (see the vault).
 export circuit complete(requestId: RequestId, serializedOutput: Bytes<1>): [] {
   const id = disclose(requestId);
   assert(outputAttestationBuffer.member(id), "Attestation not flushed");
   const record = outputAttestationBuffer.lookup(id);
   assert(record.blockHeight > heightAtRequest.lookup(id), "Response is not above request height");
-  assert(
-    verifyAttestedOutputV1<1>(disclose(serializedOutput), record.serializedOutputLength, record.outputHash),
-    "Output does not match the attestation"
-  );
   signBidirectionalEventMap.remove(id);
   heightAtRequest.remove(id);
   outputAttestationBuffer.remove(id);
 
-  // Run your application handler here, routing on record.outputKind.
+  // Route on the verified kind (see Handling Failure). A failed or unviable attestation
+  // declares an empty output, so it is checked at width 0.
+  if (record.outputKind == OutputKind.executed) {
+    assert(
+      verifyAttestedOutputV1<1>(disclose(serializedOutput), record.serializedOutputLength, record.outputHash),
+      "Output does not match the attestation"
+    );
+    // Run your success handler here.
+  } else {
+    assert(
+      verifyAttestedOutputV1<0>(default<Bytes<0>>, record.serializedOutputLength, record.outputHash),
+      "Output does not match the attestation"
+    );
+    // Run your failure handler here.
+  }
 }
 ```
 
@@ -597,7 +612,7 @@ A flush fails only on the items its caller names, and a failed flush commits not
 A round trip is six Midnight transactions, with the two flushes the only ones that touch `lastSeen`:
 
 ```
-1. start(request)                  user    inputRequestBuffer.insert(requestId, request)
+1. queueRequest(...)               user    inputRequestBuffer.insert(requestId, request)
             |
             v
 2. flushQueue([request slot])      anyone  heightAtRequest.insert(requestId, lastSeen)      <- reads lastSeen
@@ -609,14 +624,14 @@ A round trip is six Midnight transactions, with the two flushes the only ones th
             .  MPC signs, the transaction executes on the target chain, the MPC attests it
             |
             v
-4. queueAttestation(event)         anyone  verify signature, blockHeight > heightAtRequest
+4. queueAttestation(event)         anyone  verify signature, request sent, blockHeight > heightAtRequest
             |                              inputAttestationBuffer.insert(requestId, record)
             v
 5. flushQueue([attestation slot])  anyone  inputAttestationBuffer -> outputAttestationBuffer
             |                              lastSeen = max(lastSeen, record.blockHeight)       <- writes lastSeen
             v
-6. complete(requestId, output)     user    blockHeight > heightAtRequest, output matches record
-                                           remove the request, its snapshot and the record, run the handler
+6. complete(requestId, output)     anyone  blockHeight > heightAtRequest, remove the request, its snapshot
+                                           and the record, check the output at the kind's width, run the handler
 ```
 
 Users' own transactions never fail because of each other or because of a flush, and the ordering keeps the height check sound: a request's bound is taken when it is flushed, and an attestation is consumed only after its height is folded. The sketches leave out the ownership commitment and the one-size buffer entry a real contract wants. The ERC20 vault implements all of it: [`erc20-vault.compact`](https://github.com/sig-net/midnight-examples/blob/main/examples/erc20-vault/contract/src/erc20-vault.compact) is the contract and [`vault-queue.ts`](https://github.com/sig-net/midnight-examples/blob/main/examples/erc20-vault/contract/src/vault-queue.ts) the client side of the flush, with the retry loop and the fallible-section submission.
