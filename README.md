@@ -476,11 +476,12 @@ Requests and attestations each pass through a buffer the user circuits write to 
 // Only flushQueue reads or writes lastSeen after the constructor.
 export ledger lastSeen: Uint<64>;
 
-// Requests wait here, keyed by request id, until a flush moves them into
-// signBidirectionalEventMap and snapshots lastSeen for them.
-export ledger inputRequestBuffer: Map<RequestId, SignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34>>;
+// Requests wait here, keyed by request id, until a flush snapshots lastSeen for them
+// and a send moves them into signBidirectionalEventMap.
+export ledger inputRequestBuffer: Map<RequestId, SignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34, 0>>;
 
-// lastSeen at the moment the flush moved the request: written only by the flush.
+// lastSeen at the moment the flush accepted the request: written only by the flush,
+// and present only for flushed requests.
 export ledger heightAtRequest: Map<RequestId, Uint<64>>;
 
 export struct AttestationRecord {
@@ -494,7 +495,7 @@ export ledger inputAttestationBuffer: Map<RequestId, AttestationRecord>;
 export ledger outputAttestationBuffer: Map<RequestId, AttestationRecord>;
 ```
 
-Runtime step 1 splits in two. The request circuit only queues, so it reads nothing shared. Its `lastSeen` snapshot must be taken before the MPC learns of the request, otherwise a response could land at a height the snapshot later overtakes, so the notification moves into a send circuit that runs after the flush:
+Runtime step 1 splits in two. The request circuit only queues, so it reads nothing shared. Its `lastSeen` snapshot must be taken before the MPC learns of the request, otherwise a response could land at a height the snapshot later overtakes, so the notification moves into a send circuit that runs after the flush. The send stores the request in `signBidirectionalEventMap` and notifies in the same circuit, as the partial-success rule in [Sign Bidirectional Event Discovery & Verification](#sign-bidirectional-event-discovery--verification) requires:
 
 ```compact
 // Step 1a: queue. Build the request exactly as in step 1, then store it instead of notifying.
@@ -502,13 +503,17 @@ assert(!inputRequestBuffer.member(requestId), "Request already queued");
 assert(!signBidirectionalEventMap.member(requestId), "Request already outstanding");
 inputRequestBuffer.insert(requestId, disclose(request));
 
-// flushQueue runs here, in its own transaction (see below): it moves the request into
-// signBidirectionalEventMap and snapshots lastSeen into heightAtRequest.
+// flushQueue runs here, in its own transaction (see below): it snapshots lastSeen into
+// heightAtRequest for the queued request.
 
-// Step 1b: send, callable by anyone once the flush has moved the request.
+// Step 1b: send, callable by anyone once the flush has snapshotted the request. Storing
+// the request and notifying happen in this one circuit.
 export circuit sendRequest(requestId: RequestId): [] {
   const id = disclose(requestId);
   assert(heightAtRequest.member(id), "Request not flushed");
+  assert(inputRequestBuffer.member(id), "Request already sent");
+  signBidirectionalEventMap.insert(id, inputRequestBuffer.lookup(id));
+  inputRequestBuffer.remove(id);
   signetSigner.signBidirectional(
     id,
     constructSignBidirectionalEventNotificationV1(kernel.self(), 1 as Uint<8>, [0, 0, 0, 0] as Vector<4, Uint<8>>),
@@ -574,8 +579,7 @@ export circuit flushQueue(slots: Vector<10, FlushSlot>): [] {
     const s = disclose(slot);
     if (s.channel == FlushChannel.request) {
       assert(inputRequestBuffer.member(s.requestId), "Request not queued");
-      signBidirectionalEventMap.insert(s.requestId, inputRequestBuffer.lookup(s.requestId));
-      inputRequestBuffer.remove(s.requestId);
+      assert(!heightAtRequest.member(s.requestId), "Request already flushed");
       heightAtRequest.insert(s.requestId, lastSeen);
     } else if (s.channel == FlushChannel.attestation) {
       assert(inputAttestationBuffer.member(s.requestId), "Attestation not queued");
@@ -596,10 +600,11 @@ A round trip is six Midnight transactions, with the two flushes the only ones th
 1. start(request)                  user    inputRequestBuffer.insert(requestId, request)
             |
             v
-2. flushQueue([request slot])      anyone  inputRequestBuffer -> signBidirectionalEventMap
-            |                              heightAtRequest.insert(requestId, lastSeen)      <- reads lastSeen
+2. flushQueue([request slot])      anyone  heightAtRequest.insert(requestId, lastSeen)      <- reads lastSeen
+            |
             v
-3. sendRequest(requestId)          anyone  signetSigner.signBidirectional(...)
+3. sendRequest(requestId)          anyone  inputRequestBuffer -> signBidirectionalEventMap
+            |                              signetSigner.signBidirectional(...)
             |
             .  MPC signs, the transaction executes on the target chain, the MPC attests it
             |
