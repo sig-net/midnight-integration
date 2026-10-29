@@ -426,7 +426,7 @@ interface ServedRow {
 
 /** What the indexer stand-in answered for one request: the variables the adapter sent. */
 interface ServedQuery {
-  filter: { contractAddress: string; types: string[]; fromBlock?: number };
+  filter: { contractAddress: string; types: string[]; fromBlock?: number; toBlock?: number };
   limit: number;
   offset: number;
 }
@@ -688,7 +688,7 @@ describe("signetEventSourceFromIndexer", () => {
     expect(queries.map((query) => query.offset)).toEqual([0, 100]);
   });
 
-  it("sends no fromBlock key when no bound is given", async () => {
+  it("sends no block bound key when no bound is given", async () => {
     const queries: ServedQuery[] = [];
     const queryUrl = await serveHistory([MISC_ROW], queries);
     await collect(signetEventSourceFromIndexer({ queryUrl }).streamSignetEvents(SIGNET_ADDRESS));
@@ -714,6 +714,30 @@ describe("signetEventSourceFromIndexer", () => {
       })),
     );
     expect(events).toHaveLength(120);
+  });
+
+  it("passes toBlock to every page's filter, alone or with fromBlock", async () => {
+    const queries: ServedQuery[] = [];
+    const queryUrl = await serveHistory(historyOf(150, 150), queries);
+    const source = signetEventSourceFromIndexer({ queryUrl });
+
+    await collect(source.streamSignetEvents(SIGNET_ADDRESS, { toBlock: 382500 }));
+    expect(queries.map((query) => query.filter)).toStrictEqual(
+      [0, 100].map(() => ({ contractAddress: SIGNET_ADDRESS, types: ["MISC"], toBlock: 382500 })),
+    );
+
+    queries.length = 0;
+    await collect(
+      source.streamSignetEvents(SIGNET_ADDRESS, { fromBlock: 382000, toBlock: 382500 }),
+    );
+    expect(queries.map((query) => query.filter)).toStrictEqual(
+      [0, 100].map(() => ({
+        contractAddress: SIGNET_ADDRESS,
+        types: ["MISC"],
+        fromBlock: 382000,
+        toBlock: 382500,
+      })),
+    );
   });
 
   it("stops requesting pages when the consumer leaves the loop", async () => {
