@@ -433,7 +433,8 @@ module Signet {
   // requestId, so a client MUST consume that request and no other. An s that
   // reduces to 0 mod the curve order aborts the circuit rather than returning
   // false, so sift candidate posts off chain first
-  // (verifyRespondBidirectionalAttestation).
+  // (verifyRespondBidirectionalAttestation). The identity point as
+  // mpcResponseKey always returns false.
   export pure circuit verifyRespondBidirectionalAttestationV1(
     respondBidirectionalEvent: RespondBidirectionalEventV1,
     mpcResponseKey: Secp256k1Point
@@ -446,7 +447,7 @@ module Signet {
       respondBidirectionalEvent.outputHash,
     );
 
-    return secp256k1EcdsaVerify(
+    const signatureVerifies = secp256k1EcdsaVerify(
       digest,
       Secp256k1EcdsaSignature {
         r: respondBidirectionalEvent.signature.bigR.x as Secp256k1Scalar,
@@ -454,6 +455,7 @@ module Signet {
       },
       mpcResponseKey
     );
+    return mpcResponseKey != default<Secp256k1Point> && signatureVerifies;
   }
 
   // Whether serializedOutput is the output an attestation declares: its width

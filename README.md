@@ -277,6 +277,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
      // Recommended: confirm that only the deployer may initialise, and only once:
      assert(deployer == calculateDeployerCommitment(witnessDeployerSecretKey()), "Not the deployer");
      assert(initialised == 0, "Already initialised");
+     assert(responseKey != default<Secp256k1Point>, "Response key must not be the identity point");
      initialised.increment(1);
 
      // Required: set MPC response key for verification of RespondBidirectionalEvents
@@ -368,6 +369,8 @@ const expectedSigner = deriveEvmAddress(
 1. Store a signature request and notify the MPC via cross contract call. Build (or overwrite) every part of the transaction your contract enforces in-circuit, calldata above all (see [EVM Type 2 Transactions and ABI Calldata Words](#evm-type-2-transactions-and-abi-calldata-words)). Never pass caller input through unchecked:
 
    ```compact
+   assert(initialised == 1, "Not initialised");
+
    // Construct SignBidirectionalEvent signature request and calculate its RequestId
    const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34>(/* ... */);
    const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34>(request));
@@ -434,6 +437,7 @@ const expectedSigner = deriveEvmAddress(
    The width argument is the exact width your output schema derives under the mapping in [Output Recovery and Serialisation](#output-recovery-and-serialisation) (a single `bool` is 1 byte, a `uint256` 32):
 
    ```compact
+   assert(initialised == 1, "Not initialised");
    assert(
       verifyRespondBidirectionalEventV1<1>(serializedOutput, respondBidirectionalEvent, mpcResponseKey),
       "Invalid attestation or output"
