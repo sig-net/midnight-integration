@@ -499,11 +499,12 @@ export ledger inputAttestationBuffer: Map<RequestId, AttestationRecord>;
 export ledger outputAttestationBuffer: Map<RequestId, AttestationRecord>;
 ```
 
-Runtime step 1 splits in two. The request circuit only queues, so it reads nothing shared. Its `lastSeen` snapshot must be taken before the MPC learns of the request, otherwise a response could land at a height the snapshot later overtakes, so the notification moves into a send circuit that runs after the flush. The send stores the request in `signBidirectionalEventMap` and notifies in the same circuit, as the partial-success rule in [Sign Bidirectional Event Discovery & Verification](#sign-bidirectional-event-discovery--verification) requires:
+Runtime step 1 splits in two. The request circuit only queues, so the only shared value it reads is `initialised`, which nothing writes after `initialise`. Its `lastSeen` snapshot must be taken before the MPC learns of the request, otherwise a response could land at a height the snapshot later overtakes, so the notification moves into a send circuit that runs after the flush. The send stores the request in `signBidirectionalEventMap` and notifies in the same circuit, as the partial-success rule in [Sign Bidirectional Event Discovery & Verification](#sign-bidirectional-event-discovery--verification) requires:
 
 ```compact
 // Step 1a: queue. Build and check the request exactly as in step 1, then store it.
 export circuit queueRequest(/* ... */): [] {
+  assert(initialised == 1, "Not initialised");
   const request = constructSignBidirectionalEventV1<EvmType2TxParams<1, 0, 0>, 34>(/* ... */);
   const requestId = disclose(calculateEvmType2RequestIdV1<1, 0, 0, 34>(request));
   assert(!inputRequestBuffer.member(requestId), "Request already queued");
@@ -517,6 +518,7 @@ export circuit queueRequest(/* ... */): [] {
 // Step 1b: send, callable by anyone once the flush has snapshotted the request. Storing
 // the request and notifying happen in this one circuit.
 export circuit sendRequest(requestId: RequestId): [] {
+  assert(initialised == 1, "Not initialised");
   const id = disclose(requestId);
   assert(heightAtRequest.member(id), "Request not flushed");
   assert(inputRequestBuffer.member(id), "Request already sent");
@@ -534,6 +536,7 @@ Runtime step 5 splits the same way. Verification runs when the attestation is qu
 ```compact
 // Step 5a: verify and queue the attestation.
 export circuit queueAttestation(respondBidirectionalEvent: RespondBidirectionalEventV1): [] {
+  assert(initialised == 1, "Not initialised");
   const attestation = disclose(respondBidirectionalEvent);
   assert(
     verifyRespondBidirectionalAttestationV1(attestation, mpcResponseKey),
@@ -557,6 +560,7 @@ export circuit queueAttestation(respondBidirectionalEvent: RespondBidirectionalE
 // Step 5b: complete, once the flush has folded the attestation's height. Callable by
 // anyone here: a real contract adds an ownership check (see the vault).
 export circuit complete(requestId: RequestId, serializedOutput: Bytes<1>): [] {
+  assert(initialised == 1, "Not initialised");
   const id = disclose(requestId);
   assert(outputAttestationBuffer.member(id), "Attestation not flushed");
   const record = outputAttestationBuffer.lookup(id);
