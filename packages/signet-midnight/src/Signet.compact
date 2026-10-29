@@ -433,7 +433,8 @@ module Signet {
   // requestId, so a client MUST consume that request and no other. An s that
   // reduces to 0 mod the curve order aborts the circuit rather than returning
   // false, so sift candidate posts off chain first
-  // (verifyRespondBidirectionalAttestation).
+  // (verifyRespondBidirectionalAttestation). The identity point as
+  // mpcResponseKey always returns false.
   export pure circuit verifyRespondBidirectionalAttestationV1(
     respondBidirectionalEvent: RespondBidirectionalEventV1,
     mpcResponseKey: Secp256k1Point
