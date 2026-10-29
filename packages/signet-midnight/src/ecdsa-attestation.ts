@@ -509,6 +509,7 @@ export function verifyRespondBidirectionalAttestation(
   respondBidirectionalEvent: RespondBidirectionalEvent,
   mpcResponseKey: Secp256k1Point,
 ): boolean {
+  if (mpcResponseKey.identity) return false;
   let signature: EcdsaSignature;
   let digest: Uint8Array;
   try {

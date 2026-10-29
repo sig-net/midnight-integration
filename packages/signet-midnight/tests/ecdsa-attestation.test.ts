@@ -525,6 +525,34 @@ describe("verifyRespondBidirectionalAttestationV1 (compiled circuit): no output 
       verifyRespondBidirectionalAttestation({ ...valid, outputHash: bytes(31, 0x01) }, MPC_PUBLIC),
     ).toBe(false);
   });
+
+  it("rejects a forged attestation (s = z, r = x(G)) under the identity point as the response key", () => {
+    const SECP256K1_GENERATOR_X =
+      0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n;
+    const digest = calculateSignetAttestationDigest(
+      REQUEST_ID,
+      BLOCK_HEIGHT,
+      OutputKind.executed,
+      OUTPUT_32,
+    );
+    const forged: RespondBidirectionalEvent = {
+      ...valid,
+      signature: {
+        ...valid.signature,
+        bigR: { ...valid.signature.bigR, x: bigintToBytes32BE(SECP256K1_GENERATOR_X) },
+        s: bigintToBytes32BE(bytesToBigintBE(digest) % SECP256K1_ORDER),
+      },
+    };
+    const identity = { x: 0n, y: 0n, identity: true };
+
+    expect(
+      signetCircuits.verifyRespondBidirectionalAttestationV1(
+        respondBidirectionalEventToCircuitInput(forged),
+        identity,
+      ),
+    ).toBe(false);
+    expect(verifyRespondBidirectionalAttestation(forged, identity)).toBe(false);
+  });
 });
 
 describe("verifyRespondBidirectionalEvent0 (compiled circuit): a failure's empty output", () => {

@@ -424,11 +424,12 @@ export class SignetRequestResponseReader {
 
   /**
    * Fetch the respond-bidirectional posts declared under `requestId` and
-   * return the first (oldest) one whose signature verifies over
-   * `serializedOutput` against `mpcResponseKey`: the off-chain twin of the
-   * check the client contract runs in-circuit. The output must be the exact
-   * unpadded bytes the attestation commits to, so a post that verifies here
-   * is the post that proves at claim time.
+   * return the first (oldest) one whose signature verifies against
+   * `mpcResponseKey`, provided its attested width and output hash match
+   * `serializedOutput`: the off-chain twin of the check the client contract
+   * runs in-circuit. The output must be the exact unpadded bytes the
+   * attestation commits to, so a post that verifies here is the post that
+   * proves at claim time.
    *
    * @param requestId - The request id the posts must declare and the
    *   attestation must commit to.

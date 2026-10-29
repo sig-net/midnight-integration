@@ -4,8 +4,8 @@
 // circuit fixes its byte-payload width at compile time while serialised
 // outputs vary in size across requests, so the attestation event carries the
 // output's hash and width and the cache carries the bytes. An object holds nothing
-// but the packed output, and is UNTRUSTED until the attestation signature
-// verifies over it (`verifyRespondBidirectionalEvent`).
+// but the packed output, and is UNTRUSTED until it verifies against the
+// attestation (`verifyRespondBidirectionalEvent`).
 
 import { type DeployedNetwork, getMpcOutputCacheUrl, MidnightNetwork } from "./constants.ts";
 import type { RequestIdHex } from "./signet-requests.ts";
@@ -85,7 +85,7 @@ export class MpcOutputCacheReader {
 
   /**
    * Download the serialised output the MPC cached for `requestId`, verbatim.
-   * UNTRUSTED: verify the attestation signature over the returned bytes.
+   * UNTRUSTED: verify the returned bytes against a verified attestation.
    *
    * @param requestId - The request whose attested output to fetch.
    * @returns The cached bytes, or `undefined` when the cache holds no object
