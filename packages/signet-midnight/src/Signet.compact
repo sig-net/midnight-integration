@@ -446,7 +446,7 @@ module Signet {
       respondBidirectionalEvent.outputHash,
     );
 
-    return secp256k1EcdsaVerify(
+    const signatureVerifies = secp256k1EcdsaVerify(
       digest,
       Secp256k1EcdsaSignature {
         r: respondBidirectionalEvent.signature.bigR.x as Secp256k1Scalar,
@@ -454,6 +454,7 @@ module Signet {
       },
       mpcResponseKey
     );
+    return mpcResponseKey != default<Secp256k1Point> && signatureVerifies;
   }
 
   // Whether serializedOutput is the output an attestation declares: its width
