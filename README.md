@@ -1,6 +1,6 @@
 # Sig Network Midnight Integration
 
-> **Bringing dark mode to other blockchains.** This integration lets a Midnight contract drive transactions on foreign chains through the Sig Network MPC, so applications keep Midnight's privacy while acting anywhere else.
+> **Bringing Night Mode to other blockchains.** This integration lets a Midnight contract drive transactions on foreign chains through the Sig Network MPC, so applications keep Midnight's privacy while acting anywhere else.
 
 This project integrates with the Midnight Network.
 
