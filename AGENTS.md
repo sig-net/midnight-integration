@@ -277,6 +277,13 @@ exception for that specific case.
   are load-bearing outside package.json: integration tests shell out to root
   scripts by name (see `runRootScript`), and workflows/READMEs quote them.
 
+- **The phrase is "Night Mode", NEVER "dark mode".** Wherever text describes
+  Midnight bringing privacy to another blockchain (taglines, READMEs, docs,
+  package descriptions, commit messages, PR text, awesome-list entries), the
+  term is **Night Mode**, capitalised exactly so. "Dark mode", in any casing,
+  never appears anywhere in this repository, and a reviewer fixes it on sight.
+  Grep the change for `dark mode` (case-insensitive) before finishing.
+
 # Contract packages (`packages/*-contract`)
 
 The two contract packages share one core layout (the `.compact` source,
