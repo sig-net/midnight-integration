@@ -11,6 +11,15 @@ node-modules`). Its members live under `packages/`:
   package per Compact contract, no contract/sdk split: the central signet
   singleton, and the minimal client that exercises it generically. See
   "Contract packages" below.
+- **`packages/signet-responder`** — the response contract: the MPC's
+  `respond` and `respondBidirectional` circuits. Its `.compact` source is the specification and the JS executor; its
+  zk bundle (`zkir/`, `keys/`) is compiled from `minocrab/`, a Rust crate that
+  writes the same circuits in MinoCrab and refuses to build them unless each
+  one accepts the MPC's call with the same public inputs as compactc's
+  circuit. `minocrab/artifacts.sha256` locks the bundle's hashes: they are
+  the deployed verifier keys, so a change to them is a redeploy. The crate
+  has a committed Cargo.lock and pinned rust-toolchain.toml; rustfmt and
+  `clippy -D warnings` apply to it.
 - **`packages/test-caller-contract-20-field`** — a 20-field requester contract
   kept ONLY as the lockstep fixture for chunked-ledger raw parsing (past 15
   fields compactc stores ledger fields in a chunk tree; its simulator tests
@@ -116,7 +125,7 @@ exception for that specific case.
   vitest; entrypoints run under `tsx`. If you think you need a build step, stop and
   ask — a build step is a defect in this workspace, not a missing feature.
   **The one exception is publishing:** the npm-published packages
-  (`@sig-net/midnight`, `@sig-net/midnight-contract`,
+  (`@sig-net/midnight`, `@sig-net/midnight-contract`, `@sig-net/midnight-responder`,
   `@sig-net/midnight-contract-deploy`, `@sig-net/midnight-serde`) additionally emit `dist/` via a
   `tsconfig.build.json`, ship ONLY `dist/` (`files: ["dist"]`; `@sig-net/midnight` also ships `src/*.compact`), and swap their
   entry to it through `publishConfig.exports` at pack time — the monorepo itself
@@ -178,7 +187,7 @@ exception for that specific case.
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
   compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run
   `compile:zk` only when proving keys are actually needed (real deploys, and
-  signet-contract's `build`). The root `yarn compile:zk` is a SUPERSET of
+  the `build` of signet-contract and signet-responder). The root `yarn compile:zk` is a SUPERSET of
   `yarn compile`: it runs `yarn compile` over every member first, then each
   member's `compile:zk`, so members with no `compile:zk` script still get
   their `src/managed/`. Keep it that way: a root `compile:zk` that covers only
@@ -286,9 +295,9 @@ exception for that specific case.
 
 # Contract packages (`packages/*-contract`)
 
-The two contract packages share one core layout (the `.compact` source,
+The contract packages share one core layout (the `.compact` source,
 `src/index.ts`, `src/witnesses.ts`, `tests/contract.test.ts`); these rules apply to
-both (and to any additional contract package):
+all of them, `packages/signet-responder` included:
 
 - **Compile before you check.** `yarn compile` regenerates `src/managed/`;
   typecheck and tests read its emitted `contract/index.d.ts`.

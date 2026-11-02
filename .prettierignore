@@ -5,6 +5,7 @@ packages/midnight-serde-conformance/managed/
 
 # Cargo build output.
 packages/midnight-serde-rs/target/
+packages/signet-responder/minocrab/target/
 
 # Publish-only tsc emit and hardhat output.
 **/dist/

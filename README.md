@@ -20,6 +20,9 @@ This repository contains the pieces that make that flow available on Midnight:
 - [Sig Network Protocol Singleton Contract](./packages/signet-contract/README.md)
   - The protocol contract that integrating Midnight contracts communicate with via cross contract call
   - Located in `packages/signet-contract`
+- [Sig Network Responder Contract](./packages/signet-responder/README.md)
+  - The MPC's `respond` and `respondBidirectional` circuits on their own contract, proven with MinoCrab-compiled circuits
+  - Located in `packages/signet-responder`
 - Two test caller contracts: one exercises the protocol end to end, the other is a simulator-only fixture for the chunked ledger layout
   - Located in `packages/test-caller-contract` & `packages/test-caller-contract-20-field`
 
@@ -792,6 +795,12 @@ yarn compile:signet-contract:zk  # generates signet-contract zk keys
 yarn test:signet-contract        # requires 'yarn compile:signet-midnight' and 'yarn compile:signet-contract'
 yarn build:signet-contract       # requires 'yarn compile:signet-midnight' and 'yarn compile:signet-contract:zk'
 
+# The @sig-net/midnight-responder package:
+yarn compile:signet-responder
+yarn compile:signet-responder:zk  # builds the MinoCrab zk bundle (needs Rust, see Prerequisites)
+yarn test:signet-responder        # requires 'yarn compile:signet-midnight' and 'yarn compile:signet-responder'
+yarn build:signet-responder       # requires 'yarn compile:signet-midnight' and 'yarn compile:signet-responder:zk'
+
 # The @sig-net/midnight SDK package:
 yarn compile:signet-midnight  # NOTE: no :zk option
 yarn test:signet-midnight     # requires 'yarn compile:signet-midnight'
@@ -856,6 +865,7 @@ Two guards in the workflows back this flow: a stable tag must point at a commit 
 | Node | ≥ 22.13 (24 recommended) | `node --version` | [nodejs.org](https://nodejs.org) or your version manager (nvm, fnm, …) |
 | Yarn 4 (via Corepack) | 4.x | `corepack enable && yarn --version` | Corepack ships with Node, and the repo's `packageManager` field pins the Yarn version |
 | Compact toolchain | compiler 0.33.0-rc.2, invoked with `--feature-zkir-v3` (see note) | `compact compile --version` → `0.33.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.33.0-rc.2` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)). If the launcher refuses the rc version, use the direct-download recipe in [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| Rust (via rustup) | pinned per crate in `rust-toolchain.toml` | `cargo --version` | [rustup.rs](https://rustup.rs); `yarn compile:zk` builds signet-responder's zk bundle with it |
 | A docker environment | any recent engine | `docker --version` | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS/Windows) or your distro's engine, with **≥ 16 GB RAM allocated** (see note) |
 | Docker Compose v2 | ≥ 2.x | `docker compose version` | Included with Docker Desktop (plugin package on Linux) |
 
@@ -876,6 +886,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | Midnight indexer | 4.4.0-pre-alpha.16 (`l91r3-n2r3` build) | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
 | `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
+| MinoCrab | `sig-net/minocrab` rev `e13f648`, with its `[patch.crates-io]` ledger tags | [`packages/signet-responder/minocrab/Cargo.toml`](packages/signet-responder/minocrab/Cargo.toml) |
 
 **NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). The real-EVM integration flow reads the responder's output cache simulation on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), the fakenet twin of the MPC's output storage bucket (see [Output Recovery and Serialisation](#output-recovery-and-serialisation)).
 
@@ -885,6 +896,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 |---|---|---|
 | [`packages/signet-midnight`](packages/signet-midnight) | `@sig-net/midnight` | Client-agnostic signet protocol library: shared Compact modules, TS twins of the wire structs, state readers, event decoders, request feed, crypto (epsilon derivation, secp256k1 ECDSA attestations) |
 | [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: emits unverified request-notification and response events |
+| [`packages/signet-responder`](packages/signet-responder) | `@sig-net/midnight-responder` | The response contract: `respond` and `respondBidirectional` emit unverified response events, proven with MinoCrab-compiled circuits checked against its Compact source |
 | [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the singleton + the generic deploy/wallet plumbing |
 | [`packages/midnight-serde-ts`](packages/midnight-serde-ts) | `@sig-net/midnight-serde` | Native borsh-js schemas and values, with optional zero padding and documented Compact compatibility |
 | [`packages/midnight-serde-conformance`](packages/midnight-serde-conformance) | repo-private | Compiler-backed fixtures for the documented Borsh-compatible subset and a shared Rust replay corpus |

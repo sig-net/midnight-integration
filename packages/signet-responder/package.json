@@ -1,0 +1,49 @@
+{
+  "name": "@sig-net/midnight-responder",
+  "version": "0.25.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sig-net/midnight-integration",
+    "directory": "packages/signet-responder"
+  },
+  "type": "module",
+  "description": "The Sig Network response contract on Midnight: the circuits the MPC posts signature responses and remote execution attestations through, as contract events clients poll. Its proving artifacts are MinoCrab-compiled. src/index.ts is the curated export surface.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./managed/*": "./src/managed/*"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk --feature-zkir-v3 src/signet-responder.compact src/managed",
+    "compile:zk": "yarn compile && cd minocrab && cargo run --locked -- ../src/managed",
+    "build": "rm -rf dist && ls src/managed/keys/*.prover >/dev/null 2>&1 || { echo 'signet-responder build: no prover keys in src/managed/keys, run `yarn compile:zk` first (compile uses --skip-zk)' >&2; exit 1; } && tsc -p tsconfig.json && tsc -p tsconfig.build.json && mkdir -p dist/managed && cp -R src/managed/contract src/managed/compiler src/managed/zkir src/managed/keys dist/managed/",
+    "prepack": "yarn build",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./managed/*": "./dist/managed/*"
+    }
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.18.0-rc.1",
+    "@midnight-ntwrk/midnight-js": "5.0.0-beta.6"
+  },
+  "devDependencies": {
+    "@sig-net/midnight": "^0.25.1",
+    "@types/node": "^26.1.0",
+    "@vitest/coverage-v8": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
+  }
+}

@@ -115,6 +115,22 @@ jobs:
         run: yarn format:check
       - name: Compile (skip-zk)
         run: yarn compile
+      - name: Cache signet-responder's cargo registry and build output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/signet-responder/minocrab/target
+          key: cargo-signet-responder-${{ runner.os }}-${{ hashFiles('packages/signet-responder/minocrab/Cargo.lock', 'packages/signet-responder/minocrab/rust-toolchain.toml') }}
+      # The parity tests read compactc's fresh --skip-zk output, so they run
+      # before the zk bundle replaces it.
+      - name: signet-responder MinoCrab crate (fmt, clippy, parity tests against compactc)
+        working-directory: packages/signet-responder/minocrab
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
       - name: Restore prebuilt zk proving keys (read-only, the integration job saves)
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -129,6 +145,8 @@ jobs:
           else
             yarn compile:signet-contract:zk
           fi
+      - name: signet-responder zk bundle (its build needs the keys; fails on a lock mismatch)
+        run: yarn compile:signet-responder:zk
       # Type-aware, so it reads the generated src/managed/ types and must run
       # after `yarn compile`, exactly like the build below.
       - name: Lint
@@ -241,7 +259,16 @@ jobs:
             packages/signet-contract/src/managed
             packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
-      - name: zk keygen (both contracts, cache miss only)
+      - name: Cache signet-responder's cargo registry and build output (zk keygen only)
+        if: steps.zk.outputs.cache-hit != 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/signet-responder/minocrab/target
+          key: cargo-signet-responder-${{ runner.os }}-${{ hashFiles('packages/signet-responder/minocrab/Cargo.lock', 'packages/signet-responder/minocrab/rust-toolchain.toml') }}
+      - name: zk keygen (every contract, cache miss only)
         if: steps.zk.outputs.cache-hit != 'true'
         run: yarn compile:zk
       - name: Save zk proving keys (immediately, before a later failure can lose them)

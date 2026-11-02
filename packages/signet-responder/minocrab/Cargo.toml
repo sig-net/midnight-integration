@@ -1,0 +1,62 @@
+[package]
+name = "signet-responder-zk"
+version = "0.25.1"
+edition = "2024"
+description = "The signet responder's circuits in MinoCrab, and the zk bundle compiled from them."
+repository = "https://github.com/sig-net/midnight-integration"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[dependencies]
+anyhow = "1.0.100"
+midnight-base-crypto = "1.1.0"
+midnight-coin-structure = "3.0.0"
+midnight-ledger = { version = "1.0.0", package = "midnight-ledger-v9" }
+midnight-storage = "2.0.1"
+midnight-transient-crypto = "3.0.0"
+midnight-zkir-v3 = "3.0.0"
+minocrab = { git = "https://github.com/sig-net/minocrab", rev = "e13f6488418a586a61f1c44e274f2bb82923259a" }
+minocrab-ledger = { git = "https://github.com/sig-net/minocrab", rev = "e13f6488418a586a61f1c44e274f2bb82923259a" }
+minocrab-publisher = { git = "https://github.com/sig-net/minocrab", rev = "e13f6488418a586a61f1c44e274f2bb82923259a" }
+minocrab-sim = { git = "https://github.com/sig-net/minocrab", rev = "e13f6488418a586a61f1c44e274f2bb82923259a", features = ["unstable"] }
+minocrab-std = { git = "https://github.com/sig-net/minocrab", rev = "e13f6488418a586a61f1c44e274f2bb82923259a" }
+minocrab-zkir = { git = "https://github.com/sig-net/minocrab", rev = "e13f6488418a586a61f1c44e274f2bb82923259a" }
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+signet-protocol = { git = "https://github.com/sig-net/minocrab", rev = "e13f6488418a586a61f1c44e274f2bb82923259a" }
+signet-signer-interface = { git = "https://github.com/sig-net/minocrab", rev = "e13f6488418a586a61f1c44e274f2bb82923259a" }
+
+[lints.clippy]
+# A circuit's `Discloses<(A, B, …)>` return type is its disclosure
+# declaration, one label per published value, so it is as long as the
+# circuit's disclosures.
+type_complexity = "allow"
+
+[profile.dev.package."*"]
+# The field arithmetic lives in the dependencies; optimise them once so the
+# parity simulation and the keygen driver run fast in the dev profile.
+opt-level = 3
+
+# minocrab's `midnight-*` dependencies are crates.io versions that resolve only
+# through this block: each points at the git tag midnight-node 2.0.0-rc.4 pins,
+# and zkir-v3 at the tag cut beside them. Keep it identical to minocrab's own
+# `[patch.crates-io]` at the pinned rev, including `midnight-transient-crypto-old`,
+# or a dependency asking for the 2.x line resolves to crates.io instead.
+[patch.crates-io]
+midnight-coin-structure = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "coin-structure-3.0.0-rc.1" }
+midnight-base-crypto = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "base-crypto-1.1.0-rc.2" }
+midnight-base-crypto-derive = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "base-crypto-derive-1.1.0-rc.2" }
+midnight-transient-crypto = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "transient-crypto-3.0.0-rc.2" }
+midnight-transient-crypto-old = { package = "midnight-transient-crypto", git = "https://github.com/midnightntwrk/midnight-ledger", tag = "transient-crypto-2.2.0-rc.1" }
+midnight-onchain-state = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "onchain-state-4.0.0-rc.3" }
+midnight-serialize = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "serialize-1.2.0-rc.1" }
+midnight-ledger-v9 = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "crate-ledger-9.1.0.0-rc.3" }
+midnight-zswap = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "zswap-9.0.0-rc.3" }
+midnight-onchain-vm = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "onchain-vm-4.0.0-rc.2" }
+midnight-onchain-runtime = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "onchain-runtime-4.0.0-rc.2" }
+midnight-zkir = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "zkir-2.2.0-rc.3" }
+midnight-zkir-v3 = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "zkir-v3-3.0.0-rc.1" }
