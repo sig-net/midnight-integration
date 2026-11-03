@@ -117,9 +117,12 @@ ledger/state exactly as the MPC does: the same view on both sides is the point.
   the responder hand-off, all in one run. Background it.
 - **signet-responder circuit change**: change the circuit in
   `src/signet-responder.compact` and `minocrab/src/circuits.rs` together.
-  `yarn compile:signet-responder:zk` refuses to build until both agree, then
-  fails on `minocrab/artifacts.sha256` until the lock is regenerated
-  deliberately (new keys mean a redeploy). The pinned fakenet only joins a
+  `yarn compile:signet-responder:zk` refuses to build until both accept the
+  MPC's call with the same public inputs. That call is built by the pinned
+  `minocrab-publisher`, so a changed argument or payload layout also needs
+  a minocrab rev bump (part of the matched set). The build then fails on
+  `minocrab/artifacts.sha256` until the lock is regenerated deliberately
+  (new keys mean a redeploy). The pinned fakenet only joins a
   responder with the published keys, so an end-to-end retest also needs a
   release, a rebuilt fakenet image and a pin bump (see the parity bullet in
   [`/e2e`](../e2e/SKILL.md)).
