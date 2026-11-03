@@ -13,6 +13,6 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  // src only — tests and deploy.ts are typechecked by the plain `tsc -p tsconfig.json` pass.
+  // src only — tests and the deploy entrypoints are typechecked by the plain `tsc -p tsconfig.json` pass.
   "include": ["src"]
 }

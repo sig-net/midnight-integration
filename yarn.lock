@@ -2290,6 +2290,7 @@ __metadata:
     "@scure/bip39": "npm:^2.2.0"
     "@sig-net/midnight": "npm:^0.25.1"
     "@sig-net/midnight-contract": "npm:^0.25.1"
+    "@sig-net/midnight-responder": "npm:^0.25.1"
     "@types/node": "npm:^26.1.0"
     "@vitest/coverage-v8": "npm:^5.0.0"
     effect: "npm:^3.22.2"
@@ -2315,7 +2316,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@sig-net/midnight-responder@workspace:packages/signet-responder":
+"@sig-net/midnight-responder@npm:^0.25.1, @sig-net/midnight-responder@workspace:packages/signet-responder":
   version: 0.0.0-use.local
   resolution: "@sig-net/midnight-responder@workspace:packages/signet-responder"
   dependencies:
