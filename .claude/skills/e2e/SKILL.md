@@ -103,7 +103,7 @@ contract and the signet responder it appends `MPC_ROOT_KEY`,
 to `.env` (docker compose interpolates the `fakenet` service's environment from
 that file) and runs
 `docker compose --profile fakenet up -d [--force-recreate] fakenet`
-(`ghcr.io/sig-net/fakenet:0.35.0`, built from
+(`ghcr.io/sig-net/fakenet:0.36.0`, built from
 sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 
 - Healthy startup (`docker logs -f fakenet-responder`) prints
