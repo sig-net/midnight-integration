@@ -267,7 +267,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             packages/signet-responder/minocrab/target
-          key: cargo-signet-responder-${{ runner.os }}-${{ hashFiles('packages/signet-responder/minocrab/Cargo.lock', 'packages/signet-responder/minocrab/rust-toolchain.toml') }}
+          # Its own key: this job builds only the binary, and sharing the unit
+          # job's key would let it save a cache without the test and clippy builds.
+          key: cargo-signet-responder-zk-${{ runner.os }}-${{ hashFiles('packages/signet-responder/minocrab/Cargo.lock', 'packages/signet-responder/minocrab/rust-toolchain.toml') }}
       - name: zk keygen (every contract, cache miss only)
         if: steps.zk.outputs.cache-hit != 'true'
         run: yarn compile:zk

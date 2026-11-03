@@ -762,7 +762,8 @@ yarn install
 yarn compile
 
 # Full compile: everything 'yarn compile' does, plus zk keys
-# Runs 'yarn compile' for all packages, then the compact compiler with zk keys for each package that has a :zk option
+# Runs 'yarn compile' for all packages, then each package's :zk option: the compact compiler with zk keys,
+# or for signet-responder its MinoCrab zk bundle (needs Rust)
 # (compiler output in the package's src/managed/). On its own it leaves the whole workspace ready to build and deploy.
 yarn compile:zk
 

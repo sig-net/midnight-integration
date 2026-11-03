@@ -105,8 +105,7 @@ pub fn build_bundle(
     lock: &Path,
     mode: LockMode,
 ) -> anyhow::Result<()> {
-    let manifest_path = managed.join(MANIFEST);
-    let mut manifest = read_manifest(&manifest_path)?;
+    let manifest = read_manifest(&managed.join(MANIFEST))?;
     let zkir_dir = managed.join("zkir");
     let key_dir = managed.join("keys");
     for (name, reference) in compactc_circuits(managed)? {
@@ -129,12 +128,37 @@ pub fn build_bundle(
             .with_context(|| format!("writing {}", path.display()))?;
     }
 
+    // Without keys the package's build refuses to run, so a bundle that
+    // failed anywhere from keygen on cannot be packed: zkir-v3 creates each
+    // key file before it runs that circuit's keygen.
+    let Err(error) = write_keys(managed, zkir_v3, lock, mode, manifest) else {
+        return Ok(());
+    };
+    if key_dir.exists()
+        && let Err(removal) = std::fs::remove_dir_all(&key_dir)
+    {
+        return Err(error.context(format!(
+            "and removing {} failed, so remove it before building: {removal}",
+            key_dir.display()
+        )));
+    }
+    Err(error)
+}
+
+/// Generates the keys, checks or updates `lock`, and rewrites the manifest.
+fn write_keys(
+    managed: &Path,
+    zkir_v3: &Path,
+    lock: &Path,
+    mode: LockMode,
+    mut manifest: Manifest,
+) -> anyhow::Result<()> {
     // Keygen for every `.zkir` in the directory; it writes each `.bzkir`
     // beside its `.zkir` as it loads it.
     let status = Command::new(zkir_v3)
         .arg("compile-many")
-        .arg(&zkir_dir)
-        .arg(&key_dir)
+        .arg(managed.join("zkir"))
+        .arg(managed.join("keys"))
         .status()
         .with_context(|| format!("running {}", zkir_v3.display()))?;
     ensure!(
@@ -160,12 +184,6 @@ pub fn build_bundle(
         LockMode::Verify => {
             let locked = std::fs::read_to_string(lock)
                 .with_context(|| format!("reading {}", lock.display()))?;
-            if locked != generated {
-                // Without keys the package's build refuses to run, so the
-                // unlocked bundle cannot be packed.
-                std::fs::remove_dir_all(&key_dir)
-                    .with_context(|| format!("removing {}", key_dir.display()))?;
-            }
             ensure!(
                 locked == generated,
                 "the generated artifacts differ from {}:\n--- locked\n{locked}--- generated\n{generated}\
@@ -178,6 +196,7 @@ pub fn build_bundle(
 
     manifest.zkir = Directory::of(managed, "zkir", &artifacts)?;
     manifest.keys = Some(Directory::of(managed, "keys", &artifacts)?);
+    let manifest_path = managed.join(MANIFEST);
     let text = serde_json::to_string_pretty(&manifest)? + "\n";
     std::fs::write(&manifest_path, text)
         .with_context(|| format!("writing {}", manifest_path.display()))

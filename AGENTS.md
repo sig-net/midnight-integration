@@ -17,7 +17,10 @@ node-modules`). Its members live under `packages/`:
   writes the same circuits in MinoCrab and refuses to build them unless each
   one accepts the MPC's call with the same public inputs as compactc's
   circuit. `minocrab/artifacts.sha256` locks the bundle's hashes: they are
-  the deployed verifier keys, so a change to them is a redeploy. The crate
+  the deployed verifier keys, so a change to them is a redeploy. The keys
+  come from the `zkir-v3` that ships with the pinned compactc, so a compactc
+  bump can move them too: `yarn compile:zk` then fails on the lock until it
+  is regenerated deliberately. The crate
   has a committed Cargo.lock and pinned rust-toolchain.toml; rustfmt and
   `clippy -D warnings` apply to it.
 - **`packages/test-caller-contract-20-field`** — a 20-field requester contract
@@ -46,7 +49,8 @@ from npm.
 
 Run `yarn install` from the repo root — never from inside a member.
 Run `yarn compile` once before `test`, and `yarn compile:zk` before `build`
-(signet-contract's `build` refuses to run without its prover keys): the
+(signet-contract's and signet-responder's `build` refuse to run without their
+prover keys): the
 contract packages AND
 `packages/signet-midnight` typecheck against their generated `src/managed/`
 output (signet-midnight compiles its Compact module's pure circuits via
@@ -171,7 +175,7 @@ exception for that specific case.
   lint toolchain, which is Microsoft's own documented transition pattern (they
   publish `@typescript/typescript6` for the same purpose). yarn resolves the
   root to 6.0.3 and nests 7.0.2 under each member, so `yarn build` keeps the
-  native compiler. The published emit is unaffected: building the four `@sig-net/*`
+  native compiler. The published emit is unaffected: building the five `@sig-net/*`
   packages under both compilers yields byte-identical `.js` and `.d.ts` (only
   `.map` sourcemaps differ). DELETE the root pin once typescript-eslint supports
   the 7.1 API; until then, do NOT "tidy" the two versions into one, and remember

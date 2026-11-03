@@ -46,6 +46,9 @@ opt-level = 3
 # and zkir-v3 at the tag cut beside them. Keep it identical to minocrab's own
 # `[patch.crates-io]` at the pinned rev, including `midnight-transient-crypto-old`,
 # or a dependency asking for the 2.x line resolves to crates.io instead.
+# Cargo.lock holds every unpatched `midnight-*` crate (the proving line,
+# storage) at the version minocrab's own lock holds at that rev, which is what
+# its gates ran against; a broad `cargo update` moves them.
 [patch.crates-io]
 midnight-coin-structure = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "coin-structure-3.0.0-rc.1" }
 midnight-base-crypto = { git = "https://github.com/midnightntwrk/midnight-ledger", tag = "base-crypto-1.1.0-rc.2" }

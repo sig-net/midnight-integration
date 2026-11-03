@@ -11,9 +11,9 @@ import "@sig-net/midnight/src/Signet";
 //
 // This source is the specification and the JS executor. The published proving
 // artifacts come from minocrab/, a MinoCrab implementation of these same
-// circuits that is checked to accept exactly the preimages these circuits
-// accept and to emit the same public inputs, with a much smaller circuit.
-// Change a circuit here and in minocrab/src/lib.rs together.
+// circuits with a much smaller circuit, built only after each one accepts the
+// MPC's call with the same public inputs as compactc's circuit. Change a
+// circuit here and in minocrab/src/circuits.rs together.
 //
 // Every circuit is unauthenticated: posts are emitted unverified, and clients
 // verify each candidate themselves.
