@@ -170,7 +170,7 @@ jobs:
       - name: Compile (skip-zk, generates the managed types the deploy imports)
         run: yarn compile
       # Restore-only: ci.yml's integration job owns saving this cache (it
-      # generates BOTH contracts' keys, whereas this job generates only
+      # generates BOTH cached contracts' keys, whereas this job generates only
       # signet-contract's, so a save from here would poison the key). An older
       # tag's .compact sources hash to a key nothing saved, so expect a miss
       # and the keygen below.

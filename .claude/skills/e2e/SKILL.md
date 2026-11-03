@@ -196,8 +196,8 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   with `CALLER_REQUEST_ID=<id>` to skip the heavy submit prove. If the OOM
   killed the prove itself there is nothing to resume: rerun plain.
 - **The signature-poll test times out** while setup and the submit passed:
-  the responder is down, watching a stale signet address, or refusing to join
-  the contract on a verifier-key mismatch (see prover/verifier parity above).
+  the responder is down, watching a stale signet or responder address, or
+  refusing to join the responder on a verifier-key mismatch (see prover/verifier parity above).
   The test output distinguishes none of these. Check with `docker ps -a`,
   `docker logs fakenet-responder`. A responder killed
   mid-post (e.g. by a proof-server restart: it proves its posts through

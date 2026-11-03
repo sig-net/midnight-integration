@@ -8,10 +8,10 @@
 //                          Distributed MPC network to execute arbitrary transactions on foreign
 //                          blockchains.
 //    - Signet singleton: a single contract on the Midnight blockchain through which clients notify
-//                        the MPC of signature requests, and through which the MPC posts back
-//                        signatures and signed attestations of foreign executions. Each post is
-//                        emitted as a contract event (the execution outputs themselves travel off
-//                        chain).
+//                        the MPC of signature requests.
+//    - Signet responder: the contract through which the MPC posts back signatures and signed
+//                        attestations of foreign executions, each emitted as a contract event
+//                        (the execution outputs themselves travel off chain).
 //
 //  Usage:
 //   // Import this module at the start of a contract (resolved through node_modules via COMPACT_PATH):
@@ -30,7 +30,7 @@
 //    (executed, failed or unviable).
 //
 //  The V1 suffix marks the wire and hash-domain artefacts of protocol version 1 (the structs the
-//  ledger stores and the singleton emits, and the circuits that hash, verify or construct them).
+//  ledger stores and the signet contracts emit, and the circuits that hash, verify or construct them).
 //  Vocabulary shared across versions (RequestId, OutputKind, Signature, the enums, the transaction
 //  parameter structs, which TxParamType tags) and the version-tagged notification carry no suffix.
 //
@@ -322,10 +322,10 @@ module Signet {
   }
 
   // Counterpart to SignBidirectionalEvent: the MPC generated signature a request asked for.
-  // Posted by the MPC through the Signet singleton for clients to extract and build a
+  // Posted by the MPC through the Signet responder for clients to extract and build a
   // signed transaction from.
   export struct SignatureRespondedEventV1 {
-    // The request this signature answers. Routing data: the singleton emits it
+    // The request this signature answers. Routing data: the responder emits it
     // unverified, and a reader proves the signature against the request's own key.
     requestId: RequestId;
     // The requested signature over the transaction the request describes.
@@ -349,7 +349,7 @@ module Signet {
   // (verifyRespondBidirectionalAttestationV1), and the output checks against the
   // event's length and hash (verifyAttestedOutputV1). The signature
   // is the ONLY thing that distinguishes a genuine post from garbage: the
-  // singleton emits every post unverified.
+  // responder emits every post unverified.
   export struct RespondBidirectionalEventV1 {
     // The request this attestation answers. Signed into the digest: a verified
     // post settles exactly the request it names, so a client consumes this id

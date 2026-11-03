@@ -91,7 +91,7 @@ export interface CallerE2eSession {
 export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession {
   let sharedWallet: { facade: WalletFacade; context: CallerContext } | undefined;
 
-  // MPC-style readers over the caller (requester) / signet contract pair,
+  // MPC-style readers over the caller (requester) / signet responder pair,
   // built lazily on first use and keyed by the request map's ledger field
   // position (the caller keeps one map per schema width). Backed by a fresh
   // indexerPublicDataProvider so they read RAW ledger state exactly as the

@@ -204,7 +204,7 @@ const SIGNET_CONTRACT_EVENTS_QUERY = `
   }
 `;
 
-/** The `__typename` of the one contract event variant the signet contract emits. */
+/** The `__typename` of the one contract event variant the signet contracts emit. */
 const MISC_CONTRACT_EVENT_TYPENAME = "MiscContractEvent";
 
 /** Events requested per page: the page size midnight-js's own contract events query defaults to. */
@@ -847,7 +847,7 @@ const SIGNET_EVENT_PAYLOAD_DECODERS: {
 /**
  * Decode `event` as the signet event kind `name`, or skip it when it carries
  * another name. The name is checked BEFORE the payload is touched, which is
- * what a reader of one kind needs: the signet contract is unauthenticated,
+ * what a reader of one kind needs: the signet contracts are unauthenticated,
  * so anyone can emit an undecodable event of another kind, and that must not
  * fail a read that never asked for it.
  *

@@ -175,9 +175,10 @@ export function ensureMpcSecp256k1Pubkey(env: NodeJS.ProcessEnv): void {
  * AND the given managed keys directory already holds prover keys. Local runs
  * never set the variable — key PRESENCE alone is not FRESHNESS (a circuit
  * edit leaves stale keys behind; locally the contract-address env vars are
- * the skip signal instead). Only a cache keyed on the contract sources can
- * assert freshness, so trusting prebuilt keys is an explicit opt-in by the
- * environment that restored them (see .github/workflows/ci.yml).
+ * the skip signal instead). Only a cache keyed on the contract sources, or a
+ * build earlier in the same job (the responder's bundle, which is never
+ * cached), can assert freshness, so trusting prebuilt keys is an explicit
+ * opt-in by the environment that produced them (see .github/workflows/ci.yml).
  *
  * @param env - The suite's env accumulator.
  * @param keysDir - The managed keys directory, relative to the repo root.

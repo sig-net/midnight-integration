@@ -9,7 +9,7 @@ import "@sig-net/midnight/src/Signet";
 
 // This is the central Sig Network contract on Midnight.
 // Clients register emit signature-request notifications here via cross contract call.
-// The MPC emits signature responses and respond-bidirectional responses from here.
+// The MPC posts its responses to the signet responder, which the SDK reads them from.
 //
 // Every method here is unauthenticated by design to keep proving time as low as possible.
 // Verification is deliberately the reader's job: 

@@ -8,6 +8,14 @@ import { bytesToHex } from "./byte-codecs.ts";
 import type { ContractAddress } from "./compact-descriptors.ts";
 import { type DeployedNetwork, MidnightNetwork } from "./constants.ts";
 
+/** A contract whose per-network addresses constants.ts publishes. */
+export enum PublishedContract {
+  /** The signet singleton, behind `getSignetContractAddress`. */
+  SignetContract = "signet-contract",
+  /** The signet responder, behind `getResponderContractAddress`. */
+  SignetResponder = "signet-responder",
+}
+
 /** Every network with a row in the published per-network tables. */
 const DEPLOYED_NETWORKS: readonly DeployedNetwork[] = Object.values(MidnightNetwork).filter(
   (network): network is DeployedNetwork => network !== MidnightNetwork.Undeployed,
@@ -27,7 +35,8 @@ function isDeployedNetwork(networkId: string): networkId is DeployedNetwork {
 
 /**
  * Resolve a network id to a deployed network. The local standalone stack is
- * rejected, as it deploys its own singleton per stack and has no row.
+ * rejected, as it deploys its own protocol contracts per stack and has no
+ * row in either table.
  *
  * @param networkId - The network id to resolve, e.g. `stagenet`.
  * @returns The id as a {@link DeployedNetwork}.
@@ -40,14 +49,6 @@ export function parseDeployedNetwork(networkId: string): DeployedNetwork {
     );
   }
   return networkId;
-}
-
-/** A contract whose per-network addresses constants.ts publishes. */
-export enum PublishedContract {
-  /** The signet singleton, behind `getSignetContractAddress`. */
-  SignetContract = "signet-contract",
-  /** The signet responder, behind `getResponderContractAddress`. */
-  SignetResponder = "signet-responder",
 }
 
 /**

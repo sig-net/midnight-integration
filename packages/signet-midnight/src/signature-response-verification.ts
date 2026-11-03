@@ -1,4 +1,4 @@
-// Client-side verification of MPC signature responses. The signet contract
+// Client-side verification of MPC signature responses. The signet responder
 // emits signature responses UNAUTHENTICATED (see the module header in
 // Signet.compact), so a poller must verify every posted response before
 // trusting it.

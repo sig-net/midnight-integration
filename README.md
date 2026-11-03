@@ -853,9 +853,9 @@ The flow from a change to a release:
 
 1. Every pull request merges to `dev`.
 2. Release candidates are tagged from `dev` as `v*.*.*-rc.N`, each with an associated GitHub release. The tag push runs [`.github/workflows/publish.yml`](.github/workflows/publish.yml), which publishes the `@sig-net/*` packages to npm under the `rc` dist-tag.
-   - When the release carries a concrete contract change, the [`deploy`](.github/workflows/deploy.yml) workflow is dispatched by hand with that tag as its `tag` input, to stagenet, preview and preprod. Every deploy yields a new address, so dependent contracts redeploy.
+   - When the release carries a concrete contract change, the [`deploy`](.github/workflows/deploy.yml) workflow is dispatched by hand with that tag as its `tag` input, once per changed contract, to stagenet, preview and preprod. A new singleton address makes dependent contracts redeploy, and a new responder address reaches them through the SDK release that records it.
    - Every other release candidate is an SDK-only npm publish.
-3. `dev` merges to `main`, and a stable `v*.*.*` tag is made from `main` with an associated GitHub release. The publish workflow publishes the packages to npm under `latest`, and the deploy workflow is dispatched with that tag. Every deploy yields a new address, so dependent contracts redeploy (on mainnet, by upgrading their singleton reference as above).
+3. `dev` merges to `main`, and a stable `v*.*.*` tag is made from `main` with an associated GitHub release. The publish workflow publishes the packages to npm under `latest`, and the deploy workflow is dispatched with that tag once per changed contract. A new singleton address makes dependent contracts redeploy (on mainnet, by upgrading their singleton reference as above), and a new responder address reaches them through the SDK.
 
 Two guards in the workflows back this flow: a stable tag must point at a commit on `main` (both workflows refuse one that does not), and the deploy workflow refuses a prerelease tag for mainnet.
 
@@ -896,7 +896,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | Package | npm | What it is |
 |---|---|---|
 | [`packages/signet-midnight`](packages/signet-midnight) | `@sig-net/midnight` | Client-agnostic signet protocol library: shared Compact modules, TS twins of the wire structs, state readers, event decoders, request feed, crypto (epsilon derivation, secp256k1 ECDSA attestations) |
-| [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: emits unverified request-notification and response events |
+| [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: emits unverified request-notification events |
 | [`packages/signet-responder`](packages/signet-responder) | `@sig-net/midnight-responder` | The response contract: `respond` and `respondBidirectional` emit unverified response events, proven with MinoCrab-compiled circuits checked against its Compact source |
 | [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the singleton and the responder + the generic deploy/wallet plumbing |
 | [`packages/midnight-serde-ts`](packages/midnight-serde-ts) | `@sig-net/midnight-serde` | Native borsh-js schemas and values, with optional zero padding and documented Compact compatibility |

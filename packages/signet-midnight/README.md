@@ -117,7 +117,7 @@ const event = attestRespondBidirectional(
 
 - [`@sig-net/midnight-contract`](https://www.npmjs.com/package/@sig-net/midnight-contract): the central signet contract this library reads requests from.
 - [`@sig-net/midnight-responder`](https://www.npmjs.com/package/@sig-net/midnight-responder): the signet responder this library reads the MPC's responses from.
-- [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): deploy tooling for that contract plus generic Midnight deploy/wallet plumbing.
+- [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): deploy tooling for the signet contract and the signet responder plus generic Midnight deploy/wallet plumbing.
 
 Developed in [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration).
 

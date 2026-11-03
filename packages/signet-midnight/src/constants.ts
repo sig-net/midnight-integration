@@ -1,6 +1,6 @@
 // MPC routing constants, the padded-ASCII codec for the signet request
 // structs, and the published per-network counterparty values (the MPC root
-// public key and the signet contract address). Field widths mirror
+// public key and the signet singleton and responder addresses). Field widths mirror
 // Signet.compact (the wire format: keep in lockstep), and the string
 // constants are the values the MPC network routes on.
 //
