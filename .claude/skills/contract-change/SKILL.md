@@ -96,9 +96,10 @@ ledger/state exactly as the MPC does: the same view on both sides is the point.
 
 - `yarn build && yarn test` in the member you touched (AGENTS.md: `tsx`
   and vitest do NOT typecheck, so "it runs" is not verification). Root
-  `yarn compile` (skip-zk) wipes prover keys, and signet-contract's `build`
-  gates on its keys: restore with `yarn compile:signet-contract:zk` before
-  a root build, and never build while a zk compile is still running.
+  `yarn compile` (skip-zk) wipes prover keys, and the `build` of
+  signet-contract and signet-responder gates on their keys: restore with
+  `yarn compile:signet-contract:zk` and `yarn compile:signet-responder:zk`
+  before a root build, and never build while a zk compile is still running.
 - Contract packages carry simulator unit tests (`tests/contract.test.ts`)
   that exercise circuits in-process via `compact-runtime`. Add the happy
   path AND the reject cases there: it is the cheapest place to prove a

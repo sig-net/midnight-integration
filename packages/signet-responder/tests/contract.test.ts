@@ -29,6 +29,7 @@ import { describe, expect, it } from "vitest";
 import {
   Contract,
   createSignetResponderPrivateState,
+  type SignetResponderCircuitId,
   type SignetResponderPrivateState,
   witnesses,
 } from "../src/index.ts";
@@ -54,9 +55,6 @@ function eventAt(events: readonly SignetMiscEvent[], index = 0): SignetMiscEvent
 }
 
 // ---- Fixtures ----
-
-// Dummy coin public key (32-byte hex). Required by the API, unused here.
-const CPK = "0".repeat(64);
 
 const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
@@ -117,7 +115,10 @@ const RESPOND_2: RespondBidirectionalEvent = {
 
 // ---- Harness ----
 
-const deployContract = async (circuitId: string) => {
+// Dummy coin public key (32-byte hex). Required by the API, unused here.
+const CPK = "0".repeat(64);
+
+const deployContract = async (circuitId: SignetResponderCircuitId) => {
   const contract = new Contract<SignetResponderPrivateState>(witnesses);
   const { currentContractState, currentPrivateState } = await contract.initialState(
     createConstructorContext(createSignetResponderPrivateState(), CPK),

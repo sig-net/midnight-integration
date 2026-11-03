@@ -40,8 +40,9 @@ label! {
 }
 
 /// The circuits by their Compact name, which names their files on disk and
-/// their entry points on chain.
-pub const CIRCUITS: [(&str, fn() -> Compiled3); 2] = [
+/// their entry points on chain (`#[contract]`'s own `SignetResponder::CIRCUITS`
+/// keys them by Rust name).
+pub const COMPACT_CIRCUITS: [(&str, fn() -> Compiled3); 2] = [
     (RESPOND, SignetResponder::respond),
     (
         RESPOND_BIDIRECTIONAL,

@@ -170,7 +170,7 @@ jobs:
           path: |
             packages/signet-contract/src/managed
             packages/test-caller-contract/src/managed
-          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
+          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
       - name: Ensure signet-contract prover keys (the deploy transaction needs them)
         run: |
           if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then

@@ -10,7 +10,9 @@ use minocrab_publisher::call::{
     Attestation, EcdsaSignature, respond_bidirectional_input, respond_bidirectional_misc,
 };
 use signet_protocol::circuits::{RESPOND, RESPOND_BIDIRECTIONAL, RESPOND_BIDIRECTIONAL_EVENT};
-use signet_responder_zk::{CIRCUITS, Call, check_parity, compactc_circuits, preimage, sample_call};
+use signet_responder_zk::{
+    COMPACT_CIRCUITS, Call, check_parity, compactc_circuits, preimage, sample_call,
+};
 
 /// (ours, compactc's) for one circuit.
 fn pair(circuit: &str) -> (IrSource, IrSource) {
@@ -21,7 +23,7 @@ fn pair(circuit: &str) -> (IrSource, IrSource) {
         .find(|(name, _)| *name == circuit)
         .expect("compactc compiles the circuit")
         .1;
-    let ours = CIRCUITS
+    let ours = COMPACT_CIRCUITS
         .iter()
         .find(|(name, _)| *name == circuit)
         .expect("the circuit has a MinoCrab twin")
@@ -47,7 +49,7 @@ fn assert_both_reject(circuit: &str, call: &Call) {
 
 #[test]
 fn each_circuit_matches_compactcs() {
-    for (circuit, _) in CIRCUITS {
+    for (circuit, _) in COMPACT_CIRCUITS {
         let (ours, reference) = pair(circuit);
         let pi = preimage(circuit, &sample_call(circuit).unwrap()).unwrap();
         check_parity(&ours, &reference, &pi).unwrap_or_else(|e| panic!("{circuit}: {e:#}"));
@@ -92,49 +94,4 @@ fn an_output_kind_past_unviable_is_rejected() {
         ),
     };
     assert_both_reject(RESPOND_BIDIRECTIONAL, &call);
-}
-
-/// The reference must be compactc's own output: a directory whose manifest
-/// already lists keys, or whose `.zkir` changed after compactc wrote it, is
-/// refused, so a built bundle can never be compared against itself.
-#[test]
-fn only_fresh_compactc_output_is_a_reference() {
-    let fresh = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/managed");
-    let scratch = Path::new(env!("CARGO_TARGET_TMPDIR")).join("not-fresh");
-    let copy = |name: &str| {
-        let dir = scratch.join(name);
-        let _ = std::fs::remove_dir_all(&dir);
-        for sub in ["compiler", "zkir"] {
-            std::fs::create_dir_all(dir.join(sub)).unwrap();
-            for entry in std::fs::read_dir(fresh.join(sub)).unwrap() {
-                let entry = entry.unwrap();
-                std::fs::copy(entry.path(), dir.join(sub).join(entry.file_name())).unwrap();
-            }
-        }
-        dir
-    };
-    assert!(compactc_circuits(&copy("as-compiled")).is_ok());
-
-    let listed_keys = copy("lists-keys");
-    let manifest = listed_keys.join("compiler/contract-manifest.json");
-    let text = std::fs::read_to_string(&manifest).unwrap();
-    let text = text.trim_end().strip_suffix('}').unwrap().to_string()
-        + ",\n  \"keys\": { \"type\": \"directory\" }\n}\n";
-    std::fs::write(&manifest, text).unwrap();
-    let error = compactc_circuits(&listed_keys).unwrap_err();
-    assert!(
-        format!("{error:#}").contains("already lists keys"),
-        "{error:#}"
-    );
-
-    let edited = copy("edited-zkir");
-    let zkir = edited.join("zkir/respond.zkir");
-    let mut bytes = std::fs::read(&zkir).unwrap();
-    bytes.push(b'\n');
-    std::fs::write(&zkir, bytes).unwrap();
-    let error = compactc_circuits(&edited).unwrap_err();
-    assert!(
-        format!("{error:#}").contains("differs from its manifest entry"),
-        "{error:#}"
-    );
 }

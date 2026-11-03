@@ -112,8 +112,10 @@ exception for that specific case.
   keys, `COMPACTC_VERSION`, `RUNTIME_VERSION` and every platform hash in
   `COMPILER_BUILDS` in `packages/midnight-serde-conformance/src/toolchain.ts`,
   the npm `@midnightntwrk/*` and `@midnight-ntwrk/*` stack, the image tags in
-  `docker-compose.yaml`, and the README's Prerequisites and
-  Matched set tables are a MATCHED SET — bump them together in one change
+  `docker-compose.yaml`, the minocrab rev and `[patch.crates-io]` ledger tags
+  in `packages/signet-responder/minocrab/Cargo.toml` (and its
+  `artifacts.sha256`, which a new compactc's `zkir-v3` can move), and the
+  README's Prerequisites and Matched set tables are a MATCHED SET — bump them together in one change
   (recompute each checksum from a fresh download of the new URL). This trigger
   is bidirectional: a request to "update the compact version" AND a request to
   edit a version in the README's tables both mean updating every one of these

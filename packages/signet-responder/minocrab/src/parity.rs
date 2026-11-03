@@ -127,8 +127,10 @@ pub fn preimage(circuit: &str, call: &Call) -> anyhow::Result<ProofPreimage> {
 }
 
 /// Fails unless `ours` and `reference` are interchangeable on `preimage`:
-/// the same input and output schemas, both accept it, and both derive the
-/// same public inputs, by minocrab's simulator and by the upstream checker.
+/// the same input and output schemas, both accept it, and minocrab's
+/// simulator derives the same public inputs from both. The upstream checker
+/// must accept each too, and agree with the simulator on which public inputs
+/// each skips.
 ///
 /// # Errors
 /// On the first difference, or if either artifact rejects the preimage.
@@ -166,7 +168,7 @@ pub fn check_parity(
     ] {
         let checked = ir
             .check(preimage)
-            .map_err(|e| anyhow::anyhow!("the upstream checker rejects {who}: {e}"))?;
+            .with_context(|| format!("the upstream checker rejects {who}"))?;
         ensure!(
             checked == run.pi_skips,
             "the upstream checker and the simulator disagree on {who}"

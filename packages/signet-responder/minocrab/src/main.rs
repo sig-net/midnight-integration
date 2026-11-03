@@ -6,6 +6,7 @@
 //! (`~/.compact/bin/compactc`, what `compact compile` runs), else beside the
 //! `compactc` on `PATH`. `$ZKIR_V3` overrides it.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -13,7 +14,7 @@ use anyhow::Context as _;
 use signet_responder_zk::{LockMode, build_bundle};
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let (managed, mode) = match args.as_slice() {
         [managed] => (managed, LockMode::Verify),
         [managed, flag] if flag == "--update-lock" => (managed, LockMode::Update),
@@ -40,10 +41,8 @@ fn zkir_v3() -> anyhow::Result<PathBuf> {
     }
     let launcher_default =
         std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".compact/bin/compactc"));
-    let on_path = std::env::var_os("PATH")
-        .into_iter()
-        .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
-        .map(|dir| dir.join("compactc"));
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let on_path = std::env::split_paths(&path).map(|dir| dir.join("compactc"));
     let compactc = launcher_default
         .into_iter()
         .chain(on_path)

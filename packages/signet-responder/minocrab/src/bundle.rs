@@ -9,7 +9,7 @@
 //! artifact against before it proves.
 
 use std::collections::BTreeMap;
-use std::io::Write as _;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::process::Command;
 
@@ -18,13 +18,14 @@ use midnight_zkir_v3::IrSource;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use crate::circuits::CIRCUITS;
+use crate::circuits::COMPACT_CIRCUITS;
 use crate::parity::{check_parity, preimage, sample_call};
 
 const MANIFEST: &str = "compiler/contract-manifest.json";
 
 /// `compiler/contract-manifest.json`, field for field in compactc's order.
-/// An unknown field fails the parse rather than being dropped on rewrite.
+/// An unknown field, here or in a file entry, fails the parse rather than
+/// being dropped on rewrite.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct Manifest {
@@ -48,6 +49,7 @@ struct Directory {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Entry {
     r#type: String,
     size: u64,
@@ -55,21 +57,21 @@ struct Entry {
 }
 
 impl Directory {
-    /// The manifest listing of `files`, read from `managed`.
-    fn of(managed: &Path, dir: &str, files: &[String]) -> anyhow::Result<Directory> {
+    /// The manifest listing of the `files` under `dir/`, read from `managed`.
+    fn listing(managed: &Path, dir: &str, files: &[String]) -> anyhow::Result<Directory> {
+        let prefix = format!("{dir}/");
         let mut entries = BTreeMap::new();
-        for file in files
+        for (name, file) in files
             .iter()
-            .filter(|file| file.starts_with(&format!("{dir}/")))
+            .filter_map(|file| Some((file.strip_prefix(&prefix)?, file)))
         {
             let bytes = read(&managed.join(file))?;
-            let name = file[dir.len() + 1..].to_string();
             let entry = Entry {
                 r#type: "file".into(),
                 size: bytes.len() as u64,
                 hash: sha256_hex(&bytes),
             };
-            entries.insert(name, entry);
+            entries.insert(name.to_string(), entry);
         }
         Ok(Directory {
             r#type: "directory".into(),
@@ -90,10 +92,11 @@ pub enum LockMode {
 /// Builds the bundle in `managed`, which must hold fresh
 /// `compact compile --skip-zk` output of `signet-responder.compact`.
 ///
-/// Each circuit must first pass [`check_parity`] against compactc's `.zkir`
-/// of it. Then our `.zkir` replaces compactc's, `zkir-v3 compile-many`
-/// writes the `.bzkir` and the keys, the artifacts are checked against (or
-/// written to) `lock`, and the manifest is rewritten.
+/// Every circuit must first pass [`check_parity`] against compactc's `.zkir`
+/// of it; nothing is written until all have. Then our `.zkir` replaces
+/// compactc's, `zkir-v3 compile-many` writes the `.bzkir` and the keys, the
+/// artifacts are checked against (or written to) `lock`, and the manifest is
+/// rewritten.
 ///
 /// # Errors
 /// If `managed` is not fresh compactc output, a circuit fails parity,
@@ -105,27 +108,19 @@ pub fn build_bundle(
     lock: &Path,
     mode: LockMode,
 ) -> anyhow::Result<()> {
-    let manifest = read_manifest(&managed.join(MANIFEST))?;
-    let zkir_dir = managed.join("zkir");
-    let key_dir = managed.join("keys");
-    for (name, reference) in compactc_circuits(managed)? {
-        let ours = CIRCUITS
-            .iter()
-            .find(|(circuit, _)| *circuit == name)
-            .map(|(_, build)| build().ir)
-            .context("every compactc circuit has a MinoCrab twin")?;
-        let call = sample_call(name)?;
-        check_parity(&ours, &reference, &preimage(name, &call)?)
+    let (manifest, references) = read_reference(managed)?;
+    let mut ours = Vec::new();
+    for ((name, build), (_, reference)) in COMPACT_CIRCUITS.iter().zip(&references) {
+        let ir = build().ir;
+        check_parity(&ir, reference, &preimage(name, &sample_call(name)?)?)
             .with_context(|| format!("{name} fails parity with compactc's circuit"))?;
-        let path = zkir_dir.join(format!("{name}.zkir"));
-        let file =
-            std::fs::File::create(&path).with_context(|| format!("creating {}", path.display()))?;
-        let mut writer = std::io::BufWriter::new(file);
-        minocrab_zkir::v3::write_zkir(&ours, &mut writer, name)
-            .with_context(|| format!("writing {}", path.display()))?;
-        writer
-            .flush()
-            .with_context(|| format!("writing {}", path.display()))?;
+        ours.push((name, ir));
+    }
+    for (name, ir) in &ours {
+        let path = managed.join("zkir").join(format!("{name}.zkir"));
+        let text =
+            minocrab_zkir::v3::to_zkir_string(ir).with_context(|| format!("serializing {name}"))?;
+        std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
     }
 
     // Without keys the package's build refuses to run, so a bundle that
@@ -134,6 +129,7 @@ pub fn build_bundle(
     let Err(error) = write_keys(managed, zkir_v3, lock, mode, manifest) else {
         return Ok(());
     };
+    let key_dir = managed.join("keys");
     if key_dir.exists()
         && let Err(removal) = std::fs::remove_dir_all(&key_dir)
     {
@@ -168,16 +164,11 @@ fn write_keys(
     );
 
     let artifacts = artifact_files();
-    let lines = artifacts
-        .iter()
-        .map(|file| {
-            Ok(format!(
-                "{}  {file}",
-                sha256_hex(&read(&managed.join(file))?)
-            ))
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let generated = lines.join("\n") + "\n";
+    let mut generated = String::new();
+    for file in &artifacts {
+        let hash = sha256_hex(&read(&managed.join(file))?);
+        writeln!(generated, "{hash}  {file}")?;
+    }
     match mode {
         LockMode::Update => std::fs::write(lock, &generated)
             .with_context(|| format!("writing {}", lock.display()))?,
@@ -194,8 +185,8 @@ fn write_keys(
         }
     }
 
-    manifest.zkir = Directory::of(managed, "zkir", &artifacts)?;
-    manifest.keys = Some(Directory::of(managed, "keys", &artifacts)?);
+    manifest.zkir = Directory::listing(managed, "zkir", &artifacts)?;
+    manifest.keys = Some(Directory::listing(managed, "keys", &artifacts)?);
     let manifest_path = managed.join(MANIFEST);
     let text = serde_json::to_string_pretty(&manifest)? + "\n";
     std::fs::write(&manifest_path, text)
@@ -206,7 +197,7 @@ fn write_keys(
 /// directory.
 fn artifact_files() -> Vec<String> {
     let mut files = Vec::new();
-    for (name, _) in CIRCUITS {
+    for (name, _) in COMPACT_CIRCUITS {
         files.push(format!("zkir/{name}.zkir"));
         files.push(format!("zkir/{name}.bzkir"));
         files.push(format!("keys/{name}.prover"));
@@ -215,14 +206,20 @@ fn artifact_files() -> Vec<String> {
     files
 }
 
-/// Compactc's circuits from `managed`, which must be its untouched
-/// `--skip-zk` output: a manifest that lists no keys and exactly the
-/// responder's `.zkir` files, each unchanged since compactc wrote it. That is
-/// what makes them a reference: a bundle this crate already built fails here.
+/// Compactc's circuits from `managed`, in [`COMPACT_CIRCUITS`] order, which
+/// must be its untouched `--skip-zk` output: a manifest that lists no keys
+/// and exactly the responder's `.zkir` files, each unchanged since compactc
+/// wrote it. That is what makes them a reference: a bundle this crate already
+/// built fails here.
 ///
 /// # Errors
 /// If `managed` is anything other than that output.
 pub fn compactc_circuits(managed: &Path) -> anyhow::Result<Vec<(&'static str, IrSource)>> {
+    Ok(read_reference(managed)?.1)
+}
+
+/// [`compactc_circuits`], with the manifest they were checked against.
+fn read_reference(managed: &Path) -> anyhow::Result<(Manifest, Vec<(&'static str, IrSource)>)> {
     let not_fresh = || {
         format!(
             "{} is not fresh `compact compile --skip-zk` output: run `yarn compile` first",
@@ -236,7 +233,7 @@ pub fn compactc_circuits(managed: &Path) -> anyhow::Result<Vec<(&'static str, Ir
         not_fresh()
     );
     let listed: Vec<&String> = manifest.zkir.files.keys().collect();
-    let mut expected: Vec<String> = CIRCUITS
+    let mut expected: Vec<String> = COMPACT_CIRCUITS
         .iter()
         .map(|(name, _)| format!("{name}.zkir"))
         .collect();
@@ -247,10 +244,9 @@ pub fn compactc_circuits(managed: &Path) -> anyhow::Result<Vec<(&'static str, Ir
         not_fresh()
     );
     let mut circuits = Vec::new();
-    for (name, _) in CIRCUITS {
+    for (name, _) in COMPACT_CIRCUITS {
         let file = format!("{name}.zkir");
-        let path = managed.join("zkir").join(&file);
-        let bytes = read(&path)?;
+        let bytes = read(&managed.join("zkir").join(&file))?;
         let entry = &manifest.zkir.files[&file];
         if entry.hash != sha256_hex(&bytes) || entry.size != bytes.len() as u64 {
             bail!(
@@ -258,16 +254,17 @@ pub fn compactc_circuits(managed: &Path) -> anyhow::Result<Vec<(&'static str, Ir
                 not_fresh()
             );
         }
-        let ir = minocrab_zkir::v3::read_zkir(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        // Parsed from the bytes just hashed, so the reference is exactly
+        // what compactc's manifest vouches for.
+        let ir = minocrab_zkir::v3::parse_zkir(bytes.as_slice(), &file)
+            .with_context(|| format!("parsing zkir/{file}"))?;
         circuits.push((name, ir));
     }
-    Ok(circuits)
+    Ok((manifest, circuits))
 }
 
 fn read_manifest(path: &Path) -> anyhow::Result<Manifest> {
-    let text = read(path).and_then(|bytes| Ok(String::from_utf8(bytes)?))?;
-    serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+    serde_json::from_slice(&read(path)?).with_context(|| format!("parsing {}", path.display()))
 }
 
 fn read(path: &Path) -> anyhow::Result<Vec<u8>> {
@@ -277,6 +274,8 @@ fn read(path: &Path) -> anyhow::Result<Vec<u8>> {
 fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
