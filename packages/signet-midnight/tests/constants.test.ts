@@ -130,11 +130,16 @@ describe("getSignetContractAddress", () => {
 });
 
 describe("getResponderContractAddress", () => {
-  const NETWORKS: readonly DeployedNetwork[] = [MidnightNetwork.Stagenet, ...UNPUBLISHED_NETWORKS];
-
-  it.each(NETWORKS)("throws for %s, whose responder is not published yet", (network) => {
-    expect(() => getResponderContractAddress(network)).toThrow(
-      /no responder contract address published for the '[a-z]+' network yet/,
-    );
+  it("publishes the stagenet responder", () => {
+    expect(getResponderContractAddress(MidnightNetwork.Stagenet)).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it.each(UNPUBLISHED_NETWORKS)(
+    "throws for %s, whose responder is not published yet",
+    (network) => {
+      expect(() => getResponderContractAddress(network)).toThrow(
+        /no responder contract address published for the '[a-z]+' network yet/,
+      );
+    },
+  );
 });

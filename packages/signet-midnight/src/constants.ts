@@ -154,7 +154,7 @@ export function getSignetContractAddress(networkId: DeployedNetwork): string {
 // deployed there. An empty string means "not yet deployed or published" and
 // makes getResponderContractAddress throw for that network.
 const responderContractAddresses: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]: "",
+  [MidnightNetwork.Stagenet]: "299a0470a00a538c81edc7b15da85864f828380728741211ae4d5e365d4ba9f4",
   [MidnightNetwork.Preview]: "",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
