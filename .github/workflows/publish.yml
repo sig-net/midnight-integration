@@ -3,8 +3,8 @@
 #   @sig-net/midnight-serde           (packages/midnight-serde-ts)
 #   @sig-net/midnight                 (packages/signet-midnight)
 #   @sig-net/midnight-contract        (packages/signet-contract)
-#   @sig-net/midnight-contract-deploy (packages/signet-contract-deploy)
 #   @sig-net/midnight-responder       (packages/signet-responder)
+#   @sig-net/midnight-contract-deploy (packages/signet-contract-deploy)
 #
 # plus the signet-midnight-serde crate (packages/midnight-serde-rs) to
 # crates.io, via OIDC trusted publishing (configured in the crate's settings
@@ -170,8 +170,8 @@ jobs:
             "midnight-serde-ts:@sig-net/midnight-serde" \
             "signet-midnight:@sig-net/midnight" \
             "signet-contract:@sig-net/midnight-contract" \
-            "signet-contract-deploy:@sig-net/midnight-contract-deploy" \
-            "signet-responder:@sig-net/midnight-responder"; do
+            "signet-responder:@sig-net/midnight-responder" \
+            "signet-contract-deploy:@sig-net/midnight-contract-deploy"; do
             dir="${entry%%:*}"
             name="${entry#*:}"
             version=$(node -p "require('./packages/$dir/package.json').version")
