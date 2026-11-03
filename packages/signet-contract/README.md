@@ -1,6 +1,6 @@
 # @sig-net/midnight-contract
 
-The central [Sig Network](https://sig.network) signet contract on the [Midnight blockchain](https://midnight.network): the singleton that exposes the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow) to other Midnight contracts. Every circuit emits a named contract event: the MPC posts back through the contract, and clients poll its events.
+The central [Sig Network](https://sig.network) signet contract on the [Midnight blockchain](https://midnight.network): the singleton that exposes the MPC's [sign bidirectional flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow) to other Midnight contracts. Integrating contracts notify it of their requests through `signBidirectional`, which emits a named contract event the MPC polls. The MPC posts its responses to the [signet responder](https://www.npmjs.com/package/@sig-net/midnight-responder), and clients poll that contract's events.
 
 ## What is in it
 
@@ -21,11 +21,12 @@ The protocol and integration documentation lives in the [sig-net/midnight-integr
 
 - [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow): the 5-step protocol this contract relays, with diagram, failure handling and output recovery: which circuit each step calls and which event it emits.
 - [Integrator Guide](https://github.com/sig-net/midnight-integration/blob/main/README.md#integrator-guide): how client contracts and dApps drive this contract's circuits and events per request.
-- [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure): how a failed foreign transaction still completes the flow through this contract's `respondBidirectional` circuit, attested as an empty output under a failure output kind.
+- [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure): how a failed foreign transaction still completes the flow, attested through the responder's `respondBidirectional` circuit as an empty output under a failure output kind.
 
 ## Related packages
 
 - [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): deploys this contract (it takes no constructor arguments: the MPC derives a response key per client contract, and each client pins its own).
-- [`@sig-net/midnight`](https://www.npmjs.com/package/@sig-net/midnight): the client-agnostic protocol library for reading this contract's state and verifying responses.
+- [`@sig-net/midnight`](https://www.npmjs.com/package/@sig-net/midnight): the client-agnostic protocol library for decoding this contract's events and verifying the MPC's responses.
+- [`@sig-net/midnight-responder`](https://www.npmjs.com/package/@sig-net/midnight-responder): the contract the MPC posts its responses to.
 
 Developed in [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration). Example applications live in [sig-net/midnight-examples](https://github.com/sig-net/midnight-examples).

@@ -50,12 +50,6 @@ export enum PublishedContract {
   SignetResponder = "signet-responder",
 }
 
-/** Each published contract's address table in constants.ts. */
-const ADDRESS_TABLES: Record<PublishedContract, string> = {
-  [PublishedContract.SignetContract]: "signetContractAddresses",
-  [PublishedContract.SignetResponder]: "responderContractAddresses",
-};
-
 /**
  * Whether a name names a published contract.
  *
@@ -92,6 +86,12 @@ export interface RecordedContractAddress {
   /** The table row as it is now. */
   entry: string;
 }
+
+/** Each published contract's address table in constants.ts. */
+const ADDRESS_TABLES: Record<PublishedContract, string> = {
+  [PublishedContract.SignetContract]: "signetContractAddresses",
+  [PublishedContract.SignetResponder]: "responderContractAddresses",
+};
 
 /**
  * Record a deployed contract's address for one network in the source text of

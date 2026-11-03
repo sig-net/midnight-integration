@@ -60,9 +60,11 @@ const STEPS: [
   ["setup: preflight root funding + fund the role wallets from root", ensureWalletsFunded],
   ["setup: check/derive MPC root key", ensureMpcRootKey],
   ["setup: check/derive MPC_SECP256K1_PUBKEY public key", ensureMpcSecp256k1Pubkey],
+  // Both compiles run before either deploy, so a compile failure never
+  // strands a deployed address the hand-off step has not persisted yet.
   ["setup: compile signet-contract contract with proving keys", compileSignetContract],
-  ["setup: deploy signet-contract", deploySignetContractStep],
   ["setup: compile signet-responder contract with its MinoCrab zk bundle", compileSignetResponder],
+  ["setup: deploy signet-contract", deploySignetContractStep],
   ["setup: deploy signet-responder", deploySignetResponderStep],
   ["setup: persist fakenet hand-off values to .env (append-only)", persistFakenetHandoffToDotEnv],
   ["setup: start the fakenet responder (docker compose)", startFakenetResponder],

@@ -825,7 +825,7 @@ Two end to end suites run against the local docker stack. The generic suite driv
    yarn compile
    ```
 3. Start the local stack (Midnight node, indexer, proof server, anvil EVM) with `docker compose up -d`. The fakenet MPC responder is started automatically by the test setup once the signet contract and the responder are deployed.
-4. Run the suites and watch them go. The first run can take **~10–25 minutes** (it generates zk proving keys for both contracts, deploys them and hands off to the fakenet responder, all automatically, no `.env` inserts needed):
+4. Run the suites and watch them go. The first run can take **~10–25 minutes** (it generates zk proving keys for every contract, deploys them and hands off to the fakenet responder, all automatically, no `.env` inserts needed):
    ```sh
    yarn test:integration-tests                          # both suites, requires 'yarn compile'
    yarn test:integration-tests:signet-caller-e2e        # generic caller flow only, requires 'yarn compile'

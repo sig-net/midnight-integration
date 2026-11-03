@@ -51,7 +51,8 @@ from duration alone), deploys them, starts the responder mid-setup, and the
 flow files run to the end (generic flow 5/5, real-EVM flow 30/30). Save the
 printed
 `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips
-compile + deploy (the signet address is appended automatically).
+compile + deploy (the signet and responder addresses are appended
+automatically).
 
 ## Modes
 

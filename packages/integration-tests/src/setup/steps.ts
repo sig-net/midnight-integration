@@ -32,9 +32,9 @@ const MINUTE = 60_000;
  */
 interface ProtocolContract {
   /** The package directory name, the suffix of its root scripts. */
-  name: "signet-contract" | "signet-responder";
+  name: string;
   /** The env var holding the deployed contract's address. */
-  addressVar: "MIDNIGHT_SIGNET_CONTRACT_ADDRESS" | "MIDNIGHT_RESPONDER_CONTRACT_ADDRESS";
+  addressVar: string;
   /** How long the zk compile may take: the responder's includes a Rust build. */
   compileTimeoutMs: number;
   /** The deploy flow from `@sig-net/midnight-contract-deploy`. */
