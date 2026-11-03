@@ -16,9 +16,7 @@
 # The record-address job then opens a PR writing the new address into the
 # contract's address table in @sig-net/midnight (signetContractAddresses or
 # responderContractAddresses), so a human reviews the address before it
-# reaches npm consumers. The PR targets the branch the workflow was
-# dispatched from (dev for a release candidate, main for a stable release),
-# whose recording script and tables match this workflow.
+# reaches npm consumers.
 #
 # The `network` choice options and the GitHub environment names are one set:
 # `environment` resolves from the input, so an option with no matching
@@ -71,17 +69,6 @@ jobs:
     outputs:
       contract-address: ${{ steps.deploy.outputs.contract-address }}
     steps:
-      # Checked before anything deploys: the address-recording PR targets the
-      # dispatch branch, and a tag cannot take a PR.
-      - name: Refuse a dispatch from anything but a branch
-        env:
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          if [ "$REF_TYPE" != "branch" ]; then
-            echo "::error::dispatch deploy from a branch (the address PR targets it), got the $REF_TYPE $REF_NAME"
-            exit 1
-          fi
       - name: Refuse an input that is not a release tag
         env:
           TAG: ${{ inputs.tag }}
@@ -271,11 +258,10 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      # The dispatch branch, not the deployed tag: the PR edits that branch's
-      # current source.
+      # main, not the deployed tag: the PR edits main's current source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: main
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -308,7 +294,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          BASE: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           branch="deploy/record-$CONTRACT-$NETWORK-$TAG"
@@ -326,7 +311,7 @@ jobs:
           Opened by the deploy workflow. A PR from GITHUB_TOKEN does not trigger CI: close and reopen this PR (or push to its branch) to run the checks before merging.
           EOF
           )"
-          url="$(gh pr create --base "$BASE" --head "$branch" \
+          url="$(gh pr create --base main --head "$branch" \
             --title "record the $NETWORK $CONTRACT address ($TAG)" \
             --body "$body")"
           {

@@ -844,7 +844,7 @@ Use your /e2e skill to get the integration suite running for me, from fresh clon
 
 > **NOTE:** this release and deployment process is a draft under discussion. Expect it to change.
 
-The signet singleton and the signet responder are deployed with **no contract maintenance authority**: the deploy flow samples the maintenance key and drops it (see [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), which deploys one of them per run), so a deployed contract can never be upgraded. Every deployment creates a fresh, permanent contract at a new address, and that address reaches integrators only through the SDK: the deploy workflow opens a pull request into the branch it was dispatched from that records it in the per-network table behind `getSignetContractAddress` or `getResponderContractAddress` in `@sig-net/midnight`, a human reviews it, and the next version bump release publishes it. A new responder address changes no client contract, as clients read it from the SDK. A new singleton address has these consequences:
+The signet singleton and the signet responder are deployed with **no contract maintenance authority**: the deploy flow samples the maintenance key and drops it (see [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), which deploys one of them per run), so a deployed contract can never be upgraded. Every deployment creates a fresh, permanent contract at a new address, and that address reaches integrators only through the SDK: the deploy workflow opens a pull request that records it in the per-network table behind `getSignetContractAddress` or `getResponderContractAddress` in `@sig-net/midnight`, a human reviews it, and the next version bump release publishes it. A new responder address changes no client contract, as clients read it from the SDK. A new singleton address has these consequences:
 
 - **stagenet, preview, preprod:** client contracts redeploy against the new singleton address. The MPC stops monitoring the old address.
 - **mainnet:** client contracts upgrade their singleton reference to the new address. The MPC keeps monitoring the old address for an announced period.
@@ -857,7 +857,7 @@ The flow from a change to a release:
    - Every other release candidate is an SDK-only npm publish.
 3. `dev` merges to `main`, and a stable `v*.*.*` tag is made from `main` with an associated GitHub release. The publish workflow publishes the packages to npm under `latest`, and the deploy workflow is dispatched with that tag once per changed contract. A new singleton address makes dependent contracts redeploy (on mainnet, by upgrading their singleton reference as above), and a new responder address reaches clients through the SDK.
 
-Three guards in the workflows back this flow: a stable tag must point at a commit on `main` (both workflows refuse one that does not), the deploy workflow refuses a prerelease tag for mainnet, and it refuses a dispatch from anything but a branch, since the address pull request targets that branch. Dispatch release-candidate deploys from `dev` and stable ones from `main`.
+Two guards in the workflows back this flow: a stable tag must point at a commit on `main` (both workflows refuse one that does not), and the deploy workflow refuses a prerelease tag for mainnet.
 
 # Prerequisites
 
