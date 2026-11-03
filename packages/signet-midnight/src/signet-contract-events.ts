@@ -1,5 +1,6 @@
-// MPC-/client-style decoders for the central SIGNET contract's emitted
-// events. Every signet contract circuit emits one `Misc` contract event
+// MPC-/client-style decoders for the signet contracts' emitted events: the
+// central SIGNET contract emits the requests, the signet responder the MPC's
+// responses. Every circuit of either contract emits one `Misc` contract event
 // (MIP-0002 public log emission) whose 32-byte name tags the event kind and
 // whose 256-byte payload packs the record:
 //   SignBidirectionalEvent    - version (1) ++ requestId (32) ++ notification payload (128) ++ zeros (95)
@@ -9,8 +10,9 @@
 //                               ++ digest (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32)
 //                               ++ recoveryId (1) ++ zeros (46)
 // The decoders here are the byte-plumbing twins of the emit literals in
-// signet-contract.compact: field order and offsets must match byte-for-byte
-// (the signet-contract simulator tests pin the lockstep against real emits).
+// signet-contract.compact and signet-responder.compact: field order and
+// offsets must match byte-for-byte (each contract's simulator tests pin the
+// lockstep against real emits).
 // Every event is UNAUTHENTICATED: verification is the reader's job. The
 // request id every payload discloses is routing data only, so it scopes
 // reads to one request and proves nothing.
@@ -24,8 +26,8 @@ import { OutputKind } from "./managed/contract/index.js";
 import { contractAddressFromHex, type RequestIdHex, requestIdHex } from "./signet-requests.ts";
 
 /**
- * The event names the signet contract emits, exactly as the contract's
- * `emit` literals spell them (the on-wire name is this string NUL-padded to
+ * The event names the signet contracts emit, exactly as their `emit`
+ * literals spell them (the on-wire name is this string NUL-padded to
  * {@link SIGNET_EVENT_NAME_LENGTH} bytes, see {@link decodeSignetEventName}).
  */
 export enum SignetEventName {
@@ -91,7 +93,7 @@ export interface SignetEventStreamOptions {
 }
 
 /**
- * Source of the signet contract's emitted events, the event-side sibling of
+ * Source of a signet contract's emitted events, the event-side sibling of
  * `SignetPublicStateSource`. Structural, so tests can stub it with a stream
  * over fixtures. Read a live indexer with {@link signetEventSourceFromIndexer},
  * which yields {@link IndexedSignetMiscEvent}s.
@@ -103,7 +105,7 @@ export interface SignetEventSource<TEvent extends SignetMiscEvent = SignetMiscEv
    * yielded before the next page is requested, so a consumer sees progress
    * per page, and leaving the `for await` loop early stops further requests.
    *
-   * @param contractAddress - The signet contract to read events of.
+   * @param contractAddress - The signet contract or responder to read events of.
    * @param options - Bounds on the walk, see {@link SignetEventStreamOptions}.
    * @returns The decoded events, oldest first.
    */
@@ -178,7 +180,7 @@ export function decodeSignetLogEvents(
   return out;
 }
 
-/** Where {@link signetEventSourceFromIndexer} reads the signet contract's events from. */
+/** Where {@link signetEventSourceFromIndexer} reads a signet contract's events from. */
 export interface SignetIndexerConfig {
   /** The indexer's GraphQL query endpoint over HTTP, e.g. `https://<indexer>/api/v4/graphql`. */
   readonly queryUrl: string;
@@ -352,7 +354,7 @@ async function fetchContractEventPage(
 }
 
 /**
- * Read the signet contract's events from a Midnight indexer. The stream
+ * Read a signet contract's events from a Midnight indexer. The stream
  * pages the indexer by offset and pins its end to the tip (`maxId`) of the
  * first page, so the walk is a point-in-time snapshot that ends even while
  * the contract keeps emitting: rows past that tip are dropped. The contract

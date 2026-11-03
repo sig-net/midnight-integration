@@ -64,7 +64,7 @@ const UNKNOWN_ID_HEX = requestIdHex(bytes(32, 0x30));
 const FOREIGN_REQUEST_ID = bytes(32, 0x31);
 
 const REQUESTER_ADDRESS = "requester-contract-address";
-const SIGNET_CONTRACT_ADDRESS = "signet-contract-address";
+const RESPONDER_CONTRACT_ADDRESS = "responder-contract-address";
 
 /**
  * Known-good request record for a `transfer(vault, amount)` deposit: the
@@ -228,11 +228,11 @@ const makeReader = (
   const reader = new SignetRequestResponseReader({
     requesterContractAddress: REQUESTER_ADDRESS,
     requesterRequestsPath: [0],
-    signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+    responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
     publicDataProvider,
     eventSource: {
       streamSignetEvents: (contractAddress, options) => {
-        expect(contractAddress).toBe(SIGNET_CONTRACT_ADDRESS);
+        expect(contractAddress).toBe(RESPONDER_CONTRACT_ADDRESS);
         expect(options).toBeUndefined();
         queries.events += 1;
         return streamOf(events);
@@ -269,7 +269,7 @@ describe("getSignatureRequest", () => {
     const reader = new SignetRequestResponseReader({
       requesterContractAddress: REQUESTER_ADDRESS,
       requesterRequestsPath: [0],
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
       publicDataProvider: { queryContractState: () => Promise.resolve(null) },
       eventSource: { streamSignetEvents: () => streamOf([]) },
     });
@@ -312,7 +312,7 @@ describe("getSignatureRespondedEvents", () => {
     const reader = new SignetRequestResponseReader({
       requesterContractAddress: REQUESTER_ADDRESS,
       requesterRequestsPath: [0],
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
       publicDataProvider: {
         queryContractState: () => Promise.resolve({ data: requesterState() }),
       },
@@ -327,12 +327,12 @@ describe("getSignatureRespondedEvents", () => {
     expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
   });
 
-  it("bounds the event scan by signetEventsFromBlock", async () => {
+  it("bounds the event scan by responderEventsFromBlock", async () => {
     const seen: unknown[] = [];
     const reader = new SignetRequestResponseReader({
       requesterContractAddress: REQUESTER_ADDRESS,
       requesterRequestsPath: [0],
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
       publicDataProvider: {
         queryContractState: () => Promise.resolve({ data: requesterState() }),
       },
@@ -342,7 +342,7 @@ describe("getSignatureRespondedEvents", () => {
           return streamOf([signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE)]);
         },
       },
-      signetEventsFromBlock: 382000,
+      responderEventsFromBlock: 382000,
     });
     expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
     expect(seen).toStrictEqual([{ fromBlock: 382000 }]);

@@ -9,6 +9,7 @@ import {
   type DeployedNetwork,
   getMpcOutputCacheUrl,
   getMpcRootPublicKey,
+  getResponderContractAddress,
   getSignetContractAddress,
   MidnightNetwork,
   normaliseSecp256k1PublicKey,
@@ -126,4 +127,14 @@ describe("getSignetContractAddress", () => {
       expect(() => getSignetContractAddress(network)).toThrow(/no signet contract address/);
     },
   );
+});
+
+describe("getResponderContractAddress", () => {
+  const NETWORKS: readonly DeployedNetwork[] = [MidnightNetwork.Stagenet, ...UNPUBLISHED_NETWORKS];
+
+  it.each(NETWORKS)("throws for %s, whose responder is not published yet", (network) => {
+    expect(() => getResponderContractAddress(network)).toThrow(
+      /no responder contract address published for the '[a-z]+' network yet/,
+    );
+  });
 });
