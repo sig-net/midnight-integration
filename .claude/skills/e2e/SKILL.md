@@ -34,6 +34,7 @@ flow drives all three outcome kinds to in-circuit settlement: `executed`
 corepack enable
 yarn install
 compact update 0.33.0-rc.2   # NEVER a bare `compact update`: see ground rules
+cargo --version              # Rust via rustup: setup builds signet-responder's MinoCrab bundle
 yarn compile                 # run before the suites
 docker compose up -d          # node :9944, indexer :8088, proof server :6300, anvil :8545
 cd <repo-root>

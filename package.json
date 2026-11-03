@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Sig Network on Midnight: the central signet contract, the client-agnostic protocol SDK, and a minimal test caller contract that exercises them end to end. Run `yarn compile` once before `build`/`test` — the contract packages and signet-midnight typecheck against the generated managed/ output.",
+  "description": "Sig Network on Midnight: the central signet contract, the signet responder, the client-agnostic protocol SDK, and a minimal test caller contract that exercises them end to end. Run `yarn compile` once before `build`/`test` — the contract packages and signet-midnight typecheck against the generated managed/ output.",
   "packageManager": "yarn@4.17.1",
   "workspaces": [
     "packages/*"

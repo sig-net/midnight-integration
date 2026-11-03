@@ -272,8 +272,8 @@ jobs:
         run: corepack enable
       - name: Install dependencies (frozen, from the committed yarn.lock)
         run: yarn install --immutable
-      # The script reads the network and address from argv and rewrites one
-      # string literal, so it needs no compiled contract output.
+      # The script reads the contract, network and address from argv and
+      # rewrites one string literal, so it needs no compiled contract output.
       - name: Record the address in @sig-net/midnight's constants
         env:
           CONTRACT: ${{ inputs.contract }}

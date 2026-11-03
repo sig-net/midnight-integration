@@ -5,7 +5,7 @@ The [Sig Network](https://sig.network) response contract on the [Midnight blockc
 - `respond`: a signature response, as a `SignatureRespondedEvent`.
 - `respondBidirectional`: a remote execution attestation, as a `RespondBidirectionalEvent`.
 
-Both circuits emit unverified posts. Clients verify each one themselves, exactly as for the [signet singleton](../signet-contract/README.md)'s events of the same names.
+Both circuits emit unverified posts. Clients verify each one themselves, as the root README's [Integrator Guide](https://github.com/sig-net/midnight-integration/blob/main/README.md#integrator-guide) shows.
 
 ## What is in it
 

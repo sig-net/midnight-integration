@@ -1,4 +1,4 @@
-// Test-local ENCODE twins of the signet contract's emit literals: build the
+// Test-local ENCODE twins of the signet contracts' emit literals: build the
 // SignetMiscEvent shapes the feed/reader tests serve through stub event
 // sources. Encode-side only and test-only on purpose: the decode side lives
 // in src/signet-contract-events.ts, and its lockstep against the REAL

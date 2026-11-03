@@ -1,7 +1,7 @@
 // SignetRequestResponseReader over stub sources: the requester ledger is
 // encoded with the canonical descriptors into a StateValue tree (the shape
 // the indexer returns) and served through a stub state source; the signet
-// contract's responses are served as decoded events through a stub event
+// responder's responses are served as decoded events through a stub event
 // source (built by the test-local encode twins in signet-event-fixtures.ts).
 // No network, no compiled contract.
 

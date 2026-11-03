@@ -93,6 +93,10 @@ gates itself with `describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)`.
   `http://evm:8545`).
 - **compact compiler** on PATH, then `yarn install` + `yarn compile` from
   the root.
+- **Rust via rustup**: the setup builds signet-responder's MinoCrab zk
+  bundle (`yarn compile:signet-responder:zk`) unless
+  `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS` is set; its
+  `minocrab/rust-toolchain.toml` pins the toolchain.
 - For the signature-response leg: the fakenet MPC responder — the `fakenet`
   compose service (image pinned in the root `docker-compose.yaml`, built from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)).

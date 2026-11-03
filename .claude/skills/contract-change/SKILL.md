@@ -3,8 +3,9 @@ name: contract-change
 description: >
   Playbook for changing a Compact contract in this workspace and fully
   retesting it end-to-end. Use when extending or modifying a contract circuit
-  or struct (packages/*-contract), extending the generic caller e2e to drive
-  it, or lifting shared protocol code into the signet-midnight seed. Covers
+  or struct (packages/*-contract, packages/signet-responder), extending the
+  generic caller e2e to drive it, or lifting shared protocol code into the
+  signet-midnight seed. Covers
   the layer architecture, the MPC request/response pipeline (which stage maps
   to which circuit and test), the change→compile→retest decision tree (rerun
   vs redeploy), the TS-twin / descriptor lockstep that silently breaks
@@ -114,6 +115,14 @@ ledger/state exactly as the MPC does: the same view on both sides is the point.
   `yarn compile:signet-contract:zk` and `yarn compile:test-caller-contract:zk`.
 - **Circuit/struct/hash change** → `/e2e redeploy`: zk keygen (~10+ min) +
   the responder hand-off, all in one run. Background it.
+- **signet-responder circuit change**: change the circuit in
+  `src/signet-responder.compact` and `minocrab/src/circuits.rs` together.
+  `yarn compile:signet-responder:zk` refuses to build until both agree, then
+  fails on `minocrab/artifacts.sha256` until the lock is regenerated
+  deliberately (new keys mean a redeploy). The pinned fakenet only joins a
+  responder with the published keys, so an end-to-end retest also needs a
+  release, a rebuilt fakenet image and a pin bump (see the parity bullet in
+  [`/e2e`](../e2e/SKILL.md)).
 
 **4. Reuse completed work to iterate on a late stage.** To exercise only the
 settle leg without re-proving a submit, set `CALLER_REQUEST_ID=<an existing
