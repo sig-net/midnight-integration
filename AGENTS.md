@@ -29,8 +29,9 @@ node-modules`). Its members live under `packages/`:
   pin `@sig-net/midnight`'s field resolver against real compiler output).
   No deploy flow, no notifier, compile is skip-zk only.
 - **`packages/signet-contract-deploy`** — the published, self-contained deploy
-  tooling: the signet-contract deploy flow plus the generic deploy/wallet/config
-  plumbing (`src/plumbing/`) every contract package's deploy script composes.
+  tooling: the signet-contract and signet-responder deploy flows plus the
+  generic deploy/wallet/config plumbing (`src/plumbing/`) every contract
+  package's deploy script composes.
 - **`packages/integration-tests`** — everything that needs a running stack:
   the signet-caller e2e flows (generic and real-EVM) and their setup pipeline.
 - **`packages/midnight-serde-ts`**: `@sig-net/midnight-serde`, a thin wrapper
@@ -230,7 +231,7 @@ exception for that specific case.
   - Prefer slightly verbose but self-contained over terse but indirect —
     verbosity costs lines; indirection costs comprehension.
 - **The websocket response path is dead. NEVER reintroduce it.** All signature
-  responses flow through the signet contract and are polled. No ws
+  responses flow through the signet responder and are polled. No ws
   subscription, not even "temporarily as a fallback".
 - **ALWAYS type.** Every function parameter, return value, variable, and prop must
   have a precise type. Never use `unknown` (and never `any`) as a substitute for
@@ -322,8 +323,8 @@ all of them, `packages/signet-responder` included:
   called directly via `pureCircuits.<name>(...)`.
 - **The deploy split: generic plumbing in `@sig-net/midnight-contract-deploy`,
   everything contract-specific in the contract's deploy script
-  (`packages/test-caller-contract/deploy.ts`; for signet-contract,
-  `packages/signet-contract-deploy`).** The deploy
+  (`packages/test-caller-contract/deploy.ts`; for signet-contract and
+  signet-responder, `packages/signet-contract-deploy`).** The deploy
   package's deploy/wallet helpers
   (`buildDeployTransaction`, `makeCompiledContract`, `submitUnprovenTransaction`,
   …) know no contract; the deploy script owns the constructor args, witnesses,

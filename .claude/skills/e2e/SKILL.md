@@ -42,9 +42,10 @@ yarn test:integration-tests > /tmp/caller-e2e.log 2>&1 &
 
 Watch the log. No pre-existing `.env` is required: the setup creates it when
 it appends the generated wallet seeds, then appends the fakenet hand-off
-values (`MPC_ROOT_KEY`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`). Appends never
+values (`MPC_ROOT_KEY`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`,
+`MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`). Appends never
 modify existing lines, and a value that conflicts with the shell
-environment is a hard error, never an overwrite. The first run zk-compiles BOTH contracts (~10–25 min of
+environment is a hard error, never an overwrite. The first run zk-compiles EVERY contract (~10–25 min of
 keygen, machine-dependent: background the run and never diagnose a hang
 from duration alone), deploys them, starts the responder mid-setup, and the
 flow files run to the end (generic flow 5/5, real-EVM flow 30/30). Save the
@@ -61,9 +62,10 @@ compile + deploy (the signet address is appended automatically).
   funding checks run every time.
 - **`/e2e redeploy`**: a circuit changed (any `.compact` edit that alters a
   circuit, struct layout, or the request-id hash domain): comment out
-  `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS`,
-  `MPC_RESPONSE_KEY` and any `CALLER_*` resume ids in `.env` (delete the
-  appended signet line or comment it), then run as in
+  `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`,
+  `MIDNIGHT_CALLER_CONTRACT_ADDRESS`, `MPC_RESPONSE_KEY` and any `CALLER_*`
+  resume ids in `.env` (delete the appended lines or comment them; a
+  responder-only change needs only its own line out), then run as in
   the quickstart. The setup re-keygens, redeploys, and **recreates the
   responder itself** (`--force-recreate` exactly when hand-off values newly
   land in `.env`: that re-reads `.env` AND resets the responder's LevelDB
@@ -95,8 +97,9 @@ compile + deploy (the signet address is appended automatically).
 ## Fakenet responder hand-off
 
 The setup manages the responder by default: after deploying the signet
-contract it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to
-`.env` (docker compose interpolates the `fakenet` service's environment from
+contract and the signet responder it appends `MPC_ROOT_KEY`,
+`MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`
+to `.env` (docker compose interpolates the `fakenet` service's environment from
 that file) and runs
 `docker compose --profile fakenet up -d [--force-recreate] fakenet`
 (`ghcr.io/sig-net/fakenet:0.35.0`, built from
@@ -105,23 +108,25 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 - Healthy startup (`docker logs -f fakenet-responder`) prints
   `MidnightMonitor: polling signet contract events at <signet address>`.
   The responder DISCOVERS requester contracts through the signet contract,
-  no caller address needed.
+  no caller address needed, and posts its responses to the signet
+  responder.
 - `FAKENET_MANAGED=0` = you run the responder yourself (responder
   development: `yarn response` in a solana-signet-program checkout with the
-  current signet address in its `.env`). The setup then leaves the container
+  current signet and responder addresses in its `.env`). The setup then leaves the container
   alone and appends no hand-off values to `.env`. That checkout consumes the
-  published `@sig-net/midnight` / `@sig-net/midnight-contract` from npm — the same releases the pinned
+  published `@sig-net/midnight` / `@sig-net/midnight-responder` from npm — the same releases the pinned
   image bundles — so by default no linking of any kind is involved. Rotate
   the responder's `fakenet-signer/midnight-level-db` aside, set its `.env`
   `MPC_ROOT_KEY` / `MIDNIGHT_WALLET_SEED` (the funded `MPC_RESPONDER_SEED`)
-  / `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` from this repo's values, and start it
-  AFTER the signet deploy prints the fresh address. Only one responder may
+  / `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` / `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`
+  from this repo's values, and start it AFTER the deploys print the fresh
+  addresses. Only one responder may
   run: the output cache simulation binds :3040.
 - **Local library linking is opt-in ONLY.** Run the tarball flow below ONLY
   when the user explicitly asks for it ("yarn link", "local library
   linking", "link the local packages into the responder", or equivalent).
   Never adopt it on your own initiative, even when this repo carries
-  `@sig-net/midnight` / `@sig-net/midnight-contract` changes the published
+  `@sig-net/midnight` / `@sig-net/midnight-responder` changes the published
   packages lack (a decoder, event layout or hash): the default way to land
   such a change is to release the packages, re-release the image on them,
   and bump the pin (see prover/verifier parity below). When linking IS
@@ -131,16 +136,16 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 
   ```sh
   # here, after any .compact or SDK edit
-  yarn compile:signet-contract:zk   # REQUIRED once: the contract build
+  yarn compile:signet-responder:zk  # REQUIRED once: the responder build
                                     # hard-fails without src/managed/keys
   yarn workspace @sig-net/midnight pack
-  yarn workspace @sig-net/midnight-contract pack
+  yarn workspace @sig-net/midnight-responder pack
   ```
 
   then in `fakenet-signer/package.json` point both deps at the tarballs
-  (`"file:../../<this-repo>/packages/signet-{midnight,contract}/package.tgz"`)
+  (`"file:../../<this-repo>/packages/signet-{midnight,responder}/package.tgz"`)
   and `yarn install`. Verify with
-  `node -e "console.log(require.resolve('@sig-net/midnight-contract/managed/compiler/contract-manifest.json'))"`:
+  `node -e "console.log(require.resolve('@sig-net/midnight-responder/managed/compiler/contract-manifest.json'))"`:
   it must land under `dist/managed`, with `dist/managed/keys` beside it.
   Prefer this over `yarn link` on the raw directories even when the user
   says "yarn link": a symlinked package resolves its own
@@ -148,7 +153,7 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   onchain-runtime instances across the boundary. Refresh cycle after each
   edit (classic yarn caches `file:` tarballs by name@version and pins their
   checksum):
-  `yarn cache clean @sig-net/midnight @sig-net/midnight-contract && rm -rf node_modules/@sig-net && yarn install --update-checksums --check-files`.
+  `yarn cache clean @sig-net/midnight @sig-net/midnight-responder && rm -rf node_modules/@sig-net && yarn install --update-checksums --check-files`.
   That refresh can silently keep the OLD tarball (yarn 1 reuses its
   `npm-@sig-net-<name>-<version>-<hash>` cache entry under an unchanged
   name@version, and the responder then runs the stale SDK with no error, its
@@ -162,25 +167,21 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   `CALLER_REQUEST_ID=<id from the failed run>` instead.
   The tarball also gives prover/verifier parity for free: the responder
   proves with the same keys the deploy used.
-- Prover/verifier parity: the image carries the signet zk keys from the
-  published `@sig-net/midnight-contract` npm package, and it joins the
-  deployed contract through midnight-js `findDeployedContract`, which
-  compares the verifier key of EVERY operation, not only the `respond` it
-  calls. Any edit that changes a circuit changes that circuit's verifier key,
-  so touching `signBidirectional` alone locks the responder out. The join
-  throws `ContractTypeError: Following operations: … are undefined or have
-  mismatched verifier keys`, no post ever happens, and the poll test times
-  out with nothing in the test output to explain it. `packages/signet-contract`
-  must therefore compile to the same artifacts as the published release the
-  pinned image bundles. Check that without a zk build:
-  `npm pack @sig-net/midnight-contract@<version>`, then diff its
-  `dist/managed/zkir/*.zkir` against `src/managed/zkir/*.zkir` from a plain
-  `yarn compile:signet-contract`. Keygen is deterministic, so identical zkir
-  means identical keys. To land a real contract change: release the packages,
-  rebuild and re-release the image on them, then bump the pin here. Only when
-  the user has explicitly opted into local linking (see the opt-in bullet
-  above), bind-mount `./packages/signet-contract/src/managed` over the
-  container's key directory instead.
+- Prover/verifier parity: the image carries the responder's zk keys from
+  the published `@sig-net/midnight-responder` npm package, and it joins the
+  deployed responder through midnight-js `findDeployedContract`, which
+  compares the verifier key of EVERY operation, not only the one it calls.
+  The join throws `ContractTypeError: Following operations: … are undefined
+  or have mismatched verifier keys` on any mismatch, no post ever happens,
+  and the poll test times out with nothing in the test output to explain it.
+  `packages/signet-responder/minocrab/artifacts.sha256` locks the bundle's
+  hashes, so `yarn compile:signet-responder:zk` fails on any key the
+  published release would not carry. To land a real responder change:
+  update the lock, release the packages, rebuild and re-release the image on
+  them, then bump the pin here. Only when the user has explicitly opted into
+  local linking (see the opt-in bullet above), bind-mount
+  `./packages/signet-responder/src/managed` over the container's key
+  directory instead.
 - The image tag is pinned in `docker-compose.yaml` (part of the matched
   set). On a `fakenet-v*` release, bump the tag there and
   `docker compose pull fakenet`.
