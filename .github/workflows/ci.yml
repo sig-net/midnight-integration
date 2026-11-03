@@ -1,5 +1,7 @@
 # Unit and integration testing.
-#   unit         format + compile + lint + build + test
+#   unit         format + compile + signet-responder's MinoCrab crate (fmt +
+#                clippy + parity tests against compactc) + its zk bundle +
+#                lint + build + test
 #   rust         the signet-midnight-serde crate: fmt + clippy + cargo test
 #                against the COMMITTED conformance corpus (no Node, no compactc)
 #   integration  compose stack + signet-caller e2e, whose setup deploys the
@@ -9,8 +11,9 @@
 # --immutable), and the compact toolchain pinned by exact URL (launcher
 # compact-v0.5.1, compiler compactc 0.33.0-rc.2). Bump versions deliberately.
 #
-# Caches (compact-*, zk-keys-*) are keyed on those pins, so a hit only skips a
-# download/keygen and never changes what is built. Only the integration job
+# Caches (compact-*, zk-keys-*) are keyed on those pins, and the cargo-*
+# caches on a crate's Cargo.lock and rust-toolchain.toml, so a hit only skips
+# a download/build/keygen and never changes what is built. Only the integration job
 # saves zk-keys, while the unit job restores read-only. It also pulls the
 # public ghcr.io/sig-net/fakenet image.
 

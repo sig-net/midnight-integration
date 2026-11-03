@@ -299,7 +299,7 @@ exception for that specific case.
   never appears anywhere in this repository, and a reviewer fixes it on sight.
   Grep the change for `dark mode` (case-insensitive) before finishing.
 
-# Contract packages (`packages/*-contract`)
+# Contract packages (`packages/*-contract`, `packages/signet-responder`)
 
 The contract packages share one core layout (the `.compact` source,
 `src/index.ts`, `src/witnesses.ts`, `tests/contract.test.ts`); these rules apply to
