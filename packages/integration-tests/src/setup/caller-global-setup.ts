@@ -8,10 +8,11 @@
 // The pipeline serves BOTH flow files: the base flow (whose request exists
 // to be SIGNED, never broadcast) and the real-EVM flow (which
 // broadcasts against the SignetEvmTarget contract on the local anvil). So on
-// top of the stack checks, wallet seeds and funding, MPC keys, signet compile/deploy,
-// fakenet hand-off and caller compile/deploy, it deploys the EVM target
-// (early: fast and midnight-free) and funds the caller's derived EVM sender
-// (last: the derivation needs the deployed caller's address).
+// top of the stack checks, wallet seeds and funding, MPC keys, signet and
+// responder compile/deploy, fakenet hand-off and caller compile/deploy, it
+// deploys the EVM target (early: fast and midnight-free) and funds the
+// caller's derived EVM sender (last: the derivation needs the deployed
+// caller's address).
 
 import { getMidnightNodeConfig, WalletRegistry } from "@sig-net/midnight-contract-deploy";
 import type { TestProject } from "vitest/node";
@@ -28,7 +29,9 @@ import {
 import { deployEvmTargetStep, fundDerivedSenderStep } from "./evm-steps.ts";
 import {
   compileSignetContract,
+  compileSignetResponder,
   deploySignetContractStep,
+  deploySignetResponderStep,
   ensureMpcResponseKey,
   ensureMpcRootKey,
   ensureMpcSecp256k1Pubkey,
@@ -59,6 +62,8 @@ const STEPS: [
   ["setup: check/derive MPC_SECP256K1_PUBKEY public key", ensureMpcSecp256k1Pubkey],
   ["setup: compile signet-contract contract with proving keys", compileSignetContract],
   ["setup: deploy signet-contract", deploySignetContractStep],
+  ["setup: compile signet-responder contract with its MinoCrab zk bundle", compileSignetResponder],
+  ["setup: deploy signet-responder", deploySignetResponderStep],
   ["setup: persist fakenet hand-off values to .env (append-only)", persistFakenetHandoffToDotEnv],
   ["setup: start the fakenet responder (docker compose)", startFakenetResponder],
   ["setup: compile caller contract with proving keys", compileCallerContract],

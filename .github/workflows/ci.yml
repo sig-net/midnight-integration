@@ -262,8 +262,9 @@ jobs:
             packages/signet-contract/src/managed
             packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
-      - name: Cache signet-responder's cargo registry and build output (zk keygen only)
-        if: steps.zk.outputs.cache-hit != 'true'
+      # The responder's bundle is never in the zk cache: `yarn compile:zk`
+      # builds it on a miss, and on a hit the suite's setup builds it.
+      - name: Cache signet-responder's cargo registry and build output (its zk bundle)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -293,8 +294,8 @@ jobs:
           timeout 180 bash -c 'until curl -fs -X POST -H "content-type: application/json" -d "{\"query\":\"{__typename}\"}" http://127.0.0.1:8088/api/v4/graphql >/dev/null 2>&1; do sleep 3; done'
           curl -fsS -X POST -H 'content-type: application/json' \
             -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' http://127.0.0.1:8545
-      # The suite's setup deploys both contracts, writes MPC_ROOT_KEY +
-      # MIDNIGHT_SIGNET_CONTRACT_ADDRESS to .env, and starts the fakenet
+      # The suite's setup deploys the contracts, writes MPC_ROOT_KEY and the
+      # signet and responder addresses to .env, and starts the fakenet
       # responder. Anvil is the EVM chain the flow files and the responder
       # share: the setup deploys the EVM target and funds the derived sender
       # there.

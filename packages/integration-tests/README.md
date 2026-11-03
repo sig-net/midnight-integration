@@ -8,7 +8,8 @@ and two flow files:
   `vitest.config.ts`): environment preflight → deploy the `SignetEvmTarget`
   EVM contract → resolve or generate the wallet seeds → preflight root
   funding + fund the role wallets → MPC key derivation → zk-compile + deploy
-  the signet contract → persist the fakenet hand-off values to `.env`
+  the signet contract and the signet responder → persist the fakenet
+  hand-off values to `.env`
   (append-only) + start the responder container → zk-compile + deploy the
   caller contract → derive `MPC_RESPONSE_KEY` → fund the caller's derived
   EVM sender. Runs ONCE
@@ -39,7 +40,7 @@ and two flow files:
      the stored request's id, read through the indexer's contract-events
      query and the shared event decoders, exactly as the MPC reads it.
   4. `pollSignatureResponse` — the fakenet's ECDSA response arrives on the
-     signet contract and verifies against the caller's epsilon-derived
+     signet responder and verifies against the caller's epsilon-derived
      account.
   5. `verifyResponse`: verify an ECDSA respond-bidirectional attestation
      (the MPC's signature over the digest of the request id, block height,
@@ -96,7 +97,9 @@ gates itself with `describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)`.
   compose service (image pinned in the root `docker-compose.yaml`, built from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)).
   **The setup starts it for you**: right after deploying the signet contract
-  it appends `MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` to `.env`
+  and the responder it appends `MPC_ROOT_KEY`,
+  `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and
+  `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS` to `.env`
   (append-only — existing lines are never touched; a conflicting value is a
   hard error, never an overwrite) and runs the compose command below —
   `--force-recreate` only when the values newly landed in `.env`, plain
@@ -167,20 +170,22 @@ Every setup step that produces a value is **skippable via `.env`**: when
 its variable is set, the
 step verifies it and logs `SKIPPED`, so a populated `.env` goes straight to
 the contract calls (~2 min total). Unset, the step does the work, prints
-the value to save — and for the fakenet hand-off pair
-(`MPC_ROOT_KEY` + `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`) **appends it to
-`.env` itself and starts the responder container**, so nothing blocks on a
-human between deploy and the flow. A fresh deployment is ONE run:
-globalSetup zk-compiles both contracts (~10+ min: background it), deploys
-them, hands off to the responder mid-setup, and the flow files run to the
+the value to save — and for the fakenet hand-off values
+(`MPC_ROOT_KEY`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and
+`MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`) **appends them to `.env` itself and
+starts the responder container**, so nothing blocks on a human between
+deploy and the flow. A fresh deployment is ONE run: globalSetup
+zk-compiles the contracts (~10+ min: background it), deploys them, hands off to the responder mid-setup, and the flow files run to the
 end (5 tests in the generic flow, 30 in the real-EVM flow).
 
 **Redeploying after a circuit change?** Any `.compact` edit that alters a
 circuit, struct layout, or the request-id hash domain needs fresh deploys:
 
-1. Comment out `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and
-   `MIDNIGHT_CALLER_CONTRACT_ADDRESS` in `.env` (delete the appended signet
-   line or comment it).
+1. Comment out `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`,
+   `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS` and
+   `MIDNIGHT_CALLER_CONTRACT_ADDRESS` in `.env` (delete the appended lines
+   or comment them). A change to the responder alone needs only its own
+   line commented out.
 2. Rerun the suite from the repo root:
    ```sh
    yarn test:integration-tests
@@ -204,7 +209,7 @@ the address vars, rerun the suite and watch the run for you.
 | `ROOT_SEED` | Funds the role wallets; does no test work. Faucet-funded on a deployed network | genesis seed `00…01` (undeployed); generated (deployed) |
 | `DEPLOYER_SEED`, `INVOKER_SEED`, `MPC_RESPONDER_SEED` | The role wallets (deploy / invoke / fakenet responder); generated + persisted to `.env` and funded from root, or set to reuse | generated on the first run and persisted to `.env` (reused after that) |
 | `FUND_CHILD_NIGHT` | NIGHT (base units) to move from root into each role wallet that needs funding | unset (split root's balance by weight: deployer 3 shares, every other role 1, root keeps 1) |
-| `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | deployed by setup (signet appended to `.env` automatically; caller printed — save it to skip redeploys) |
+| `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | deployed by setup (signet and responder appended to `.env` automatically; caller printed — save it to skip redeploys) |
 | `MPC_ROOT_KEY` | Fakenet signer root key | generated (random) by setup, appended to `.env` |
 | `MPC_SECP256K1_PUBKEY` | MPC root public key | derived from root key |
 | `MPC_RESPONSE_KEY` | The MPC respond-bidirectional key for the caller contract (pinned on-chain by the flow's initialise leg) | derived from root key + caller contract address |
@@ -224,7 +229,8 @@ the address vars, rerun the suite and watch the run for you.
 ## Gotchas
 
 - The signature-poll test timing out while everything else passes means the
-  MPC responder is down or watching a stale signet contract address —
+  MPC responder is down or watching a stale signet contract or responder
+  address —
   `docker logs fakenet-responder`.
 - Proof failures surface as `Failed Proof Server response … 400`; the real
   error is in `docker logs midnight-proof-server`.

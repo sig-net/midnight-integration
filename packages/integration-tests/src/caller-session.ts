@@ -144,10 +144,10 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
           requesterContractAddress: requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS"),
           // The caller contract is flat, so a field number is a depth-1 path.
           requesterRequestsPath: [requestsIndexField],
-          signetContractAddress: requireEnv(env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
+          responderContractAddress: requireEnv(env, "MIDNIGHT_RESPONDER_CONTRACT_ADDRESS"),
           publicDataProvider,
           // The MPC's responses are read from the contract events the
-          // signet contract emits, queried from the same indexer.
+          // signet responder emits, queried from the same indexer.
           eventSource: signetEventSourceFromIndexer({ queryUrl: nodeConfig.indexerUrl }),
         });
         sharedReaders.set(requestsIndexField, reader);

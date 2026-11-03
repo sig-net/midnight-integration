@@ -1,9 +1,9 @@
 // The generic signet e2e flow: the minimal caller contract drives the
 // central signet contract end to end. It submits a signature request (with
 // contract-fixed minimal calldata), watches the notification event land on
-// the singleton, polls the MPC's signature response and verifies it
-// against the caller's derived account, then verifies an ECDSA-signed
-// respond-bidirectional response in-circuit. The contracts are the ones the
+// the singleton, polls the MPC's signature response on the responder and
+// verifies it against the caller's derived account, then verifies an
+// ECDSA-signed respond-bidirectional response in-circuit. The contracts are the ones the
 // caller globalSetup pipeline (src/setup/caller-global-setup.ts, wired by
 // vitest.config.ts) has already compiled/deployed. Tests in THIS file run in
 // source order and feed each other through module-scoped state, so the file
@@ -283,7 +283,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       const expectedSigner = derivedSender();
       console.log(`expected signer (derived caller account): ${expectedSigner}`);
 
-      // Poll the signet contract's UNAUTHENTICATED response events for THIS
+      // Poll the signet responder's UNAUTHENTICATED response events for THIS
       // request's posts (each event carries the request id it answers, as
       // routing data). Every candidate is judged by whether its signature
       // recovers to the derived sender over the requested transaction's
@@ -332,7 +332,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       expect(signedTransaction.from).toBe(getAddress(expectedSigner));
 
       banner([
-        `MPC signed response for request ${signatureRequestId} found on the signet contract.`,
+        `MPC signed response for request ${signatureRequestId} found on the signet responder.`,
         "",
         `  signed tx hash: ${String(signedTransaction.hash)}`,
         `  recovered from: ${String(signedTransaction.from)}`,
