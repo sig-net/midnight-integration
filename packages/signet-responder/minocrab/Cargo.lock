@@ -3073,7 +3073,7 @@ dependencies = [
 
 [[package]]
 name = "signet-responder-zk"
-version = "0.26.0-rc.2"
+version = "0.26.0-rc.3"
 dependencies = [
  "anyhow",
  "midnight-base-crypto",
