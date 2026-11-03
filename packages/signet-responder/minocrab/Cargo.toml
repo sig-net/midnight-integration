@@ -1,6 +1,6 @@
 [package]
 name = "signet-responder-zk"
-version = "0.25.1"
+version = "0.26.0-rc.2"
 edition = "2024"
 description = "The signet responder's circuits in MinoCrab, and the zk bundle compiled from them."
 repository = "https://github.com/sig-net/midnight-integration"
