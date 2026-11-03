@@ -67,31 +67,40 @@ fn an_event_that_misstates_its_arguments_is_rejected() {
     }
 }
 
-/// `outputKind` is a three-variant enum: 3 is not a value of it.
+/// `outputKind` is a three-variant enum: 2 (`unviable`) is its last value,
+/// and 3 is not a value of it. The same call is accepted at 2, so the
+/// rejection at 3 is the kind's and nothing else's.
 #[test]
 fn an_output_kind_past_unviable_is_rejected() {
-    let attestation = Attestation {
-        block_height: 7,
-        output_kind: 3,
-        serialized_output_length: 0,
-        output_hash: [0x0f; 32],
-        digest: [0x0d; 32],
+    let call = |output_kind: u8| {
+        let attestation = Attestation {
+            block_height: 7,
+            output_kind,
+            serialized_output_length: 0,
+            output_hash: [0x0f; 32],
+            digest: [0x0d; 32],
+        };
+        let signature = EcdsaSignature {
+            big_r_x: [0x01; 32],
+            big_r_y: [0x02; 32],
+            s: [0x03; 32],
+            recovery_id: 0,
+        };
+        let request_id = [0xaa; 32];
+        Call {
+            input: respond_bidirectional_input(&request_id, &attestation, &signature),
+            misc: respond_bidirectional_misc(
+                RESPOND_BIDIRECTIONAL_EVENT,
+                &request_id,
+                &attestation,
+                &signature,
+            ),
+        }
     };
-    let signature = EcdsaSignature {
-        big_r_x: [0x01; 32],
-        big_r_y: [0x02; 32],
-        s: [0x03; 32],
-        recovery_id: 0,
-    };
-    let request_id = [0xaa; 32];
-    let call = Call {
-        input: respond_bidirectional_input(&request_id, &attestation, &signature),
-        misc: respond_bidirectional_misc(
-            RESPOND_BIDIRECTIONAL_EVENT,
-            &request_id,
-            &attestation,
-            &signature,
-        ),
-    };
-    assert_both_reject(RESPOND_BIDIRECTIONAL, &call);
+
+    let (ours, reference) = pair(RESPOND_BIDIRECTIONAL);
+    let unviable = preimage(RESPOND_BIDIRECTIONAL, &call(2)).unwrap();
+    check_parity(&ours, &reference, &unviable).unwrap_or_else(|e| panic!("{e:#}"));
+
+    assert_both_reject(RESPOND_BIDIRECTIONAL, &call(3));
 }

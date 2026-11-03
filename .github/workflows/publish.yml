@@ -138,7 +138,7 @@ jobs:
       - name: Compile (skip-zk)
         run: yarn compile
       # Restore-only: ci.yml's integration job owns saving this cache (it
-      # generates BOTH contracts' keys, whereas this job generates only
+      # generates BOTH cached contracts' keys, whereas this job generates only
       # signet-contract's, so a save from here would poison the key).
       - name: Restore prebuilt zk proving keys
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

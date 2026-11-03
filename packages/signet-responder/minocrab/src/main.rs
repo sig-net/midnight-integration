@@ -13,28 +13,6 @@ use std::process::ExitCode;
 use anyhow::Context as _;
 use signet_responder_zk::{LockMode, build_bundle};
 
-fn main() -> ExitCode {
-    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    let (managed, mode) = match args.as_slice() {
-        [managed] => (managed, LockMode::Verify),
-        [managed, flag] if flag == "--update-lock" => (managed, LockMode::Update),
-        _ => {
-            eprintln!("usage: signet-responder-zk <managed-dir> [--update-lock]");
-            return ExitCode::FAILURE;
-        }
-    };
-    let lock = Path::new(env!("CARGO_MANIFEST_DIR")).join("artifacts.sha256");
-    let result =
-        zkir_v3().and_then(|zkir_v3| build_bundle(Path::new(managed), &zkir_v3, &lock, mode));
-    match result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("signet-responder-zk: {error:#}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
 fn zkir_v3() -> anyhow::Result<PathBuf> {
     if let Some(path) = std::env::var_os("ZKIR_V3") {
         return Ok(PathBuf::from(path));
@@ -58,4 +36,26 @@ fn zkir_v3() -> anyhow::Result<PathBuf> {
         compactc.display()
     );
     Ok(zkir_v3)
+}
+
+fn main() -> ExitCode {
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    let (managed, mode) = match args.as_slice() {
+        [managed] => (managed, LockMode::Verify),
+        [managed, flag] if flag == "--update-lock" => (managed, LockMode::Update),
+        _ => {
+            eprintln!("usage: signet-responder-zk <managed-dir> [--update-lock]");
+            return ExitCode::FAILURE;
+        }
+    };
+    let lock = Path::new(env!("CARGO_MANIFEST_DIR")).join("artifacts.sha256");
+    let result =
+        zkir_v3().and_then(|zkir_v3| build_bundle(Path::new(managed), &zkir_v3, &lock, mode));
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("signet-responder-zk: {error:#}");
+            ExitCode::FAILURE
+        }
+    }
 }

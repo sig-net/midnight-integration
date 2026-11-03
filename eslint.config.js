@@ -44,9 +44,6 @@ export default defineConfig([
     // hardhat output: absent until `yarn compile:evm` runs.
     "packages/integration-tests/artifacts/**",
     "packages/integration-tests/cache/**",
-    // Cargo build output, where the signet-responder crate's tests also copy
-    // compactc output.
-    "packages/signet-responder/minocrab/target/**",
     // Local scratch work, the same pattern .gitignore excludes: compactc
     // output under a scratch directory is generated JavaScript.
     "**/*scratch*/**",

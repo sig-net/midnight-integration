@@ -7,5 +7,5 @@ mod circuits;
 mod parity;
 
 pub use bundle::{LockMode, build_bundle, compactc_circuits};
-pub use circuits::{COMPACT_CIRCUITS, SignetResponder};
+pub use circuits::COMPACT_CIRCUITS;
 pub use parity::{Call, check_parity, preimage, sample_call};
