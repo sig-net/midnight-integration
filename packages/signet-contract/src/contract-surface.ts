@@ -5,7 +5,7 @@
 // (it differs per environment: Node fs vs browser fetch, LevelDB vs
 // IndexedDB, WalletFacade vs a connector API), so each consumer declares its
 // own — see this monorepo's signet-contract-deploy package for the Node
-// operator composition, and the fakenet response server for a consumer's.
+// operator composition.
 
 import type { MidnightProviders } from "@midnight-ntwrk/midnight-js/types";
 

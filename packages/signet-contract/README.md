@@ -19,8 +19,8 @@ npm install @sig-net/midnight-contract
 
 The protocol and integration documentation lives in the [sig-net/midnight-integration README](https://github.com/sig-net/midnight-integration/blob/main/README.md):
 
-- [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow): the 5-step protocol this contract relays, with diagram, failure handling and output recovery: which circuit each step calls and which event it emits.
-- [Integrator Guide](https://github.com/sig-net/midnight-integration/blob/main/README.md#integrator-guide): how client contracts and dApps drive this contract's circuits and events per request.
+- [Sign Bidirectional Flow](https://github.com/sig-net/midnight-integration/blob/main/README.md#sign-bidirectional-protocol-flow): the 5-step protocol this contract starts, with diagram, failure handling and output recovery: which circuit each step calls and which event it emits.
+- [Integrator Guide](https://github.com/sig-net/midnight-integration/blob/main/README.md#integrator-guide): how client contracts and dApps drive this contract's `signBidirectional` and read the responder's events per request.
 - [Handling Failure](https://github.com/sig-net/midnight-integration/blob/main/README.md#handling-failure): how a failed foreign transaction still completes the flow, attested through the responder's `respondBidirectional` circuit as an empty output under a failure output kind.
 
 ## Related packages

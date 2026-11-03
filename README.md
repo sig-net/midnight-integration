@@ -831,7 +831,7 @@ Two end to end suites run against the local docker stack. The generic suite driv
    yarn test:integration-tests:signet-caller-e2e        # generic caller flow only, requires 'yarn compile'
    yarn test:integration-tests:signet-caller-evm-e2e    # real-EVM flow only, requires 'yarn compile'
    ```
-   Whichever selection you run, the setup pipeline runs first (narrowing the selection never skips setup). Green looks like every test in the selected flow files passing. Afterwards, save the printed `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips compile and deploy (~2 minutes). The signet contract address is appended to `.env` automatically.
+   Whichever selection you run, the setup pipeline runs first (narrowing the selection never skips setup). Green looks like every test in the selected flow files passing. Afterwards, save the printed `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips compile and deploy (~2 minutes). The signet contract and responder addresses are appended to `.env` automatically.
 
 **TIP:** If you are using Claude Code you can ask it to do all of this for you using this [skill](.claude/skills/e2e/SKILL.md), for example:
 ```
@@ -853,9 +853,9 @@ The flow from a change to a release:
 
 1. Every pull request merges to `dev`.
 2. Release candidates are tagged from `dev` as `v*.*.*-rc.N`, each with an associated GitHub release. The tag push runs [`.github/workflows/publish.yml`](.github/workflows/publish.yml), which publishes the `@sig-net/*` packages to npm under the `rc` dist-tag.
-   - When the release carries a concrete contract change, the [`deploy`](.github/workflows/deploy.yml) workflow is dispatched by hand with that tag as its `tag` input, once per changed contract, to stagenet, preview and preprod. A new singleton address makes dependent contracts redeploy, and a new responder address reaches them through the SDK release that records it.
+   - When the release carries a concrete contract change, the [`deploy`](.github/workflows/deploy.yml) workflow is dispatched by hand with that tag as its `tag` input, once per changed contract, to stagenet, preview and preprod. A new singleton address makes dependent contracts redeploy, and a new responder address reaches clients through the SDK release that records it.
    - Every other release candidate is an SDK-only npm publish.
-3. `dev` merges to `main`, and a stable `v*.*.*` tag is made from `main` with an associated GitHub release. The publish workflow publishes the packages to npm under `latest`, and the deploy workflow is dispatched with that tag once per changed contract. A new singleton address makes dependent contracts redeploy (on mainnet, by upgrading their singleton reference as above), and a new responder address reaches them through the SDK.
+3. `dev` merges to `main`, and a stable `v*.*.*` tag is made from `main` with an associated GitHub release. The publish workflow publishes the packages to npm under `latest`, and the deploy workflow is dispatched with that tag once per changed contract. A new singleton address makes dependent contracts redeploy (on mainnet, by upgrading their singleton reference as above), and a new responder address reaches clients through the SDK.
 
 Two guards in the workflows back this flow: a stable tag must point at a commit on `main` (both workflows refuse one that does not), and the deploy workflow refuses a prerelease tag for mainnet.
 
