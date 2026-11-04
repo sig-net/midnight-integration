@@ -276,12 +276,17 @@ jobs:
         run: |
           set -euo pipefail
           branch="deploy/record-$NETWORK-$TAG"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git add packages/signet-midnight/src/constants.ts
-          git commit -m "record the $NETWORK signet contract address from $TAG"
-          git push "https://x-access-token:$GITHUB_TOKEN@github.com/$REPOSITORY.git" "$branch"
+          # The branch and commit go through the GitHub API, not git push: the
+          # org ruleset requires signed commits on every branch, and GitHub
+          # signs API commits.
+          head="$(git rev-parse HEAD)"
+          gh api "repos/$REPOSITORY/git/refs" -f ref="refs/heads/$branch" -f sha="$head" > /dev/null
+          base64 -w0 packages/signet-midnight/src/constants.ts > /tmp/contents.b64
+          gh api graphql \
+            -f query='mutation($repo: String!, $branch: String!, $head: GitObjectID!, $msg: String!, $path: String!, $contents: Base64String!) { createCommitOnBranch(input: { branch: { repositoryNameWithOwner: $repo, branchName: $branch }, expectedHeadOid: $head, message: { headline: $msg }, fileChanges: { additions: [{ path: $path, contents: $contents }] } }) { commit { oid } } }' \
+            -f repo="$REPOSITORY" -f branch="$branch" -f head="$head" \
+            -f msg="record the $NETWORK signet contract address from $TAG" \
+            -f path=packages/signet-midnight/src/constants.ts -F contents=@/tmp/contents.b64 > /dev/null
           body="$(cat <<EOF
           Deployed the signet singleton to \`$NETWORK\` at \`$TAG\`.
 
