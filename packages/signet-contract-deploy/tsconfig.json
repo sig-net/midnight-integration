@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["src", "tests", "deploy.ts"]
+  "include": ["src", "tests", "deploy.ts", "deploy-signet-responder.ts"]
 }

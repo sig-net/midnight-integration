@@ -415,7 +415,7 @@ export interface RespondBidirectionalAttestation {
 /**
  * Mint the record the MPC posts for an outcome: the attestation digest over
  * `attestation`, ECDSA-signed with `secretKey`, in the ledger shape the
- * singleton emits (big-endian signature bytes). Responder-side and
+ * responder emits (big-endian signature bytes). Responder-side and
  * test-fixture side (the fakenet posts through this), so it is exported
  * through the `./testing` entry point.
  *

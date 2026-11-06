@@ -1,6 +1,8 @@
-# Deploys the central signet singleton contract (packages/signet-contract) to
-# one Midnight network, at a chosen release tag, from a wallet whose seed is
-# the target environment's DEPLOYER_SEED secret.
+# Deploys one protocol contract, the central signet singleton
+# (packages/signet-contract) or the signet responder
+# (packages/signet-responder), to one Midnight network, at a chosen release
+# tag, from a wallet whose seed is the target environment's DEPLOYER_SEED
+# secret.
 #
 # The wallet needs faucet-funded NIGHT and nothing else: the deploy flow
 # registers that NIGHT for dust generation and waits for the first spendable
@@ -11,9 +13,10 @@
 # creates a fresh, permanent contract instance, and the only way forward is a
 # new deployment.
 #
-# The record-address job then opens a PR writing the new address into
-# @sig-net/midnight's signetContractAddresses table, so a human reviews the
-# address before it reaches npm consumers.
+# The record-address job then opens a PR writing the new address into the
+# contract's address table in @sig-net/midnight (signetContractAddresses or
+# responderContractAddresses), so a human reviews the address before it
+# reaches npm consumers.
 #
 # The `network` choice options and the GitHub environment names are one set:
 # `environment` resolves from the input, so an option with no matching
@@ -25,6 +28,13 @@ name: deploy
 on:
   workflow_dispatch:
     inputs:
+      contract:
+        description: "Protocol contract to deploy"
+        required: true
+        type: choice
+        options:
+          - signet-contract
+          - signet-responder
       network:
         description: "Midnight network to deploy to (must match a GitHub environment name)"
         required: true
@@ -49,7 +59,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: deploy the signet contract
+    name: deploy ${{ inputs.contract }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     # Per-network secrets + reviewer gating.
@@ -160,24 +170,31 @@ jobs:
       - name: Compile (skip-zk, generates the managed types the deploy imports)
         run: yarn compile
       # Restore-only: ci.yml's integration job owns saving this cache (it
-      # generates BOTH contracts' keys, whereas this job generates only
+      # generates BOTH cached contracts' keys, whereas this job generates only
       # signet-contract's, so a save from here would poison the key). An older
       # tag's .compact sources hash to a key nothing saved, so expect a miss
       # and the keygen below.
       - name: Restore prebuilt zk proving keys
+        if: ${{ inputs.contract == 'signet-contract' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             packages/signet-contract/src/managed
             packages/test-caller-contract/src/managed
-          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
+          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
       - name: Ensure signet-contract prover keys (the deploy transaction needs them)
+        if: ${{ inputs.contract == 'signet-contract' }}
         run: |
           if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
             echo "prover keys present (restored from the cache), skipping keygen"
           else
             yarn compile:signet-contract:zk
           fi
+      # No cargo cache, for the same reason as the toolchain. The lock check
+      # refuses a bundle whose hashes differ from the committed ones.
+      - name: Build signet-responder's zk bundle (the deploy transaction needs its keys)
+        if: ${{ inputs.contract == 'signet-responder' }}
+        run: yarn compile:signet-responder:zk
       # The proof server sees private witness data, so it runs locally on the
       # runner for every network, never as a remote host.
       - name: Start the local proof server
@@ -185,9 +202,10 @@ jobs:
       - name: Wait for the proof server
         run: |
           timeout 120 bash -c 'until curl -s -o /dev/null http://127.0.0.1:6300; do sleep 3; done'
-      - name: Deploy the signet contract
+      - name: Deploy ${{ inputs.contract }}
         id: deploy
         env:
+          CONTRACT: ${{ inputs.contract }}
           NETWORK_ID: ${{ inputs.network }}
           DEPLOYER_SEED: ${{ secrets.DEPLOYER_SEED }}
           # Optional per-environment endpoint overrides. Every network has
@@ -199,18 +217,19 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          yarn deploy:signet-contract 2>&1 | tee deploy.log
-          address="$(sed -n 's/^deployed signet-contract at //p' deploy.log | tail -n 1)"
+          yarn "deploy:$CONTRACT" 2>&1 | tee deploy.log
+          address="$(sed -n "s/^deployed $CONTRACT at //p" deploy.log | tail -n 1)"
           if [ -z "$address" ]; then
             echo "::error::the deploy printed no contract address"
             exit 1
           fi
           echo "contract-address=$address" >> "$GITHUB_OUTPUT"
           {
-            echo "### signet contract deployed"
+            echo "### $CONTRACT deployed"
             echo ""
             echo "| field | value |"
             echo "| --- | --- |"
+            echo "| contract | $CONTRACT |"
             echo "| network | $NETWORK_ID |"
             echo "| tag | $TAG |"
             echo "| address | \`$address\` |"
@@ -253,20 +272,22 @@ jobs:
         run: corepack enable
       - name: Install dependencies (frozen, from the committed yarn.lock)
         run: yarn install --immutable
-      # The script reads the network and address from argv and rewrites one
-      # string literal, so it needs no compiled contract output.
+      # The script reads the contract, network and address from argv and
+      # rewrites one string literal, so it needs no compiled contract output.
       - name: Record the address in @sig-net/midnight's constants
         env:
+          CONTRACT: ${{ inputs.contract }}
           NETWORK: ${{ inputs.network }}
           ADDRESS: ${{ needs.deploy.outputs.contract-address }}
         run: |
           set -euo pipefail
-          yarn record-contract-address:signet-midnight --network "$NETWORK" --address "$ADDRESS"
+          yarn record-contract-address:signet-midnight --contract "$CONTRACT" --network "$NETWORK" --address "$ADDRESS"
       # Known GitHub limitation: a PR opened with GITHUB_TOKEN does NOT
       # trigger this repo's own workflows. A reviewer close/reopens the PR (or
       # pushes to its branch) to run CI on it before merging.
       - name: Commit, push and open the PR
         env:
+          CONTRACT: ${{ inputs.contract }}
           NETWORK: ${{ inputs.network }}
           TAG: ${{ inputs.tag }}
           ADDRESS: ${{ needs.deploy.outputs.contract-address }}
@@ -275,15 +296,15 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          branch="deploy/record-$NETWORK-$TAG"
+          branch="deploy/record-$CONTRACT-$NETWORK-$TAG"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
           git add packages/signet-midnight/src/constants.ts
-          git commit -m "record the $NETWORK signet contract address from $TAG"
+          git commit -m "record the $NETWORK $CONTRACT address from $TAG"
           git push "https://x-access-token:$GITHUB_TOKEN@github.com/$REPOSITORY.git" "$branch"
           body="$(cat <<EOF
-          Deployed the signet singleton to \`$NETWORK\` at \`$TAG\`.
+          Deployed \`$CONTRACT\` to \`$NETWORK\` at \`$TAG\`.
 
           Address: \`$ADDRESS\`
 
@@ -291,7 +312,7 @@ jobs:
           EOF
           )"
           url="$(gh pr create --base main --head "$branch" \
-            --title "record the $NETWORK signet contract address ($TAG)" \
+            --title "record the $NETWORK $CONTRACT address ($TAG)" \
             --body "$body")"
           {
             echo "### address-recording PR"

@@ -19,7 +19,7 @@ This package has 2 components:
   import "@sig-net/midnight/src/Signet";
   ```
 
-- **TypeScript library** for clients off chain: readers that poll the signet contract and verify the MPC's responses, key derivation and attestation crypto, output serialisation, the published per-network addresses and constant values, and typed twins of the on-chain structs and circuits.
+- **TypeScript library** for clients off chain: readers that poll the signet responder and verify the MPC's responses, key derivation and attestation crypto, output serialisation, the published per-network addresses and constant values, and typed twins of the on-chain structs and circuits.
 
 The [Export highlights](#export-highlights) section lists the specific exports each task uses.
 
@@ -64,11 +64,11 @@ What clients import from `@sig-net/midnight`:
 
 | Task | Exports |
 |---|---|
-| Poll for the MPC's responses and verify them (runtime steps 2 to 4) | `SignetRequestResponseReader`: one reader per contract and Signet singleton pair. Its getters `getVerifiedSignatureRespondedEvent`, `getSignedEvmTransaction` and `getVerifiedRespondBidirectionalEvent` map to steps 2, 3 and 4. |
+| Poll for the MPC's responses and verify them (runtime steps 2 to 4) | `SignetRequestResponseReader`: one reader per contract and Signet responder pair. Its getters `getVerifiedSignatureRespondedEvent`, `getSignedEvmTransaction` and `getVerifiedRespondBidirectionalEvent` map to steps 2, 3 and 4. |
 | Verify responses over events already in hand (explorers, anything that streams the history once) | Decode the stream once with `tryDecodeSignetEvent`, then `reader.verifySignatureRespondedEvents(requestId, expectedSigner, events)` and `findVerifiedRespondBidirectionalEvent(requestId, serializedOutput, mpcResponseKey, events)` judge a request's posts without another walk of the event history. `signetEventRecordsOf` is the routing step both share. |
 | Derive the key the MPC signs your requests with | `deriveMidnightRequestSigningKey`: the request signing public key for a contract address and path, and `deriveEvmAddress`: that key's EVM address, the expected signer checked in step 2 (see [Derived keys](https://github.com/sig-net/midnight-integration/blob/main/README.md#derived-keys)). With a request record in hand, `deriveSignBidirectionalEventSigningKey` and `deriveSignBidirectionalEventSignerEvmAddress` take the record and render its `sender` and `path` into the derivation themselves. |
 | Derive the response key your deploy pins | `deriveMidnightResponseKey`: the key `initialise` stores (setup step 4), derived from your contract's address. |
-| Look up published counterparty values | `MidnightNetwork`, `getMpcRootPublicKey` and `getSignetContractAddress`: the fixed per-network values (see the notes in [Runtime](https://github.com/sig-net/midnight-integration/blob/main/README.md#runtime)). |
+| Look up published counterparty values | `MidnightNetwork`, `getMpcRootPublicKey`, `getSignetContractAddress` and `getResponderContractAddress`: the fixed per-network values (see the notes in [Runtime](https://github.com/sig-net/midnight-integration/blob/main/README.md#runtime)). |
 | Accept an MPC public key in any published spelling | `parseSecp256k1PublicKey` (to a Compact `Secp256k1Point`) and `normaliseSecp256k1PublicKey` (to the canonical `0x04…` uncompressed SEC1 hex): both take SEC1 hex, compressed or uncompressed with an optional `0x`, and NEAR's `secp256k1:<base58>`. |
 | Read a text field of a request record | `asciiUnpadded`: the inverse of `asciiPadded`, for the zero-padded text fields (`executionDest`, `outputDeserializationSchema`). |
 | Compute a request id off chain | `calculateRequestId`: the TS twin of the on-chain circuit, plus `requestIdHex` and `parseRequestIdHex` for the hex form. |
@@ -115,8 +115,9 @@ const event = attestRespondBidirectional(
 
 ## Related packages
 
-- [`@sig-net/midnight-contract`](https://www.npmjs.com/package/@sig-net/midnight-contract): the central signet contract this library reads from.
-- [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): deploy tooling for that contract plus generic Midnight deploy/wallet plumbing.
+- [`@sig-net/midnight-contract`](https://www.npmjs.com/package/@sig-net/midnight-contract): the central signet contract this library reads requests from.
+- [`@sig-net/midnight-responder`](https://www.npmjs.com/package/@sig-net/midnight-responder): the signet responder this library reads the MPC's responses from.
+- [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): deploy tooling for the signet contract and the signet responder plus generic Midnight deploy/wallet plumbing.
 
 Developed in [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration).
 

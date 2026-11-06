@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Sig Network on Midnight: the central signet contract, the client-agnostic protocol SDK, and a minimal test caller contract that exercises them end to end. Run `yarn compile` once before `build`/`test` — the contract packages and signet-midnight typecheck against the generated managed/ output.",
+  "description": "Sig Network on Midnight: the central signet contract, the signet responder, the client-agnostic protocol SDK, and a minimal test caller contract that exercises them end to end. Run `yarn compile` once before `build`/`test` — the contract packages and signet-midnight typecheck against the generated managed/ output.",
   "packageManager": "yarn@4.17.1",
   "workspaces": [
     "packages/*"
@@ -33,6 +33,11 @@
     "test:signet-contract": "yarn workspace @sig-net/midnight-contract run test",
     "build:signet-contract": "yarn workspace @sig-net/midnight-contract run build",
     "deploy:signet-contract": "yarn workspace @sig-net/midnight-contract-deploy run deploy",
+    "compile:signet-responder": "yarn workspace @sig-net/midnight-responder run compile",
+    "compile:signet-responder:zk": "yarn workspace @sig-net/midnight-responder run compile:zk",
+    "test:signet-responder": "yarn workspace @sig-net/midnight-responder run test",
+    "build:signet-responder": "yarn workspace @sig-net/midnight-responder run build",
+    "deploy:signet-responder": "yarn workspace @sig-net/midnight-contract-deploy run deploy:signet-responder",
     "build:midnight-serde-rs": "cargo build --locked --manifest-path packages/midnight-serde-rs/Cargo.toml",
     "test:midnight-serde-rs": "cargo test --locked --manifest-path packages/midnight-serde-rs/Cargo.toml"
   },
