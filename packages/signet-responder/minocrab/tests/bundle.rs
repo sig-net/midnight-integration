@@ -6,6 +6,7 @@
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
+use minocrab_publisher::call::hex;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use signet_responder_zk::{LockMode, build_bundle, compactc_circuits};
@@ -37,10 +38,7 @@ fn fake_zkir_v3(name: &str, body: &str) -> PathBuf {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    hex(&Sha256::digest(bytes))
 }
 
 fn manifest(managed: &Path) -> Value {
@@ -142,23 +140,12 @@ fn a_failed_keygen_leaves_no_keys() {
     assert!(!managed.join("keys").exists(), "the partial keys survived");
 }
 
-/// The reference must be compactc's own output: a directory whose manifest
-/// already lists keys, or whose `.zkir` changed after compactc wrote it, is
-/// refused, so a built bundle can never be compared against itself.
+/// The reference must be compactc's own output: a `.zkir` changed after
+/// compactc wrote it is refused. A built bundle, whose manifest lists keys,
+/// is refused too (the end of the lock and manifest test above).
 #[test]
 fn only_fresh_compactc_output_is_a_reference() {
     assert!(compactc_circuits(&fresh_copy("as-compiled")).is_ok());
-
-    let listed_keys = fresh_copy("lists-keys");
-    let path = listed_keys.join("compiler/contract-manifest.json");
-    let mut with_keys = manifest(&listed_keys);
-    with_keys["keys"] = json!({ "type": "directory" });
-    std::fs::write(&path, serde_json::to_string_pretty(&with_keys).unwrap()).unwrap();
-    let error = compactc_circuits(&listed_keys).unwrap_err();
-    assert!(
-        format!("{error:#}").contains("already lists keys"),
-        "{error:#}"
-    );
 
     let edited = fresh_copy("edited-zkir");
     let zkir = edited.join("zkir/respond.zkir");

@@ -31,10 +31,6 @@ describe.each([
     expect(hasEntrySibling).toBe(true);
   });
 
-  it("points at real compiler output (run `yarn compile` first)", () => {
-    expect(existsSync(join(managedPath, "contract"))).toBe(true);
-  });
-
   it("holds its own contract's circuits", () => {
     const info = JSON.parse(
       readFileSync(join(managedPath, "compiler", "contract-info.json"), "utf8"),

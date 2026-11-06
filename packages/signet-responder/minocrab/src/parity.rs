@@ -31,7 +31,6 @@ use signet_protocol::circuits::{
 };
 
 /// One call's arguments and the 288-byte Misc envelope its event carries.
-#[derive(Clone)]
 pub struct Call {
     pub input: AlignedValue,
     pub misc: Vec<u8>,

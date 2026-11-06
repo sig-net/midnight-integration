@@ -1,7 +1,7 @@
 //! The MinoCrab circuits against compactc's compile of
-//! `../src/signet-responder.compact` (run `yarn compile` first): they accept
-//! the call the MPC makes with identical public inputs, and both reject the
-//! calls the Compact source rejects.
+//! `../src/signet-responder.compact` (run `yarn compile` first): both reject
+//! the calls the Compact source rejects. That they accept the MPC's call with
+//! identical public inputs is the bundle build's own gate (`tests/bundle.rs`).
 
 use std::path::Path;
 
@@ -45,15 +45,6 @@ fn assert_both_reject(circuit: &str, call: &Call) {
         minocrab_sim::v3::simulate(&reference, &pi).is_err(),
         "compactc's accepts the bad {circuit} call"
     );
-}
-
-#[test]
-fn each_circuit_matches_compactcs() {
-    for (circuit, _) in COMPACT_CIRCUITS {
-        let (ours, reference) = pair(circuit);
-        let pi = preimage(circuit, &sample_call(circuit).unwrap()).unwrap();
-        check_parity(&ours, &reference, &pi).unwrap_or_else(|e| panic!("{circuit}: {e:#}"));
-    }
 }
 
 /// An event that does not carry the arguments: one payload byte of the

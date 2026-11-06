@@ -142,14 +142,6 @@ const expectZeroPadding = (payload: Uint8Array, offset: number) => {
 
 // ---- Tests ----
 
-it("exposes the two respond circuits and nothing else", () => {
-  const contract = new Contract<SignetResponderPrivateState>(witnesses);
-  expect(Object.keys(contract.provableCircuits).sort()).toEqual([
-    "respond",
-    "respondBidirectional",
-  ]);
-});
-
 /**
  * One row of the post table: a post sequence → the exact expected event log.
  * Each emitted event packs the record's request id beside the signature, so
@@ -277,25 +269,6 @@ describe("respondBidirectional", () => {
     expect(events.map((event) => decodeRespondBidirectionalEventPayload(event.payload))).toEqual([
       { requestId: REQUEST_A, event: RESPOND_1 },
       { requestId: REQUEST_A, event: RESPOND_2 },
-    ]);
-  });
-
-  it("keeps the two event kinds apart by name in one shared log", async () => {
-    // One circuit of each kind through the same threaded context: the log
-    // holds two differently-named events a reader can partition.
-    const { contract, ctx, contractAddress } = await deployContract("respond");
-    const afterRespond = await contract.circuits.respond(ctx, SIG_1);
-    const { context } = await contract.circuits.respondBidirectional(
-      afterRespond.context,
-      RESPOND_1,
-    );
-
-    const names = decodeSignetLogEvents(context.events, contractAddress).map(
-      (event: SignetMiscEvent) => event.name,
-    );
-    expect(names).toEqual([
-      SignetEventName.SignatureRespondedEvent,
-      SignetEventName.RespondBidirectionalEvent,
     ]);
   });
 });

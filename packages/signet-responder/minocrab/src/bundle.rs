@@ -15,6 +15,7 @@ use std::process::Command;
 
 use anyhow::{Context as _, bail, ensure};
 use midnight_zkir_v3::IrSource;
+use minocrab_publisher::call::hex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
@@ -71,12 +72,7 @@ fn read(path: &Path) -> anyhow::Result<Vec<u8>> {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
+    hex(&Sha256::digest(bytes))
 }
 
 fn read_manifest(path: &Path) -> anyhow::Result<Manifest> {
