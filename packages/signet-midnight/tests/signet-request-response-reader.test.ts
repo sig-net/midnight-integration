@@ -577,6 +577,35 @@ describe("getRespondBidirectionalEvents", () => {
       RESPOND_BIDIRECTIONAL,
     ]);
   });
+
+  // Byte 40 of a respond-bidirectional payload is the output kind, and 3
+  // names no OutputKind variant, so decoding this post throws.
+  const unknownOutputKindPost = (requestId: Uint8Array): SignetMiscEvent => {
+    const event = respondBidirectionalEventOf(requestId, RESPOND_BIDIRECTIONAL);
+    event.payload[40] = 3;
+    return event;
+  };
+
+  it.each([
+    { declaredUnder: "another request id", undecodable: unknownOutputKindPost(FOREIGN_REQUEST_ID) },
+    { declaredUnder: "its own request id", undecodable: unknownOutputKindPost(REQUEST_ID) },
+  ])("skips an undecodable post declared under $declaredUnder", async ({ undecodable }) => {
+    const reader = new SignetRequestResponseReader({
+      requesterContractAddress: REQUESTER_ADDRESS,
+      requesterRequestsPath: [0],
+      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      publicDataProvider: {
+        queryContractState: () => Promise.resolve({ data: requesterState() }),
+      },
+      eventSource: {
+        streamSignetEvents: () =>
+          streamOf([undecodable, respondBidirectionalEventOf(REQUEST_ID, RESPOND_BIDIRECTIONAL)]),
+      },
+    });
+    expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([
+      RESPOND_BIDIRECTIONAL,
+    ]);
+  });
 });
 
 describe("getVerifiedRespondBidirectionalEvent", () => {
