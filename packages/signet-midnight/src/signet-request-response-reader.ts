@@ -231,7 +231,8 @@ export class SignetRequestResponseReader {
 
   /**
    * Fetch the responder contract's posts of event `name` that declare
-   * `requestId`, in emission order. The declared id is routing data only.
+   * `requestId`, in emission order, skipping posts whose payload does not
+   * decode. The declared id is routing data only.
    *
    * @param name - The signet event name to keep.
    * @param requestId - The request id the kept posts must declare.
@@ -249,15 +250,20 @@ export class SignetRequestResponseReader {
         : { fromBlock: this.config.responderEventsFromBlock },
     );
     for await (const event of events) {
-      const decoded = decodeSignetEventNamed(event, name);
-      if (decoded?.requestId === requestId) records.push(decoded.record);
+      try {
+        const decoded = decodeSignetEventNamed(event, name);
+        if (decoded?.requestId === requestId) records.push(decoded.record);
+      } catch {
+        // A post that does not decode answers no request, so it must not
+        // fail the read of every request.
+      }
     }
     return records;
   }
 
   /**
-   * Fetch every signature response posted under `requestId`, in emission
-   * order. UNVERIFIED: any post may still be garbage, sift with
+   * Fetch every decodable signature response posted under `requestId`, in
+   * emission order. UNVERIFIED: any post may still be garbage, sift with
    * {@link getVerifiedSignatureRespondedEvent} first.
    *
    * @param requestId - The request id the posts must declare.
@@ -411,10 +417,10 @@ export class SignetRequestResponseReader {
   }
 
   /**
-   * Fetch every respond-bidirectional response posted under `requestId`, in
-   * emission order. UNVERIFIED: any post may still be garbage, sift with
-   * {@link getVerifiedRespondBidirectionalEvent} (or in-circuit at claim
-   * time) first.
+   * Fetch every decodable respond-bidirectional response posted under
+   * `requestId`, in emission order. UNVERIFIED: any post may still be
+   * garbage, sift with {@link getVerifiedRespondBidirectionalEvent} (or
+   * in-circuit at claim time) first.
    *
    * @param requestId - The request id the posts must declare.
    * @returns The request's posted records, oldest first, empty when none yet.
