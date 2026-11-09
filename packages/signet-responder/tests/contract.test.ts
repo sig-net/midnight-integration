@@ -271,4 +271,23 @@ describe("respondBidirectional", () => {
       { requestId: REQUEST_A, event: RESPOND_2 },
     ]);
   });
+
+  it("keeps the two event kinds apart by name in one shared log", async () => {
+    // One circuit of each kind through the same threaded context: the log
+    // holds two differently-named events a reader can partition.
+    const { contract, ctx, contractAddress } = await deployContract("respond");
+    const afterRespond = await contract.circuits.respond(ctx, SIG_1);
+    const { context } = await contract.circuits.respondBidirectional(
+      afterRespond.context,
+      RESPOND_1,
+    );
+
+    const names = decodeSignetLogEvents(context.events, contractAddress).map(
+      (event: SignetMiscEvent) => event.name,
+    );
+    expect(names).toEqual([
+      SignetEventName.SignatureRespondedEvent,
+      SignetEventName.RespondBidirectionalEvent,
+    ]);
+  });
 });

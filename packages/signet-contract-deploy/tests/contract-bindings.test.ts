@@ -15,7 +15,7 @@ describe.each([
   {
     name: "signetContractManagedPath",
     managedPath: signetContractManagedPath,
-    circuits: ["signBidirectional", "respond", "respondBidirectional"],
+    circuits: ["signBidirectional"],
   },
   {
     name: "signetResponderManagedPath",
