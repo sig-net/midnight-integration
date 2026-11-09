@@ -1,7 +1,7 @@
 // SignetRequestResponseReader over stub sources: the requester ledger is
 // encoded with the canonical descriptors into a StateValue tree (the shape
 // the indexer returns) and served through a stub state source; the signet
-// contract's responses are served as decoded events through a stub event
+// responder's responses are served as decoded events through a stub event
 // source (built by the test-local encode twins in signet-event-fixtures.ts).
 // No network, no compiled contract.
 
@@ -64,7 +64,7 @@ const UNKNOWN_ID_HEX = requestIdHex(bytes(32, 0x30));
 const FOREIGN_REQUEST_ID = bytes(32, 0x31);
 
 const REQUESTER_ADDRESS = "requester-contract-address";
-const SIGNET_CONTRACT_ADDRESS = "signet-contract-address";
+const RESPONDER_CONTRACT_ADDRESS = "responder-contract-address";
 
 /**
  * Known-good request record for a `transfer(vault, amount)` deposit: the
@@ -228,11 +228,11 @@ const makeReader = (
   const reader = new SignetRequestResponseReader({
     requesterContractAddress: REQUESTER_ADDRESS,
     requesterRequestsPath: [0],
-    signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+    responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
     publicDataProvider,
     eventSource: {
       streamSignetEvents: (contractAddress, options) => {
-        expect(contractAddress).toBe(SIGNET_CONTRACT_ADDRESS);
+        expect(contractAddress).toBe(RESPONDER_CONTRACT_ADDRESS);
         expect(options).toBeUndefined();
         queries.events += 1;
         return streamOf(events);
@@ -269,7 +269,7 @@ describe("getSignatureRequest", () => {
     const reader = new SignetRequestResponseReader({
       requesterContractAddress: REQUESTER_ADDRESS,
       requesterRequestsPath: [0],
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
       publicDataProvider: { queryContractState: () => Promise.resolve(null) },
       eventSource: { streamSignetEvents: () => streamOf([]) },
     });
@@ -312,7 +312,7 @@ describe("getSignatureRespondedEvents", () => {
     const reader = new SignetRequestResponseReader({
       requesterContractAddress: REQUESTER_ADDRESS,
       requesterRequestsPath: [0],
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
       publicDataProvider: {
         queryContractState: () => Promise.resolve({ data: requesterState() }),
       },
@@ -327,12 +327,12 @@ describe("getSignatureRespondedEvents", () => {
     expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
   });
 
-  it("bounds the event scan by signetEventsFromBlock", async () => {
+  it("bounds the event scan by responderEventsFromBlock", async () => {
     const seen: unknown[] = [];
     const reader = new SignetRequestResponseReader({
       requesterContractAddress: REQUESTER_ADDRESS,
       requesterRequestsPath: [0],
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
       publicDataProvider: {
         queryContractState: () => Promise.resolve({ data: requesterState() }),
       },
@@ -342,7 +342,7 @@ describe("getSignatureRespondedEvents", () => {
           return streamOf([signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE)]);
         },
       },
-      signetEventsFromBlock: 382000,
+      responderEventsFromBlock: 382000,
     });
     expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
     expect(seen).toStrictEqual([{ fromBlock: 382000 }]);
@@ -573,6 +573,35 @@ describe("getRespondBidirectionalEvents", () => {
 
   it("ignores events under other signet names", async () => {
     const { reader } = makeReader([GENUINE_RESPONSE], [RESPOND_BIDIRECTIONAL]);
+    expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([
+      RESPOND_BIDIRECTIONAL,
+    ]);
+  });
+
+  // Byte 40 of a respond-bidirectional payload is the output kind, and 3
+  // names no OutputKind variant, so decoding this post throws.
+  const unknownOutputKindPost = (requestId: Uint8Array): SignetMiscEvent => {
+    const event = respondBidirectionalEventOf(requestId, RESPOND_BIDIRECTIONAL);
+    event.payload[40] = 3;
+    return event;
+  };
+
+  it.each([
+    { declaredUnder: "another request id", undecodable: unknownOutputKindPost(FOREIGN_REQUEST_ID) },
+    { declaredUnder: "its own request id", undecodable: unknownOutputKindPost(REQUEST_ID) },
+  ])("skips an undecodable post declared under $declaredUnder", async ({ undecodable }) => {
+    const reader = new SignetRequestResponseReader({
+      requesterContractAddress: REQUESTER_ADDRESS,
+      requesterRequestsPath: [0],
+      responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
+      publicDataProvider: {
+        queryContractState: () => Promise.resolve({ data: requesterState() }),
+      },
+      eventSource: {
+        streamSignetEvents: () =>
+          streamOf([undecodable, respondBidirectionalEventOf(REQUEST_ID, RESPOND_BIDIRECTIONAL)]),
+      },
+    });
     expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([
       RESPOND_BIDIRECTIONAL,
     ]);

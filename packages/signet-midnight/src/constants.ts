@@ -1,6 +1,6 @@
 // MPC routing constants, the padded-ASCII codec for the signet request
 // structs, and the published per-network counterparty values (the MPC root
-// public key and the signet contract address). Field widths mirror
+// public key and the signet singleton and responder addresses). Field widths mirror
 // Signet.compact (the wire format: keep in lockstep), and the string
 // constants are the values the MPC network routes on.
 //
@@ -83,8 +83,8 @@ export enum MidnightNetwork {
 /**
  * A public, long-lived Midnight network: every named network except the
  * local standalone stack. Only these have fixed protocol counterparty
- * values published in this package (see {@link getMpcRootPublicKey} and
- * {@link getSignetContractAddress}).
+ * values published in this package (see {@link getMpcRootPublicKey},
+ * {@link getSignetContractAddress} and {@link getResponderContractAddress}).
  */
 export type DeployedNetwork = Exclude<MidnightNetwork, MidnightNetwork.Undeployed>;
 
@@ -133,9 +133,9 @@ const signetContractAddresses: Record<DeployedNetwork, string> = {
 
 /**
  * The address of the central signet singleton contract on a deployed
- * Midnight network: the `signetContractAddress` a
- * `SignetRequestResponseReader` polls. A local standalone stack has no
- * fixed address: each stack deploys its own singleton.
+ * Midnight network: the contract a requester contract seals at deploy and
+ * notifies of its requests. A local standalone stack has no fixed address:
+ * each stack deploys its own singleton.
  *
  * @param networkId - The deployed network to look up.
  * @returns The network's signet contract address.
@@ -146,6 +146,36 @@ export function getSignetContractAddress(networkId: DeployedNetwork): string {
   const contractAddress = signetContractAddresses[networkId];
   if (!contractAddress) {
     throw new Error(`no signet contract address published for the '${networkId}' network yet`);
+  }
+  return contractAddress;
+}
+
+// Each network's signet responder address, filled in as the responder is
+// deployed there. An empty string means "not yet deployed or published" and
+// makes getResponderContractAddress throw for that network.
+const responderContractAddresses: Record<DeployedNetwork, string> = {
+  [MidnightNetwork.Stagenet]: "299a0470a00a538c81edc7b15da85864f828380728741211ae4d5e365d4ba9f4",
+  [MidnightNetwork.Preview]: "",
+  [MidnightNetwork.Preprod]: "",
+  [MidnightNetwork.Mainnet]: "",
+};
+
+/**
+ * The address of the signet responder contract on a deployed Midnight
+ * network: the contract the MPC posts its responses to, and the
+ * `responderContractAddress` a `SignetRequestResponseReader` polls. A local
+ * standalone stack has no fixed address: each stack deploys its own
+ * responder.
+ *
+ * @param networkId - The deployed network to look up.
+ * @returns The network's responder contract address.
+ * @throws {Error} When the responder's address is not yet published in this
+ *   package.
+ */
+export function getResponderContractAddress(networkId: DeployedNetwork): string {
+  const contractAddress = responderContractAddresses[networkId];
+  if (!contractAddress) {
+    throw new Error(`no responder contract address published for the '${networkId}' network yet`);
   }
   return contractAddress;
 }

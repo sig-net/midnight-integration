@@ -1,15 +1,21 @@
 // The generic setup steps shared by the caller pipeline: MPC key derivation,
-// the dust-spend rejection translation, signet compile + deploy, and the fakenet
-// responder hand-off. Each step keeps its skip-if-env-var-set semantics
-// (presence of the canonical env var doubles as the skip signal) and mutates
-// the shared env accumulator. Run by setup/caller-global-setup.ts in vitest's
+// the dust-spend rejection translation, the protocol contracts' compile +
+// deploy (signet singleton and responder), and the fakenet responder
+// hand-off. Each step keeps its skip-if-env-var-set semantics (presence of
+// the canonical env var doubles as the skip signal) and mutates the shared
+// env accumulator. Run by setup/caller-global-setup.ts in vitest's
 // main process, so no `vitest` imports here — failed checks are plain throws.
 
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { deriveMidnightResponseKey, formatSecp256k1PublicKey } from "@sig-net/midnight";
-import { deploySignetContract, type WalletRegistry } from "@sig-net/midnight-contract-deploy";
+import {
+  type ContractDeployment,
+  deploySignetContract,
+  deploySignetResponder,
+  type WalletRegistry,
+} from "@sig-net/midnight-contract-deploy";
 
 import { requireEnv } from "../e2e-env.ts";
 import { appendRepoDotEnv, loadRepoDotEnv } from "../env-file.ts";
@@ -19,6 +25,94 @@ import { REPO_ROOT, runCommand, runRootScript } from "../subprocess.ts";
 import { deriveMpcKeys, generateMpcRootKey } from "./mpc-keys.ts";
 
 const MINUTE = 60_000;
+
+/**
+ * A protocol contract the setup compiles with proving keys and deploys once
+ * per stack. Its address env var doubles as the skip signal for both steps.
+ */
+interface ProtocolContract {
+  /** The package directory name, the suffix of its root scripts. */
+  name: string;
+  /** The env var holding the deployed contract's address. */
+  addressVar: string;
+  /** How long the zk compile may take: the responder's includes a Rust build. */
+  compileTimeoutMs: number;
+  /** The deploy flow from `@sig-net/midnight-contract-deploy`. */
+  deploy: (env: NodeJS.ProcessEnv, wallets: WalletRegistry) => Promise<ContractDeployment>;
+  /** What the contract is, for the post-deploy log. */
+  role: string;
+}
+
+const SIGNET_CONTRACT: ProtocolContract = {
+  name: "signet-contract",
+  addressVar: "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
+  compileTimeoutMs: 14 * MINUTE,
+  deploy: deploySignetContract,
+  role: "the central signet contract on Midnight — records signature requests",
+};
+
+const SIGNET_RESPONDER: ProtocolContract = {
+  name: "signet-responder",
+  addressVar: "MIDNIGHT_RESPONDER_CONTRACT_ADDRESS",
+  compileTimeoutMs: 30 * MINUTE,
+  deploy: deploySignetResponder,
+  role: "the signet responder on Midnight — emits the MPC's responses",
+};
+
+/**
+ * Compile a protocol contract, including proving keys when they are absent.
+ *
+ * @param env - The suite's env accumulator.
+ * @param contract - The contract to compile.
+ */
+async function compileProtocolContract(
+  env: NodeJS.ProcessEnv,
+  contract: ProtocolContract,
+): Promise<void> {
+  const script = `compile:${contract.name}:zk`;
+  const address = env[contract.addressVar];
+  if (address) {
+    logSkip(script, `${contract.addressVar} is set (${address})`);
+    return;
+  }
+  if (trustsPrebuiltZkKeys(env, `packages/${contract.name}/src/managed/keys`)) {
+    logSkip(
+      script,
+      "TRUST_PREBUILT_ZK_KEYS=1 and prover keys are present (restored from a cache keyed on the contract sources, or built earlier in this job)",
+    );
+    return;
+  }
+  await runRootScript(script, env, contract.compileTimeoutMs);
+}
+
+/**
+ * Deploy a protocol contract and record its address in the accumulator.
+ *
+ * @param env - The suite's env accumulator, mutated with the address.
+ * @param wallets - The pipeline's registry, holding the deployer wallet the funding step synced.
+ * @param contract - The contract to deploy.
+ */
+async function deployProtocolContractStep(
+  env: NodeJS.ProcessEnv,
+  wallets: WalletRegistry,
+  contract: ProtocolContract,
+): Promise<void> {
+  const step = `deploy:${contract.name}`;
+  const address = env[contract.addressVar];
+  if (address) {
+    logSkip(step, `${contract.addressVar} is set (${address})`);
+    return;
+  }
+  const { contractAddress } = await explainDustSpendRejection(step, () =>
+    contract.deploy(env, wallets),
+  );
+  env[contract.addressVar] = contractAddress;
+  console.log(`deployed a fresh ${contract.addressVar}=${contractAddress}`);
+  console.log(` ➜ ${contract.role}`);
+  console.log(
+    ` ➜ 💡 Set as ${contract.addressVar} in the environment to skip compile + deploy on the next run`,
+  );
+}
 
 /**
  * Ensure `MPC_ROOT_KEY` is set, generating a fresh one when it is not.
@@ -71,18 +165,20 @@ export function ensureMpcSecp256k1Pubkey(env: NodeJS.ProcessEnv): void {
   );
 }
 
-// The signet contract is compiled + deployed FIRST: a client contract seals
-// its address as the cross-contract emitter, and the client compile symlinks
-// the signet's managed output (its ZK keys) for the cross-contract proof.
+// The protocol contracts are compiled + deployed FIRST: a client contract
+// seals the signet contract's address as the cross-contract emitter, the
+// client compile symlinks the signet's managed output (its ZK keys) for the
+// cross-contract proof, and the fakenet needs both addresses to start.
 
 /**
  * True when the CI zk-key cache contract is in force: `TRUST_PREBUILT_ZK_KEYS=1`
  * AND the given managed keys directory already holds prover keys. Local runs
  * never set the variable — key PRESENCE alone is not FRESHNESS (a circuit
  * edit leaves stale keys behind; locally the contract-address env vars are
- * the skip signal instead). Only a cache keyed on the contract sources can
- * assert freshness, so trusting prebuilt keys is an explicit opt-in by the
- * environment that restored them (see .github/workflows/ci.yml).
+ * the skip signal instead). Only a cache keyed on the contract sources, or a
+ * build earlier in the same job (the responder's bundle, which is never
+ * cached), can assert freshness, so trusting prebuilt keys is an explicit
+ * opt-in by the environment that produced them (see .github/workflows/ci.yml).
  *
  * @param env - The suite's env accumulator.
  * @param keysDir - The managed keys directory, relative to the repo root.
@@ -105,21 +201,17 @@ export function trustsPrebuiltZkKeys(env: NodeJS.ProcessEnv, keysDir: string): b
  * @param env - The suite's env accumulator.
  */
 export async function compileSignetContract(env: NodeJS.ProcessEnv): Promise<void> {
-  if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
-    logSkip(
-      "compile:signet-contract:zk",
-      `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is set (${env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS})`,
-    );
-    return;
-  }
-  if (trustsPrebuiltZkKeys(env, "packages/signet-contract/src/managed/keys")) {
-    logSkip(
-      "compile:signet-contract:zk",
-      "TRUST_PREBUILT_ZK_KEYS=1 and prover keys are present (restored from a cache keyed on the contract sources)",
-    );
-    return;
-  }
-  await runRootScript("compile:signet-contract:zk", env, 14 * MINUTE);
+  await compileProtocolContract(env, SIGNET_CONTRACT);
+}
+
+/**
+ * Compile the signet responder, including its MinoCrab zk bundle when its
+ * proving keys are absent.
+ *
+ * @param env - The suite's env accumulator.
+ */
+export async function compileSignetResponder(env: NodeJS.ProcessEnv): Promise<void> {
+  await compileProtocolContract(env, SIGNET_RESPONDER);
 }
 
 /**
@@ -171,24 +263,20 @@ export async function deploySignetContractStep(
   env: NodeJS.ProcessEnv,
   wallets: WalletRegistry,
 ): Promise<void> {
-  if (env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS) {
-    logSkip(
-      "deploy:signet-contract",
-      `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is set (${env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS})`,
-    );
-    return;
-  }
-  const { contractAddress } = await explainDustSpendRejection("deploy:signet-contract", () =>
-    deploySignetContract(env, wallets),
-  );
-  env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS = contractAddress;
-  console.log(`deployed a fresh MIDNIGHT_SIGNET_CONTRACT_ADDRESS=${contractAddress}`);
-  console.log(
-    ` ➜ the central signet contract on Midnight — records signature requests and MPC responses`,
-  );
-  console.log(
-    ` ➜ 💡 Set as MIDNIGHT_SIGNET_CONTRACT_ADDRESS in the environment to skip compile + deploy on the next run`,
-  );
+  await deployProtocolContractStep(env, wallets, SIGNET_CONTRACT);
+}
+
+/**
+ * Deploy the signet responder and record its address in the accumulator.
+ *
+ * @param env - The suite's env accumulator, mutated with the address.
+ * @param wallets - The pipeline's registry, holding the deployer wallet the funding step synced.
+ */
+export async function deploySignetResponderStep(
+  env: NodeJS.ProcessEnv,
+  wallets: WalletRegistry,
+): Promise<void> {
+  await deployProtocolContractStep(env, wallets, SIGNET_RESPONDER);
 }
 
 /**
@@ -232,15 +320,19 @@ export function ensureMpcResponseKey(env: NodeJS.ProcessEnv): void {
 
 // The fakenet responder hand-off, automated. docker compose interpolates the
 // fakenet service's environment from the repo-root .env, so the responder can
-// only start once MPC_ROOT_KEY and MIDNIGHT_SIGNET_CONTRACT_ADDRESS are IN
+// only start once MPC_ROOT_KEY and both protocol contract addresses are IN
 // THAT FILE — the two steps below persist them (append-only) and start the
-// container, right after the signet deploy so the responder boots and syncs
-// while the (long) caller zk compile runs. Set FAKENET_MANAGED=0 to run the
-// responder yourself (e.g. `yarn response` in a solana-signet-program
+// container, right after the protocol deploys so the responder boots and
+// syncs while the (long) caller zk compile runs. Set FAKENET_MANAGED=0 to run
+// the responder yourself (e.g. `yarn response` in a solana-signet-program
 // checkout for responder development) — both steps then skip.
 
 /** The env keys docker compose interpolates into the fakenet service — the hand-off payload. */
-const FAKENET_HANDOFF_KEYS = ["MPC_ROOT_KEY", "MIDNIGHT_SIGNET_CONTRACT_ADDRESS"] as const;
+const FAKENET_HANDOFF_KEYS = [
+  "MPC_ROOT_KEY",
+  "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
+  "MIDNIGHT_RESPONDER_CONTRACT_ADDRESS",
+] as const;
 
 /**
  * Whether {@link persistFakenetHandoffToDotEnv} appended hand-off values to
@@ -290,7 +382,7 @@ export function persistFakenetHandoffToDotEnv(env: NodeJS.ProcessEnv): void {
   if (Object.keys(toAppend).length === 0) {
     logSkip(
       "persist fakenet hand-off to .env",
-      `${FAKENET_HANDOFF_KEYS.join(" and ")} are already in .env`,
+      `${FAKENET_HANDOFF_KEYS.join(", ")} are already in .env`,
     );
     return;
   }

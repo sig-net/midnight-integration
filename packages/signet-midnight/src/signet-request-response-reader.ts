@@ -1,6 +1,6 @@
 // Client-side reader for the signet request/response flow: fetch a request
 // record from the requester contract's ledger, read the request's responses
-// out of the contract events the signet contract emits, and verify each
+// out of the contract events the signet responder emits, and verify each
 // candidate against the request. The request id a response declares is
 // UNAUTHENTICATED routing data: VERIFICATION establishes authenticity.
 // Single-shot: each call queries once, and the caller owns any poll loop.
@@ -61,12 +61,15 @@ export interface SignetRequestResponseReaderConfig {
    * (`[4]` for a flat contract's field 4, longer once chunking applies).
    */
   readonly requesterRequestsPath: readonly number[];
-  /** Address of the central signet contract. */
-  readonly signetContractAddress: string;
+  /**
+   * Address of the signet responder contract, which emits the MPC's
+   * responses (see `getResponderContractAddress`).
+   */
+  readonly responderContractAddress: string;
   /** Source of raw contract state, e.g. midnight-js's `indexerPublicDataProvider`. */
   readonly publicDataProvider: SignetPublicStateSource;
   /**
-   * Source of the signet contract's emitted events. Read a live indexer
+   * Source of the responder contract's emitted events. Read a live indexer
    * with `signetEventSourceFromIndexer`.
    */
   readonly eventSource: SignetEventSource;
@@ -77,7 +80,7 @@ export interface SignetRequestResponseReaderConfig {
    * client. It must not exceed the block of the oldest request whose
    * responses are still wanted: a value too high hides them without error.
    */
-  readonly signetEventsFromBlock?: number;
+  readonly responderEventsFromBlock?: number;
 }
 
 /** The verdict on one emitted response, in emission order. */
@@ -147,7 +150,7 @@ function firstVerifiedRespondBidirectionalEvent(
 
 /**
  * `SignetRequestResponseReader.getVerifiedRespondBidirectionalEvent` over
- * decoded events already in hand: no walk of the signet contract's event
+ * decoded events already in hand: no walk of the responder contract's event
  * history, and no ledger read either, since the attestation verifies against
  * the output and the response key alone.
  *
@@ -175,7 +178,7 @@ export function findVerifiedRespondBidirectionalEvent(
 }
 
 /**
- * Reader over one requester contract / signet contract pair. Construct once
+ * Reader over one requester contract / responder contract pair. Construct once
  * per pair and reuse: fetched request records are cached, so repeated
  * verification calls cost one event query each.
  */
@@ -227,8 +230,9 @@ export class SignetRequestResponseReader {
   }
 
   /**
-   * Fetch the signet contract's posts of event `name` that declare
-   * `requestId`, in emission order. The declared id is routing data only.
+   * Fetch the responder contract's posts of event `name` that declare
+   * `requestId`, in emission order, skipping posts whose payload does not
+   * decode. The declared id is routing data only.
    *
    * @param name - The signet event name to keep.
    * @param requestId - The request id the kept posts must declare.
@@ -240,21 +244,26 @@ export class SignetRequestResponseReader {
   ): Promise<SignetEventRecords[TName][]> {
     const records: SignetEventRecords[TName][] = [];
     const events = this.config.eventSource.streamSignetEvents(
-      this.config.signetContractAddress,
-      this.config.signetEventsFromBlock === undefined
+      this.config.responderContractAddress,
+      this.config.responderEventsFromBlock === undefined
         ? undefined
-        : { fromBlock: this.config.signetEventsFromBlock },
+        : { fromBlock: this.config.responderEventsFromBlock },
     );
     for await (const event of events) {
-      const decoded = decodeSignetEventNamed(event, name);
-      if (decoded?.requestId === requestId) records.push(decoded.record);
+      try {
+        const decoded = decodeSignetEventNamed(event, name);
+        if (decoded?.requestId === requestId) records.push(decoded.record);
+      } catch {
+        // A post that does not decode answers no request, so it must not
+        // fail the read of every request.
+      }
     }
     return records;
   }
 
   /**
-   * Fetch every signature response posted under `requestId`, in emission
-   * order. UNVERIFIED: any post may still be garbage, sift with
+   * Fetch every decodable signature response posted under `requestId`, in
+   * emission order. UNVERIFIED: any post may still be garbage, sift with
    * {@link getVerifiedSignatureRespondedEvent} first.
    *
    * @param requestId - The request id the posts must declare.
@@ -292,7 +301,7 @@ export class SignetRequestResponseReader {
   /**
    * {@link getVerifiedSignatureRespondedEvent} over decoded events already in
    * hand: the one ledger read for the request (cached), and no walk of the
-   * signet contract's event history. For a consumer that streamed and decoded
+   * responder contract's event history. For a consumer that streamed and decoded
    * the history once and verifies many requests against it.
    *
    * @param requestId - The request id to verify responses for.
@@ -408,10 +417,10 @@ export class SignetRequestResponseReader {
   }
 
   /**
-   * Fetch every respond-bidirectional response posted under `requestId`, in
-   * emission order. UNVERIFIED: any post may still be garbage, sift with
-   * {@link getVerifiedRespondBidirectionalEvent} (or in-circuit at claim
-   * time) first.
+   * Fetch every decodable respond-bidirectional response posted under
+   * `requestId`, in emission order. UNVERIFIED: any post may still be
+   * garbage, sift with {@link getVerifiedRespondBidirectionalEvent} (or
+   * in-circuit at claim time) first.
    *
    * @param requestId - The request id the posts must declare.
    * @returns The request's posted records, oldest first, empty when none yet.
