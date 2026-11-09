@@ -5,7 +5,14 @@
 // source (built by the test-local encode twins in signet-event-fixtures.ts).
 // No network, no compiled contract.
 
-import { CompactTypeUnsignedInteger, StateMap, StateValue } from "@midnight-ntwrk/compact-runtime";
+import {
+  ChargedState,
+  CompactTypeUnsignedInteger,
+  ContractState,
+  StateMap,
+  StateValue,
+} from "@midnight-ntwrk/compact-runtime";
+import { SerializedContractState } from "@midnight-ntwrk/midnight-js-types";
 import { computeAddress, SigningKey } from "ethers";
 import { describe, expect, it } from "vitest";
 
@@ -154,6 +161,13 @@ const requesterState = (): StateValue => {
     .arrayPush(StateValue.newCell({ value: u64.toValue(1n), alignment: u64.alignment() }));
 };
 
+/** The requester state as the indexer serves it: a serialized ledger-9 contract state. */
+const requesterRead = (): { contractState: SerializedContractState } => {
+  const contractState = new ContractState();
+  contractState.data = new ChargedState(requesterState());
+  return { contractState: SerializedContractState.fromBytes("v9", contractState.serialize()) };
+};
+
 // A respond-bidirectional record for the response tests: a synthetic
 // signature and digest (the reader decodes, verification is the CLIENT's job).
 const RESPOND_BIDIRECTIONAL: RespondBidirectionalEvent = {
@@ -212,7 +226,7 @@ const makeReader = (
     queryContractState: (contractAddress) => {
       expect(contractAddress).toBe(REQUESTER_ADDRESS);
       queries.requester += 1;
-      return Promise.resolve({ data: requesterState() });
+      return Promise.resolve(requesterRead());
     },
   };
   const events: SignetMiscEvent[] = [
@@ -314,7 +328,7 @@ describe("getSignatureRespondedEvents", () => {
       requesterRequestsPath: [0],
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
       publicDataProvider: {
-        queryContractState: () => Promise.resolve({ data: requesterState() }),
+        queryContractState: () => Promise.resolve(requesterRead()),
       },
       eventSource: {
         streamSignetEvents: () =>
@@ -334,7 +348,7 @@ describe("getSignatureRespondedEvents", () => {
       requesterRequestsPath: [0],
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
       publicDataProvider: {
-        queryContractState: () => Promise.resolve({ data: requesterState() }),
+        queryContractState: () => Promise.resolve(requesterRead()),
       },
       eventSource: {
         streamSignetEvents: (_contractAddress, options) => {

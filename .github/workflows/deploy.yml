@@ -114,33 +114,31 @@ jobs:
           export PATH="$HOME/.local/bin:$HOME/.compact/bin:$PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/.compact/bin" >> "$GITHUB_PATH"
-          # Launcher pinned to compact-v0.5.1 (never releases/latest): the
+          # Launcher pinned to compact-v0.5.3 (never releases/latest): the
           # toolchain is frozen, so bump this tag deliberately.
           if ! command -v compact >/dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -LsSf --retry 4 -o /tmp/compact-installer.sh \
-              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.1/compact-installer.sh
-            echo "85e74a53ae4a67b31fa4d854f3b6ffb4c29f7c53e3372c5008b6a4729a8b4a73  /tmp/compact-installer.sh" | sha256sum -c
+              https://github.com/midnightntwrk/compact/releases/download/compact-v0.5.3/compact-installer.sh
+            echo "5ad9c8f53dd09c39ebd4290dc47d1742d36b01ad65859eed41e7658ac65bdff8  /tmp/compact-installer.sh" | sha256sum -c
             sh /tmp/compact-installer.sh
           fi
-          # The workspace tracks the ledger-9 toolchain line: compactc
-          # 0.33.0-rc.2 is a PRERELEASE published on the toolchain's LF home
-          # (LFDT-Minokawa/compact), which the launcher's channel does not
-          # list. Download it directly and let the launcher adopt it. Part of
-          # the ledger-9 MATCHED SET (see docker-compose.yaml's image-tag
-          # comment). Bump it together with the npm stack.
-          RC_DIR="$HOME/.compact/versions/0.33.0-rc.2/x86_64-unknown-linux-musl"
-          if [ ! -x "$RC_DIR/compactc" ]; then
-            mkdir -p "$RC_DIR"
-            curl -fsSL --retry 4 -o /tmp/compactc-rc.zip \
-              https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.33.0-rc.2/compactc_v0.33.0-rc.2_x86_64-unknown-linux-musl.zip
-            echo "3055ab92bbc8d5bb0d6282b661b83761d2a0de2ee37e21cf7107e25aaf2a9aad  /tmp/compactc-rc.zip" | sha256sum -c
-            unzip -qo /tmp/compactc-rc.zip -d "$RC_DIR"
-            chmod +x "$RC_DIR"/*
+          # compactc 0.36.0 from the toolchain's LF home (LFDT-Minokawa/compact),
+          # fetched by exact URL and checksum, then adopted by the launcher.
+          # Part of the ledger-9 MATCHED SET (see docker-compose.yaml's
+          # image-tag comment). Bump it together with the npm stack.
+          COMPACTC_DIR="$HOME/.compact/versions/0.36.0/x86_64-unknown-linux-musl"
+          if [ ! -x "$COMPACTC_DIR/compactc" ]; then
+            mkdir -p "$COMPACTC_DIR"
+            curl -fsSL --retry 4 -o /tmp/compactc.zip \
+              https://github.com/LFDT-Minokawa/compact/releases/download/compactc-v0.36.0/compactc_v0.36.0_x86_64-unknown-linux-musl.zip
+            echo "7017b6121ebb9d53a562984bca616d143ef84fc7ee18b4da6c3a0a6615cb5e97  /tmp/compactc.zip" | sha256sum -c
+            unzip -qo /tmp/compactc.zip -d "$COMPACTC_DIR"
+            chmod +x "$COMPACTC_DIR"/*
           fi
           # `compact update <ver>` adopts an already-on-disk version without
           # downloading. If the launcher refuses (version not in its
           # channel), wire the default symlinks it would have created.
-          compact update 0.33.0-rc.2 || ln -sfn "$RC_DIR"/* "$HOME/.compact/bin/"
+          compact update 0.36.0 || ln -sfn "$COMPACTC_DIR"/* "$HOME/.compact/bin/"
           compact compile --version
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact

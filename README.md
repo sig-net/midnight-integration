@@ -224,10 +224,10 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
 
    Then tell the compact compiler about the npm packages with its `COMPACT_PATH` environment variable at compile time:
    ```sh
-   COMPACT_PATH=node_modules compact compile --feature-zkir-v3 src/my-contract.compact src/managed/my-contract
+   COMPACT_PATH=node_modules compact compile src/my-contract.compact src/managed/my-contract
    ```
 
-   The Compact toolchain requirements in [Prerequisites](#prerequisites) apply to integrators too: compile with the pinned compiler version (currently `compact update 0.33.0-rc.2`) and always pass `--feature-zkir-v3`, as above.
+   The Compact toolchain requirements in [Prerequisites](#prerequisites) apply to integrators too: compile with the pinned compiler version (currently `compact update 0.36.0`).
 
 3. Declare the required Sig Network protocol state in your ledger (plus recommended deployer identity and initialisation state). The event map can sit at ANY ledger field. Each notification call your contract makes passes the stored request's id beside a notification that carries the map's resolved ledger-tree path (see [The Request Map's Ledger-Tree Path](#the-request-maps-ledger-tree-path)), and the MPC looks the authenticated request up there by that id.
 
@@ -809,9 +809,9 @@ Two end to end suites run against the local docker stack. The generic suite driv
    ```sh
    corepack enable
    yarn install
-   compact update 0.33.0-rc.2   # Exact version required.
-                                # `compact update` installs/downgrades
-                                # to stable.
+   compact update 0.36.0        # Exact version required.
+                                # A bare `compact update` installs the
+                                # latest stable, whatever it is.
    yarn compile
    ```
 3. Start the local stack (Midnight node, indexer, proof server, anvil EVM) with `docker compose up -d`. The fakenet MPC responder is started automatically by the test setup once the signet contract is deployed.
@@ -855,11 +855,11 @@ Two guards in the workflows back this flow: a stable tag must point at a commit 
 | ------- | ------| ------  |----------- |
 | Node | ≥ 22.13 (24 recommended) | `node --version` | [nodejs.org](https://nodejs.org) or your version manager (nvm, fnm, …) |
 | Yarn 4 (via Corepack) | 4.x | `corepack enable && yarn --version` | Corepack ships with Node, and the repo's `packageManager` field pins the Yarn version |
-| Compact toolchain | compiler 0.33.0-rc.2, invoked with `--feature-zkir-v3` (see note) | `compact compile --version` → `0.33.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.33.0-rc.2` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)). If the launcher refuses the rc version, use the direct-download recipe in [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| Compact toolchain | compiler 0.36.0 | `compact compile --version` → `0.36.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.36.0` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)) |
 | A docker environment | any recent engine | `docker --version` | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS/Windows) or your distro's engine, with **≥ 16 GB RAM allocated** (see note) |
 | Docker Compose v2 | ≥ 2.x | `docker compose version` | Included with Docker Desktop (plugin package on Linux) |
 
-**NOTE:** every `compact compile` against this stack must pass the `--feature-zkir-v3` flag: it is part of the pinned ledger-9 matched set (compiler, node, indexer, proof server), and output compiled without it is not compatible with that stack. This repository's compile scripts already pass it. Integrators compiling their own contracts must pass it themselves (as shown in the [Integrator Guide](#integrator-guide)).
+**NOTE:** the compiler is part of the pinned ledger-9 matched set (compiler, node, indexer, proof server). Compile your own contracts with exactly that release: the Compact runtime accepts a cross-contract callee only when its compiled verifier keys match the keys deployed on chain.
 
 **NOTE:** the Midnight proof server is quite heavy. It is recommended that you allocate at least 16 GB of RAM to your docker environment, otherwise expect to have to restart the tests as the proof server hangs.
 
@@ -871,11 +871,11 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | ------- | ------ | ------ |
 | `@sig-net/*` npm packages | 0.25.1 | [`packages/*/package.json`](packages) |
 | fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.35.0` | [`docker-compose.yaml`](docker-compose.yaml) |
-| Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
-| Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
-| Midnight indexer | 4.4.0-pre-alpha.16 (`l91r3-n2r3` build) | [`docker-compose.yaml`](docker-compose.yaml) |
-| Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
-| `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
+| Compact compiler | 0.36.0 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
+| Midnight node | 2.1.101 | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight indexer | 4.4.101 | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight proof server | 9.0.1 | [`docker-compose.yaml`](docker-compose.yaml) |
+| `@midnightntwrk/ledger-v9` | 1.0.1 | [`package.json`](package.json) resolutions |
 
 **NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). The real-EVM integration flow reads the responder's output cache simulation on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), the fakenet twin of the MPC's output storage bucket (see [Output Recovery and Serialisation](#output-recovery-and-serialisation)).
 

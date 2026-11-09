@@ -5,7 +5,11 @@
 // UNAUTHENTICATED routing data: VERIFICATION establishes authenticity.
 // Single-shot: each call queries once, and the caller owns any poll loop.
 
-import type { PublicDataProvider } from "@midnight-ntwrk/midnight-js-types";
+import { ContractState } from "@midnight-ntwrk/compact-runtime";
+import type {
+  PublicDataProvider,
+  SerializedContractState,
+} from "@midnight-ntwrk/midnight-js-types";
 import type { Transaction } from "ethers";
 
 import {
@@ -13,7 +17,6 @@ import {
   verifyAttestedOutput,
   verifyRespondBidirectionalAttestation,
 } from "./ecdsa-attestation.ts";
-import type { RawContractState } from "./raw-contract-state.ts";
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
 import {
@@ -33,9 +36,9 @@ import {
 import { type RequestIdHex, type SignBidirectionalEvent, TxParamType } from "./signet-requests.ts";
 
 /**
- * The least of midnight-js's `PublicDataProvider` the reader needs: raw
- * contract state by address. Declared structurally so tests can satisfy it
- * with a plain stub. Any full `PublicDataProvider`
+ * The least of midnight-js's `PublicDataProvider` the reader needs: a
+ * contract's serialized state by address. Declared structurally so tests can
+ * satisfy it with a plain stub. Any full `PublicDataProvider`
  * (e.g. `indexerPublicDataProvider`) is assignable to it.
  */
 export interface SignetPublicStateSource {
@@ -43,12 +46,12 @@ export interface SignetPublicStateSource {
    * Retrieve the on-chain state of a contract at the latest block.
    *
    * @param contractAddress - The contract address to query.
-   * @returns The state (its `data` is the raw ledger tree), or `null` when
-   *   the address holds no contract.
+   * @returns The read, whose `contractState` is a ledger-9 contract state, or
+   *   `null` when the address holds no contract.
    */
   queryContractState(
     contractAddress: Parameters<PublicDataProvider["queryContractState"]>[0],
-  ): Promise<{ data: RawContractState } | null>;
+  ): Promise<{ readonly contractState: SerializedContractState } | null>;
 }
 
 /** Everything a {@link SignetRequestResponseReader} needs to operate. */
@@ -207,14 +210,15 @@ export class SignetRequestResponseReader {
     if (cached !== undefined) {
       return cached;
     }
-    const state = await this.config.publicDataProvider.queryContractState(
+    const read = await this.config.publicDataProvider.queryContractState(
       this.config.requesterContractAddress,
     );
-    if (!state?.data) {
+    if (read === null) {
       throw new Error(
         `no state data found for requester contract '${this.config.requesterContractAddress}' (is it deployed?)`,
       );
     }
+    const state = read.contractState.deserialize({ v9: ContractState });
     const request = lookupSignetRequestAt(state.data, this.config.requesterRequestsPath, requestId);
     if (request === undefined) {
       throw new Error(

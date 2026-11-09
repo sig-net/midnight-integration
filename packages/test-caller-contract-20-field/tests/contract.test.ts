@@ -76,13 +76,13 @@ const deployContract = async () => {
   const { currentContractState, currentPrivateState } = await contract.initialState(
     createConstructorContext(undefined, CPK),
   );
-  const ctx = createCircuitContext(
-    "submitSignatureRequest",
-    sampleContractAddress(),
-    CPK,
-    currentContractState,
-    currentPrivateState,
-  );
+  const ctx = createCircuitContext({
+    circuitId: "submitSignatureRequest",
+    contractAddress: sampleContractAddress(),
+    coinPublicKeyOrZswapState: CPK,
+    contractState: currentContractState,
+    privateState: currentPrivateState,
+  });
   return { contract, ctx };
 };
 

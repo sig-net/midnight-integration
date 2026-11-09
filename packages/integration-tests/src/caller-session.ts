@@ -15,10 +15,8 @@ import {
   type Ledger as CallerLedger,
   ledger as callerContractLedger,
 } from "@midnight-integration/test-caller-contract";
+import { ContractState } from "@midnight-ntwrk/compact-runtime";
 import { findDeployedContract, type FoundContract } from "@midnight-ntwrk/midnight-js/contracts";
-// midnight-js reads a process-global network id (unlike compact-js, which
-// takes it explicitly). The context builder sets it once per session.
-import { setNetworkId } from "@midnight-ntwrk/midnight-js/network-id";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import {
   hexToBytes,
@@ -103,10 +101,9 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
     async callerContext(): Promise<CallerContext> {
       if (!sharedWallet) {
         const nodeConfig = getMidnightNodeConfig(env);
-        setNetworkId(nodeConfig.networkId);
         const keys = deriveAccountKeys(requireEnv(env, "INVOKER_SEED"), nodeConfig.networkId);
         const facade = await initialiseWalletFacade(keys, nodeConfig);
-        await facade.start(keys.shieldedSecretKeys, keys.dustSecretKey);
+        await facade.start(keys.seeds);
         await facade.waitForSyncedState();
 
         const contractAddress = requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS");
@@ -181,13 +178,13 @@ export type CallerRequestMap = "signBidirectionalEventMap" | "signBidirectionalE
  * @throws {Error} When the contract has no state on-chain.
  */
 export async function readCallerLedger(context: CallerContext): Promise<CallerLedger> {
-  const contractState = await context.providers.publicDataProvider.queryContractState(
+  const read = await context.providers.publicDataProvider.queryContractState(
     context.contractAddress,
   );
-  if (!contractState) {
+  if (!read) {
     throw new Error(`no contract state found at ${context.contractAddress}`);
   }
-  return callerContractLedger(contractState.data);
+  return callerContractLedger(read.contractState.deserialize({ v9: ContractState }).data);
 }
 
 /**

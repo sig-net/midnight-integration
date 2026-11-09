@@ -5,7 +5,7 @@ import { pureCircuits } from "../managed/contract/index.js";
 import { fixtureIdentity } from "../src/toolchain.ts";
 
 it("checks both circuit directions for 1000 u128 response values", () => {
-  expect(fixtureIdentity().release).toBe("0.33.0-rc.2");
+  expect(fixtureIdentity().release).toBe("0.36.0");
   let amount = 1n;
   for (let i = 0; i < 1000; i++) {
     amount = (amount * 6364136223846793005n + 1442695040888963407n) % (1n << 128n);

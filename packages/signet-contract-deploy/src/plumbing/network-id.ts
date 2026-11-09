@@ -4,7 +4,7 @@
 // module widens the enum back to the SDK's bare-string network-id type and
 // adds the deploy-side helpers. Convention: a network id is ALWAYS named
 // `networkId` and ALWAYS typed `NetworkId`.
-import type { NetworkId as MidnightSDKNetworkId } from "@midnight-ntwrk/midnight-js/network-id";
+import type { NetworkId as MidnightSDKNetworkId } from "@midnight-ntwrk/midnight-js/types";
 import { type DeployedNetwork, MidnightNetwork } from "@sig-net/midnight";
 
 export { MidnightNetwork };

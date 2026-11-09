@@ -1,4 +1,5 @@
 import * as ledger from "@midnightntwrk/ledger-v9";
+import { ProtocolVersion, WalletTransaction } from "@midnightntwrk/wallet-sdk-abstractions";
 import type { UnprovenTransactionRecipe } from "@midnightntwrk/wallet-sdk-facade";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -34,7 +35,12 @@ function setupTransfer() {
   const state = partialState as FacadeState;
   const transfer: UnprovenTransactionRecipe = {
     type: "UNPROVEN_TRANSACTION",
-    transaction: ledger.Transaction.fromParts("undeployed"),
+    protocolVersion: ProtocolVersion.V9NativeForkVersion,
+    transaction: WalletTransaction.adopt(
+      "Unproven",
+      ledger.Transaction.fromParts("undeployed"),
+      ProtocolVersion.V9NativeForkVersion,
+    ),
   };
   const facade = {
     transferTransaction: vi.fn<WalletFacade["transferTransaction"]>().mockResolvedValue(transfer),
@@ -60,9 +66,9 @@ describe("transferNight fee retries", () => {
     await vi.advanceTimersByTimeAsync(15_000);
     await result;
     expect(facade.transferTransaction).toHaveBeenCalledOnce();
-    expect(facade.transferTransaction.mock.calls.at(0)?.[2].payFees).toBe(false);
+    expect(facade.transferTransaction.mock.calls.at(0)?.[1].payFees).toBe(false);
     expect(facade.balanceUnprovenTransaction).toHaveBeenCalledTimes(2);
-    for (const [transaction, , options] of facade.balanceUnprovenTransaction.mock.calls) {
+    for (const [transaction, options] of facade.balanceUnprovenTransaction.mock.calls) {
       expect(transaction).toBe(transfer.transaction);
       expect(options.ttl).toBeInstanceOf(Date);
       expect(options.tokenKindsToBalance).toEqual(["dust"]);

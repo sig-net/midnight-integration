@@ -77,7 +77,7 @@ export interface SignetRequestsLedger {
  * Records are decoded, not verified against the ids they are filed under:
  * {@link lookupSignetRequestAt} is the verified lookup.
  *
- * @param raw - Raw contract state, e.g. `queryContractState(address).data`
+ * @param raw - Raw contract state, e.g. a decoded `queryContractState(address)` read's `data`
  *   from the indexer or `ctx.currentQueryContext.state` from the simulator.
  * @param requestsIndexPath - Resolved ledger-tree path of the request index.
  * @returns The decoded {@link SignetRequestsLedger}.
@@ -113,7 +113,7 @@ export function readSignetRequestsLedgerFromState(
  * wrongly filed record) is dropped. Every non-membership case returns
  * `undefined` rather than throwing, and the caller MUST drop such a pointer.
  *
- * @param raw - Raw contract state, e.g. `queryContractState(address).data`.
+ * @param raw - Raw contract state, e.g. a decoded `queryContractState(address)` read's `data`.
  * @param requestsPath - Resolved ledger-tree path of the request index in
  *   `raw`, as the notification carries it.
  * @param requestId - The request id to look up.
