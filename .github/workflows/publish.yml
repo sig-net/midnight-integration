@@ -129,9 +129,7 @@ jobs:
           fi
       - name: Compile (skip-zk)
         run: yarn compile
-      # Restore-only: ci.yml's integration job owns saving this cache (it
-      # generates BOTH contracts' keys, whereas this job generates only
-      # signet-contract's, so a save from here would poison the key).
+      # Restore-only: ci.yml's integration job owns saving this cache.
       - name: Restore prebuilt zk proving keys
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -139,12 +137,17 @@ jobs:
             packages/signet-contract/src/managed
             packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
-      - name: Ensure signet-contract prover keys (the published managed assets carry them)
+      - name: Ensure signet-contract and test-caller zk keys (the published managed assets and the test caller's unit tests need them)
         run: |
           if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
-            echo "prover keys present (restored from the cache), skipping keygen"
+            echo "signet-contract prover keys present (restored from the cache), skipping keygen"
           else
             yarn compile:signet-contract:zk
+          fi
+          if ls packages/test-caller-contract/src/managed/test-caller-contract/keys/*.prover >/dev/null 2>&1; then
+            echo "test-caller prover keys present (restored from the cache), skipping keygen"
+          else
+            yarn compile:test-caller-contract:zk
           fi
       - name: Build (typecheck, emit each published package's dist)
         run: yarn build

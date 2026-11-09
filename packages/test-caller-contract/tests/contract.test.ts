@@ -3,9 +3,6 @@
 // Requires `yarn compile:signet-contract:zk` first: the cross-contract call
 // matches the signet contract's verifier keys.
 
-import { existsSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
 import {
   type CircuitContext,
   ContractOperation,
@@ -58,6 +55,7 @@ import {
 // (see signetCrossContract) to execute that path.
 import * as SignetSigner from "../src/managed/SignetSigner/contract/index.js";
 import { createCallerPrivateState } from "../src/witnesses.ts";
+import { readVerifierKeys } from "./verifier-keys.ts";
 
 /**
  * The single request id in a freshly-submitted caller's index. The `size`
@@ -146,32 +144,11 @@ const SIGNET_CONTRACT_REF = {
 };
 const BLOCK_HASH = "0".repeat(64);
 
-/**
- * Read the verifier key `yarn compile:signet-contract:zk` wrote for each signet circuit.
- *
- * @returns Each circuit's verifier key, by circuit id.
- * @throws {Error} If a key file is missing, naming the compile that writes it.
- */
-function readSignetVerifierKeys(): ReadonlyMap<string, Uint8Array> {
-  const keys = new Map<string, Uint8Array>();
-  for (const [circuitId, signature] of Object.entries(SignetSigner.circuitSignatures)) {
-    if (!signature.provable) continue;
-    const keyUrl = new URL(
-      `../src/managed/SignetSigner/keys/${circuitId}.verifier`,
-      import.meta.url,
-    );
-    if (!existsSync(keyUrl)) {
-      throw new Error(
-        `${fileURLToPath(keyUrl)} is missing: these simulator tests need the signet contract's verifier keys, so run \`yarn compile:signet-contract:zk\` first`,
-      );
-    }
-    keys.set(circuitId, readFileSync(keyUrl));
-  }
-  return keys;
-}
-
-// Read once at load, so a missing key fails the whole file with one message.
-const SIGNET_VERIFIER_KEYS = readSignetVerifierKeys();
+const SIGNET_VERIFIER_KEYS = readVerifierKeys(
+  SignetSigner.circuitSignatures,
+  new URL("../src/managed/SignetSigner/keys/", import.meta.url),
+  "yarn compile:signet-contract:zk",
+);
 
 /**
  * The signet contract's deployed state as a cross-contract callee: its

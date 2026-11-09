@@ -3,23 +3,18 @@
 // transaction. No network, no wallet, no proof server, but attaching the
 // verifier keys needs `yarn compile:test-caller-contract:zk` output.
 
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
 import { buildDeployTransaction } from "@sig-net/midnight-contract-deploy";
 import { describe, expect, it } from "vitest";
 
 import { callerCompiledContract, createCallerPrivateState, pureCircuits } from "../src/index.ts";
+import { circuitSignatures } from "../src/managed/test-caller-contract/contract/index.js";
+import { readVerifierKeys } from "./verifier-keys.ts";
 
-// Checked at load, so missing keys fail the whole file with one message.
-const KEYS_DIR = fileURLToPath(
-  new URL("../src/managed/test-caller-contract/keys", import.meta.url),
+readVerifierKeys(
+  circuitSignatures,
+  new URL("../src/managed/test-caller-contract/keys/", import.meta.url),
+  "yarn compile:test-caller-contract:zk",
 );
-if (!existsSync(KEYS_DIR)) {
-  throw new Error(
-    `${KEYS_DIR} is missing: this deploy test attaches the test caller's verifier keys, so run \`yarn compile:test-caller-contract:zk\` first`,
-  );
-}
 
 // Stand-in signet-contract reference sealed as the cross-contract emitter.
 // (The MPC response key is NOT a constructor arg: it is pinned after deploy
