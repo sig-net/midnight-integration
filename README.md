@@ -743,7 +743,7 @@ Every change must also pass the linter and the formatter, which CI enforces on e
 
 ## Compiling, Building and Running Unit Tests
 
-Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime, so zk keys are not needed before running them. 
+Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime. One suite needs zk output: the test caller's cross-contract tests check the signet contract's real verifier keys, so run `yarn compile:signet-contract:zk` before them. 
 
 From the root of the repository:
 
@@ -764,7 +764,7 @@ yarn compile
 yarn compile:zk
 
 # Test: all packages (unit tests: offline simulator-only)
-# Requires 'yarn compile' to have been run (zk keys not required for unit testing).
+# Requires 'yarn compile', then 'yarn compile:signet-contract:zk' (the test caller suite reads the signet verifier keys).
 yarn test
 
 # Build: all packages
@@ -798,7 +798,7 @@ yarn test:signet-midnight     # requires 'yarn compile:signet-midnight'
 yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
 ```
 
-> **NOTE:** A build error about missing prover keys (for example "no prover keys in src/managed/keys") means the package has no zk keys: run `yarn compile:zk` (or the associated `compile:...:zk` script) to generate them. A plain `yarn compile` deletes the keys of every package it recompiles, so run the zk compile again after it.
+> **NOTE:** A build error about missing prover keys (for example "no prover keys in src/managed/keys") means the package has no zk keys: run `yarn compile:zk` (or the associated `compile:...:zk` script) to generate them. A plain `yarn compile` deletes the keys of every package it recompiles, so run the zk compile again after it, before `yarn test` as well.
 
 ## Integration Tests
 

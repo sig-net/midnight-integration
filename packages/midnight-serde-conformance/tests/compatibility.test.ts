@@ -38,7 +38,7 @@ describe("Borsh and compiled Compact compatibility", () => {
   it("records compatibility limits without rejecting Borsh schemas", () => {
     expect(compactSerialize({ option: "u64" }, null)).toHaveLength(1);
     expect(pureCircuits.serNone()).toHaveLength(9);
-    expect(compactDeserialize("bool", Uint8Array.of(2))).toBe(true);
+    expect(() => compactDeserialize("bool", Uint8Array.of(2))).toThrow();
     expect(() => pureCircuits.deBool(Uint8Array.of(2))).toThrow("2 is greater than 1");
     expect(() => pureCircuits.deU12(compactSerialize("u16", 4096))).toThrow();
     expect(compactSerialize({ array: { type: "u8", len: 0 } }, [])).toHaveLength(4);

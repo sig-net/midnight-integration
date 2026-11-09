@@ -19,7 +19,7 @@ import {
 } from "@midnight-ntwrk/midnight-js/types";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import type { WalletFacade } from "@midnightntwrk/wallet-sdk-facade";
-import type { AccountKeys } from "@sig-net/midnight-contract-deploy";
+import { type AccountKeys, TRANSACTION_TTL_MS } from "@sig-net/midnight-contract-deploy";
 
 /** The wallet halves of a midnight-js provider set, both backed by one facade. */
 export interface FacadeWalletProviders {
@@ -28,9 +28,6 @@ export interface FacadeWalletProviders {
   /** Submits midnight-js's finalized transactions. */
   readonly midnightProvider: MidnightProvider;
 }
-
-// Balancing recipes expire 30 min out (same TTL as submitUnprovenTransaction).
-const BALANCE_TTL_MS = 30 * 60 * 1000;
 
 /**
  * Adapt a started {@link WalletFacade} + {@link AccountKeys} to midnight-js's
@@ -52,7 +49,7 @@ export function createFacadeWalletProviders(
     async balanceTx(tx, ttl) {
       const recipe = await facade.balanceUnboundTransaction(
         facade.adoptTransaction(tx.serialize(), "Unbound"),
-        { ttl: ttl ?? new Date(Date.now() + BALANCE_TTL_MS) },
+        { ttl: ttl ?? new Date(Date.now() + TRANSACTION_TTL_MS) },
       );
       const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
       return facade.finalizeRecipe(signed);

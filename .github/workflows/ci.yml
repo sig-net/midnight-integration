@@ -102,9 +102,8 @@ jobs:
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
         run: |
-          # `compact compile --version` drops the -rc suffix (rc.0 and rc.2 both
-          # print 0.33.0), so read the rc-qualified version from the compiler's
-          # on-disk path instead, so the zk cache key busts on an rc bump.
+          # The zk-key cache must bust on any compiler bump. The version directory
+          # name is the exact pin, whatever `compact compile --version` prints.
           target="$(readlink -f "$(command -v compactc)")"
           version="$(basename "$(dirname "$(dirname "$target")")")"
           case "$version" in [0-9]*) ;; *) version="$(compact compile --version)" ;; esac
@@ -122,7 +121,7 @@ jobs:
             packages/signet-contract/src/managed
             packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
-      - name: Ensure signet-contract prover keys (its build's publish-safety check needs them)
+      - name: Ensure signet-contract zk keys (its build's publish-safety check and the test caller's simulator tests need them)
         run: |
           if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
             echo "prover keys present (restored from the cache), skipping keygen"
@@ -222,9 +221,8 @@ jobs:
       - name: Read the compact compiler version (part of the zk cache key)
         id: compact
         run: |
-          # `compact compile --version` drops the -rc suffix (rc.0 and rc.2 both
-          # print 0.33.0), so read the rc-qualified version from the compiler's
-          # on-disk path instead, so the zk cache key busts on an rc bump.
+          # The zk-key cache must bust on any compiler bump. The version directory
+          # name is the exact pin, whatever `compact compile --version` prints.
           target="$(readlink -f "$(command -v compactc)")"
           version="$(basename "$(dirname "$(dirname "$target")")")"
           case "$version" in [0-9]*) ;; *) version="$(compact compile --version)" ;; esac

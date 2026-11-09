@@ -3,7 +3,8 @@
 // Requires `yarn compile:signet-contract:zk` first: the cross-contract call
 // matches the signet contract's verifier keys.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
   type CircuitContext,
@@ -146,9 +147,35 @@ const SIGNET_CONTRACT_REF = {
 const BLOCK_HASH = "0".repeat(64);
 
 /**
+ * Read the verifier key `yarn compile:signet-contract:zk` wrote for each signet circuit.
+ *
+ * @returns Each circuit's verifier key, by circuit id.
+ * @throws {Error} If a key file is missing, naming the compile that writes it.
+ */
+function readSignetVerifierKeys(): ReadonlyMap<string, Uint8Array> {
+  const keys = new Map<string, Uint8Array>();
+  for (const circuitId of Object.keys(SignetSigner.circuitSignatures)) {
+    const keyUrl = new URL(
+      `../src/managed/SignetSigner/keys/${circuitId}.verifier`,
+      import.meta.url,
+    );
+    if (!existsSync(keyUrl)) {
+      throw new Error(
+        `${fileURLToPath(keyUrl)} is missing: these simulator tests need the signet contract's verifier keys, so run \`yarn compile:signet-contract:zk\` first`,
+      );
+    }
+    keys.set(circuitId, readFileSync(keyUrl));
+  }
+  return keys;
+}
+
+// Read once at load, so a missing key fails the whole file with one message.
+const SIGNET_VERIFIER_KEYS = readSignetVerifierKeys();
+
+/**
  * The signet contract's deployed state as a cross-contract callee: its
- * initial state carrying the verifier keys `compile:signet-contract:zk`
- * wrote, which the runtime matches against the callee module's `expectedVk`.
+ * initial state carrying the real verifier keys, which the runtime matches
+ * against the callee module's `expectedVk`.
  *
  * @returns The signet contract's state with every operation's verifier key set.
  */
@@ -157,11 +184,9 @@ async function deployedSignetState(): Promise<ContractState> {
   const { currentContractState } = await signet.initialState(
     createConstructorContext(undefined, CPK),
   );
-  for (const circuitId of currentContractState.operations()) {
+  for (const [circuitId, verifierKey] of SIGNET_VERIFIER_KEYS) {
     const operation = new ContractOperation();
-    operation.verifierKey = readFileSync(
-      new URL(`../src/managed/SignetSigner/keys/${String(circuitId)}.verifier`, import.meta.url),
-    );
+    operation.verifierKey = verifierKey;
     currentContractState.setOperation(circuitId, operation);
   }
   return currentContractState;

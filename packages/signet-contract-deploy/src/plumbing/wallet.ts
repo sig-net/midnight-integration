@@ -47,7 +47,7 @@ export type { EncPublicKey } from "@midnightntwrk/ledger-v9";
 
 /** The live key material for one account. Reused for signing / balancing. */
 export interface AccountKeys {
-  /** The per-wallet seeds the facade starts from. */
+  /** The per-wallet seeds the facade starts from, as sensitive as the secret keys derived from them below. */
   seeds: WalletSeeds;
   shieldedSecretKeys: ledger.ZswapSecretKeys;
   dustSecretKey: ledger.DustSecretKey;
@@ -225,8 +225,8 @@ export function initialiseWalletFacade(
   });
 }
 
-// Recipes (balancing plans for submitted transactions) expire 30 min out.
-const RECIPE_TTL_MS = 30 * 60 * 1000;
+/** How long the transactions this package builds stay valid, in milliseconds. */
+export const TRANSACTION_TTL_MS = 30 * 60 * 1000;
 
 // Dust generates continuously once NIGHT is registered, but a fresh
 // registration takes a few blocks before a spendable balance appears.
@@ -359,7 +359,7 @@ export async function submitUnprovenTransaction(
   // Balance (add dust/fee inputs) → sign those inputs → finalize (prove) → submit.
   console.log("balancing and signing transaction...");
   const recipe = await balanceWhileDustGenerates(facade, () =>
-    facade.balanceUnprovenTransaction(tx, { ttl: new Date(Date.now() + RECIPE_TTL_MS) }),
+    facade.balanceUnprovenTransaction(tx, { ttl: new Date(Date.now() + TRANSACTION_TTL_MS) }),
   );
   const signed = await facade.signRecipe(recipe, keys.unshieldedKeystore.signDataAsync);
   console.log("proving transaction (proof server, can take minutes)...");
@@ -402,7 +402,7 @@ export async function transferNight(
     UnshieldedAddress,
     networkId,
   );
-  const ttl = new Date(Date.now() + RECIPE_TTL_MS);
+  const ttl = new Date(Date.now() + TRANSACTION_TTL_MS);
   // Keep the reserved NIGHT inputs in one transfer throughout fee retries.
   const transfer = await facade.transferTransaction(
     [{ type: "unshielded", outputs: [{ type: nightTokenType, receiverAddress, amount }] }],

@@ -21,6 +21,7 @@ import {
   type AccountKeys,
   makeCompiledContract,
   type MidnightNodeConfig,
+  TRANSACTION_TTL_MS,
 } from "@sig-net/midnight-contract-deploy";
 
 import { Contract } from "./managed/test-caller-contract/contract/index.js";
@@ -61,9 +62,6 @@ export type CallerProviders = MidnightProviders<
 // script).
 const managedPath = fileURLToPath(new URL("./managed/test-caller-contract", import.meta.url));
 const signetManagedPath = fileURLToPath(new URL("./managed/SignetSigner", import.meta.url));
-
-// Every call transaction this provider set builds expires 30 min out.
-const CALL_TTL_SECONDS = 30 * 60;
 
 /**
  * The caller's compact-js compiled-contract binding: generated module + the
@@ -137,7 +135,7 @@ export function buildCallerProviders(
     // Submits proven, balanced transactions to the network.
     midnightProvider,
 
-    config: { networkId: config.networkId, ttlSeconds: CALL_TTL_SECONDS },
+    config: { networkId: config.networkId, ttlSeconds: TRANSACTION_TTL_MS / 1000 },
 
     // The caller's one cross-contract callee is the signet contract it seals,
     // so every address resolves to the SignetSigner module: the runtime still
