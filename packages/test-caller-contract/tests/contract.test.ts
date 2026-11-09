@@ -154,7 +154,8 @@ const BLOCK_HASH = "0".repeat(64);
  */
 function readSignetVerifierKeys(): ReadonlyMap<string, Uint8Array> {
   const keys = new Map<string, Uint8Array>();
-  for (const circuitId of Object.keys(SignetSigner.circuitSignatures)) {
+  for (const [circuitId, signature] of Object.entries(SignetSigner.circuitSignatures)) {
+    if (!signature.provable) continue;
     const keyUrl = new URL(
       `../src/managed/SignetSigner/keys/${circuitId}.verifier`,
       import.meta.url,

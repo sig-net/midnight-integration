@@ -743,7 +743,7 @@ Every change must also pass the linter and the formatter, which CI enforces on e
 
 ## Compiling, Building and Running Unit Tests
 
-Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime. One suite needs zk output: the test caller's cross-contract tests check the signet contract's real verifier keys, so run `yarn compile:signet-contract:zk` before them. 
+Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime. One package needs zk output: the test caller's unit tests read the signet contract's and the test caller's own verifier keys, so run `yarn compile:zk` before them. 
 
 From the root of the repository:
 
@@ -764,7 +764,7 @@ yarn compile
 yarn compile:zk
 
 # Test: all packages (unit tests: offline simulator-only)
-# Requires 'yarn compile', then 'yarn compile:signet-contract:zk' (the test caller suite reads the signet verifier keys).
+# Requires 'yarn compile:zk' (a superset of 'yarn compile'): the test caller's unit tests read zk verifier keys.
 yarn test
 
 # Build: all packages

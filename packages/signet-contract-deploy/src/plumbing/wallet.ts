@@ -61,6 +61,9 @@ export interface WalletAddresses {
   dust: string;
 }
 
+/** How long the transactions this package builds stay valid, in milliseconds. */
+export const TRANSACTION_TTL_MS = 30 * 60 * 1000;
+
 // The facade balances every submitted transaction with
 // `feesWithMargin(params, FEE_BLOCKS_MARGIN) + additionalFeeOverhead`, so the
 // overhead is burned as dust on EVERY transaction. It compensates for the
@@ -117,8 +120,8 @@ export interface DustShortfall {
 
 // A facade refusal that names its shortfall does so as "(have X, need Y)":
 // the dust-registration refusal ("Insufficient generated dust to cover
-// registration fee (have X, need Y)") does, the balancing refusal
-// ("Insufficient Funds: could not balance dust") names no amount.
+// registration fee (have X, need Y)") does, the balancing refusals (see
+// DUST_STILL_GENERATING) name no amount.
 const DUST_SHORTFALL = /dust\b.*?\(have (\d+), need (\d+)\)/i;
 
 /**
@@ -225,9 +228,6 @@ export function initialiseWalletFacade(
   });
 }
 
-/** How long the transactions this package builds stay valid, in milliseconds. */
-export const TRANSACTION_TTL_MS = 30 * 60 * 1000;
-
 // Dust generates continuously once NIGHT is registered, but a fresh
 // registration takes a few blocks before a spendable balance appears.
 const DUST_POLL_INTERVAL_MS = 5_000;
@@ -270,6 +270,11 @@ export async function waitForSpendableDust(
 const BALANCE_RETRY_INTERVAL_MS = 15_000;
 const BALANCE_RETRY_TIMEOUT_MS = 6 * 60 * 1000;
 
+// Balancing refusals that name no amount but mean the wallet's DUST has not
+// generated enough yet: coin selection declines dust coins too young to cover
+// the fee.
+const DUST_STILL_GENERATING = /could not balance dust|declined the remaining \d+ dust coin/;
+
 /**
  * Run a recipe-building call, retrying while it fails for lack of DUST
  * within {@link BALANCE_RETRY_TIMEOUT_MS}. A refusal naming its shortfall
@@ -296,7 +301,7 @@ async function balanceWhileDustGenerates<T>(
     } catch (error) {
       const message = String(error);
       const insufficientDust =
-        message.includes("could not balance dust") || dustShortfall(error) !== undefined;
+        DUST_STILL_GENERATING.test(message) || dustShortfall(error) !== undefined;
       if (!insufficientDust || Date.now() >= deadline) throw error;
       console.warn("DUST fee balancing failed, retrying:", error);
       const shortfall = dustShortfall(error);

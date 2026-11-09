@@ -58,9 +58,12 @@ function setupTransfer() {
 }
 
 describe("transferNight fee retries", () => {
-  it("reserves NIGHT once and retries only DUST balancing", async () => {
+  it.each([
+    "Wallet.InsufficientFunds: Insufficient Funds: could not balance dust",
+    "Wallet.InsufficientFunds: Insufficient Funds: the configured coin selection declined the remaining 5 dust coin(s)",
+  ])("reserves NIGHT once and retries only DUST balancing after: %s", async (message) => {
     const { keys, address, state, transfer, facade, wallet } = setupTransfer();
-    const error = new Error("Wallet.InsufficientFunds: Insufficient Funds: could not balance dust");
+    const error = new Error(message);
     facade.balanceUnprovenTransaction.mockRejectedValueOnce(error);
     const result = transferNight(wallet, keys, state, address, "undeployed", 124_999_999_999_998n);
     await vi.advanceTimersByTimeAsync(15_000);

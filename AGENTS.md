@@ -178,8 +178,9 @@ exception for that specific case.
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
   compile is `--skip-zk` (fast; enough for typecheck); run
   `compile:zk` only when proving keys are actually needed (real deploys,
-  signet-contract's `build`, and the test caller's simulator tests, which
-  read the signet contract's verifier keys after `compile:signet-contract:zk`). The root `yarn compile:zk` is a SUPERSET of
+  signet-contract's `build`, and the test caller's unit tests, which read
+  the signet contract's and its own verifier keys: run `yarn compile:zk`
+  before `yarn test`). The root `yarn compile:zk` is a SUPERSET of
   `yarn compile`: it runs `yarn compile` over every member first, then each
   member's `compile:zk`, so members with no `compile:zk` script still get
   their `src/managed/`. Keep it that way: a root `compile:zk` that covers only
