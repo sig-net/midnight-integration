@@ -111,6 +111,13 @@ export interface WalletFacadeOptions {
    * {@link defaultAdditionalFeeOverhead} for the facade's network.
    */
   additionalFeeOverhead?: bigint;
+  /**
+   * Whether the DUST wallet starts at the chain's Ledger 9 fork, leaving the
+   * Ledger 8 DUST events unread and absent from its transaction history.
+   * Defaults to true; pass false for a wallet that must replay DUST from
+   * genesis.
+   */
+  skipLedgerV8DustHistory?: boolean;
 }
 
 /** The DUST a facade refusal reports holding and needing, in base units. */
@@ -231,6 +238,7 @@ export function initialiseWalletFacade(
       const dustConfiguration: DefaultDustConfiguration & SyncService.DefaultSyncConfiguration = {
         ...cfg,
         batchUpdates: { size: SYNC_BATCH_SIZE },
+        skipLedgerV8DustHistory: options.skipLedgerV8DustHistory ?? true,
       };
       return DustWallet(dustConfiguration).startWithSeed(
         keys.seeds.dust,
