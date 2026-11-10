@@ -96,7 +96,6 @@ const NETWORKS_WITHOUT_MPC_ROOT_KEY: readonly DeployedNetwork[] = [
 ];
 // The deployed networks with no MPC output cache published yet.
 const NETWORKS_WITHOUT_OUTPUT_CACHE: readonly DeployedNetwork[] = [
-  MidnightNetwork.Preview,
   MidnightNetwork.Preprod,
   MidnightNetwork.Mainnet,
 ];
@@ -132,6 +131,12 @@ describe("getMpcOutputCacheUrl", () => {
   it("publishes the stagenet cache down to the MPC's object prefix", () => {
     expect(getMpcOutputCacheUrl(MidnightNetwork.Stagenet)).toBe(
       "https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet",
+    );
+  });
+
+  it("publishes the preview cache down to the dev MPC's object prefix", () => {
+    expect(getMpcOutputCacheUrl(MidnightNetwork.Preview)).toBe(
+      "https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet",
     );
   });
 

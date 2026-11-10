@@ -190,7 +190,10 @@ export function getResponderContractAddress(networkId: DeployedNetwork): string 
 const mpcOutputCacheUrls: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Stagenet]:
     "https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet",
-  [MidnightNetwork.Preview]: "",
+  // The dev MPC serves Preview, and its output storage is configured with
+  // this bucket and prefix.
+  [MidnightNetwork.Preview]:
+    "https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
 };
