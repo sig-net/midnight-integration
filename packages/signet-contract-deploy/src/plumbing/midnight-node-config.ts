@@ -38,9 +38,14 @@ export type Endpoints = Omit<MidnightNodeConfig, "networkId">;
 /** Endpoint of the locally run proof server. */
 export const LOCAL_PROOF_SERVER = "http://127.0.0.1:6300";
 
-// Default endpoints per network. Undeployed is the local standalone stack
-// (Docker containers) run during development.
-/** Baseline endpoints per network, before any environment override. */
+// Undeployed is the local standalone stack (Docker containers) run during
+// development. Preprod and mainnet are served by Blockfrost, which answers
+// only requests carrying a project token as a `project_id` query parameter.
+/**
+ * Baseline endpoints per network, before any environment override. The
+ * preprod and mainnet entries name the Blockfrost hosts without a token, so
+ * a run against either sets the URL overrides with `?project_id=<token>`.
+ */
 export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
   [MidnightNetwork.Undeployed]: {
     indexerUrl: "http://127.0.0.1:8088/api/v4/graphql",
@@ -55,23 +60,24 @@ export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
   [MidnightNetwork.Preprod]: {
-    indexerUrl: "https://indexer.preprod.midnight.network/api/v4/graphql",
-    indexerWsUrl: "wss://indexer.preprod.midnight.network/api/v4/graphql/ws",
-    nodeUrl: "https://rpc.preprod.midnight.network",
+    indexerUrl: "https://midnight-preprod.blockfrost.io/api/v0",
+    indexerWsUrl: "wss://midnight-preprod.blockfrost.io/api/v0/ws",
+    nodeUrl: "https://rpc.midnight-preprod.blockfrost.io",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
   [MidnightNetwork.Mainnet]: {
-    indexerUrl: "https://indexer.mainnet.midnight.network/api/v4/graphql",
-    indexerWsUrl: "wss://indexer.mainnet.midnight.network/api/v4/graphql/ws",
-    nodeUrl: "https://rpc.mainnet.midnight.network",
+    indexerUrl: "https://midnight-mainnet.blockfrost.io/api/v0",
+    indexerWsUrl: "wss://midnight-mainnet.blockfrost.io/api/v0/ws",
+    nodeUrl: "https://rpc.midnight-mainnet.blockfrost.io",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
 };
 
 /**
  * Faucet URLs per test network, for the fund-your-wallet hint: the
- * Nethermind-hosted Midnight faucets for preview and preprod. Mainnet carries real value and has no faucet, and the local
- * standalone chain funds via genesis, so neither has an entry. The
+ * Nethermind-hosted Midnight faucets for preview and preprod. Mainnet carries
+ * real value and has no faucet, and the local standalone chain funds via
+ * genesis, so neither has an entry. The
  * MIDNIGHT_FAUCET_URL environment variable overrides any entry and supplies
  * one where there is none (see {@link getFaucetUrl}), and without either the
  * hint degrades to a generic "fund via the network's faucet".
@@ -111,10 +117,11 @@ export function indexerWsUrlFromIndexerUrl(indexerUrl: string): string {
 }
 
 /**
- * Read a {@link MidnightNodeConfig} from the environment. Every network has
- * complete built-in endpoints, so with nothing set this yields the local
- * "undeployed" stack, and `NETWORK_ID` alone is enough to reach a deployed
- * network.
+ * Read a {@link MidnightNodeConfig} from the environment. With nothing set
+ * this yields the local "undeployed" stack, and `NETWORK_ID` alone is enough
+ * to reach preview. Preprod and mainnet also need the node and indexer URL
+ * overrides, each carrying a Blockfrost project token (see
+ * {@link DEFAULT_ENDPOINTS}).
  *
  * Parse flow:
  * 1. `NETWORK_ID` (default "undeployed", validated against {@link NETWORK_IDS})
