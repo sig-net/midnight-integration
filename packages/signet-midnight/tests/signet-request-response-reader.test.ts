@@ -289,6 +289,26 @@ describe("getSignatureRequest", () => {
     });
     await expect(reader.getSignatureRequest(REQUEST_ID_HEX)).rejects.toThrow(/is it deployed/);
   });
+
+  it("names the requester when its state does not decode", async () => {
+    const serialized = requesterRead().contractState.serialize();
+    const truncated = SerializedContractState.fromBytes(
+      "v9",
+      serialized.subarray(0, serialized.length - 8),
+    );
+    const reader = new SignetRequestResponseReader({
+      requesterContractAddress: REQUESTER_ADDRESS,
+      requesterRequestsPath: [0],
+      responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
+      publicDataProvider: {
+        queryContractState: () => Promise.resolve({ contractState: truncated }),
+      },
+      eventSource: { streamSignetEvents: () => streamOf([]) },
+    });
+    await expect(reader.getSignatureRequest(REQUEST_ID_HEX)).rejects.toThrow(
+      `the "v9" state of requester contract '${REQUESTER_ADDRESS}' does not decode as a ledger-9 contract state`,
+    );
+  });
 });
 
 describe("getSignatureRespondedEvents", () => {
