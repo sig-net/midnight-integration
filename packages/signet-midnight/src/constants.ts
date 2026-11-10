@@ -97,7 +97,10 @@ const mpcRootPublicKeys: Record<DeployedNetwork, string> = {
     // Canonical form of the signet.js TESTNET root key:
     // secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5
     "0x047dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d8432847f591ab25ca454effb522ec2eaf04b7e1c83ba65ae731ea98dd52eb7d458dd4",
-  [MidnightNetwork.Preview]: "",
+  [MidnightNetwork.Preview]:
+    // Canonical form of the signet.js TESTNET_DEV root key:
+    // secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq
+    "0x04cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61ca3e59da1c194aa90108098a9e5cdc55d3b3297cdefbc085ffafd0f2c34ae61a",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
 };
@@ -125,8 +128,8 @@ export function getMpcRootPublicKey(networkId: DeployedNetwork): string {
 // singleton is deployed there. An empty string means "not yet deployed or
 // published" and makes getSignetContractAddress throw for that network.
 const signetContractAddresses: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]: "d2a2419b5f296dae40c5681840b660f5ebab6cbd21c107e05e0464045b589517",
-  [MidnightNetwork.Preview]: "",
+  [MidnightNetwork.Stagenet]: "",
+  [MidnightNetwork.Preview]: "2b0f9ef9fe7e6d79628a12d245ae0d7efaaaeeca360d9f5f3e13214a5c325013",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
 };
@@ -154,8 +157,8 @@ export function getSignetContractAddress(networkId: DeployedNetwork): string {
 // deployed there. An empty string means "not yet deployed or published" and
 // makes getResponderContractAddress throw for that network.
 const responderContractAddresses: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]: "299a0470a00a538c81edc7b15da85864f828380728741211ae4d5e365d4ba9f4",
-  [MidnightNetwork.Preview]: "",
+  [MidnightNetwork.Stagenet]: "",
+  [MidnightNetwork.Preview]: "1616a3cf33ffc2c4678323150374b89a18807335bcbabd31621c56e0d3c0d203",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
 };

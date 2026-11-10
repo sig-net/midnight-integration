@@ -85,9 +85,24 @@ describe("asciiUnpadded", () => {
 // constant must be that very key in the canonical spelling.
 const STAGENET_MPC_ROOT_KEY_NEAR_FORM =
   "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5";
-// The deployed networks whose counterparty values are not published yet.
-const UNPUBLISHED_NETWORKS: readonly DeployedNetwork[] = [
+// The preview MPC root key as the MPC operators publish it (NEAR form), the
+// signet.js TESTNET_DEV key.
+const PREVIEW_MPC_ROOT_KEY_NEAR_FORM =
+  "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
+// The deployed networks with no MPC root key published yet.
+const NETWORKS_WITHOUT_MPC_ROOT_KEY: readonly DeployedNetwork[] = [
+  MidnightNetwork.Preprod,
+  MidnightNetwork.Mainnet,
+];
+// The deployed networks with no MPC output cache published yet.
+const NETWORKS_WITHOUT_OUTPUT_CACHE: readonly DeployedNetwork[] = [
   MidnightNetwork.Preview,
+  MidnightNetwork.Preprod,
+  MidnightNetwork.Mainnet,
+];
+// The deployed networks with no protocol contract address published.
+const NETWORKS_WITHOUT_CONTRACTS: readonly DeployedNetwork[] = [
+  MidnightNetwork.Stagenet,
   MidnightNetwork.Preprod,
   MidnightNetwork.Mainnet,
 ];
@@ -99,9 +114,18 @@ describe("getMpcRootPublicKey", () => {
     expect(published).toBe(normaliseSecp256k1PublicKey(STAGENET_MPC_ROOT_KEY_NEAR_FORM));
   });
 
-  it.each(UNPUBLISHED_NETWORKS)("throws for %s, whose key is not published yet", (network) => {
-    expect(() => getMpcRootPublicKey(network)).toThrow(/no MPC root public key published/);
+  it("publishes the preview key in canonical 0x04 uncompressed SEC1 hex", () => {
+    const published = getMpcRootPublicKey(MidnightNetwork.Preview);
+    expect(published).toMatch(/^0x04[0-9a-f]{128}$/);
+    expect(published).toBe(normaliseSecp256k1PublicKey(PREVIEW_MPC_ROOT_KEY_NEAR_FORM));
   });
+
+  it.each(NETWORKS_WITHOUT_MPC_ROOT_KEY)(
+    "throws for %s, whose key is not published yet",
+    (network) => {
+      expect(() => getMpcRootPublicKey(network)).toThrow(/no MPC root public key published/);
+    },
+  );
 });
 
 describe("getMpcOutputCacheUrl", () => {
@@ -111,18 +135,21 @@ describe("getMpcOutputCacheUrl", () => {
     );
   });
 
-  it.each(UNPUBLISHED_NETWORKS)("throws for %s, whose cache is not published yet", (network) => {
-    expect(() => getMpcOutputCacheUrl(network)).toThrow(/no MPC output cache URL/);
-  });
+  it.each(NETWORKS_WITHOUT_OUTPUT_CACHE)(
+    "throws for %s, whose cache is not published yet",
+    (network) => {
+      expect(() => getMpcOutputCacheUrl(network)).toThrow(/no MPC output cache URL/);
+    },
+  );
 });
 
 describe("getSignetContractAddress", () => {
-  it("publishes the stagenet singleton", () => {
-    expect(getSignetContractAddress(MidnightNetwork.Stagenet)).toMatch(/^[0-9a-f]{64}$/);
+  it("publishes the preview singleton", () => {
+    expect(getSignetContractAddress(MidnightNetwork.Preview)).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it.each(UNPUBLISHED_NETWORKS)(
-    "throws for %s, whose singleton is not published yet",
+  it.each(NETWORKS_WITHOUT_CONTRACTS)(
+    "throws for %s, which has no published singleton",
     (network) => {
       expect(() => getSignetContractAddress(network)).toThrow(/no signet contract address/);
     },
@@ -130,12 +157,12 @@ describe("getSignetContractAddress", () => {
 });
 
 describe("getResponderContractAddress", () => {
-  it("publishes the stagenet responder", () => {
-    expect(getResponderContractAddress(MidnightNetwork.Stagenet)).toMatch(/^[0-9a-f]{64}$/);
+  it("publishes the preview responder", () => {
+    expect(getResponderContractAddress(MidnightNetwork.Preview)).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it.each(UNPUBLISHED_NETWORKS)(
-    "throws for %s, whose responder is not published yet",
+  it.each(NETWORKS_WITHOUT_CONTRACTS)(
+    "throws for %s, which has no published responder",
     (network) => {
       expect(() => getResponderContractAddress(network)).toThrow(
         /no responder contract address published for the '[a-z]+' network yet/,
