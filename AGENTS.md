@@ -49,10 +49,10 @@ Example applications built on these packages (e.g. the ERC20 vault) live in
 from npm.
 
 Run `yarn install` from the repo root — never from inside a member.
-Run `yarn compile` once before `test`, and `yarn compile:zk` before `build`
-(signet-contract's and signet-responder's `build` refuse to run without their
-prover keys): the
-contract packages AND
+Run `yarn compile:zk` (a superset of `yarn compile`) once before `test` and
+`build`: signet-contract's and signet-responder's `build` refuse to run without
+their prover keys, and the test caller's unit tests read the signet contract's
+and its own verifier keys. The contract packages AND
 `packages/signet-midnight` typecheck against their generated `src/managed/`
 output (signet-midnight compiles its Compact module's pure circuits via
 `src/circuits.compact` — skip-zk only, no `compile:zk` script on purpose).
@@ -103,17 +103,17 @@ exception for that specific case.
   unprompted; let them opt in. Before you install, confirm the release is sound: it
   is not deprecated (from the `yarn npm info` above), and after install
   `yarn npm audit` reports no new advisory. The compact toolchain is likewise
-  PINNED, not floating: the launcher (`compact-v0.5.1`) and the compiler
-  (`compactc 0.33.0-rc.2`) are fetched by EXACT URL in the CI/publish workflows,
-  which set `0.33.0-rc.2` as the launcher default; the compile scripts call
+  PINNED, not floating: the launcher (`compact-v0.5.3`) and the compiler
+  (`compactc 0.36.0`) are fetched by EXACT URL in the CI/publish workflows,
+  which set `0.36.0` as the launcher default; the compile scripts call
   `compact compile` against that default, so locally you must pin the same default
-  (`compact update 0.33.0-rc.2`) or your `managed/` output will diverge. The
+  (`compact update 0.36.0`) or your `managed/` output will diverge. The
   launcher tag, the compiler URL, the SHA-256 checksums the workflows verify for
   the two downloads (installer script and compactc zip), the workflow cache
   keys, `COMPACTC_VERSION`, `RUNTIME_VERSION` and every platform hash in
   `COMPILER_BUILDS` in `packages/midnight-serde-conformance/src/toolchain.ts`,
   the npm `@midnightntwrk/*` and `@midnight-ntwrk/*` stack, the image tags in
-  `docker-compose.yaml`, the minocrab rev and `[patch.crates-io]` ledger tags
+  `docker-compose.yaml`, the minocrab rev and `midnight-*` crate versions
   in `packages/signet-responder/minocrab/Cargo.toml` (and its
   `artifacts.sha256`, which a new compactc's `zkir-v3` can move), and the
   README's Prerequisites and Matched set tables are a MATCHED SET — bump them together in one change
@@ -192,9 +192,11 @@ exception for that specific case.
   iteration yields `T`, indexing yields `T | undefined`.
 - **NEVER commit generated compiler output.** Each contract package's
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
-  compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run
-  `compile:zk` only when proving keys are actually needed (real deploys, and
-  the `build` of signet-contract and signet-responder). The root `yarn compile:zk` is a SUPERSET of
+  compile is `--skip-zk` (fast; enough for typecheck); run
+  `compile:zk` only when proving keys are actually needed (real deploys,
+  the `build` of signet-contract and signet-responder, and the test caller's
+  unit tests, which read the signet contract's and its own verifier keys: run
+  `yarn compile:zk` before `yarn test`). The root `yarn compile:zk` is a SUPERSET of
   `yarn compile`: it runs `yarn compile` over every member first, then each
   member's `compile:zk`, so members with no `compile:zk` script still get
   their `src/managed/`. Keep it that way: a root `compile:zk` that covers only
@@ -316,7 +318,8 @@ all of them, `packages/signet-responder` included:
   against the generated `Witnesses<PS>` type.
 - **Simulator test pattern** (see `tests/contract.test.ts`):
   `new Contract(witnesses)` → `await contract.initialState(createConstructorContext(ps, CPK))`
-  → `createCircuitContext(circuitId, sampleContractAddress(), CPK, state, ps)` → await
+  → `createCircuitContext({ circuitId, contractAddress: sampleContractAddress(),
+  coinPublicKeyOrZswapState: CPK, contractState: state, privateState: ps })` → await
   circuits (they are async), threading `result.context` forward → decode with
   `ledger(ctx.callContext.currentQueryContext.state)`. Circuit failures reject the
   promise (`await expect(...).rejects.toThrow(...)`). Pure circuits are synchronous,

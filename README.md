@@ -227,10 +227,10 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
 
    Then tell the compact compiler about the npm packages with its `COMPACT_PATH` environment variable at compile time:
    ```sh
-   COMPACT_PATH=node_modules compact compile --feature-zkir-v3 src/my-contract.compact src/managed/my-contract
+   COMPACT_PATH=node_modules compact compile src/my-contract.compact src/managed/my-contract
    ```
 
-   The Compact toolchain requirements in [Prerequisites](#prerequisites) apply to integrators too: compile with the pinned compiler version (currently `compact update 0.33.0-rc.2`) and always pass `--feature-zkir-v3`, as above.
+   The Compact toolchain requirements in [Prerequisites](#prerequisites) apply to integrators too: compile with the pinned compiler version (currently `compact update 0.36.0`).
 
 3. Declare the required Sig Network protocol state in your ledger (plus recommended deployer identity and initialisation state). The event map can sit at ANY ledger field. Each notification call your contract makes passes the stored request's id beside a notification that carries the map's resolved ledger-tree path (see [The Request Map's Ledger-Tree Path](#the-request-maps-ledger-tree-path)), and the MPC looks the authenticated request up there by that id.
 
@@ -369,7 +369,7 @@ const expectedSigner = deriveEvmAddress(
 
 `responderEventsFromBlock` bounds the event scan the reader runs on every poll, which otherwise walks the Signet responder's whole history. Responses are emitted after their request, so it must not exceed the block in which the oldest request you still expect responses for was submitted: a fresh client takes the tip before its first request, a client resuming earlier requests uses the oldest pending request's block or omits the field. A value too high does not fail, it hides responses. Direct consumers of `streamSignetEvents` pass the same bound as `{ fromBlock }`.
 
-> **mpcRootPublicKey** is the root public key of the MPC network. On a local stack there is no fixed value: this repository's [integration-test setup](packages/integration-tests) generates a fresh `MPC_ROOT_KEY`, prints it during setup and appends it to the repo-root `.env`. For the public networks (stagenet, preview, preprod, mainnet) the fixed values are published in `@sig-net/midnight` via `getMpcRootPublicKey`, as `0x04…` uncompressed SEC1 hex (stagenet's is published, the others are placeholders until each network's key is). Every key entry point (`deriveEvmAddress`, `deriveMidnightResponseKey`, `parseSecp256k1PublicKey`) also accepts NEAR's `secp256k1:<base58>` spelling, the one signet.js and the MPC operators currently publish keys in, and `normaliseSecp256k1PublicKey` converts any spelling to the canonical one.
+> **mpcRootPublicKey** is the root public key of the MPC network. On a local stack there is no fixed value: this repository's [integration-test setup](packages/integration-tests) generates a fresh `MPC_ROOT_KEY`, prints it during setup and appends it to the repo-root `.env`. For the public networks (stagenet, preview, preprod, mainnet) the fixed values are published in `@sig-net/midnight` via `getMpcRootPublicKey`, as `0x04…` uncompressed SEC1 hex (stagenet's and preview's are published, the others are placeholders until each network's key is). Every key entry point (`deriveEvmAddress`, `deriveMidnightResponseKey`, `parseSecp256k1PublicKey`) also accepts NEAR's `secp256k1:<base58>` spelling, the one signet.js and the MPC operators currently publish keys in, and `normaliseSecp256k1PublicKey` converts any spelling to the canonical one.
 >
 > **responderContractAddress** is the address of the deployed Signet responder contract. On a local stack the same setup deploys a fresh responder, prints the address as `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS` and appends it to `.env`. For the public networks the addresses are published in `@sig-net/midnight` via `getResponderContractAddress` (placeholders until each deployment lands).
 
@@ -730,7 +730,7 @@ const amount = checkedTruncationU128(result.amount);
 
 An attested amount at or above 2^128 therefore fails the settle circuit, with a valid signature, at the narrowing: decide in your contract whether that is the outcome you want before choosing `Uint<128>` as the stored type. Off chain, the number is the 32 bytes read little-endian (`bytesToBigint` in `@sig-net/midnight`), not the ABI word.
 
-`checkedTruncationU128` is cheap: measured on the pinned compiler with `zkir-v3 mock-compile -v`, narrowing a bare `Bytes<32>` and writing the result costs 167 rows at k=9, against 4,552 for a byte-by-byte fold and 9,583 for a stdlib `deserialize` split. Inside the test caller's `verifyCheckAndDoubleResponse` the circuit is dominated by signature verification and sits at k=16.
+`checkedTruncationU128` is cheap: measured on the pinned compiler with `zkir-v3 mock-compile -v`, narrowing a bare `Bytes<32>` and writing the result costs 167 rows at k=9, against 4,552 for a byte-by-byte fold and 9,583 for a stdlib `deserialize` split. Inside the test caller's `verifyCheckAndDoubleResponse` the circuit is dominated by signature verification and sits at k=17.
 
 The same builders and readers exist as TypeScript twins under identical names, for composing expected words off-chain (UIs, expected-record builders, tests). The `@sig-net/midnight` test suite keeps them in lockstep with the compiled circuits.
 
@@ -746,7 +746,7 @@ Every change must also pass the linter and the formatter, which CI enforces on e
 
 ## Compiling, Building and Running Unit Tests
 
-Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime, so zk keys are not needed before running them. 
+Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime. One package needs zk output: the test caller's unit tests read the signet contract's and the test caller's own verifier keys, so run `yarn compile:zk` before them. 
 
 From the root of the repository:
 
@@ -768,7 +768,7 @@ yarn compile
 yarn compile:zk
 
 # Test: all packages (unit tests: offline simulator-only)
-# Requires 'yarn compile' to have been run (zk keys not required for unit testing).
+# Requires 'yarn compile:zk' (a superset of 'yarn compile'): the test caller's unit tests read zk verifier keys.
 yarn test
 
 # Build: all packages
@@ -808,7 +808,7 @@ yarn test:signet-midnight     # requires 'yarn compile:signet-midnight'
 yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
 ```
 
-> **NOTE:** A build error about missing prover keys (for example "no prover keys in src/managed/keys") means the package has no zk keys: run `yarn compile:zk` (or the associated `compile:...:zk` script) to generate them. A plain `yarn compile` deletes the keys of every package it recompiles, so run the zk compile again after it.
+> **NOTE:** A build error about missing prover keys (for example "no prover keys in src/managed/keys") means the package has no zk keys: run `yarn compile:zk` (or the associated `compile:...:zk` script) to generate them. A plain `yarn compile` deletes the keys of every package it recompiles, so run the zk compile again after it, before `yarn test` as well.
 
 ## Integration Tests
 
@@ -819,9 +819,9 @@ Two end to end suites run against the local docker stack. The generic suite driv
    ```sh
    corepack enable
    yarn install
-   compact update 0.33.0-rc.2   # Exact version required.
-                                # `compact update` installs/downgrades
-                                # to stable.
+   compact update 0.36.0        # Exact version required.
+                                # A bare `compact update` installs the
+                                # latest stable, whatever it is.
    yarn compile
    ```
 3. Start the local stack (Midnight node, indexer, proof server, anvil EVM) with `docker compose up -d`. The fakenet MPC responder is started automatically by the test setup once the signet contract and the responder are deployed.
@@ -865,12 +865,12 @@ Two guards in the workflows back this flow: a stable tag must point at a commit 
 | ------- | ------| ------  |----------- |
 | Node | ≥ 22.13 (24 recommended) | `node --version` | [nodejs.org](https://nodejs.org) or your version manager (nvm, fnm, …) |
 | Yarn 4 (via Corepack) | 4.x | `corepack enable && yarn --version` | Corepack ships with Node, and the repo's `packageManager` field pins the Yarn version |
-| Compact toolchain | compiler 0.33.0-rc.2, invoked with `--feature-zkir-v3` (see note) | `compact compile --version` → `0.33.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.33.0-rc.2` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)). If the launcher refuses the rc version, use the direct-download recipe in [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| Compact toolchain | compiler 0.36.0 | `compact compile --version` → `0.36.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.36.0` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)) |
 | Rust (via rustup) | pinned per crate in `rust-toolchain.toml` | `cargo --version` | [rustup.rs](https://rustup.rs); `yarn compile:zk` builds signet-responder's zk bundle with it |
 | A docker environment | any recent engine | `docker --version` | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS/Windows) or your distro's engine, with **≥ 16 GB RAM allocated** (see note) |
 | Docker Compose v2 | ≥ 2.x | `docker compose version` | Included with Docker Desktop (plugin package on Linux) |
 
-**NOTE:** every `compact compile` against this stack must pass the `--feature-zkir-v3` flag: it is part of the pinned ledger-9 matched set (compiler, node, indexer, proof server), and output compiled without it is not compatible with that stack. This repository's compile scripts already pass it. Integrators compiling their own contracts must pass it themselves (as shown in the [Integrator Guide](#integrator-guide)).
+**NOTE:** the compiler is part of the pinned ledger-9 matched set (compiler, node, indexer, proof server). Compile your own contracts with exactly that release: the Compact runtime accepts a cross-contract callee only when its compiled verifier keys match the keys deployed on chain.
 
 **NOTE:** the Midnight proof server is quite heavy. It is recommended that you allocate at least 16 GB of RAM to your docker environment, otherwise expect to have to restart the tests as the proof server hangs.
 
@@ -880,14 +880,14 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.26.0-rc.3 | [`packages/*/package.json`](packages) |
-| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.36.0` | [`docker-compose.yaml`](docker-compose.yaml) |
-| Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
-| Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
-| Midnight indexer | 4.4.0-pre-alpha.16 (`l91r3-n2r3` build) | [`docker-compose.yaml`](docker-compose.yaml) |
-| Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
-| `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
-| MinoCrab | `sig-net/minocrab` rev `e13f648`, with its `[patch.crates-io]` ledger tags | [`packages/signet-responder/minocrab/Cargo.toml`](packages/signet-responder/minocrab/Cargo.toml) |
+| `@sig-net/*` npm packages | 0.26.0-rc.8 | [`packages/*/package.json`](packages) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.38.0` | [`docker-compose.yaml`](docker-compose.yaml) |
+| Compact compiler | 0.36.0 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
+| Midnight node | 2.1.101 | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight indexer | 4.4.101 | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight proof server | 9.0.1 | [`docker-compose.yaml`](docker-compose.yaml) |
+| `@midnightntwrk/ledger-v9` | 1.0.1 | [`package.json`](package.json) resolutions |
+| MinoCrab | `sig-net/minocrab` rev `b41babe`, with the `midnight-*` crates it locks (`midnight-ledger-v9` 1.0.1, `midnight-zkir` 3.2.0) | [`packages/signet-responder/minocrab/Cargo.toml`](packages/signet-responder/minocrab/Cargo.toml) |
 
 **NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). The real-EVM integration flow reads the responder's output cache simulation on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), the fakenet twin of the MPC's output storage bucket (see [Output Recovery and Serialisation](#output-recovery-and-serialisation)).
 

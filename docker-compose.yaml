@@ -3,16 +3,14 @@
 # responder. `docker compose up -d`.
 #
 # The three midnight image tags are a MATCHED SET on the ledger-9 line: the
-# Midnight 2.0 stagenet-beta (Q2) RC3 stack, paired with the npm
-# @midnightntwrk/ledger-v9 version the workspace resolves. Never bump one
-# alone; move the set together with the npm stack. The indexer tag string
-# still reads `l91r3-n2r3` (its build provenance: ledger-v9 1.0.0-rc.3 +
-# node 2.0.0-rc.3); stagenet pairs that same indexer build with node
-# 2.0.0-rc.4 and proof-server 9.0.0-rc.5_experimental, so we do too.
+# release set Midnight mainnet runs (node 2.1.101, indexer 4.4.101, proof
+# server 9.0.1), paired with the npm @midnightntwrk/ledger-v9 version the
+# workspace resolves (1.0.1, the ledger 9.1.0.1 patch proof server 9.0.1
+# ships). Never bump one alone: move the set together with the npm stack.
 services:
   proof-server:
     container_name: 'midnight-proof-server'
-    image: 'midnightntwrk/proof-server:9.0.0-rc.5_experimental'
+    image: 'midnightntwrk/proof-server:9.0.1'
     command: ['midnight-proof-server -v']
     ports:
       - '127.0.0.1:6300:6300'
@@ -20,10 +18,11 @@ services:
       RUST_BACKTRACE: 'full'
 
   indexer:
-    # Pre-alpha tag on purpose: the first published builds that decode
-    # MIP-0002 `Misc` events — no stable ledger-9 indexer release exists yet.
+    # Must decode MIP-0002 `Misc` contract events, which the signet event reader queries.
     container_name: 'midnight-indexer'
-    image: 'midnightntwrk/indexer-standalone:4.4.0-pre-alpha.16-l91r3-n2r3-bridge-and-events-epics-contract-zswap-16c656df'
+    image: 'midnightntwrk/indexer-standalone:4.4.101'
+    # It exits when it starts before the node has produced block 1.
+    restart: 'unless-stopped'
     ports:
       - '127.0.0.1:8088:8088'
     environment:
@@ -42,7 +41,7 @@ services:
 
   node:
     container_name: 'midnight-node'
-    image: 'midnightntwrk/midnight-node:2.0.0-rc.4'
+    image: 'midnightntwrk/midnight-node:2.1.101'
     ports:
       - '127.0.0.1:9944:9944'
     environment:
@@ -82,7 +81,7 @@ services:
     # starts this service. Manual equivalent (and the FAKENET_MANAGED=0 path):
     #   docker compose --profile fakenet up -d --force-recreate fakenet
     container_name: 'fakenet-responder'
-    image: 'ghcr.io/sig-net/fakenet:0.36.0'
+    image: 'ghcr.io/sig-net/fakenet:0.38.0'
     profiles: ['fakenet']
     depends_on:
       indexer:

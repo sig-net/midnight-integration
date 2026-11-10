@@ -124,13 +124,13 @@ const deployContract = async (circuitId: SignetResponderCircuitId) => {
     createConstructorContext(createSignetResponderPrivateState(), CPK),
   );
   const contractAddress = sampleContractAddress();
-  const ctx = createCircuitContext(
+  const ctx = createCircuitContext({
     circuitId,
     contractAddress,
-    CPK,
-    currentContractState,
-    currentPrivateState,
-  );
+    coinPublicKeyOrZswapState: CPK,
+    contractState: currentContractState,
+    privateState: currentPrivateState,
+  });
   return { contract, ctx, contractAddress };
 };
 

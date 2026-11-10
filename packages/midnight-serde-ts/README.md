@@ -12,11 +12,11 @@ const bytes = compactSerialize(RESULT, { ok: true, amount: 4242n }, 128);
 const value = compactDeserialize(RESULT, bytes);
 ```
 
-`compactSerialize(schema, value, length?)` calls `borsh.serialize` and optionally extends the bytes with zeros. A total length smaller than the encoded value throws. `compactDeserialize(schema, bytes)` calls `borsh.deserialize`. Its return type is the native decoder's value union, not schema-derived TypeScript inference.
+`compactSerialize(schema, value, length?)` calls `borsh.serialize` and optionally extends the bytes with zeros. A total length smaller than the encoded value throws. `compactDeserialize(schema, bytes)` calls `borsh.deserialize`, ignores trailing padding, and throws when the bytes differ from what borsh-js itself writes for the value they decode to, such as a Boolean byte other than 0 or 1, which the compiled Compact `deserialize` also rejects. Its return type is the native decoder's value union, not schema-derived TypeScript inference.
 
 Use JavaScript numbers for `u8`, `u16` and `u32`, and bigints for `u64` and `u128`. Fixed arrays use `{ array: { type: "u8", len: 32 } }`. A response schema is native Borsh JSON, for example `{"struct":{"success":"bool","amount":{"array":{"type":"u8","len":32}}}}`, the schema the MPC derives for an ABI `bool` and `uint256`.
 
-There is no Compact descriptor translation, custom integer encoder or compatibility check. Native Borsh schema validation remains enabled.
+There is no Compact descriptor translation or custom integer encoder, and the canonical-encoding check is the only compatibility check. Native Borsh schema validation remains enabled.
 
 ## Compact-compatible types
 
@@ -24,7 +24,7 @@ These are caller responsibilities, documented here without a runtime Compact com
 
 | Compact type | Native Borsh representation | Conditions |
 | --- | --- | --- |
-| `Boolean` | Boolean | Use canonical values and encodings 0 or 1. |
+| `Boolean` | Boolean | Encoded as 0 or 1. `compactDeserialize` rejects any other byte. |
 | `Uint<8>`, `Uint<16>`, `Uint<32>`, `Uint<64>`, `Uint<128>` | `u8`, `u16`, `u32`, `u64`, `u128` | Values must fit the unsigned width. |
 | Other sized or bounded uint | Unsigned integer of exactly the same byte width | That width must be 1, 2, 4, 8 or 16. The value must also satisfy Compact's narrower bound. For example, `Uint<12>` uses `u16` but values must be below 4096. |
 | `Bytes<n>` | Fixed byte array | Exact length. For interoperability with borsh-js 2.0.0, use positive lengths. |
@@ -34,7 +34,7 @@ These are caller responsibilities, documented here without a runtime Compact com
 | `Maybe<T>` | Struct with `is_some: bool`, then `value: T` | Always include the value arm, including when absent. |
 | `Either<A, B>` | Struct with `is_left: bool`, then `left: A`, then `right: B` | Always include both arms. |
 
-The byte layout and the value constraints are separate contracts. The wrappers do not impose Compact integer bounds, field moduli or an allowlist. They use native Borsh behaviour. A successful Borsh round trip does not prove that Compact accepts the value or that the complete bytes are canonical for a chosen `N`.
+The byte layout and the value constraints are separate contracts. The wrappers do not impose Compact integer bounds, field moduli or an allowlist. Apart from rejecting non-canonical encodings on decode, they use native Borsh behaviour. A successful decode does not prove that Compact accepts the value, and it does not check the trailing bytes up to a chosen `N`.
 
 ## Types and behaviours that need care
 
@@ -45,7 +45,7 @@ The byte layout and the value constraints are separate contracts. The wrappers d
 - Signed integers, floats, maps and sets have native Borsh meanings, but this package makes no claim that they correspond to Compact types.
 - Compact `serialize<T, N>` pads to `N`. Pass the optional total output length to the wrapper when padding is needed. The decoding wrapper reads the Borsh value prefix and accepts trailing bytes. It does not validate padding.
 - borsh-js 2.0.0 treats fixed arrays with `len: 0` as dynamic arrays and adds a four-byte prefix. Rust Borsh fixed empty arrays occupy zero bytes. This is an implementation difference, not the fixed-array rule of the Borsh format.
-- borsh-js 2.0.0 accepts non-zero Boolean bytes as true and can silently truncate overflowing integers. Rust's native Boolean decoder rejects byte 2. Do not use malformed-input behaviour as a cross-language contract.
+- borsh-js 2.0.0 decodes any non-zero Boolean byte as true, which `compactDeserialize` rejects, as Rust's native Boolean decoder does. borsh-js can also silently truncate overflowing integers on encode. Do not use malformed-input behaviour as a cross-language contract.
 
 For the EVM response path, `@sig-net/midnight` derives the Borsh schema from the request's ABI output schema (`bool` to `bool`, `uint256` to a 32-byte fixed array holding the value little-endian, `address` to a 20-byte fixed array, `bytesN` to an N-byte fixed array) and calls this package with it. No integer is narrowed off chain: a Compact circuit narrows the `Bytes<32>` with `checkedTruncationU128`. That mapping belongs to the EVM layer, not to these generic Borsh wrappers.
 

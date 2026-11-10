@@ -33,7 +33,7 @@ flow drives all three outcome kinds to in-circuit settlement: `executed`
 ```sh
 corepack enable
 yarn install
-compact update 0.33.0-rc.2   # NEVER a bare `compact update`: see ground rules
+compact update 0.36.0        # NEVER a bare `compact update`: see ground rules
 cargo --version              # Rust via rustup: setup builds signet-responder's MinoCrab bundle
 yarn compile                 # run before the suites
 docker compose up -d          # node :9944, indexer :8088, proof server :6300, anvil :8545
@@ -79,11 +79,9 @@ automatically).
 - Run from the repo root: `yarn test:integration-tests` (or the file-scoped
   `yarn test:integration-tests:signet-caller-e2e`, the setup pipeline runs
   first either way).
-- **NEVER run a bare `compact update`** while no ≥0.33 stable exists: it
-  installs (and DOWNGRADES an active rc default to) stable 0.31.1, whose
-  language 0.23 rejects the contracts' `pragma language_version >= 0.25`.
-  Use `compact update 0.33.0-rc.2`. If the launcher's channel refuses the
-  rc, use the direct-download recipe in `.github/workflows/ci.yml`.
+- **NEVER run a bare `compact update`**: it installs whatever stable is
+  latest, which drifts from the pin and changes every compiled key. Use
+  `compact update 0.36.0`.
 - Background any run that may zk-compile: redirect to a log file and watch
   it. Never sit on a foreground call with a 2-minute timeout.
 - **Never set `STEP_THROUGH=1` in an unattended run**: it pauses for stdin
@@ -104,7 +102,7 @@ contract and the signet responder it appends `MPC_ROOT_KEY`,
 to `.env` (docker compose interpolates the `fakenet` service's environment from
 that file) and runs
 `docker compose --profile fakenet up -d [--force-recreate] fakenet`
-(`ghcr.io/sig-net/fakenet:0.36.0`, built from
+(`ghcr.io/sig-net/fakenet:0.38.0`, built from
 sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 
 - Healthy startup (`docker logs -f fakenet-responder`) prints
@@ -213,7 +211,7 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   `Inputs did not match alignment` in the proof-server logs: a
   circuit/runtime encoding disagreement. Known cause: a 1-variant enum in a
   hashed struct. Keep every enum in hashed structs at ≥ 2 variants.
-- `Wallet.InsufficientFunds` / "could not balance dust" on a young dev
+- `Wallet.InsufficientFunds` for the `dust` token ("declined the remaining N dust coin(s)") on a young dev
   chain is transient (dust generates block by block from genesis NIGHT).
   The deploy plumbing retries the balancing step for ~6 minutes before
   surfacing it.

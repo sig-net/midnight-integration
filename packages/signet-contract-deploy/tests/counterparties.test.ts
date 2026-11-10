@@ -13,7 +13,7 @@ import {
   resolveSignetContractAddress,
 } from "../src/index.ts";
 
-const STAGENET_SIGNET = getSignetContractAddress(MidnightNetwork.Stagenet);
+const PREVIEW_SIGNET = getSignetContractAddress(MidnightNetwork.Preview);
 const STAGENET_MPC_KEY = getMpcRootPublicKey(MidnightNetwork.Stagenet);
 const STAGENET_MPC_KEY_NEAR_FORM =
   "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5";
@@ -38,16 +38,16 @@ describe("findSignetContractAddress / resolveSignetContractAddress", () => {
   const FOUND: readonly ResolutionCase[] = [
     {
       name: "the published singleton on a deployed network with nothing set",
-      env: { NETWORK_ID: "stagenet" },
-      found: { value: STAGENET_SIGNET, origin: CounterpartyOrigin.Published },
+      env: { NETWORK_ID: "preview" },
+      found: { value: PREVIEW_SIGNET, origin: CounterpartyOrigin.Published },
     },
     {
       name: "a set value agreeing with the published one, canonicalised",
       env: {
-        NETWORK_ID: "stagenet",
-        MIDNIGHT_SIGNET_CONTRACT_ADDRESS: `0x${STAGENET_SIGNET.toUpperCase()}`,
+        NETWORK_ID: "preview",
+        MIDNIGHT_SIGNET_CONTRACT_ADDRESS: `0x${PREVIEW_SIGNET.toUpperCase()}`,
       },
-      found: { value: STAGENET_SIGNET, origin: CounterpartyOrigin.Environment },
+      found: { value: PREVIEW_SIGNET, origin: CounterpartyOrigin.Environment },
     },
     {
       name: "a set value on the local stack, which publishes nothing",
@@ -56,7 +56,7 @@ describe("findSignetContractAddress / resolveSignetContractAddress", () => {
     },
     {
       name: "a set value on a deployed network the SDK publishes nothing for yet",
-      env: { NETWORK_ID: "preview", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "cd".repeat(32) },
+      env: { NETWORK_ID: "preprod", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "cd".repeat(32) },
       found: { value: "cd".repeat(32), origin: CounterpartyOrigin.Environment },
     },
     {
@@ -78,12 +78,12 @@ describe("findSignetContractAddress / resolveSignetContractAddress", () => {
   const REFUSED: readonly RefusedCase[] = [
     {
       name: "a set value disagreeing with the published singleton",
-      env: { NETWORK_ID: "stagenet", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "ab".repeat(32) },
-      error: /disagrees with the signet singleton the SDK publishes for "stagenet"/,
+      env: { NETWORK_ID: "preview", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "ab".repeat(32) },
+      error: /disagrees with the signet singleton the SDK publishes for "preview"/,
     },
     {
       name: "a malformed address",
-      env: { NETWORK_ID: "stagenet", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "0xabc" },
+      env: { NETWORK_ID: "preview", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "0xabc" },
       error: /not a 32-byte contract address/,
     },
   ];
@@ -101,8 +101,8 @@ describe("findSignetContractAddress / resolveSignetContractAddress", () => {
     },
     {
       name: "nothing on a deployed network the SDK publishes nothing for yet",
-      env: { NETWORK_ID: "preview" },
-      error: /required on "preview": the SDK publishes no signet singleton for it yet/,
+      env: { NETWORK_ID: "preprod" },
+      error: /required on "preprod": the SDK publishes no signet singleton for it yet/,
     },
   ];
 

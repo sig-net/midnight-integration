@@ -32,6 +32,7 @@ const MANIFEST: &str = "compiler/contract-manifest.json";
 struct Manifest {
     manifest_version: String,
     compiler_version: String,
+    compiler_commit: String,
     language_version: String,
     runtime_version: String,
     compiler: Directory,

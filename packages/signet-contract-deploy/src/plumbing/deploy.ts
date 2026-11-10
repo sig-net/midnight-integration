@@ -24,6 +24,7 @@ import {
   type MidnightNodeConfig,
 } from "./midnight-node-config.ts";
 import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
+import { TRANSACTION_TTL_MS } from "./wallet.ts";
 
 /** Everything needed to perform a contract deploy: which stack to target, and which wallet pays for it. */
 export interface DeployConfig {
@@ -161,9 +162,6 @@ export function makeVacantCompiledContract<C extends Contract.Contract<PS>, PS>(
   return CompiledContract.withCompiledFileAssets(vacant, managedDirPath);
 }
 
-// How long the deploy intent stays valid before it must be re-built.
-const DEPLOY_TTL_MS = 30 * 60 * 1000;
-
 /**
  * Build an UNPROVEN contract-deploy transaction: run the Compact constructor
  * with `constructorArgs`, attach the verifier keys from the compiled assets,
@@ -216,7 +214,7 @@ export async function buildDeployTransaction<C extends Contract.Contract<PS>, PS
   );
 
   const deploy = new ledger.ContractDeploy(contractState);
-  const intent = ledger.Intent.new(new Date(Date.now() + DEPLOY_TTL_MS)).addDeploy(deploy);
+  const intent = ledger.Intent.new(new Date(Date.now() + TRANSACTION_TTL_MS)).addDeploy(deploy);
   const transaction = ledger.Transaction.fromPartsRandomized(
     networkId,
     undefined,

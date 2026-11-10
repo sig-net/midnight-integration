@@ -1,8 +1,12 @@
 // Simulator-level unit tests: the contract runs entirely in-process via
 // @midnight-ntwrk/compact-runtime (no ledger, no network, no proving).
+// Requires `yarn compile:signet-contract:zk` first: the cross-contract call
+// matches the signet contract's verifier keys.
 
 import {
   type CircuitContext,
+  ContractOperation,
+  type ContractState,
   createCircuitContext,
   createConstructorContext,
   sampleContractAddress,
@@ -47,10 +51,11 @@ import {
 } from "../src/index.ts";
 // The signet contract (callee) module: the same one the caller's generated
 // code cross-contract-calls. submitSignatureRequest ends in a call to its
-// signBidirectional, so the simulator needs its state (see
-// signetStateProvider) to execute that path.
+// signBidirectional, so the simulator needs its module and deployed state
+// (see signetCrossContract) to execute that path.
 import * as SignetSigner from "../src/managed/SignetSigner/contract/index.js";
 import { createCallerPrivateState } from "../src/witnesses.ts";
+import { readVerifierKeys } from "./verifier-keys.ts";
 
 /**
  * The single request id in a freshly-submitted caller's index. The `size`
@@ -139,18 +144,40 @@ const SIGNET_CONTRACT_REF = {
 };
 const BLOCK_HASH = "0".repeat(64);
 
+const SIGNET_VERIFIER_KEYS = readVerifierKeys(
+  SignetSigner.circuitSignatures,
+  new URL("../src/managed/SignetSigner/keys/", import.meta.url),
+  "yarn compile:signet-contract:zk",
+);
+
 /**
- * A ContractStateProvider serving the signet contract's initial state to the
- * simulator's cross-contract call: how submitSignatureRequest reaches
- * signBidirectional in-process (no node/indexer). Returns the state for
- * any address: the caller only calls the single sealed signet contract.
+ * The signet contract's deployed state as a cross-contract callee: its
+ * initial state carrying the real verifier keys, which the runtime matches
+ * against the callee module's `expectedVk`.
+ *
+ * @returns The signet contract's state with every operation's verifier key set.
  */
-const signetStateProvider = async () => {
+async function deployedSignetState(): Promise<ContractState> {
   const signet = new SignetSigner.Contract({});
   const { currentContractState } = await signet.initialState(
     createConstructorContext(undefined, CPK),
   );
-  return { getContractState: () => Promise.resolve(currentContractState) };
+  for (const [circuitId, verifierKey] of SIGNET_VERIFIER_KEYS) {
+    const operation = new ContractOperation();
+    operation.verifierKey = verifierKey;
+    currentContractState.setOperation(circuitId, operation);
+  }
+  return currentContractState;
+}
+
+/**
+ * How the simulator reaches the signet contract from submitSignatureRequest
+ * in-process (no node/indexer). Every address resolves to the signet
+ * contract: the caller only calls the single sealed signet contract.
+ */
+const signetCrossContract = {
+  stateProvider: { getContractState: deployedSignetState },
+  moduleProvider: { resolve: () => () => Promise.resolve(SignetSigner) },
 };
 
 // The simulated caller's own contract address: kernel.self() inside the
@@ -211,18 +238,15 @@ const deployUninitialised = async (witnessSecret: Uint8Array = DEPLOYER_SECRET) 
     callerCircuits.deployerCommitment(DEPLOYER_SECRET),
     SIGNET_CONTRACT_REF,
   );
-  const ctx = createCircuitContext(
-    "submitSignatureRequest",
-    CALLER_ADDRESS,
-    CPK,
-    currentContractState,
-    currentPrivateState,
-    await signetStateProvider(),
-    undefined,
-    undefined,
-    undefined,
-    BLOCK_HASH,
-  );
+  const ctx = createCircuitContext({
+    circuitId: "submitSignatureRequest",
+    contractAddress: CALLER_ADDRESS,
+    coinPublicKeyOrZswapState: CPK,
+    contractState: currentContractState,
+    privateState: currentPrivateState,
+    parentBlockHash: BLOCK_HASH,
+    crossContract: signetCrossContract,
+  });
   return { contract, ctx };
 };
 
@@ -273,6 +297,14 @@ describe("initialise", () => {
     const { contract, ctx } = await deployUninitialised(bytes(32, 0xba));
     await expect(contract.circuits.initialise(ctx, MPC_RESPONSE_KEY)).rejects.toThrow(
       /Not the deployer/,
+    );
+  });
+
+  it("refuses the identity point, the ledger field's default", async () => {
+    const { contract, ctx } = await deployUninitialised();
+    const identityPoint = ledger(ctx.callContext.currentQueryContext.state).mpcResponseKey;
+    await expect(contract.circuits.initialise(ctx, identityPoint)).rejects.toThrow(
+      /Response key must not be the identity point/,
     );
   });
 });
@@ -705,15 +737,13 @@ describe("verifyResponse", () => {
     },
   );
 
-  it("decodes any non-0x01 byte as false, per the circuit's Boolean rule", async () => {
+  it("rejects a non-canonical Boolean byte in the compiled deserialize", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    // Pins the compiled deserialize divergence: bytes 0x02..0xff are not
-    // rejected, they decode to false and hit the same failure assert. Raw
-    // on purpose: a Borsh bool encoder never produces this byte.
+    // Raw on purpose: a Borsh bool encoder never produces this byte.
     const nonCanonical = Uint8Array.from([2]);
     const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, nonCanonical);
     await expect(contract.circuits.verifyResponse(ctx, event, nonCanonical)).rejects.toThrow(
-      /Foreign call reported failure/,
+      /2 is greater than 1/,
     );
   });
 

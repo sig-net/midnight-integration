@@ -8,17 +8,17 @@ import { fileURLToPath } from "node:url";
 import runtimePackage from "@midnight-ntwrk/compact-runtime/package.json" with { type: "json" };
 
 /** Release whose compiler binaries define the corpus layout. */
-export const COMPACTC_VERSION = "0.33.0-rc.2";
+export const COMPACTC_VERSION = "0.36.0";
 
 /** Pinned compact-runtime version used by generated circuit JavaScript. */
-export const RUNTIME_VERSION = "0.18.0-rc.1";
+export const RUNTIME_VERSION = "0.21.0";
 
 /** SHA-256 of compactc.bin for each verified build of the pinned release. */
 export const COMPILER_BUILDS: Readonly<Record<string, string>> = {
-  "darwin-x64": "4bed41203507efe207f9b24aac7eeadfc1b7d100f63abfea20688f2e7b4335c7",
-  "linux-arm64": "2abdacfddf1b8ccc85ce6f4317b7a75b9f53641de6df0f387f86819084d10947",
-  "darwin-arm64": "6945dd50bef946f054bca6e2aafa60a07b002e07809dffd3a7389602a627bae5",
-  "linux-x64": "8f1622cb32b4e55343b02eb20ecac47be7f33f86acaf8b5a0cff79d046ddb38d",
+  "darwin-x64": "17cc48e3c9b6d9524d1f3e6e05dcce3c025ce0e2ba5e0f91734043b51b756fa7",
+  "linux-arm64": "d1c0418ebc8e5ca9135099f57cef3b9922f747bb18ac77450d6cc3e7a37c6cfa",
+  "darwin-arm64": "37302a03bfc5656ff3f9d5a5da157ef9239146e496f19f2ec2005fd3cd31b073",
+  "linux-x64": "752be2745abe20a5f039595bc18263d62c03cb03900873b40e8c1d0370bfd86a",
 };
 
 /** Identity of the compiler run that produced a managed fixture. */
@@ -71,7 +71,7 @@ export function verifiedCompiler(): string {
  */
 export function compileFixture(source: string, output: string): CompilationIdentity {
   const compiler = verifiedCompiler();
-  execFileSync(compiler, ["--skip-zk", "--feature-zkir-v3", source, output], { stdio: "pipe" });
+  execFileSync(compiler, ["--skip-zk", source, output], { stdio: "pipe" });
   const identity: CompilationIdentity = {
     release: COMPACTC_VERSION,
     build: `${process.platform}-${process.arch}`,

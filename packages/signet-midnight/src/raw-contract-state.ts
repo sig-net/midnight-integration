@@ -6,8 +6,8 @@ import type { StateValue } from "@midnight-ntwrk/compact-runtime";
 
 /**
  * What the indexer / simulator hands us: a bare `StateValue`, or anything
- * wrapping one under `.state` (e.g. `ChargedState`,
- * `queryContractState(address).data`).
+ * wrapping one under `.state` (e.g. `ChargedState`, a decoded
+ * `queryContractState(address)` read's `data`).
  */
 export type RawContractState = StateValue | { state: StateValue };
 

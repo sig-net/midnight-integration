@@ -24,6 +24,6 @@ here too. Member-specific rules:
 - **Keep the dependency footprint honest.** A dep added to lib is paid by every
   consumer. Heavy deps (wallet SDK, ledger WASM) are fine — that's what lib is for
   — but don't add a dep only one consumer's feature needs.
-- **The proof-provider wrapper is a stopgap.** It exists to graft `lookupKey`
-  onto midnight-js's proving provider — see the JSDoc in
-  `src/midnight-providers.ts` for when it can be deleted.
+- **The proof provider is midnight-js's own.** `createCrossContractProofServerProvider`
+  is `httpClientProofProvider` over a `ZKConfigRegistry`; the wrapper only
+  rejects an empty source list.

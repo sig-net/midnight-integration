@@ -94,6 +94,10 @@ export circuit initialise(responseKey: Secp256k1Point): [] {
     deployerCommitment(deployerSecretKey()) == deployer,
     "Not the deployer"
   );
+  assert(
+    responseKey != default<Secp256k1Point>,
+    "Response key must not be the identity point"
+  );
   initialised.increment(1);
   mpcResponseKey = disclose(responseKey);
 }

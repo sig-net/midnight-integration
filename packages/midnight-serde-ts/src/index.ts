@@ -28,13 +28,20 @@ export function compactSerialize(schema: Schema, value: BorshValue, length?: num
 }
 
 /**
- * Decode using borsh-js, including its native trailing-byte behaviour.
+ * Decode using borsh-js, ignoring trailing padding and rejecting any encoding
+ * borsh-js would not produce itself, such as a Boolean byte other than 0 or 1,
+ * which the compiled Compact deserialize also rejects.
  *
  * @param schema - Native borsh-js schema.
  * @param bytes - Borsh bytes, optionally followed by padding.
  * @returns The value returned by borsh-js.
- * @throws {Error} If Borsh rejects the schema or bytes.
+ * @throws {Error} If Borsh rejects the schema or bytes, or the bytes are not the canonical encoding of the value they decode to.
  */
 export function compactDeserialize(schema: Schema, bytes: Uint8Array): BorshValue {
-  return deserialize(schema, bytes);
+  const value = deserialize(schema, bytes);
+  const canonical = serialize(schema, value);
+  if (!canonical.every((byte, index) => byte === bytes[index])) {
+    throw new Error("Bytes are not the canonical Borsh encoding of the value they decode to");
+  }
+  return value;
 }

@@ -9,7 +9,7 @@ import { fixtureIdentity } from "../src/toolchain.ts";
 
 describe("Borsh and compiled Compact compatibility", () => {
   it("verifies the compiler identity and a non-empty corpus", () => {
-    expect(fixtureIdentity().release).toBe("0.33.0-rc.2");
+    expect(fixtureIdentity().release).toBe("0.36.0");
     expect(CASES.length).toBeGreaterThan(0);
   });
   it.each(CASES)("$name", ({ schema, value, bytes }) => {
@@ -38,8 +38,8 @@ describe("Borsh and compiled Compact compatibility", () => {
   it("records compatibility limits without rejecting Borsh schemas", () => {
     expect(compactSerialize({ option: "u64" }, null)).toHaveLength(1);
     expect(pureCircuits.serNone()).toHaveLength(9);
-    expect(compactDeserialize("bool", Uint8Array.of(2))).toBe(true);
-    expect(pureCircuits.deBool(Uint8Array.of(2))).toBe(false);
+    expect(() => compactDeserialize("bool", Uint8Array.of(2))).toThrow();
+    expect(() => pureCircuits.deBool(Uint8Array.of(2))).toThrow("2 is greater than 1");
     expect(() => pureCircuits.deU12(compactSerialize("u16", 4096))).toThrow();
     expect(compactSerialize({ array: { type: "u8", len: 0 } }, [])).toHaveLength(4);
     expect(pureCircuits.serEmpty()).toEqual(Uint8Array.of(90));

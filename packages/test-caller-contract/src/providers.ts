@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   createCrossContractProofServerProvider,
-  createWalletAndMidnightProvider,
+  createFacadeWalletProviders,
 } from "@midnight-integration/lib";
 import type { MidnightProviders } from "@midnight-ntwrk/midnight-js/types";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
@@ -21,6 +21,7 @@ import {
   type AccountKeys,
   makeCompiledContract,
   type MidnightNodeConfig,
+  TRANSACTION_TTL_MS,
 } from "@sig-net/midnight-contract-deploy";
 
 import { Contract } from "./managed/test-caller-contract/contract/index.js";
@@ -77,7 +78,7 @@ export const callerCompiledContract = makeCompiledContract<
  * Build the midnight-js provider set for the caller.
  *
  * @param facade - A started (and synced) wallet facade — see `withSyncedWalletFacade`.
- * @param keys - The key material of the same wallet, for balancing and signing.
+ * @param keys - The key material of the same wallet, for signing the balancing inputs.
  * @param config - The Midnight network endpoints to run against.
  * @returns The provider set to hand to `findDeployedContract` / `deployContract`.
  */
@@ -87,7 +88,7 @@ export function buildCallerProviders(
   config: MidnightNodeConfig,
 ): CallerProviders {
   // Retrieves the ZK artifacts of a contract needed to create proofs.
-  const zkConfigProvider = new NodeZkConfigProvider<CallerCircuitId>(managedPath);
+  const callerZkConfigProvider = new NodeZkConfigProvider<CallerCircuitId>(managedPath);
 
   // The callee (signet contract) circuits, resolved for the cross-contract
   // proof provider so submitSignatureRequest's whole call tree proves.
@@ -95,8 +96,8 @@ export function buildCallerProviders(
 
   // The wallet, adapted to midnight-js's balancer + submitter interfaces
   // (the facade itself does not implement WalletProvider/MidnightProvider).
-  const walletAndMidnightProvider = createWalletAndMidnightProvider(facade, keys);
-  const accountId = walletAndMidnightProvider.getCoinPublicKey();
+  const { walletProvider, midnightProvider } = createFacadeWalletProviders(facade, keys);
+  const accountId = walletProvider.getCoinPublicKey();
 
   return {
     // Manages the private state of a contract, plus contract-maintenance
@@ -117,21 +118,30 @@ export function buildCallerProviders(
       subscriptionURL: config.indexerWsUrl,
     }),
 
-    zkConfigProvider,
+    zkConfigProvider: callerZkConfigProvider,
 
     // Creates proven, unbalanced transactions (proves the contract-call
     // transcript). Spans the caller AND the signet contract so
     // submitSignatureRequest's cross-contract call resolves keys for the
     // whole call tree.
     proofProvider: createCrossContractProofServerProvider(config.proofServerUrl, [
-      zkConfigProvider,
+      callerZkConfigProvider,
       signetZkConfigProvider,
     ]),
 
     // Creates proven, balanced transactions.
-    walletProvider: walletAndMidnightProvider,
+    walletProvider,
 
     // Submits proven, balanced transactions to the network.
-    midnightProvider: walletAndMidnightProvider,
+    midnightProvider,
+
+    config: { networkId: config.networkId, ttlSeconds: TRANSACTION_TTL_MS / 1000 },
+
+    // The caller's one cross-contract callee is the signet contract it seals,
+    // so every address resolves to the SignetSigner module: the runtime still
+    // refuses a callee whose deployed verifier keys differ from that module's.
+    contractModuleProvider: {
+      resolve: () => () => import("./managed/SignetSigner/contract/index.js"),
+    },
   };
 }

@@ -14,7 +14,7 @@ Both circuits emit unverified posts. Clients verify each one themselves, as the 
 
 ## Where the proving artifacts come from
 
-[`src/signet-responder.compact`](src/signet-responder.compact) is the specification and the source of the JS executor. The `zkir/` and `keys/` the package ships are compiled from [`minocrab/`](minocrab), the same two circuits written in [MinoCrab](https://github.com/sig-net/minocrab), which prove at k=10/11 instead of compactc's k=16. The fee and the proof size are the same.
+[`src/signet-responder.compact`](src/signet-responder.compact) is the specification and the source of the JS executor. The `zkir/` and `keys/` the package ships are compiled from [`minocrab/`](minocrab), the same two circuits written in [MinoCrab](https://github.com/sig-net/minocrab), which prove at k=10/11 instead of compactc's k=17. The fee and the proof size are the same.
 
 `yarn compile:zk` builds that bundle:
 

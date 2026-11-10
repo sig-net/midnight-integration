@@ -106,6 +106,7 @@ done"#,
     for field in [
         "manifest-version",
         "compiler-version",
+        "compiler-commit",
         "compiler",
         "contract",
     ] {
