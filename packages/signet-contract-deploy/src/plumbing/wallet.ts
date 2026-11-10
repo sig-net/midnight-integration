@@ -45,7 +45,7 @@ export type {
 // re-exported so they don't add the ledger package themselves.
 export type { EncPublicKey } from "@midnightntwrk/ledger-v9";
 
-/** The live key material for one account. Reused for signing / balancing. */
+/** The live key material for one account. Reused for starting the facade and signing. */
 export interface AccountKeys {
   /** The per-wallet seeds the facade starts from, as sensitive as the secret keys derived from them below. */
   seeds: WalletSeeds;
@@ -271,8 +271,9 @@ const BALANCE_RETRY_INTERVAL_MS = 15_000;
 const BALANCE_RETRY_TIMEOUT_MS = 6 * 60 * 1000;
 
 // Balancing refusals that name no amount but mean the wallet's DUST has not
-// generated enough yet: coin selection declines dust coins too young to cover
-// the fee.
+// generated enough yet: the default coin selection declines every coin that
+// has generated nothing ("declined the remaining N dust coin(s)"), and the
+// coins it does select fall short of the fee ("could not balance dust").
 const DUST_STILL_GENERATING = /could not balance dust|declined the remaining \d+ dust coin/;
 
 /**
@@ -348,7 +349,7 @@ export async function estimateUnprovenTransactionFee(
  * happens in `finalizeRecipe` via the facade's configured proof server.
  *
  * @param facade - A started (and synced) wallet facade that pays for and submits the transaction.
- * @param keys - The key material of the same wallet, for balancing and signing.
+ * @param keys - The key material of the same wallet, for signing the balancing inputs.
  * @param serializedTransaction - The unproven transaction bytes.
  * @returns The submitted transaction's identifier.
  * @throws {Error} If the wallet still cannot cover fees after the balancing retry
@@ -383,7 +384,7 @@ export async function submitUnprovenTransaction(
  * token), so no token constant is hard-coded.
  *
  * @param facade - A started, synced, dust-generating wallet facade (the funder).
- * @param keys - The funder's key material, for balancing and signing.
+ * @param keys - The funder's key material, for signing the balancing inputs.
  * @param state - The funder's synced state, read for its NIGHT token type.
  * @param toUnshieldedAddress - The recipient's unshielded address (bech32m, network-prefixed).
  * @param networkId - The network both wallets live on (decodes the address).
@@ -579,7 +580,7 @@ async function waitForSyncedStateLogging(
 export interface RegisteredWallet {
   /** The wallet's role name, as logged. */
   readonly label: string;
-  /** The wallet's key material, for balancing and signing. */
+  /** The wallet's key material, for starting the facade and signing. */
   readonly keys: AccountKeys;
   /** The started facade. Later `waitForSyncedState()` calls catch it up incrementally. */
   readonly facade: WalletFacade;

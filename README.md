@@ -730,7 +730,7 @@ const amount = checkedTruncationU128(result.amount);
 
 An attested amount at or above 2^128 therefore fails the settle circuit, with a valid signature, at the narrowing: decide in your contract whether that is the outcome you want before choosing `Uint<128>` as the stored type. Off chain, the number is the 32 bytes read little-endian (`bytesToBigint` in `@sig-net/midnight`), not the ABI word.
 
-`checkedTruncationU128` is cheap: measured on the pinned compiler with `zkir-v3 mock-compile -v`, narrowing a bare `Bytes<32>` and writing the result costs 167 rows at k=9, against 4,552 for a byte-by-byte fold and 9,583 for a stdlib `deserialize` split. Inside the test caller's `verifyCheckAndDoubleResponse` the circuit is dominated by signature verification and sits at k=16.
+`checkedTruncationU128` is cheap: measured on the pinned compiler with `zkir-v3 mock-compile -v`, narrowing a bare `Bytes<32>` and writing the result costs 167 rows at k=9, against 4,552 for a byte-by-byte fold and 9,583 for a stdlib `deserialize` split. Inside the test caller's `verifyCheckAndDoubleResponse` the circuit is dominated by signature verification and sits at k=17.
 
 The same builders and readers exist as TypeScript twins under identical names, for composing expected words off-chain (UIs, expected-record builders, tests). The `@sig-net/midnight` test suite keeps them in lockstep with the compiled circuits.
 

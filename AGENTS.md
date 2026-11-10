@@ -49,10 +49,10 @@ Example applications built on these packages (e.g. the ERC20 vault) live in
 from npm.
 
 Run `yarn install` from the repo root — never from inside a member.
-Run `yarn compile` once before `test`, and `yarn compile:zk` before `build`
-(signet-contract's and signet-responder's `build` refuse to run without their
-prover keys): the
-contract packages AND
+Run `yarn compile:zk` (a superset of `yarn compile`) once before `test` and
+`build`: signet-contract's and signet-responder's `build` refuse to run without
+their prover keys, and the test caller's unit tests read the signet contract's
+and its own verifier keys. The contract packages AND
 `packages/signet-midnight` typecheck against their generated `src/managed/`
 output (signet-midnight compiles its Compact module's pure circuits via
 `src/circuits.compact` — skip-zk only, no `compile:zk` script on purpose).
@@ -318,7 +318,8 @@ all of them, `packages/signet-responder` included:
   against the generated `Witnesses<PS>` type.
 - **Simulator test pattern** (see `tests/contract.test.ts`):
   `new Contract(witnesses)` → `await contract.initialState(createConstructorContext(ps, CPK))`
-  → `createCircuitContext(circuitId, sampleContractAddress(), CPK, state, ps)` → await
+  → `createCircuitContext({ circuitId, contractAddress: sampleContractAddress(),
+  coinPublicKeyOrZswapState: CPK, contractState: state, privateState: ps })` → await
   circuits (they are async), threading `result.context` forward → decode with
   `ledger(ctx.callContext.currentQueryContext.state)`. Circuit failures reject the
   promise (`await expect(...).rejects.toThrow(...)`). Pure circuits are synchronous,

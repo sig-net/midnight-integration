@@ -1,6 +1,6 @@
 // Unit tests for the cross-contract proof-server provider factory. Proving
-// itself needs a running proof server, so the check/prove/lookupKey legs are
-// covered by the integration suite; these cover the offline construction
+// itself needs a running proof server, so the proving legs are covered by the
+// integration suite; these cover the offline construction
 // contract.
 
 import {

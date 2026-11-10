@@ -78,7 +78,7 @@ export const callerCompiledContract = makeCompiledContract<
  * Build the midnight-js provider set for the caller.
  *
  * @param facade - A started (and synced) wallet facade — see `withSyncedWalletFacade`.
- * @param keys - The key material of the same wallet, for balancing and signing.
+ * @param keys - The key material of the same wallet, for signing the balancing inputs.
  * @param config - The Midnight network endpoints to run against.
  * @returns The provider set to hand to `findDeployedContract` / `deployContract`.
  */

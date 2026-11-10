@@ -434,7 +434,10 @@ module Signet {
   // reduces to 0 mod the curve order aborts the circuit rather than returning
   // false, so sift candidate posts off chain first
   // (verifyRespondBidirectionalAttestation). The identity point as
-  // mpcResponseKey always returns false.
+  // mpcResponseKey returns false when the circuit is executed, but that
+  // execution cannot be proved: the curve operations still run in the proved
+  // circuit and fail on it. A contract must therefore refuse the identity
+  // point when it stores its response key.
   export pure circuit verifyRespondBidirectionalAttestationV1(
     respondBidirectionalEvent: RespondBidirectionalEventV1,
     mpcResponseKey: Secp256k1Point

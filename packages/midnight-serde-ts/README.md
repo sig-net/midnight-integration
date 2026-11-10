@@ -12,7 +12,7 @@ const bytes = compactSerialize(RESULT, { ok: true, amount: 4242n }, 128);
 const value = compactDeserialize(RESULT, bytes);
 ```
 
-`compactSerialize(schema, value, length?)` calls `borsh.serialize` and optionally extends the bytes with zeros. A total length smaller than the encoded value throws. `compactDeserialize(schema, bytes)` calls `borsh.deserialize`, ignores trailing padding, and throws when the bytes are not the canonical encoding of the value they decode to, such as a Boolean byte other than 0 or 1, which the compiled Compact `deserialize` also rejects. Its return type is the native decoder's value union, not schema-derived TypeScript inference.
+`compactSerialize(schema, value, length?)` calls `borsh.serialize` and optionally extends the bytes with zeros. A total length smaller than the encoded value throws. `compactDeserialize(schema, bytes)` calls `borsh.deserialize`, ignores trailing padding, and throws when the bytes differ from what borsh-js itself writes for the value they decode to, such as a Boolean byte other than 0 or 1, which the compiled Compact `deserialize` also rejects. Its return type is the native decoder's value union, not schema-derived TypeScript inference.
 
 Use JavaScript numbers for `u8`, `u16` and `u32`, and bigints for `u64` and `u128`. Fixed arrays use `{ array: { type: "u8", len: 32 } }`. A response schema is native Borsh JSON, for example `{"struct":{"success":"bool","amount":{"array":{"type":"u8","len":32}}}}`, the schema the MPC derives for an ABI `bool` and `uint256`.
 
