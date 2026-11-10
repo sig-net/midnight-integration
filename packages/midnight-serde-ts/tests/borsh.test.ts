@@ -40,12 +40,27 @@ describe("native Borsh delegation", () => {
   it.each([-1, 0, 1.5, Number.NaN])("rejects invalid output length %s", (length) => {
     expect(() => compactSerialize("u16", 7, length)).toThrow(RangeError);
   });
-  it("rejects a Boolean byte other than 0 or 1, which borsh-js itself decodes as true", () => {
-    expect(deserialize("bool", Uint8Array.of(2))).toBe(true);
-    expect(() => compactDeserialize("bool", Uint8Array.of(2))).toThrow(
-      "not the canonical Borsh encoding",
-    );
-  });
+  const nonCanonicalBooleans: {
+    name: string;
+    schema: Schema;
+    bytes: Uint8Array;
+    borshValue: BorshValue;
+  }[] = [
+    { name: "alone", schema: "bool", bytes: Uint8Array.of(2), borshValue: true },
+    {
+      name: "ahead of canonical bytes in a struct",
+      schema: { struct: { success: "bool", amount: { array: { type: "u8", len: 4 } } } },
+      bytes: Uint8Array.of(2, 7, 7, 7, 7),
+      borshValue: { success: true, amount: [7, 7, 7, 7] },
+    },
+  ];
+  it.each(nonCanonicalBooleans)(
+    "rejects a Boolean byte other than 0 or 1 $name, which borsh-js itself decodes as true",
+    ({ schema, bytes, borshValue }) => {
+      expect(deserialize(schema, bytes)).toEqual(borshValue);
+      expect(() => compactDeserialize(schema, bytes)).toThrow("not the canonical Borsh encoding");
+    },
+  );
   it("keeps native padding and integer overflow behaviour", () => {
     expect(compactDeserialize("u8", Uint8Array.of(7, 255))).toBe(7);
     expect(compactSerialize("u128", 1n << 128n)).toEqual(new Uint8Array(16));

@@ -61,19 +61,23 @@ describe("transferNight fee retries", () => {
   it.each([
     "Wallet.InsufficientFunds: Insufficient Funds: could not balance dust",
     "Wallet.InsufficientFunds: Insufficient Funds: the configured coin selection declined the remaining 5 dust coin(s)",
+    "Wallet.InsufficientFunds: Insufficient Funds: the configured coin selection declined the remaining 12 dust coin(s)",
   ])("reserves NIGHT once and retries only DUST balancing after: %s", async (message) => {
     const { keys, address, state, transfer, facade, wallet } = setupTransfer();
     const error = new Error(message);
     facade.balanceUnprovenTransaction.mockRejectedValueOnce(error);
+    // The transfer and every balancing attempt expire 30 minutes after the call.
+    const expiry = new Date(Date.now() + 30 * 60 * 1000);
     const result = transferNight(wallet, keys, state, address, "undeployed", 124_999_999_999_998n);
     await vi.advanceTimersByTimeAsync(15_000);
     await result;
     expect(facade.transferTransaction).toHaveBeenCalledOnce();
     expect(facade.transferTransaction.mock.calls.at(0)?.[1].payFees).toBe(false);
+    expect(facade.transferTransaction.mock.calls.at(0)?.[1].ttl).toEqual(expiry);
     expect(facade.balanceUnprovenTransaction).toHaveBeenCalledTimes(2);
     for (const [transaction, options] of facade.balanceUnprovenTransaction.mock.calls) {
       expect(transaction).toBe(transfer.transaction);
-      expect(options.ttl).toBeInstanceOf(Date);
+      expect(options.ttl).toEqual(expiry);
       expect(options.tokenKindsToBalance).toEqual(["dust"]);
     }
     expect(console.warn).toHaveBeenCalledWith("DUST fee balancing failed, retrying:", error);
