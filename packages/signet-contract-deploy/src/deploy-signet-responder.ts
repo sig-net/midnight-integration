@@ -1,5 +1,5 @@
 // Signet-responder deploy flow: the shared protocol-contract flow over the
-// responder's compiled assets. Like the singleton, the responder has no
+// responder's compiled assets. Like the signet signer, the responder has no
 // constructor arguments and an empty private state. Requires its compiled
 // assets to carry keys (its published dist/managed always does; an in-repo
 // checkout needs `yarn compile:signet-responder:zk`).

@@ -1,5 +1,5 @@
 //                                          💡 NOTE 💡
-// This contract drives the Signet Contract @sig-net/midnight-contract for integration purposes.
+// This contract drives the Signet Signer @sig-net/midnight-signer for integration purposes.
 // While informative, for better full integration examples (such as an ERC20 cross chain vault example) see
 // the Midnight Examples repository at: https://github.com/sig-net/midnight-examples.
 //
@@ -32,7 +32,7 @@ export ledger requestLog: List<Bytes<32>>;
 // field 1: the MPC response key for this contract, pinned by initialise().
 export ledger mpcResponseKey: Secp256k1Point;
 
-// field 2: the central signet contract, sealed at deploy. submitSignatureRequest
+// field 2: the central signet signer, sealed at deploy. submitSignatureRequest
 // cross-contract-calls it to emit the request notification the MPC polls.
 sealed ledger signetSigner: SignetSigner;
 
@@ -77,9 +77,9 @@ export pure circuit deployerCommitment(sk: Bytes<32>): Bytes<32> {
   return upgradeFromTransient(transientHash<Vector<2, Bytes<32>>>([pad(32, "signet-caller:deployer:"), sk]));
 }
 
-constructor(initialDeployerCommitment: Bytes<32>, signetContract: SignetSigner) {
+constructor(initialDeployerCommitment: Bytes<32>, initialSignetSigner: SignetSigner) {
   deployer = disclose(initialDeployerCommitment);
-  signetSigner = disclose(signetContract);
+  signetSigner = disclose(initialSignetSigner);
 }
 
 // Tests the two-step configuration: the MPC response key can only be derived
@@ -145,7 +145,7 @@ export circuit submitSignatureRequest(
   signBidirectionalEventMap.insert(requestId, disclose(request));
   requestLog.pushFront(requestId as Bytes<32>);
 
-  // Notify the MPC via the signet contract's notification event: the payload
+  // Notify the MPC via the signet signer's notification event: the payload
   // carries the resolved ledger-tree path of signBidirectionalEventMap. This
   // flat contract stores it at field 3, so the path is [3] at depth 1 (see
   // layout).

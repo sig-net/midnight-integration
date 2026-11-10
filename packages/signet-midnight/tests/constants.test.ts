@@ -10,7 +10,7 @@ import {
   getMpcOutputCacheUrl,
   getMpcRootPublicKey,
   getResponderContractAddress,
-  getSignetContractAddress,
+  getSignerContractAddress,
   MidnightNetwork,
   normaliseSecp256k1PublicKey,
 } from "../src/index.ts";
@@ -131,15 +131,15 @@ describe("getMpcOutputCacheUrl", () => {
   );
 });
 
-describe("getSignetContractAddress", () => {
-  it("publishes the preview singleton", () => {
-    expect(getSignetContractAddress(MidnightNetwork.Preview)).toMatch(/^[0-9a-f]{64}$/);
+describe("getSignerContractAddress", () => {
+  it("publishes the preview signet signer", () => {
+    expect(getSignerContractAddress(MidnightNetwork.Preview)).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it.each(NETWORKS_WITHOUT_CONTRACTS)(
-    "throws for %s, which has no published singleton",
+    "throws for %s, which has no published signet signer",
     (network) => {
-      expect(() => getSignetContractAddress(network)).toThrow(/no signet contract address/);
+      expect(() => getSignerContractAddress(network)).toThrow(/no signet signer address/);
     },
   );
 });

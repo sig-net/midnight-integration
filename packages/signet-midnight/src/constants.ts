@@ -1,6 +1,6 @@
 // MPC routing constants, the padded-ASCII codec for the signet request
 // structs, and the published per-network counterparty values (the MPC root
-// public key and the signet singleton and responder addresses). Field widths mirror
+// public key and the signet signer and responder addresses). Field widths mirror
 // Signet.compact (the wire format: keep in lockstep), and the string
 // constants are the values the MPC network routes on.
 //
@@ -82,7 +82,7 @@ export enum MidnightNetwork {
  * A public, long-lived Midnight network: every named network except the
  * local standalone stack. Only these have fixed protocol counterparty
  * values published in this package (see {@link getMpcRootPublicKey},
- * {@link getSignetContractAddress} and {@link getResponderContractAddress}).
+ * {@link getSignerContractAddress} and {@link getResponderContractAddress}).
  */
 export type DeployedNetwork = Exclude<MidnightNetwork, MidnightNetwork.Undeployed>;
 
@@ -118,30 +118,30 @@ export function getMpcRootPublicKey(networkId: DeployedNetwork): string {
   return publicKey;
 }
 
-// TODO: fill in each network's signet contract address as the signet
-// singleton is deployed there. An empty string means "not yet deployed or
-// published" and makes getSignetContractAddress throw for that network.
-const signetContractAddresses: Record<DeployedNetwork, string> = {
+// TODO: fill in each network's signet signer address as the signet
+// signet signer is deployed there. An empty string means "not yet deployed or
+// published" and makes getSignerContractAddress throw for that network.
+const signerContractAddresses: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Preview]: "2b0f9ef9fe7e6d79628a12d245ae0d7efaaaeeca360d9f5f3e13214a5c325013",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
 };
 
 /**
- * The address of the central signet singleton contract on a deployed
+ * The address of the signet signer on a deployed
  * Midnight network: the contract a requester contract seals at deploy and
  * notifies of its requests. A local standalone stack has no fixed address:
- * each stack deploys its own singleton.
+ * each stack deploys its own signet signer.
  *
  * @param networkId - The deployed network to look up.
- * @returns The network's signet contract address.
- * @throws {Error} When the singleton's address is not yet published in this
+ * @returns The network's signet signer address.
+ * @throws {Error} When the signet signer's address is not yet published in this
  *   package.
  */
-export function getSignetContractAddress(networkId: DeployedNetwork): string {
-  const contractAddress = signetContractAddresses[networkId];
+export function getSignerContractAddress(networkId: DeployedNetwork): string {
+  const contractAddress = signerContractAddresses[networkId];
   if (!contractAddress) {
-    throw new Error(`no signet contract address published for the '${networkId}' network yet`);
+    throw new Error(`no signet signer address published for the '${networkId}' network yet`);
   }
   return contractAddress;
 }

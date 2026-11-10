@@ -2,7 +2,7 @@
 // SignetMiscEvent shapes the feed/reader tests serve through stub event
 // sources. Encode-side only and test-only on purpose: the decode side lives
 // in src/signet-contract-events.ts, and its lockstep against the REAL
-// contract emits is pinned by the signet-contract and signet-responder
+// contract emits is pinned by the signet-signer and signet-responder
 // packages' simulator tests (which run the actual circuits and decode their
 // events). A drift in these fixtures shows up there, not here.
 

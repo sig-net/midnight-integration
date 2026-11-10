@@ -15,7 +15,7 @@ import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 
 import { requireEnv } from "./e2e-env.ts";
 
-/** What to poll the signet contract's notification events for. */
+/** What to poll the signet signer's notification events for. */
 export interface SignetNotificationPoll {
   /** The setup-populated env accumulator (signet address, node config). */
   env: NodeJS.ProcessEnv;
@@ -35,7 +35,7 @@ export interface SignetNotificationPoll {
 }
 
 /**
- * Poll the signet contract's emitted Misc events (read the way the MPC reads
+ * Poll the signet signer's emitted Misc events (read the way the MPC reads
  * them: through the indexer's contract-events query and the shared event
  * decoders) until a SignBidirectionalEvent notification declaring
  * `requestId` and naming `callerAddress` with `requestsPath` appears and
@@ -50,7 +50,7 @@ export interface SignetNotificationPoll {
 export async function pollSignetNotification(
   options: SignetNotificationPoll,
 ): Promise<SignBidirectionalNotification> {
-  const signetAddress = requireEnv(options.env, "MIDNIGHT_SIGNET_CONTRACT_ADDRESS");
+  const signetAddress = requireEnv(options.env, "MIDNIGHT_SIGNER_CONTRACT_ADDRESS");
   const nodeConfig = getMidnightNodeConfig(options.env);
   const eventSource = signetEventSourceFromIndexer({ queryUrl: nodeConfig.indexerUrl });
   const expectedCaller = stripHexPrefix(options.callerAddress).toLowerCase();

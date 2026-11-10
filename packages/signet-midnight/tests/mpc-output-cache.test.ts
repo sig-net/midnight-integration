@@ -14,8 +14,8 @@ import {
 
 const REQUEST_ID = parseRequestIdHex("5c".repeat(32));
 const NETWORK_ID = "preview";
-const SIGNET_CONTRACT_ADDRESS = "ab".repeat(32);
-const OBJECT_PATH_UNDER_PREFIX = `/${NETWORK_ID}/${SIGNET_CONTRACT_ADDRESS}/${REQUEST_ID}.bin`;
+const SIGNER_CONTRACT_ADDRESS = "ab".repeat(32);
+const OBJECT_PATH_UNDER_PREFIX = `/${NETWORK_ID}/${SIGNER_CONTRACT_ADDRESS}/${REQUEST_ID}.bin`;
 const EXPECTED_OBJECT_PATH = `/v1/prefix${OBJECT_PATH_UNDER_PREFIX}`;
 
 let server: Server | undefined;
@@ -67,7 +67,7 @@ describe("MpcOutputCacheReader", () => {
       const reader = new MpcOutputCacheReader({
         cacheUrl: `https://bucket.example/v1/prefix${suffix}`,
         networkId: NETWORK_ID,
-        signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+        signerContractAddress: SIGNER_CONTRACT_ADDRESS,
       });
       expect(reader.objectUrl(REQUEST_ID)).toBe(`https://bucket.example${EXPECTED_OBJECT_PATH}`);
     },
@@ -76,7 +76,7 @@ describe("MpcOutputCacheReader", () => {
   it("defaults to the cache the package publishes for the network", () => {
     const reader = new MpcOutputCacheReader({
       networkId: MidnightNetwork.Preview,
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      signerContractAddress: SIGNER_CONTRACT_ADDRESS,
     });
     expect(reader.objectUrl(REQUEST_ID)).toBe(
       `${getMpcOutputCacheUrl(MidnightNetwork.Preview)}${OBJECT_PATH_UNDER_PREFIX}`,
@@ -94,7 +94,7 @@ describe("MpcOutputCacheReader", () => {
     },
   ])("refuses to default on $networkId", ({ networkId, expected }) => {
     expect(
-      () => new MpcOutputCacheReader({ networkId, signetContractAddress: SIGNET_CONTRACT_ADDRESS }),
+      () => new MpcOutputCacheReader({ networkId, signerContractAddress: SIGNER_CONTRACT_ADDRESS }),
     ).toThrow(expected);
   });
 
@@ -128,7 +128,7 @@ describe("MpcOutputCacheReader", () => {
     const reader = new MpcOutputCacheReader({
       cacheUrl: `${baseUrl}/v1/prefix`,
       networkId: NETWORK_ID,
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      signerContractAddress: SIGNER_CONTRACT_ADDRESS,
     });
     const fetched = await reader.fetchSerializedOutput(REQUEST_ID);
     expect(fetched).toEqual(expected);
@@ -144,7 +144,7 @@ describe("MpcOutputCacheReader", () => {
     const reader = new MpcOutputCacheReader({
       cacheUrl: `${baseUrl}/v1/prefix`,
       networkId: NETWORK_ID,
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      signerContractAddress: SIGNER_CONTRACT_ADDRESS,
     });
     await expect(reader.fetchSerializedOutput(REQUEST_ID)).rejects.toThrow(
       `MPC output cache answered HTTP ${String(status)} for ${baseUrl}${EXPECTED_OBJECT_PATH}: ${body}`,
@@ -155,7 +155,7 @@ describe("MpcOutputCacheReader", () => {
     const reader = new MpcOutputCacheReader({
       cacheUrl: "http://127.0.0.1:1/v1/prefix",
       networkId: NETWORK_ID,
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      signerContractAddress: SIGNER_CONTRACT_ADDRESS,
     });
     await expect(reader.fetchSerializedOutput(REQUEST_ID)).rejects.toThrow();
   });

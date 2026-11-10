@@ -1,7 +1,7 @@
 // Simulator-level unit tests: the contract runs entirely in-process via
 // @midnight-ntwrk/compact-runtime (no ledger, no network, no proving).
-// Requires `yarn compile:signet-contract:zk` first: the cross-contract call
-// matches the signet contract's verifier keys.
+// Requires `yarn compile:signet-signer:zk` first: the cross-contract call
+// matches the signet signer's verifier keys.
 
 import {
   type CircuitContext,
@@ -49,7 +49,7 @@ import {
   pureCircuits as callerCircuits,
   witnesses,
 } from "../src/index.ts";
-// The signet contract (callee) module: the same one the caller's generated
+// The signet signer (callee) module: the same one the caller's generated
 // code cross-contract-calls. submitSignatureRequest ends in a call to its
 // signBidirectional, so the simulator needs its module and deployed state
 // (see signetCrossContract) to execute that path.
@@ -136,10 +136,10 @@ const MPC_RESPONSE_KEY = secp256k1PublicKeyOf(MPC_RESPONSE_SECRET);
 // witness from private state).
 const DEPLOYER_SECRET = bytes(32, 0xd0);
 
-// The signet contract (callee) the caller seals + cross-contract-calls. A
+// The signet signer (callee) the caller seals + cross-contract-calls. A
 // valid sample contract address so the runtime's address checks pass.
 const SIGNET_ADDRESS = sampleContractAddress();
-const SIGNET_CONTRACT_REF = {
+const SIGNET_SIGNER_REF = {
   bytes: Uint8Array.from(Buffer.from(SIGNET_ADDRESS, "hex")),
 };
 const BLOCK_HASH = "0".repeat(64);
@@ -147,15 +147,15 @@ const BLOCK_HASH = "0".repeat(64);
 const SIGNET_VERIFIER_KEYS = readVerifierKeys(
   SignetSigner.circuitSignatures,
   new URL("../src/managed/SignetSigner/keys/", import.meta.url),
-  "yarn compile:signet-contract:zk",
+  "yarn compile:signet-signer:zk",
 );
 
 /**
- * The signet contract's deployed state as a cross-contract callee: its
+ * The signet signer's deployed state as a cross-contract callee: its
  * initial state carrying the real verifier keys, which the runtime matches
  * against the callee module's `expectedVk`.
  *
- * @returns The signet contract's state with every operation's verifier key set.
+ * @returns The signet signer's state with every operation's verifier key set.
  */
 async function deployedSignetState(): Promise<ContractState> {
   const signet = new SignetSigner.Contract({});
@@ -171,9 +171,9 @@ async function deployedSignetState(): Promise<ContractState> {
 }
 
 /**
- * How the simulator reaches the signet contract from submitSignatureRequest
+ * How the simulator reaches the signet signer from submitSignatureRequest
  * in-process (no node/indexer). Every address resolves to the signet
- * contract: the caller only calls the single sealed signet contract.
+ * contract: the caller only calls the single sealed signet signer.
  */
 const signetCrossContract = {
   stateProvider: { getContractState: deployedSignetState },
@@ -236,7 +236,7 @@ const deployUninitialised = async (witnessSecret: Uint8Array = DEPLOYER_SECRET) 
   const { currentContractState, currentPrivateState } = await contract.initialState(
     createConstructorContext<CallerPrivateState>(createCallerPrivateState(witnessSecret), CPK),
     callerCircuits.deployerCommitment(DEPLOYER_SECRET),
-    SIGNET_CONTRACT_REF,
+    SIGNET_SIGNER_REF,
   );
   const ctx = createCircuitContext({
     circuitId: "submitSignatureRequest",
@@ -355,7 +355,7 @@ describe("submitSignatureRequest round-trip", () => {
 
     const [idHex, record] = onlyRequestEntry(typedIndex);
 
-    // The cross-contract call's observable effect: the signet contract
+    // The cross-contract call's observable effect: the signet signer
     // emitted the notification event, its payload declaring the stored
     // request's id and naming THIS caller and the field-3 request map
     // (decoded through the shared library's decoders, the same read the

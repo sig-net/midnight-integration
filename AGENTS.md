@@ -7,9 +7,9 @@ node-modules`). Its members live under `packages/`:
   (the midnight-js provider adapters). The ONLY copy of these files.
 - **`packages/signet-midnight`** — the Midnight-side sig-net integration; the point
   of the repo, and the basis for a signet.js Midnight adapter.
-- **`packages/signet-contract`** / **`packages/test-caller-contract`** — one
-  package per Compact contract, no contract/sdk split: the central signet
-  singleton, and the minimal client that exercises it generically. See
+- **`packages/signet-signer`** / **`packages/test-caller-contract`** — one
+  package per Compact contract, no contract/sdk split: the signet signer,
+  and the minimal client that exercises it generically. See
   "Contract packages" below.
 - **`packages/signet-responder`** — the response contract: the MPC's
   `respond` and `respondBidirectional` circuits. Its `.compact` source is the specification and the JS executor; its
@@ -29,7 +29,7 @@ node-modules`). Its members live under `packages/`:
   pin `@sig-net/midnight`'s field resolver against real compiler output).
   No deploy flow, no notifier, compile is skip-zk only.
 - **`packages/signet-contract-deploy`** — the published, self-contained deploy
-  tooling: the signet-contract and signet-responder deploy flows plus the
+  tooling: the signet-signer and signet-responder deploy flows plus the
   generic deploy/wallet/config plumbing (`src/plumbing/`) every contract
   package's deploy script composes.
 - **`packages/integration-tests`** — everything that needs a running stack:
@@ -50,8 +50,8 @@ from npm.
 
 Run `yarn install` from the repo root — never from inside a member.
 Run `yarn compile:zk` (a superset of `yarn compile`) once before `test` and
-`build`: signet-contract's and signet-responder's `build` refuse to run without
-their prover keys, and the test caller's unit tests read the signet contract's
+`build`: signet-signer's and signet-responder's `build` refuse to run without
+their prover keys, and the test caller's unit tests read the signet signer's
 and its own verifier keys. The contract packages AND
 `packages/signet-midnight` typecheck against their generated `src/managed/`
 output (signet-midnight compiles its Compact module's pure circuits via
@@ -132,7 +132,7 @@ exception for that specific case.
   vitest; entrypoints run under `tsx`. If you think you need a build step, stop and
   ask — a build step is a defect in this workspace, not a missing feature.
   **The one exception is publishing:** the npm-published packages
-  (`@sig-net/midnight`, `@sig-net/midnight-contract`, `@sig-net/midnight-responder`,
+  (`@sig-net/midnight`, `@sig-net/midnight-signer`, `@sig-net/midnight-responder`,
   `@sig-net/midnight-contract-deploy`, `@sig-net/midnight-serde`) additionally emit `dist/` via a
   `tsconfig.build.json`, ship ONLY `dist/` (`files: ["dist"]`; `@sig-net/midnight` also ships `src/*.compact`), and swap their
   entry to it through `publishConfig.exports` at pack time — the monorepo itself
@@ -194,8 +194,8 @@ exception for that specific case.
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
   compile is `--skip-zk` (fast; enough for typecheck); run
   `compile:zk` only when proving keys are actually needed (real deploys,
-  the `build` of signet-contract and signet-responder, and the test caller's
-  unit tests, which read the signet contract's and its own verifier keys: run
+  the `build` of signet-signer and signet-responder, and the test caller's
+  unit tests, which read the signet signer's and its own verifier keys: run
   `yarn compile:zk` before `yarn test`). The root `yarn compile:zk` is a SUPERSET of
   `yarn compile`: it runs `yarn compile` over every member first, then each
   member's `compile:zk`, so members with no `compile:zk` script still get
@@ -287,7 +287,7 @@ exception for that specific case.
   Compact contracts, test files, all of it.
 - **Root scripts that target one member are named `<task>:<package-dir>` — the
   member's directory name in full, never a shorthand.** `compile:test-caller-contract`,
-  `deploy:signet-contract`, `test:integration-tests` — never
+  `deploy:signet-signer`, `test:integration-tests` — never
   `compile:caller` or `deploy:signet`: abbreviations save keystrokes once and
   cost a which-package-was-that lookup forever. (Aggregate scripts like
   `compile` / `build` / `test` take no suffix.) When adding or renaming a root
@@ -326,7 +326,7 @@ all of them, `packages/signet-responder` included:
   called directly via `pureCircuits.<name>(...)`.
 - **The deploy split: generic plumbing in `@sig-net/midnight-contract-deploy`,
   everything contract-specific in the contract's deploy script
-  (`packages/test-caller-contract/deploy.ts`; for signet-contract and
+  (`packages/test-caller-contract/deploy.ts`; for signet-signer and
   signet-responder, `packages/signet-contract-deploy`).** The deploy
   package's deploy/wallet helpers
   (`buildDeployTransaction`, `makeCompiledContract`, `submitUnprovenTransaction`,

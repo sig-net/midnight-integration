@@ -1,9 +1,9 @@
-// Unit tests for the signet contract event decoders: payload decode twins,
+// Unit tests for the signet signer event decoders: payload decode twins,
 // the simulator-log bridge, and the indexer adapter, over fixtures
 // built by the test-local encode twins (signet-event-fixtures.ts). The
 // notification fixtures are packed by the REAL compiled circuit, pinning
 // that pack↔decode lockstep in-process; the event-envelope lockstep against
-// the real contract emits is pinned by the signet-contract and
+// the real contract emits is pinned by the signet-signer and
 // signet-responder packages' simulator tests.
 
 import { createServer, type Server } from "node:http";

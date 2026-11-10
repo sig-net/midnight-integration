@@ -1,19 +1,19 @@
 // The counterparty resolvers: environment over published, canonicalised,
 // disagreement refused. Pure: no network.
 
-import { getMpcRootPublicKey, getSignetContractAddress, MidnightNetwork } from "@sig-net/midnight";
+import { getMpcRootPublicKey, getSignerContractAddress, MidnightNetwork } from "@sig-net/midnight";
 import { describe, expect, it } from "vitest";
 
 import {
   CounterpartyOrigin,
   findMpcRootPublicKey,
-  findSignetContractAddress,
+  findSignerContractAddress,
   type ResolvedCounterparty,
   resolveMpcRootPublicKey,
-  resolveSignetContractAddress,
+  resolveSignerContractAddress,
 } from "../src/index.ts";
 
-const PREVIEW_SIGNET = getSignetContractAddress(MidnightNetwork.Preview);
+const PREVIEW_SIGNET = getSignerContractAddress(MidnightNetwork.Preview);
 const PREVIEW_MPC_KEY = getMpcRootPublicKey(MidnightNetwork.Preview);
 const PREVIEW_MPC_KEY_NEAR_FORM =
   "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
@@ -34,10 +34,10 @@ interface RefusedCase {
   readonly error: RegExp;
 }
 
-describe("findSignetContractAddress / resolveSignetContractAddress", () => {
+describe("findSignerContractAddress / resolveSignerContractAddress", () => {
   const FOUND: readonly ResolutionCase[] = [
     {
-      name: "the published singleton on a deployed network with nothing set",
+      name: "the published signet signer on a deployed network with nothing set",
       env: { NETWORK_ID: "preview" },
       found: { value: PREVIEW_SIGNET, origin: CounterpartyOrigin.Published },
     },
@@ -45,18 +45,18 @@ describe("findSignetContractAddress / resolveSignetContractAddress", () => {
       name: "a set value agreeing with the published one, canonicalised",
       env: {
         NETWORK_ID: "preview",
-        MIDNIGHT_SIGNET_CONTRACT_ADDRESS: `0x${PREVIEW_SIGNET.toUpperCase()}`,
+        MIDNIGHT_SIGNER_CONTRACT_ADDRESS: `0x${PREVIEW_SIGNET.toUpperCase()}`,
       },
       found: { value: PREVIEW_SIGNET, origin: CounterpartyOrigin.Environment },
     },
     {
       name: "a set value on the local stack, which publishes nothing",
-      env: { NETWORK_ID: "undeployed", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "ab".repeat(32) },
+      env: { NETWORK_ID: "undeployed", MIDNIGHT_SIGNER_CONTRACT_ADDRESS: "ab".repeat(32) },
       found: { value: "ab".repeat(32), origin: CounterpartyOrigin.Environment },
     },
     {
       name: "a set value on a deployed network the SDK publishes nothing for yet",
-      env: { NETWORK_ID: "preprod", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "cd".repeat(32) },
+      env: { NETWORK_ID: "preprod", MIDNIGHT_SIGNER_CONTRACT_ADDRESS: "cd".repeat(32) },
       found: { value: "cd".repeat(32), origin: CounterpartyOrigin.Environment },
     },
     {
@@ -66,48 +66,48 @@ describe("findSignetContractAddress / resolveSignetContractAddress", () => {
     },
     {
       name: "a blank value on the local stack",
-      env: { NETWORK_ID: "undeployed", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "  " },
+      env: { NETWORK_ID: "undeployed", MIDNIGHT_SIGNER_CONTRACT_ADDRESS: "  " },
       found: undefined,
     },
   ];
 
   it.each(FOUND)("finds $name", ({ env, found }) => {
-    expect(findSignetContractAddress(env)).toEqual(found);
+    expect(findSignerContractAddress(env)).toEqual(found);
   });
 
   const REFUSED: readonly RefusedCase[] = [
     {
-      name: "a set value disagreeing with the published singleton",
-      env: { NETWORK_ID: "preview", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "ab".repeat(32) },
-      error: /disagrees with the signet singleton the SDK publishes for "preview"/,
+      name: "a set value disagreeing with the published signet signer",
+      env: { NETWORK_ID: "preview", MIDNIGHT_SIGNER_CONTRACT_ADDRESS: "ab".repeat(32) },
+      error: /disagrees with the signet signer the SDK publishes for "preview"/,
     },
     {
       name: "a malformed address",
-      env: { NETWORK_ID: "preview", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "0xabc" },
+      env: { NETWORK_ID: "preview", MIDNIGHT_SIGNER_CONTRACT_ADDRESS: "0xabc" },
       error: /not a 32-byte contract address/,
     },
   ];
 
   it.each(REFUSED)("refuses $name", ({ env, error }) => {
-    expect(() => findSignetContractAddress(env)).toThrow(error);
-    expect(() => resolveSignetContractAddress(env)).toThrow(error);
+    expect(() => findSignerContractAddress(env)).toThrow(error);
+    expect(() => resolveSignerContractAddress(env)).toThrow(error);
   });
 
   const UNRESOLVABLE: readonly RefusedCase[] = [
     {
       name: "nothing on the local stack",
       env: { NETWORK_ID: "undeployed" },
-      error: /required on "undeployed": deploy one with deploySignetContract/,
+      error: /required on "undeployed": deploy one with deploySignetSigner/,
     },
     {
       name: "nothing on a deployed network the SDK publishes nothing for yet",
       env: { NETWORK_ID: "preprod" },
-      error: /required on "preprod": the SDK publishes no signet singleton for it yet/,
+      error: /required on "preprod": the SDK publishes no signet signer for it yet/,
     },
   ];
 
   it.each(UNRESOLVABLE)("resolve fails on $name", ({ env, error }) => {
-    expect(() => resolveSignetContractAddress(env)).toThrow(error);
+    expect(() => resolveSignerContractAddress(env)).toThrow(error);
   });
 });
 

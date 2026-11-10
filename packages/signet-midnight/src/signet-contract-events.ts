@@ -10,7 +10,7 @@
 //                               ++ digest (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32)
 //                               ++ recoveryId (1) ++ zeros (46)
 // The decoders here are the byte-plumbing twins of the emit literals in
-// signet-contract.compact and signet-responder.compact: field order and
+// signet-signer.compact and signet-responder.compact: field order and
 // offsets must match byte-for-byte (each contract's simulator tests pin the
 // lockstep against real emits).
 // Every event is UNAUTHENTICATED: verification is the reader's job. The
@@ -105,7 +105,7 @@ export interface SignetEventSource<TEvent extends SignetMiscEvent = SignetMiscEv
    * yielded before the next page is requested, so a consumer sees progress
    * per page, and leaving the `for await` loop early stops further requests.
    *
-   * @param contractAddress - The signet contract or responder to read events of.
+   * @param contractAddress - The signet signer or responder to read events of.
    * @param options - Bounds on the walk, see {@link SignetEventStreamOptions}.
    * @returns The decoded events, oldest first.
    */
@@ -871,7 +871,7 @@ export function decodeSignetEventNamed<
  * an event that is not a signet event, or that does not decode, is the
  * caller's policy: a responder skips both, an explorer shows both.
  *
- * WARNING: this THROWS on input anyone can put on chain. The signet contract
+ * WARNING: this THROWS on input anyone can put on chain. A signet contract
  * is unauthenticated, so a `SignBidirectionalEvent` with an unsupported
  * version or a zero path depth costs its sender one transaction. A loop over
  * a live stream must catch, or use {@link tryDecodeSignetEvent}.

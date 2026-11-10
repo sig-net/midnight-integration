@@ -1,4 +1,4 @@
-// The operator deploy flow of the protocol contracts, the signet singleton
+// The operator deploy flow of the protocol contracts, the signet signer
 // and the signet responder: builds, balances, proves and submits a
 // contract's deploy transaction using the generic plumbing in ./plumbing.
 // What differs per contract, its compiled assets and private state, arrives

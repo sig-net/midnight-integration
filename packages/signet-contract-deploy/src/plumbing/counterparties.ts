@@ -1,18 +1,18 @@
 // The two protocol counterparty values a requester contract seals for good:
-// the signet singleton it notifies (a deploy-time constructor argument) and
+// the signet signer it notifies (a deploy-time constructor argument) and
 // the MPC root public key its derived accounts and its response key start
 // from (the response key derived from it is pinned at initialise). On a
 // deployed network this SDK publishes both, so a deploy needs neither in its
 // environment, and a value that IS set is checked against the published one:
 // a mismatch would seal an address the real MPC
 // never answers or a key it never signs under. The local standalone stack
-// publishes nothing: its setup deploys a singleton and generates a root key
+// publishes nothing: its setup deploys a signet signer and generates a root key
 // per stack, and passes them through the same environment variables.
 
 import {
   type DeployedNetwork,
   getMpcRootPublicKey,
-  getSignetContractAddress,
+  getSignerContractAddress,
   normaliseSecp256k1PublicKey,
   stripHexPrefix,
 } from "@sig-net/midnight";
@@ -38,7 +38,7 @@ export interface ResolvedCounterparty {
 /** One counterparty value: its variable, its canonical spelling, and what sealing it means. */
 interface CounterpartySpec {
   readonly envVar: string;
-  /** The value's name in messages, e.g. "the signet singleton". */
+  /** The value's name in messages, e.g. "the signet signer". */
   readonly noun: string;
   readonly lookup: (network: DeployedNetwork) => string;
   /** The canonical spelling of an accepted value. Throws on a malformed one. */
@@ -53,7 +53,7 @@ interface CounterpartySpec {
  * The SDK's published value for a network.
  *
  * @param networkId - The network the run resolved.
- * @param lookup - The published-value lookup (`getSignetContractAddress`, `getMpcRootPublicKey`).
+ * @param lookup - The published-value lookup (`getSignerContractAddress`, `getMpcRootPublicKey`).
  * @returns The value, or undefined for the local stack and for a deployed network the SDK
  *   holds no value for yet (the lookup throws there, and "not published yet" is a normal
  *   state for a young network).
@@ -109,15 +109,15 @@ function resolve(
   throw new Error(`${spec.envVar} is required on "${networkId}": ${remedy}.`);
 }
 
-const SIGNET_CONTRACT_ADDRESS: CounterpartySpec = {
-  envVar: "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
-  noun: "the signet singleton",
-  lookup: getSignetContractAddress,
+const SIGNER_CONTRACT_ADDRESS: CounterpartySpec = {
+  envVar: "MIDNIGHT_SIGNER_CONTRACT_ADDRESS",
+  noun: "the signet signer",
+  lookup: getSignerContractAddress,
   canonicalise: (value) => {
     const digits = stripHexPrefix(value);
     if (!/^[0-9a-fA-F]{64}$/.test(digits)) {
       throw new Error(
-        `MIDNIGHT_SIGNET_CONTRACT_ADDRESS is not a 32-byte contract address in hex: "${value}"`,
+        `MIDNIGHT_SIGNER_CONTRACT_ADDRESS is not a 32-byte contract address in hex: "${value}"`,
       );
     }
     return digits.toLowerCase();
@@ -125,37 +125,37 @@ const SIGNET_CONTRACT_ADDRESS: CounterpartySpec = {
   disagreementConsequence:
     "The real MPC answers only the published one, and a requester seals the address at deploy: " +
     "reconcile them before deploying.",
-  localStackRemedy: "deploy one with deploySignetContract and set its address",
+  localStackRemedy: "deploy one with deploySignetSigner and set its address",
 };
 
 /**
- * The signet singleton a requester contract notifies, as 64 lowercase hex
- * digits: `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` when set (it must agree with the
- * singleton the SDK publishes for a deployed network), else that published
- * singleton.
+ * The signet signer a requester contract notifies, as 64 lowercase hex
+ * digits: `MIDNIGHT_SIGNER_CONTRACT_ADDRESS` when set (it must agree with the
+ * signet signer the SDK publishes for a deployed network), else that published
+ * signet signer.
  *
- * @param env - The environment to read `NETWORK_ID` and `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` from.
+ * @param env - The environment to read `NETWORK_ID` and `MIDNIGHT_SIGNER_CONTRACT_ADDRESS` from.
  * @returns The address and its origin, or undefined when neither source supplies one.
- * @throws {Error} If the variable is malformed or disagrees with the published singleton.
+ * @throws {Error} If the variable is malformed or disagrees with the published signet signer.
  */
-export function findSignetContractAddress(
+export function findSignerContractAddress(
   env: Record<string, string | undefined>,
 ): ResolvedCounterparty | undefined {
-  return find(env, SIGNET_CONTRACT_ADDRESS);
+  return find(env, SIGNER_CONTRACT_ADDRESS);
 }
 
 /**
- * {@link findSignetContractAddress}, failing when neither source supplies one.
+ * {@link findSignerContractAddress}, failing when neither source supplies one.
  *
- * @param env - The environment to read `NETWORK_ID` and `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` from.
+ * @param env - The environment to read `NETWORK_ID` and `MIDNIGHT_SIGNER_CONTRACT_ADDRESS` from.
  * @returns The address and its origin.
- * @throws {Error} If the variable is malformed, disagrees with the published singleton, or
- *   is unset on a network the SDK publishes no singleton for.
+ * @throws {Error} If the variable is malformed, disagrees with the published signet signer, or
+ *   is unset on a network the SDK publishes no signet signer for.
  */
-export function resolveSignetContractAddress(
+export function resolveSignerContractAddress(
   env: Record<string, string | undefined>,
 ): ResolvedCounterparty {
-  return resolve(env, SIGNET_CONTRACT_ADDRESS);
+  return resolve(env, SIGNER_CONTRACT_ADDRESS);
 }
 
 const MPC_ROOT_PUBLIC_KEY: CounterpartySpec = {

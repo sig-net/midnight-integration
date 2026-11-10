@@ -1,5 +1,5 @@
-// Signet-contract deploy flow: the shared protocol-contract flow over the
-// signet contract's compiled assets. The contract has no constructor
+// Signet-signer deploy flow: the shared protocol-contract flow over the
+// signet signer's compiled assets. The contract has no constructor
 // arguments (it only emits unauthenticated events: verification is the
 // reader's job) and an empty private state. Requires the contract package's
 // compiled assets to carry keys (its published dist/managed always does; an
@@ -9,13 +9,13 @@ import { type ContractDeployment, deployProtocolContract } from "./deploy-protoc
 import { buildDeployTransaction } from "./plumbing/deploy.ts";
 import type { WalletRegistry } from "./plumbing/wallet.ts";
 import {
-  createSignetContractPrivateState,
-  signetContractCompiledContract,
-} from "./signet-contract-binding.ts";
+  createSignetSignerPrivateState,
+  signetSignerCompiledContract,
+} from "./signet-signer-binding.ts";
 
 /**
- * Deploy the signet contract through {@link deployProtocolContract}, which
- * logs `deployed signet-contract at <address>` on success.
+ * Deploy the signet signer through {@link deployProtocolContract}, which
+ * logs `deployed signet-signer at <address>` on success.
  *
  * @param env - Environment map providing `DEPLOYER_SEED` and the shared
  *   Midnight node configuration (see `getMidnightNodeConfig`).
@@ -28,18 +28,18 @@ import {
  * @throws {Error} If the deploy's fee does not generate in spendable DUST after
  *   registering the wallet's NIGHT, or submission fails.
  */
-export async function deploySignetContract(
+export async function deploySignetSigner(
   env: Record<string, string | undefined> = process.env,
   wallets?: WalletRegistry,
 ): Promise<ContractDeployment> {
   return deployProtocolContract(
-    "signet-contract",
+    "signet-signer",
     (networkId, coinPublicKeyHex) =>
       buildDeployTransaction(
-        signetContractCompiledContract,
+        signetSignerCompiledContract,
         networkId,
         coinPublicKeyHex,
-        createSignetContractPrivateState(),
+        createSignetSignerPrivateState(),
       ),
     env,
     wallets,

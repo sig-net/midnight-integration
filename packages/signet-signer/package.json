@@ -1,10 +1,10 @@
 {
-  "name": "@sig-net/midnight-contract",
+  "name": "@sig-net/midnight-signer",
   "version": "0.26.0-rc.8",
   "repository": {
     "type": "git",
     "url": "https://github.com/sig-net/midnight-integration",
-    "directory": "packages/signet-contract"
+    "directory": "packages/signet-signer"
   },
   "type": "module",
   "description": "The central signet Compact contract on Midnight: integrating contracts notify it of their signature requests through signBidirectional, which emits a contract event the MPC polls. The MPC posts its responses to @sig-net/midnight-responder. src/index.ts is the curated export surface.",
@@ -16,9 +16,9 @@
     "dist"
   ],
   "scripts": {
-    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signet-contract.compact src/managed",
-    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/signet-contract.compact src/managed",
-    "build": "rm -rf dist && ls src/managed/keys/*.prover >/dev/null 2>&1 || { echo 'signet-contract build: no prover keys in src/managed/keys, run `yarn compile:zk` first (compile uses --skip-zk)' >&2; exit 1; } && tsc -p tsconfig.json && tsc -p tsconfig.build.json && mkdir -p dist/managed && cp -R src/managed/contract src/managed/compiler src/managed/zkir src/managed/keys dist/managed/",
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/signet-signer.compact src/managed",
+    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/signet-signer.compact src/managed",
+    "build": "rm -rf dist && ls src/managed/keys/*.prover >/dev/null 2>&1 || { echo 'signet-signer build: no prover keys in src/managed/keys, run `yarn compile:zk` first (compile uses --skip-zk)' >&2; exit 1; } && tsc -p tsconfig.json && tsc -p tsconfig.build.json && mkdir -p dist/managed && cp -R src/managed/contract src/managed/compiler src/managed/zkir src/managed/keys dist/managed/",
     "prepack": "yarn build",
     "test": "vitest run"
   },

@@ -10,8 +10,8 @@ import { type DeployedNetwork, MidnightNetwork } from "./constants.ts";
 
 /** A contract whose per-network addresses constants.ts publishes. */
 export enum PublishedContract {
-  /** The signet singleton, behind `getSignetContractAddress`. */
-  SignetContract = "signet-contract",
+  /** The signet signer, behind `getSignerContractAddress`. */
+  SignetSigner = "signet-signer",
   /** The signet responder, behind `getResponderContractAddress`. */
   SignetResponder = "signet-responder",
 }
@@ -90,7 +90,7 @@ export interface RecordedContractAddress {
 
 /** Each published contract's address table in constants.ts. */
 const ADDRESS_TABLES: Record<PublishedContract, string> = {
-  [PublishedContract.SignetContract]: "signetContractAddresses",
+  [PublishedContract.SignetSigner]: "signerContractAddresses",
   [PublishedContract.SignetResponder]: "responderContractAddresses",
 };
 

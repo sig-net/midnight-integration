@@ -43,7 +43,7 @@ yarn test:integration-tests > /tmp/caller-e2e.log 2>&1 &
 
 Watch the log. No pre-existing `.env` is required: the setup creates it when
 it appends the generated wallet seeds, then appends the fakenet hand-off
-values (`MPC_ROOT_KEY`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`,
+values (`MPC_ROOT_KEY`, `MIDNIGHT_SIGNER_CONTRACT_ADDRESS`,
 `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`). Appends never
 modify existing lines, and a value that conflicts with the shell
 environment is a hard error, never an overwrite. The first run zk-compiles EVERY contract (~10–25 min of
@@ -64,7 +64,7 @@ automatically).
   funding checks run every time.
 - **`/e2e redeploy`**: a circuit changed (any `.compact` edit that alters a
   circuit, struct layout, or the request-id hash domain): comment out
-  `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`,
+  `MIDNIGHT_SIGNER_CONTRACT_ADDRESS`, `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`,
   `MIDNIGHT_CALLER_CONTRACT_ADDRESS`, `MPC_RESPONSE_KEY` and any `CALLER_*`
   resume ids in `.env` (delete the appended lines or comment them; a
   responder-only change needs only its own line out), then run as in
@@ -98,7 +98,7 @@ automatically).
 
 The setup manages the responder by default: after deploying the signet
 contract and the signet responder it appends `MPC_ROOT_KEY`,
-`MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`
+`MIDNIGHT_SIGNER_CONTRACT_ADDRESS` and `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`
 to `.env` (docker compose interpolates the `fakenet` service's environment from
 that file) and runs
 `docker compose --profile fakenet up -d [--force-recreate] fakenet`
@@ -106,8 +106,8 @@ that file) and runs
 sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 
 - Healthy startup (`docker logs -f fakenet-responder`) prints
-  `MidnightMonitor: polling signet contract events at <signet address>`.
-  The responder DISCOVERS requester contracts through the signet contract,
+  `MidnightMonitor: polling signet signer events at <signet address>`.
+  The responder DISCOVERS requester contracts through the signet signer,
   no caller address needed, and posts its responses to the signet
   responder.
 - `FAKENET_MANAGED=0` = you run the responder yourself (responder
@@ -118,7 +118,7 @@ sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
   image bundles — so by default no linking of any kind is involved. Rotate
   the responder's `fakenet-signer/midnight-level-db` aside, set its `.env`
   `MPC_ROOT_KEY` / `MIDNIGHT_WALLET_SEED` (the funded `MPC_RESPONDER_SEED`)
-  / `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` / `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`
+  / `MIDNIGHT_SIGNER_CONTRACT_ADDRESS` / `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`
   from this repo's values, and start it AFTER the deploys print the fresh
   addresses. Only one responder may
   run: the output cache simulation binds :3040.

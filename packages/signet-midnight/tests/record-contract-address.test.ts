@@ -44,7 +44,7 @@ describe("parseDeployedNetwork", () => {
 
 describe("parsePublishedContract", () => {
   it.each([
-    ["signet-contract", PublishedContract.SignetContract],
+    ["signet-signer", PublishedContract.SignetSigner],
     ["signet-responder", PublishedContract.SignetResponder],
   ])("accepts %s", (name, expected) => {
     expect(parsePublishedContract(name)).toBe(expected);
@@ -55,21 +55,21 @@ describe("parsePublishedContract", () => {
     ["a member name instead of a name", "SignetResponder"],
   ])("rejects %s", (_name, name) => {
     expect(() => parsePublishedContract(name)).toThrow(
-      /expected one of signet-contract, signet-responder/,
+      /expected one of signet-signer, signet-responder/,
     );
   });
 });
 
 describe("recordContractAddress", () => {
   // A cut-down constants.ts: a table keyed by the same members, then both
-  // address tables, the singleton's with one row already filled.
+  // address tables, the signet signer's with one row already filled.
   const ROOT_KEYS_TABLE = `const mpcRootPublicKeys: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Preview]: "",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
 };
 `;
-  const ADDRESS_TABLE = `const signetContractAddresses: Record<DeployedNetwork, string> = {
+  const ADDRESS_TABLE = `const signerContractAddresses: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Preview]: "${EXISTING_HEX}",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
@@ -95,8 +95,8 @@ describe("recordContractAddress", () => {
 
   const CASES: Case[] = [
     {
-      name: "fills an empty singleton row",
-      contract: PublishedContract.SignetContract,
+      name: "fills an empty signet signer row",
+      contract: PublishedContract.SignetSigner,
       network: MidnightNetwork.Preprod,
       previousEntry: '[MidnightNetwork.Preprod]: ""',
       entry: `[MidnightNetwork.Preprod]: "${ADDRESS_HEX}"`,
@@ -111,8 +111,8 @@ describe("recordContractAddress", () => {
         RESPONDER_TABLE,
     },
     {
-      name: "replaces a filled singleton row",
-      contract: PublishedContract.SignetContract,
+      name: "replaces a filled signet signer row",
+      contract: PublishedContract.SignetSigner,
       network: MidnightNetwork.Preview,
       previousEntry: `[MidnightNetwork.Preview]: "${EXISTING_HEX}"`,
       entry: `[MidnightNetwork.Preview]: "${ADDRESS_HEX}"`,
@@ -156,7 +156,7 @@ describe("recordContractAddress", () => {
     expect(
       recordContractAddress(
         SOURCE,
-        PublishedContract.SignetContract,
+        PublishedContract.SignetSigner,
         MidnightNetwork.Preprod,
         address,
       ).entry,
@@ -173,7 +173,7 @@ describe("recordContractAddress", () => {
     {
       name: "no address table",
       source: ROOT_KEYS_TABLE,
-      expectedMessage: /no "signetContractAddresses" table/,
+      expectedMessage: /no "signerContractAddresses" table/,
     },
     {
       name: "an unclosed address table",
@@ -184,7 +184,7 @@ describe("recordContractAddress", () => {
       name: "a table without the network's row",
       source:
         ROOT_KEYS_TABLE + "\n" + ADDRESS_TABLE.replace('[MidnightNetwork.Preprod]: "",\n', ""),
-      expectedMessage: /expected exactly one preprod row in signetContractAddresses, found 0/,
+      expectedMessage: /expected exactly one preprod row in signerContractAddresses, found 0/,
     },
     {
       name: "a table with the network's row twice",
@@ -192,7 +192,7 @@ describe("recordContractAddress", () => {
         ROOT_KEYS_TABLE +
         "\n" +
         ADDRESS_TABLE.replace('""', '"",\n  [MidnightNetwork.Preprod]: ""'),
-      expectedMessage: /expected exactly one preprod row in signetContractAddresses, found 2/,
+      expectedMessage: /expected exactly one preprod row in signerContractAddresses, found 2/,
     },
   ];
 
@@ -200,7 +200,7 @@ describe("recordContractAddress", () => {
     expect(() =>
       recordContractAddress(
         source,
-        PublishedContract.SignetContract,
+        PublishedContract.SignetSigner,
         MidnightNetwork.Preprod,
         ADDRESS,
       ),
@@ -216,7 +216,7 @@ describe("recordContractAddress", () => {
       expect(real).not.toContain(UNRECORDED_HEX);
       const rootKeysTable = real.slice(
         real.indexOf("const mpcRootPublicKeys"),
-        real.indexOf("const signetContractAddresses"),
+        real.indexOf("const signerContractAddresses"),
       );
       const networks: DeployedNetwork[] = [
         MidnightNetwork.Preview,

@@ -23,8 +23,8 @@ export interface MpcOutputCacheConfig {
   readonly cacheUrl?: string;
   /** The Midnight network id the MPC serves: the path segment after the prefix. */
   readonly networkId: string;
-  /** The signet singleton the MPC publishes through, 64 hex chars: the segment after the network. */
-  readonly signetContractAddress: string;
+  /** The signet signer the MPC publishes through, 64 hex chars: the segment after the network. */
+  readonly signerContractAddress: string;
 }
 
 /** The networks this package may publish an output cache for: every named one but the local stack. */
@@ -52,7 +52,7 @@ function publishedCacheUrl(networkId: string): string {
 /**
  * Reads attested serialised outputs out of the MPC's output cache. The MPC
  * writes a request's bytes to
- * `<prefix>/<networkId>/<signetContractAddress>/<requestId>.bin` before it
+ * `<prefix>/<networkId>/<signerContractAddress>/<requestId>.bin` before it
  * posts the matching attestation, so once an attestation is on chain a
  * missing object means the cache write was lost or the deployment provides
  * no cache, and an object found before any attestation is still unverified.
@@ -70,7 +70,7 @@ export class MpcOutputCacheReader {
     while (prefixUrl.endsWith("/")) {
       prefixUrl = prefixUrl.slice(0, -1);
     }
-    this.namespaceUrl = `${prefixUrl}/${config.networkId}/${config.signetContractAddress}`;
+    this.namespaceUrl = `${prefixUrl}/${config.networkId}/${config.signerContractAddress}`;
   }
 
   /**

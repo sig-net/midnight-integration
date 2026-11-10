@@ -10,31 +10,31 @@
 import type { MidnightProviders } from "@midnight-ntwrk/midnight-js/types";
 
 import type { Contract } from "./managed/contract/index.js";
-import type { SignetContractPrivateState } from "./witnesses.ts";
+import type { SignetSignerPrivateState } from "./witnesses.ts";
 
 /** The contract's provable circuit ids, straight from the generated contract. */
-export type SignetContractCircuitId = keyof InstanceType<typeof Contract>["provableCircuits"];
+export type SignetSignerCircuitId = keyof InstanceType<typeof Contract>["provableCircuits"];
 
 /**
  * Literal of the private-state storage key. Just a string, but a single-value
  * union so the providers/`findDeployedContract` pairing is enforced by the
  * type system.
  */
-export type SignetContractPrivateStateId = "signet-contract";
+export type SignetSignerPrivateStateId = "signet-signer";
 
 /**
  * Key under which midnight-js persists this contract's private state locally
  * (in whatever private-state store the consumer's provider set uses).
  * Distinct per contract so two clients don't share an entry.
  */
-export const SIGNET_CONTRACT_PRIVATE_STATE_ID: SignetContractPrivateStateId = "signet-contract";
+export const SIGNET_SIGNER_PRIVATE_STATE_ID: SignetSignerPrivateStateId = "signet-signer";
 
-/** The full midnight-js provider set, typed to the signet contract. */
-export type SignetContractProviders = MidnightProviders<
+/** The full midnight-js provider set, typed to the signet signer. */
+export type SignetSignerProviders = MidnightProviders<
   // PCK: the union of the contract's provable circuit names.
-  SignetContractCircuitId,
+  SignetSignerCircuitId,
   // PSI: the private-state storage key literal.
-  SignetContractPrivateStateId,
+  SignetSignerPrivateStateId,
   // PS: the shape of the contract's (empty) private state object.
-  SignetContractPrivateState
+  SignetSignerPrivateState
 >;
