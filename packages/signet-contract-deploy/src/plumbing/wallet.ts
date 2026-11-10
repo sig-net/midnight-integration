@@ -29,6 +29,7 @@ import {
   UnshieldedWallet,
 } from "@midnightntwrk/wallet-sdk-unshielded-wallet";
 import { redactUrlQuery } from "@sig-net/midnight";
+import { Cause, Option, Runtime } from "effect";
 
 import { formatDust } from "./format-dust.ts";
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
@@ -123,7 +124,7 @@ export interface DustShortfall {
 // A facade refusal that names its shortfall does so as "(have X, need Y)":
 // the dust-registration refusal ("Insufficient generated dust to cover
 // registration fee (have X, need Y)") does, the balancing refusals (see
-// DUST_STILL_GENERATING) name no amount.
+// isInsufficientDust) name no amount.
 const DUST_SHORTFALL = /dust\b.*?\(have (\d+), need (\d+)\)/i;
 
 /**
@@ -288,11 +289,35 @@ export async function waitForSpendableDust(
 const BALANCE_RETRY_INTERVAL_MS = 15_000;
 const BALANCE_RETRY_TIMEOUT_MS = 6 * 60 * 1000;
 
-// Balancing refusals that name no amount but mean the wallet's DUST has not
-// generated enough yet: the default coin selection declines every coin that
-// has generated nothing ("declined the remaining N dust coin(s)"), and the
-// coins it does select fall short of the fee ("could not balance dust").
-const DUST_STILL_GENERATING = /could not balance dust|declined the remaining \d+ dust coin/;
+// The dust wallet's balancing runs through `Effect.runPromise`, which rejects
+// with a fiber wrapper holding the typed failure in its cause.
+function walletFailure(error: unknown): unknown {
+  if (!Runtime.isFiberFailure(error)) return error;
+  return Option.getOrElse(
+    Cause.failureOption(error[Runtime.FiberFailureCauseId]),
+    (): unknown => error,
+  );
+}
+
+/**
+ * Whether a facade refusal is the dust wallet's `Wallet.InsufficientFunds`
+ * failure for the `dust` token: the wallet's DUST cannot cover the fee, which
+ * on a fresh registration means it has not generated enough yet.
+ *
+ * @param error - What a facade call rejected with.
+ * @returns Whether the rejection is an insufficient-DUST balancing refusal.
+ */
+export function isInsufficientDust(error: unknown): boolean {
+  const failure = walletFailure(error);
+  return (
+    typeof failure === "object" &&
+    failure !== null &&
+    "_tag" in failure &&
+    failure._tag === "Wallet.InsufficientFunds" &&
+    "tokenType" in failure &&
+    failure.tokenType === "dust"
+  );
+}
 
 /**
  * Run a recipe-building call, retrying while it fails for lack of DUST
@@ -318,9 +343,7 @@ async function balanceWhileDustGenerates<T>(
     try {
       return await build();
     } catch (error) {
-      const message = String(error);
-      const insufficientDust =
-        DUST_STILL_GENERATING.test(message) || dustShortfall(error) !== undefined;
+      const insufficientDust = isInsufficientDust(error) || dustShortfall(error) !== undefined;
       if (!insufficientDust || Date.now() >= deadline) throw error;
       console.warn("DUST fee balancing failed, retrying:", error);
       const shortfall = dustShortfall(error);

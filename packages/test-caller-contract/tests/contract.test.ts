@@ -299,6 +299,14 @@ describe("initialise", () => {
       /Not the deployer/,
     );
   });
+
+  it("refuses the identity point, the ledger field's default", async () => {
+    const { contract, ctx } = await deployUninitialised();
+    const identityPoint = ledger(ctx.callContext.currentQueryContext.state).mpcResponseKey;
+    await expect(contract.circuits.initialise(ctx, identityPoint)).rejects.toThrow(
+      /Response key must not be the identity point/,
+    );
+  });
 });
 
 describe("test-caller-contract ledger shape", () => {

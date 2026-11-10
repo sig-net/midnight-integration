@@ -1,6 +1,8 @@
 import * as ledger from "@midnightntwrk/ledger-v9";
 import { ProtocolVersion, WalletTransaction } from "@midnightntwrk/wallet-sdk-abstractions";
+import { WalletError } from "@midnightntwrk/wallet-sdk-dust-wallet/v2";
 import type { UnprovenTransactionRecipe } from "@midnightntwrk/wallet-sdk-facade";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -57,14 +59,20 @@ function setupTransfer() {
   return { keys, address, state, transfer, facade, wallet: partialWallet as WalletFacade };
 }
 
+// The dust wallet's own refusal as its `balanceTransactions` rejects with it:
+// the typed failure inside the fiber wrapper `Effect.runPromise` throws.
+async function dustBalancingRejection(message: string): Promise<unknown> {
+  const failure = new WalletError.InsufficientFundsError({ message, tokenType: "dust" });
+  return Effect.runPromise(Effect.fail(failure)).catch((rejection: unknown) => rejection);
+}
+
 describe("transferNight fee retries", () => {
   it.each([
-    "Wallet.InsufficientFunds: Insufficient Funds: could not balance dust",
-    "Wallet.InsufficientFunds: Insufficient Funds: the configured coin selection declined the remaining 5 dust coin(s)",
-    "Wallet.InsufficientFunds: Insufficient Funds: the configured coin selection declined the remaining 12 dust coin(s)",
+    "Insufficient Funds: the configured coin selection declined the remaining 5 dust coin(s)",
+    "Insufficient Funds: any wording the dust wallet gives its refusal",
   ])("reserves NIGHT once and retries only DUST balancing after: %s", async (message) => {
     const { keys, address, state, transfer, facade, wallet } = setupTransfer();
-    const error = new Error(message);
+    const error = await dustBalancingRejection(message);
     facade.balanceUnprovenTransaction.mockRejectedValueOnce(error);
     // The transfer and every balancing attempt expire 30 minutes after the call.
     const expiry = new Date(Date.now() + 30 * 60 * 1000);
@@ -97,15 +105,27 @@ describe("transferNight fee retries", () => {
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it.each([
-    { message: "Wallet.InsufficientFunds: Insufficient funds", wait: 0 },
-    {
-      message: "Wallet.InsufficientFunds: Insufficient Funds: could not balance dust",
-      wait: 360_000,
-    },
-  ])("releases NIGHT after terminal balancing failure: $message", async ({ message, wait }) => {
+  it("releases NIGHT at once after a balancing failure that is not a DUST refusal", async () => {
     const { keys, address, state, transfer, facade, wallet } = setupTransfer();
-    const error = new Error(message);
+    // A plain error carrying the dust wallet's wording is not its typed failure.
+    const error = new Error(
+      "Insufficient Funds: the configured coin selection declined the remaining 5 dust coin(s)",
+    );
+    facade.balanceUnprovenTransaction.mockRejectedValue(error);
+    await expect(
+      transferNight(wallet, keys, state, address, "undeployed", 124_999_999_999_998n),
+    ).rejects.toBe(error);
+    expect(facade.balanceUnprovenTransaction).toHaveBeenCalledOnce();
+    expect(facade.revert).toHaveBeenCalledExactlyOnceWith(transfer);
+    expect(facade.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it("releases NIGHT once the DUST refusal outlasts the retry window", async () => {
+    const { keys, address, state, transfer, facade, wallet } = setupTransfer();
+    const error = await dustBalancingRejection(
+      "Insufficient Funds: the configured coin selection declined the remaining 5 dust coin(s)",
+    );
+    const wait = 360_000;
     facade.balanceUnprovenTransaction.mockRejectedValue(error);
     await Promise.all([
       expect(

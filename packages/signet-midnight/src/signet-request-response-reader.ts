@@ -205,8 +205,9 @@ export class SignetRequestResponseReader {
    *
    * @param requestId - The request id to look up.
    * @returns The stored request record.
-   * @throws {Error} When the requester contract has no state or holds no
-   *   request under `requestId` at the configured index path.
+   * @throws {Error} When the requester contract has no state, its state does
+   *   not decode as a ledger-9 contract state, or it holds no request under
+   *   `requestId` at the configured index path.
    */
   async getSignatureRequest(requestId: RequestIdHex): Promise<SignBidirectionalEvent> {
     const cached = this.requestCache.get(requestId);
@@ -216,12 +217,20 @@ export class SignetRequestResponseReader {
     const read = await this.config.publicDataProvider.queryContractState(
       this.config.requesterContractAddress,
     );
-    if (read === null) {
+    if (!read) {
       throw new Error(
         `no state data found for requester contract '${this.config.requesterContractAddress}' (is it deployed?)`,
       );
     }
-    const state = read.contractState.deserialize({ v9: ContractState });
+    let state: ContractState;
+    try {
+      state = read.contractState.deserialize({ v9: ContractState });
+    } catch (cause) {
+      throw new Error(
+        `the "${read.contractState.era}" state of requester contract '${this.config.requesterContractAddress}' does not decode as a ledger-9 contract state`,
+        { cause },
+      );
+    }
     const request = lookupSignetRequestAt(state.data, this.config.requesterRequestsPath, requestId);
     if (request === undefined) {
       throw new Error(
