@@ -90,12 +90,6 @@ const NETWORKS_WITHOUT_MPC_ROOT_KEY: readonly DeployedNetwork[] = [
   MidnightNetwork.Preprod,
   MidnightNetwork.Mainnet,
 ];
-// The deployed networks with no MPC output cache published yet.
-const NETWORKS_WITHOUT_OUTPUT_CACHE: readonly DeployedNetwork[] = [
-  MidnightNetwork.Preprod,
-  MidnightNetwork.Mainnet,
-];
-
 describe("getMpcRootPublicKey", () => {
   it("publishes the preview key in canonical 0x04 uncompressed SEC1 hex", () => {
     const published = getMpcRootPublicKey(MidnightNetwork.Preview);
@@ -112,16 +106,23 @@ describe("getMpcRootPublicKey", () => {
 });
 
 describe("getMpcOutputCacheUrl", () => {
-  it("publishes the preview cache down to the dev MPC's object prefix", () => {
-    expect(getMpcOutputCacheUrl(MidnightNetwork.Preview)).toBe(
-      "https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet",
-    );
-  });
-
-  it.each(NETWORKS_WITHOUT_OUTPUT_CACHE)(
-    "throws for %s, whose cache is not published yet",
-    (network) => {
-      expect(() => getMpcOutputCacheUrl(network)).toThrow(/no MPC output cache URL/);
+  it.each([
+    {
+      network: MidnightNetwork.Preview,
+      expected: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
+    },
+    {
+      network: MidnightNetwork.Preprod,
+      expected: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
+    },
+    {
+      network: MidnightNetwork.Mainnet,
+      expected: "https://storage.googleapis.com/midnight-cache-storage-mainnet/v1",
+    },
+  ] as const)(
+    "publishes the $network cache down to the MPC's object prefix",
+    ({ network, expected }) => {
+      expect(getMpcOutputCacheUrl(network)).toBe(expected);
     },
   );
 });
