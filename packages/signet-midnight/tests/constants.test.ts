@@ -146,13 +146,14 @@ describe("getSignerContractAddress", () => {
 });
 
 describe("getResponderContractAddress", () => {
-  const NETWORKS_WITHOUT_RESPONDER: readonly DeployedNetwork[] = [
+  const NETWORKS_WITH_RESPONDER: readonly DeployedNetwork[] = [
+    MidnightNetwork.Preview,
     MidnightNetwork.Preprod,
-    MidnightNetwork.Mainnet,
   ];
+  const NETWORKS_WITHOUT_RESPONDER: readonly DeployedNetwork[] = [MidnightNetwork.Mainnet];
 
-  it("publishes the preview responder", () => {
-    expect(getResponderContractAddress(MidnightNetwork.Preview)).toMatch(/^[0-9a-f]{64}$/);
+  it.each(NETWORKS_WITH_RESPONDER)("publishes the %s responder", (network) => {
+    expect(getResponderContractAddress(network)).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it.each(NETWORKS_WITHOUT_RESPONDER)(
