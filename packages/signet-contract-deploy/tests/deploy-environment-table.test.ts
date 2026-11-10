@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   deployEnvironmentTable,
+  deployerFundingLine,
   DeploySettingSource,
   getMidnightNodeConfig,
 } from "../src/index.ts";
@@ -77,5 +78,36 @@ describe("deployEnvironmentTable", () => {
       "wss://midnight-preprod.blockfrost.io/api/v0/ws?project_id=REDACTED",
     );
     expect(JSON.stringify(table)).not.toContain("token");
+  });
+});
+
+describe("deployerFundingLine", () => {
+  interface Case {
+    networkId: string;
+    address: string;
+  }
+  const CASES: Case[] = [
+    {
+      networkId: "preview",
+      address: "mn_addr_preview1zn4kwy7yhh03dancq9fde3ndn84c597hg8wculjawjwhe6zndqeqa8hm2l",
+    },
+    {
+      networkId: "preprod",
+      address: "mn_addr_preprod1zn4kwy7yhh03dancq9fde3ndn84c597hg8wculjawjwhe6zndqeqaxftez",
+    },
+    {
+      networkId: "mainnet",
+      address: "mn_addr1zn4kwy7yhh03dancq9fde3ndn84c597hg8wculjawjwhe6zndqeqxjae64",
+    },
+  ];
+
+  it.each(CASES)("names the seed's NIGHT address on $networkId", ({ networkId, address }) => {
+    expect(deployerFundingLine(SEED, networkId)).toBe(
+      `deployer NIGHT address (fund this one): ${address}`,
+    );
+  });
+
+  it("refuses a seed that is neither hex nor a mnemonic", () => {
+    expect(() => deployerFundingLine("not a seed", "preview")).toThrow();
   });
 });

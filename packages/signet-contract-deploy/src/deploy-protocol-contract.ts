@@ -17,6 +17,8 @@ import {
 } from "./plumbing/midnight-node-config.ts";
 import type { NetworkId } from "./plumbing/network-id.ts";
 import {
+  deriveAccountKeys,
+  deriveAddresses,
   estimateUnprovenTransactionFee,
   submitUnprovenTransaction,
   type TransactionIdentifier,
@@ -83,6 +85,20 @@ export function deployEnvironmentTable(
 }
 
 /**
+ * The line a deploy logs under its settings table: the deployer wallet's
+ * NIGHT receive address, the one address a deploy needs funded.
+ *
+ * @param deployerSeed - The deploying wallet's seed (hex or mnemonic).
+ * @param networkId - The network the address is encoded for.
+ * @returns The log line naming the address.
+ * @throws {Error} If the seed is rejected by key derivation.
+ */
+export function deployerFundingLine(deployerSeed: string, networkId: NetworkId): string {
+  const { unshielded } = deriveAddresses(deriveAccountKeys(deployerSeed, networkId), networkId);
+  return `deployer NIGHT address (fund this one): ${unshielded}`;
+}
+
+/**
  * Build one contract's unproven deploy transaction, typically a
  * `buildDeployTransaction` call over the contract's compiled assets.
  *
@@ -129,6 +145,7 @@ export async function deployProtocolContract(
 
   console.log(`deploying ${name} to ${networkId} with:`);
   console.table(deployEnvironmentTable(env, deployConfig.midnightNodeConfig));
+  console.log(deployerFundingLine(deployConfig.deployerSeed, networkId));
 
   try {
     const { facade, keys } = await registry.wallet(deployConfig.deployerSeed, "deployer");
