@@ -11,14 +11,27 @@ node-modules`). Its members live under `packages/`:
   package per Compact contract, no contract/sdk split: the central signet
   singleton, and the minimal client that exercises it generically. See
   "Contract packages" below.
+- **`packages/signet-responder`** — the response contract: the MPC's
+  `respond` and `respondBidirectional` circuits. Its `.compact` source is the specification and the JS executor; its
+  zk bundle (`zkir/`, `keys/`) is compiled from `minocrab/`, a Rust crate that
+  writes the same circuits in MinoCrab and refuses to build them unless each
+  one accepts the MPC's call with the same public inputs as compactc's
+  circuit. `minocrab/artifacts.sha256` locks the bundle's hashes: they are
+  the deployed verifier keys, so a change to them is a redeploy. The keys
+  come from the `zkir-v3` that ships with the pinned compactc, so a compactc
+  bump can move them too: `yarn compile:zk` then fails on the lock until it
+  is regenerated deliberately. The crate
+  has a committed Cargo.lock and pinned rust-toolchain.toml; rustfmt and
+  `clippy -D warnings` apply to it.
 - **`packages/test-caller-contract-20-field`** — a 20-field requester contract
   kept ONLY as the lockstep fixture for chunked-ledger raw parsing (past 15
   fields compactc stores ledger fields in a chunk tree; its simulator tests
   pin `@sig-net/midnight`'s field resolver against real compiler output).
   No deploy flow, no notifier, compile is skip-zk only.
 - **`packages/signet-contract-deploy`** — the published, self-contained deploy
-  tooling: the signet-contract deploy flow plus the generic deploy/wallet/config
-  plumbing (`src/plumbing/`) every contract package's deploy script composes.
+  tooling: the signet-contract and signet-responder deploy flows plus the
+  generic deploy/wallet/config plumbing (`src/plumbing/`) every contract
+  package's deploy script composes.
 - **`packages/integration-tests`** — everything that needs a running stack:
   the signet-caller e2e flows (generic and real-EVM) and their setup pipeline.
 - **`packages/midnight-serde-ts`**: `@sig-net/midnight-serde`, a thin wrapper
@@ -37,7 +50,8 @@ from npm.
 
 Run `yarn install` from the repo root — never from inside a member.
 Run `yarn compile` once before `test`, and `yarn compile:zk` before `build`
-(signet-contract's `build` refuses to run without its prover keys): the
+(signet-contract's and signet-responder's `build` refuse to run without their
+prover keys): the
 contract packages AND
 `packages/signet-midnight` typecheck against their generated `src/managed/`
 output (signet-midnight compiles its Compact module's pure circuits via
@@ -99,8 +113,10 @@ exception for that specific case.
   keys, `COMPACTC_VERSION`, `RUNTIME_VERSION` and every platform hash in
   `COMPILER_BUILDS` in `packages/midnight-serde-conformance/src/toolchain.ts`,
   the npm `@midnightntwrk/*` and `@midnight-ntwrk/*` stack, the image tags in
-  `docker-compose.yaml`, and the README's Prerequisites and
-  Matched set tables are a MATCHED SET — bump them together in one change
+  `docker-compose.yaml`, the minocrab rev and `[patch.crates-io]` ledger tags
+  in `packages/signet-responder/minocrab/Cargo.toml` (and its
+  `artifacts.sha256`, which a new compactc's `zkir-v3` can move), and the
+  README's Prerequisites and Matched set tables are a MATCHED SET — bump them together in one change
   (recompute each checksum from a fresh download of the new URL). This trigger
   is bidirectional: a request to "update the compact version" AND a request to
   edit a version in the README's tables both mean updating every one of these
@@ -116,7 +132,7 @@ exception for that specific case.
   vitest; entrypoints run under `tsx`. If you think you need a build step, stop and
   ask — a build step is a defect in this workspace, not a missing feature.
   **The one exception is publishing:** the npm-published packages
-  (`@sig-net/midnight`, `@sig-net/midnight-contract`,
+  (`@sig-net/midnight`, `@sig-net/midnight-contract`, `@sig-net/midnight-responder`,
   `@sig-net/midnight-contract-deploy`, `@sig-net/midnight-serde`) additionally emit `dist/` via a
   `tsconfig.build.json`, ship ONLY `dist/` (`files: ["dist"]`; `@sig-net/midnight` also ships `src/*.compact`), and swap their
   entry to it through `publishConfig.exports` at pack time — the monorepo itself
@@ -162,7 +178,7 @@ exception for that specific case.
   lint toolchain, which is Microsoft's own documented transition pattern (they
   publish `@typescript/typescript6` for the same purpose). yarn resolves the
   root to 6.0.3 and nests 7.0.2 under each member, so `yarn build` keeps the
-  native compiler. The published emit is unaffected: building the four `@sig-net/*`
+  native compiler. The published emit is unaffected: building the five `@sig-net/*`
   packages under both compilers yields byte-identical `.js` and `.d.ts` (only
   `.map` sourcemaps differ). DELETE the root pin once typescript-eslint supports
   the 7.1 API; until then, do NOT "tidy" the two versions into one, and remember
@@ -176,11 +192,9 @@ exception for that specific case.
   iteration yields `T`, indexing yields `T | undefined`.
 - **NEVER commit generated compiler output.** Each contract package's
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
-  compile is `--skip-zk` (fast; enough for typecheck); run
-  `compile:zk` only when proving keys are actually needed (real deploys,
-  signet-contract's `build`, and the test caller's unit tests, which read
-  the signet contract's and its own verifier keys: run `yarn compile:zk`
-  before `yarn test`). The root `yarn compile:zk` is a SUPERSET of
+  compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run
+  `compile:zk` only when proving keys are actually needed (real deploys, and
+  the `build` of signet-contract and signet-responder). The root `yarn compile:zk` is a SUPERSET of
   `yarn compile`: it runs `yarn compile` over every member first, then each
   member's `compile:zk`, so members with no `compile:zk` script still get
   their `src/managed/`. Keep it that way: a root `compile:zk` that covers only
@@ -217,7 +231,7 @@ exception for that specific case.
   - Prefer slightly verbose but self-contained over terse but indirect —
     verbosity costs lines; indirection costs comprehension.
 - **The websocket response path is dead. NEVER reintroduce it.** All signature
-  responses flow through the signet contract and are polled. No ws
+  responses flow through the signet responder and are polled. No ws
   subscription, not even "temporarily as a fallback".
 - **ALWAYS type.** Every function parameter, return value, variable, and prop must
   have a precise type. Never use `unknown` (and never `any`) as a substitute for
@@ -286,11 +300,11 @@ exception for that specific case.
   never appears anywhere in this repository, and a reviewer fixes it on sight.
   Grep the change for `dark mode` (case-insensitive) before finishing.
 
-# Contract packages (`packages/*-contract`)
+# Contract packages (`packages/*-contract`, `packages/signet-responder`)
 
-The two contract packages share one core layout (the `.compact` source,
+The contract packages share one core layout (the `.compact` source,
 `src/index.ts`, `src/witnesses.ts`, `tests/contract.test.ts`); these rules apply to
-both (and to any additional contract package):
+all of them, `packages/signet-responder` included:
 
 - **Compile before you check.** `yarn compile` regenerates `src/managed/`;
   typecheck and tests read its emitted `contract/index.d.ts`.
@@ -309,8 +323,8 @@ both (and to any additional contract package):
   called directly via `pureCircuits.<name>(...)`.
 - **The deploy split: generic plumbing in `@sig-net/midnight-contract-deploy`,
   everything contract-specific in the contract's deploy script
-  (`packages/test-caller-contract/deploy.ts`; for signet-contract,
-  `packages/signet-contract-deploy`).** The deploy
+  (`packages/test-caller-contract/deploy.ts`; for signet-contract and
+  signet-responder, `packages/signet-contract-deploy`).** The deploy
   package's deploy/wallet helpers
   (`buildDeployTransaction`, `makeCompiledContract`, `submitUnprovenTransaction`,
   …) know no contract; the deploy script owns the constructor args, witnesses,

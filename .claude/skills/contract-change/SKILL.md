@@ -3,8 +3,9 @@ name: contract-change
 description: >
   Playbook for changing a Compact contract in this workspace and fully
   retesting it end-to-end. Use when extending or modifying a contract circuit
-  or struct (packages/*-contract), extending the generic caller e2e to drive
-  it, or lifting shared protocol code into the signet-midnight seed. Covers
+  or struct (packages/*-contract, packages/signet-responder), extending the
+  generic caller e2e to drive it, or lifting shared protocol code into the
+  signet-midnight seed. Covers
   the layer architecture, the MPC request/response pipeline (which stage maps
   to which circuit and test), the change→compile→retest decision tree (rerun
   vs redeploy), the TS-twin / descriptor lockstep that silently breaks
@@ -25,17 +26,18 @@ how to prove it. It does not restate what already has a home:
 - **Running / redeploying the stack** (fakenet responder hand-off, pacing,
   failure playbooks) → the [`/e2e`](../e2e/SKILL.md) skill.
 
-## The four layers, and the one question that places any change
+## The five layers, and the one question that places any change
 
 Every change belongs to exactly one layer. Ask: *is this protocol machinery,
-the central notifier, a client contract, or the driver?*
+the central notifier, the responder, a client contract, or the driver?*
 
 | Layer | Package | Owns | NEVER holds |
 |---|---|---|---|
 | **Seed SDK** | `packages/signet-midnight` | Client-agnostic protocol: request/response structs, request-id hashing, secp256k1 ECDSA attestations, the `CompactType` descriptors and readers, `pureCircuits` (compiled `circuits.compact`) | Anything specific to one client contract |
 | **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to emit a `SignBidirectionalEvent` event. The MPC discovers requesters by polling ITS events | Application logic, per-client state |
+| **Responder** | `packages/signet-responder` | The contract the MPC posts its responses to: `respond` and `respondBidirectional` emit them as events clients poll. Its zk bundle comes from the MinoCrab twin in `minocrab/` | Anything a client calls |
 | **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit requests (contract-fixed calldata, plus one circuit per real-EVM target method), verify the MPC's ECDSA attestation in-circuit and settle every outcome kind (`executed` at the schema's packed width, `failed` and `unviable` at width 0). Seals the signet contract address at deploy and pins the MPC response key once after deploy, through `initialise` | Reusable protocol code (that belongs in the seed). Business logic beyond what exercising the singleton needs |
-| **Driver** | `packages/integration-tests` | Orchestration a downstream app would do: build circuit args, submit calls via midnight-js, poll the signet contract, verify responses. The e2e drives the caller THROUGH these sequences | Rules a contract should enforce |
+| **Driver** | `packages/integration-tests` | Orchestration a downstream app would do: build circuit args, submit calls via midnight-js, poll the signet responder, verify responses. The e2e drives the caller THROUGH these sequences | Rules a contract should enforce |
 
 Placement rule of thumb: **if a second contract would ever want it, it goes in
 the seed** (`signet-midnight`), never copied into a client. If it decides
@@ -46,7 +48,7 @@ per-package `AGENTS.md`.
 
 ## The MPC request/response pipeline
 
-A request is a round trip across all four layers. Each stage maps to a
+A request is a round trip across all five layers. Each stage maps to a
 concrete circuit or e2e leg (see
 `packages/integration-tests/tests/signet-caller-e2e.test.ts` for the broadcast-free
 flow and `signet-caller-evm-e2e.test.ts` for the broadcast flow). Know this
@@ -61,7 +63,7 @@ map before touching any stage:
 2. **Discover + sign**: the MPC responder (external, `/e2e` starts it) polls
    the **signet contract's** notification events, resolves the request from
    the requester's RAW ledger, signs the EVM tx, and posts a signature
-   response to the signet contract.
+   response to the signet responder.
 3. **Poll signed tx**: the e2e reconstructs a typed ethers `Transaction`
    from the request + response and verifies it recovers to the caller's
    epsilon-derived account.
@@ -96,10 +98,10 @@ ledger/state exactly as the MPC does: the same view on both sides is the point.
 
 - `yarn build && yarn test` in the member you touched (AGENTS.md: `tsx`
   and vitest do NOT typecheck, so "it runs" is not verification). Root
-  `yarn compile` (skip-zk) wipes prover keys, and signet-contract's `build`
-  gates on its keys, and the test caller's unit tests read the signet and
-  test-caller verifier keys: restore with `yarn compile:zk` before a root
-  build or test, and never build while a zk compile is still running.
+  `yarn compile` (skip-zk) wipes prover keys, and the `build` of
+  signet-contract and signet-responder gates on their keys: restore with
+  `yarn compile:signet-contract:zk` and `yarn compile:signet-responder:zk`
+  before a root build, and never build while a zk compile is still running.
 - Contract packages carry simulator unit tests (`tests/contract.test.ts`)
   that exercise circuits in-process via `compact-runtime`. Add the happy
   path AND the reject cases there: it is the cheapest place to prove a
@@ -113,6 +115,17 @@ ledger/state exactly as the MPC does: the same view on both sides is the point.
   `yarn compile:signet-contract:zk` and `yarn compile:test-caller-contract:zk`.
 - **Circuit/struct/hash change** → `/e2e redeploy`: zk keygen (~10+ min) +
   the responder hand-off, all in one run. Background it.
+- **signet-responder circuit change**: change the circuit in
+  `src/signet-responder.compact` and `minocrab/src/circuits.rs` together.
+  `yarn compile:signet-responder:zk` refuses to build until both accept the
+  MPC's call with the same public inputs. That call is built by the pinned
+  `minocrab-publisher`, so a changed argument or payload layout also needs
+  a minocrab rev bump (part of the matched set). The build then fails on
+  `minocrab/artifacts.sha256` until the lock is regenerated deliberately
+  (new keys mean a redeploy). The pinned fakenet only joins a
+  responder with the published keys, so an end-to-end retest also needs a
+  release, a rebuilt fakenet image and a pin bump (see the parity bullet in
+  [`/e2e`](../e2e/SKILL.md)).
 
 **4. Reuse completed work to iterate on a late stage.** To exercise only the
 settle leg without re-proving a submit, set `CALLER_REQUEST_ID=<an existing
@@ -162,7 +175,7 @@ the submit leg short-circuits and the suite reaches your stage on real state
   a fresh wallet session (rerun) resyncs and picks unspent dust. Confirm in
   `docker logs midnight-node`.
 - **Stages 2–4 hang** if the MPC responder is down or watching a stale signet
-  contract address. `/e2e` covers the hand-off.
+  contract or responder address. `/e2e` covers the hand-off.
 
 ## Worked shape: add a circuit + its test
 

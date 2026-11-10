@@ -3,8 +3,8 @@
 // built by the test-local encode twins (signet-event-fixtures.ts). The
 // notification fixtures are packed by the REAL compiled circuit, pinning
 // that pack↔decode lockstep in-process; the event-envelope lockstep against
-// the real contract emits is pinned by the signet-contract package's
-// simulator tests.
+// the real contract emits is pinned by the signet-contract and
+// signet-responder packages' simulator tests.
 
 import { createServer, type Server } from "node:http";
 

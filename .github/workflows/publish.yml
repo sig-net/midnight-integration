@@ -1,8 +1,9 @@
-# Publishes the four npm packages, in dependency order:
+# Publishes the five npm packages, in dependency order:
 #
 #   @sig-net/midnight-serde           (packages/midnight-serde-ts)
 #   @sig-net/midnight                 (packages/signet-midnight)
 #   @sig-net/midnight-contract        (packages/signet-contract)
+#   @sig-net/midnight-responder       (packages/signet-responder)
 #   @sig-net/midnight-contract-deploy (packages/signet-contract-deploy)
 #
 # plus the signet-midnight-serde crate (packages/midnight-serde-rs) to
@@ -112,14 +113,15 @@ jobs:
           echo "version=$(printf '%s' "$version" | tr -cd '[:alnum:]._-')" >> "$GITHUB_OUTPUT"
       - name: Install dependencies (frozen, from the committed yarn.lock)
         run: yarn install --immutable
-      - name: Verify the four package versions move in lockstep (and match the tag)
+      - name: Verify the five package versions move in lockstep (and match the tag)
         run: |
           V_SERDE=$(node -p "require('./packages/midnight-serde-ts/package.json').version")
           V_MIDNIGHT=$(node -p "require('./packages/signet-midnight/package.json').version")
           V_CONTRACT=$(node -p "require('./packages/signet-contract/package.json').version")
+          V_RESPONDER=$(node -p "require('./packages/signet-responder/package.json').version")
           V_DEPLOY=$(node -p "require('./packages/signet-contract-deploy/package.json').version")
-          if [ "$V_MIDNIGHT" != "$V_SERDE" ] || [ "$V_MIDNIGHT" != "$V_CONTRACT" ] || [ "$V_MIDNIGHT" != "$V_DEPLOY" ]; then
-            echo "::error::package versions diverge: @sig-net/midnight-serde=$V_SERDE @sig-net/midnight=$V_MIDNIGHT @sig-net/midnight-contract=$V_CONTRACT @sig-net/midnight-contract-deploy=$V_DEPLOY"
+          if [ "$V_MIDNIGHT" != "$V_SERDE" ] || [ "$V_MIDNIGHT" != "$V_CONTRACT" ] || [ "$V_MIDNIGHT" != "$V_RESPONDER" ] || [ "$V_MIDNIGHT" != "$V_DEPLOY" ]; then
+            echo "::error::package versions diverge: @sig-net/midnight-serde=$V_SERDE @sig-net/midnight=$V_MIDNIGHT @sig-net/midnight-contract=$V_CONTRACT @sig-net/midnight-responder=$V_RESPONDER @sig-net/midnight-contract-deploy=$V_DEPLOY"
             exit 1
           fi
           TAG_VERSION="${GITHUB_REF_NAME#v}"
@@ -129,26 +131,28 @@ jobs:
           fi
       - name: Compile (skip-zk)
         run: yarn compile
-      # Restore-only: ci.yml's integration job owns saving this cache.
+      # Restore-only: ci.yml's integration job owns saving this cache (it
+      # generates BOTH cached contracts' keys, whereas this job generates only
+      # signet-contract's, so a save from here would poison the key).
       - name: Restore prebuilt zk proving keys
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             packages/signet-contract/src/managed
             packages/test-caller-contract/src/managed
-          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
-      - name: Ensure signet-contract and test-caller zk keys (the published managed assets and the test caller's unit tests need them)
+          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
+      - name: Ensure signet-contract prover keys (the published managed assets carry them)
         run: |
           if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
             echo "signet-contract prover keys present (restored from the cache), skipping keygen"
           else
             yarn compile:signet-contract:zk
           fi
-          if ls packages/test-caller-contract/src/managed/test-caller-contract/keys/*.prover >/dev/null 2>&1; then
-            echo "test-caller prover keys present (restored from the cache), skipping keygen"
-          else
-            yarn compile:test-caller-contract:zk
-          fi
+      # No cargo cache here, for the same reason as the toolchain: a publish
+      # job trades build time for no cache-poisoning surface. The lock check
+      # refuses a bundle whose hashes differ from the committed ones.
+      - name: Build signet-responder's zk bundle (the published managed assets carry it)
+        run: yarn compile:signet-responder:zk
       - name: Build (typecheck, emit each published package's dist)
         run: yarn build
       - name: Unit tests (simulator-only, offline)
@@ -160,6 +164,7 @@ jobs:
             "midnight-serde-ts:@sig-net/midnight-serde" \
             "signet-midnight:@sig-net/midnight" \
             "signet-contract:@sig-net/midnight-contract" \
+            "signet-responder:@sig-net/midnight-responder" \
             "signet-contract-deploy:@sig-net/midnight-contract-deploy"; do
             dir="${entry%%:*}"
             name="${entry#*:}"

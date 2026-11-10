@@ -1,5 +1,7 @@
 # Unit and integration testing.
-#   unit         format + compile + lint + build + test
+#   unit         format + compile + signet-responder's MinoCrab crate (fmt +
+#                clippy + parity tests against compactc) + its zk bundle +
+#                lint + build + test
 #   rust         the signet-midnight-serde crate: fmt + clippy + cargo test
 #                against the COMMITTED conformance corpus (no Node, no compactc)
 #   integration  compose stack + signet-caller e2e, whose setup deploys the
@@ -9,8 +11,9 @@
 # --immutable), and the compact toolchain pinned by exact URL (launcher
 # compact-v0.5.3, compiler compactc 0.36.0). Bump versions deliberately.
 #
-# Caches (compact-*, zk-keys-*) are keyed on those pins, so a hit only skips a
-# download/keygen and never changes what is built. Only the integration job
+# Caches (compact-*, zk-keys-*) are keyed on those pins, and the cargo-*
+# caches on a crate's Cargo.lock and rust-toolchain.toml, so a hit only skips
+# a download/build/keygen and never changes what is built. Only the integration job
 # saves zk-keys, while the unit job restores read-only. It also pulls the
 # public ghcr.io/sig-net/fakenet image.
 
@@ -114,25 +117,38 @@ jobs:
         run: yarn format:check
       - name: Compile (skip-zk)
         run: yarn compile
+      - name: Cache signet-responder's cargo registry and build output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/signet-responder/minocrab/target
+          key: cargo-signet-responder-${{ runner.os }}-${{ hashFiles('packages/signet-responder/minocrab/Cargo.lock', 'packages/signet-responder/minocrab/rust-toolchain.toml') }}
+      # The parity tests read compactc's fresh --skip-zk output, so they run
+      # before the zk bundle replaces it.
+      - name: signet-responder MinoCrab crate (fmt, clippy, parity tests against compactc)
+        working-directory: packages/signet-responder/minocrab
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
       - name: Restore prebuilt zk proving keys (read-only, the integration job saves)
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             packages/signet-contract/src/managed
             packages/test-caller-contract/src/managed
-          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
-      - name: Ensure signet-contract and test-caller zk keys (signet-contract's publish-safety check and the test caller's unit tests need them)
+          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
+      - name: Ensure signet-contract prover keys (its build's publish-safety check needs them)
         run: |
           if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
             echo "signet-contract prover keys present (restored from the cache), skipping keygen"
           else
             yarn compile:signet-contract:zk
           fi
-          if ls packages/test-caller-contract/src/managed/test-caller-contract/keys/*.prover >/dev/null 2>&1; then
-            echo "test-caller prover keys present (restored from the cache), skipping keygen"
-          else
-            yarn compile:test-caller-contract:zk
-          fi
+      - name: signet-responder zk bundle (its build needs the keys; fails on a lock mismatch)
+        run: yarn compile:signet-responder:zk
       # Type-aware, so it reads the generated src/managed/ types and must run
       # after `yarn compile`, exactly like the build below.
       - name: Lint
@@ -243,8 +259,20 @@ jobs:
           path: |
             packages/signet-contract/src/managed
             packages/test-caller-contract/src/managed
-          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
-      - name: zk keygen (both contracts, cache miss only)
+          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
+      # The responder's bundle is never in the zk cache: `yarn compile:zk`
+      # builds it on a miss, and on a hit the suite's setup builds it.
+      - name: Cache signet-responder's cargo registry and build output (its zk bundle)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/signet-responder/minocrab/target
+          # Its own key: this job builds only the binary, and sharing the unit
+          # job's key would let it save a cache without the test and clippy builds.
+          key: cargo-signet-responder-zk-${{ runner.os }}-${{ hashFiles('packages/signet-responder/minocrab/Cargo.lock', 'packages/signet-responder/minocrab/rust-toolchain.toml') }}
+      - name: zk keygen (every contract, cache miss only)
         if: steps.zk.outputs.cache-hit != 'true'
         run: yarn compile:zk
       - name: Save zk proving keys (immediately, before a later failure can lose them)
@@ -254,7 +282,7 @@ jobs:
           path: |
             packages/signet-contract/src/managed
             packages/test-caller-contract/src/managed
-          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact') }}
+          key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
       - name: Start the local stack (midnight node, indexer, proof server, anvil)
         run: docker compose up -d
       - name: Wait for the stack
@@ -264,8 +292,8 @@ jobs:
           timeout 180 bash -c 'until curl -fs -X POST -H "content-type: application/json" -d "{\"query\":\"{__typename}\"}" http://127.0.0.1:8088/api/v4/graphql >/dev/null 2>&1; do sleep 3; done'
           curl -fsS -X POST -H 'content-type: application/json' \
             -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' http://127.0.0.1:8545
-      # The suite's setup deploys both contracts, writes MPC_ROOT_KEY +
-      # MIDNIGHT_SIGNET_CONTRACT_ADDRESS to .env, and starts the fakenet
+      # The suite's setup deploys the contracts, writes MPC_ROOT_KEY and the
+      # signet and responder addresses to .env, and starts the fakenet
       # responder. Anvil is the EVM chain the flow files and the responder
       # share: the setup deploys the EVM target and funds the derived sender
       # there.

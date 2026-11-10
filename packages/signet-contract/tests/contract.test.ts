@@ -1,13 +1,12 @@
 // Simulator-level unit tests: the contract runs entirely in-process via
-// @midnight-ntwrk/compact-runtime (no network, no proving). Every circuit
-// emits one named Misc event with a packed payload, nothing is verified in
-// circuit, and verification is deliberately the reader's job. The tests pin
-// exactly that: each circuit's emit lands as one event, garbage lands too,
-// repeats append, and the payloads decode back through the @sig-net/midnight
-// event decoders. That
-// decode is the LOCKSTEP CHECK between the contract's emit literals and the
-// TS byte-plumbing twins: it runs against REAL emitted events, so an offset
-// or field-order drift on either side fails here.
+// @midnight-ntwrk/compact-runtime (no network, no proving). Its one circuit,
+// signBidirectional, emits one named Misc event with a packed payload and
+// verifies nothing in circuit: verification is deliberately the reader's
+// job. The tests pin exactly that: the emit lands as one event, repeats
+// append, and the payload decodes back through the @sig-net/midnight event
+// decoders. That decode is the LOCKSTEP CHECK between the contract's emit
+// literal and the TS byte-plumbing twins: it runs against REAL emitted
+// events, so an offset or field-order drift on either side fails here.
 
 import {
   createCircuitContext,
@@ -16,15 +15,10 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 import {
   bytesToHex,
-  decodeRespondBidirectionalEventPayload,
-  decodeSignatureRespondedEventPayload,
   decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
   decodeSignetLogEvents,
-  OutputKind,
   pureCircuits as signetCircuits,
-  type RespondBidirectionalEvent,
-  type SignatureRespondedEvent,
   SIGNET_EVENT_PAYLOAD_LENGTH,
   SignetEventName,
   type SignetMiscEvent,
@@ -38,26 +32,6 @@ import {
   witnesses,
 } from "../src/index.ts";
 
-/**
- * Narrow an indexed read into a decoded-event array. The `toHaveLength`
- * assertion at each call site proves the element is there; the index
- * signature does not.
- *
- * @param events - The decoded signet events.
- * @param index - Position to read.
- * @returns The event at that position.
- * @throws If no event sits at that index.
- */
-function eventAt(events: readonly SignetMiscEvent[], index = 0): SignetMiscEvent {
-  const event = events[index];
-  if (event === undefined) {
-    throw new Error(
-      `expected a signet event at index ${String(index)}, got ${String(events.length)} events`,
-    );
-  }
-  return event;
-}
-
 // ---- Fixtures ----
 
 // Dummy coin public key (32-byte hex). Required by the API, unused here.
@@ -65,60 +39,9 @@ const CPK = "0".repeat(64);
 
 const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
-// Request ids the posts below answer, and signature response records.
-// SYNTHETIC signatures, deliberately not verifiable: the contract must
-// emit them anyway (verification is the reader's job). SIG_1 and SIG_2
-// differ in every leaf INCLUDING recoveryId: a decoder that dropped that
-// field would still match a single 0-valued fixture.
+// Request ids the notifications below carry.
 const REQUEST_A = bytes(32, 0xaa);
 const REQUEST_B = bytes(32, 0xbb);
-const SIG_1: SignatureRespondedEvent = {
-  requestId: REQUEST_A,
-  signature: {
-    bigR: { x: bytes(32, 0x01), y: bytes(32, 0x02) },
-    s: bytes(32, 0x03),
-    recoveryId: 0n,
-  },
-};
-const SIG_2: SignatureRespondedEvent = {
-  requestId: REQUEST_A,
-  signature: {
-    bigR: { x: bytes(32, 0x04), y: bytes(32, 0x05) },
-    s: bytes(32, 0x06),
-    recoveryId: 1n,
-  },
-};
-const SIG_2_FOR_B: SignatureRespondedEvent = { ...SIG_2, requestId: REQUEST_B };
-
-// Respond-bidirectional records: SYNTHETIC signatures and digests,
-// deliberately not verifiable. The contract must emit them anyway
-// (verification is the reader's job).
-const RESPOND_1: RespondBidirectionalEvent = {
-  requestId: REQUEST_A,
-  blockHeight: 0x0102030405060708n,
-  outputKind: OutputKind.failed,
-  serializedOutputLength: 0x1112131415161718n,
-  outputHash: bytes(32, 0x0f),
-  digest: bytes(32, 0x0d),
-  signature: {
-    bigR: { x: bytes(32, 0x07), y: bytes(32, 0x08) },
-    s: bytes(32, 0x09),
-    recoveryId: 0n,
-  },
-};
-const RESPOND_2: RespondBidirectionalEvent = {
-  requestId: REQUEST_A,
-  blockHeight: 2n ** 64n - 1n,
-  outputKind: OutputKind.unviable,
-  serializedOutputLength: 33n,
-  outputHash: bytes(32, 0x10),
-  digest: bytes(32, 0x0e),
-  signature: {
-    bigR: { x: bytes(32, 0x0a), y: bytes(32, 0x0b) },
-    s: bytes(32, 0x0c),
-    recoveryId: 1n,
-  },
-};
 
 // A caller contract address as the packer consumes it (raw 32 bytes). The
 // registering client passes kernel.self(), but here a fixed fixture suffices.
@@ -141,6 +64,26 @@ const deployContract = async (circuitId: string) => {
   });
   return { contract, ctx, contractAddress };
 };
+
+/**
+ * Narrow an indexed read into a decoded-event array. The `toHaveLength`
+ * assertion at each call site proves the element is there; the index
+ * signature does not.
+ *
+ * @param events - The decoded signet events.
+ * @param index - Position to read.
+ * @returns The event at that position.
+ * @throws If no event sits at that index.
+ */
+function eventAt(events: readonly SignetMiscEvent[], index = 0): SignetMiscEvent {
+  const event = events[index];
+  if (event === undefined) {
+    throw new Error(
+      `expected a signet event at index ${String(index)}, got ${String(events.length)} events`,
+    );
+  }
+  return event;
+}
 
 /** All bytes of `payload` from `offset` on must be the emit literal's zero fill. */
 const expectZeroPadding = (payload: Uint8Array, offset: number) => {
@@ -214,167 +157,6 @@ describe("signBidirectional", () => {
     ).toEqual([
       [REQUEST_A, [4]],
       [REQUEST_B, [7]],
-    ]);
-  });
-});
-
-/**
- * One row of the post table: a post sequence → the exact expected event log.
- * Each emitted event packs the record's request id beside the signature, so
- * the expected log is the ordered (requestId, record) post list, exactly as
- * the decoder returns it.
- */
-interface PostCase {
-  /** Test name, completing the sentence "emits <name>". */
-  name: string;
-  /** Records posted in order, each through respond. */
-  posts: SignatureRespondedEvent[];
-  /** The FULL expected decoded event log, in emission order. */
-  expectedPosts: { requestId: Uint8Array; event: SignatureRespondedEvent }[];
-}
-
-const POST_CASES: PostCase[] = [
-  {
-    name: "a single post as a single event",
-    posts: [SIG_1],
-    expectedPosts: [{ requestId: REQUEST_A, event: SIG_1 }],
-  },
-  {
-    name: "a second post for the same request APPENDED, the first untouched",
-    posts: [SIG_1, SIG_2],
-    expectedPosts: [
-      { requestId: REQUEST_A, event: SIG_1 },
-      { requestId: REQUEST_A, event: SIG_2 },
-    ],
-  },
-  {
-    name: "an identical re-post as its own event (no dedup, no error)",
-    posts: [SIG_1, SIG_1],
-    expectedPosts: [
-      { requestId: REQUEST_A, event: SIG_1 },
-      { requestId: REQUEST_A, event: SIG_1 },
-    ],
-  },
-  {
-    name: "interleaved posts for different requests in emission order, each under its own id",
-    posts: [SIG_1, SIG_2_FOR_B, SIG_2],
-    expectedPosts: [
-      { requestId: REQUEST_A, event: SIG_1 },
-      { requestId: REQUEST_B, event: SIG_2_FOR_B },
-      { requestId: REQUEST_A, event: SIG_2 },
-    ],
-  },
-];
-
-describe("respond", () => {
-  it.each(POST_CASES)("emits $name", async ({ posts, expectedPosts }) => {
-    const { contract, ctx, contractAddress } = await deployContract("respond");
-
-    let finalCtx = ctx;
-    for (const post of posts) {
-      finalCtx = (await contract.circuits.respond(finalCtx, post)).context;
-    }
-
-    // The event log holds EXACTLY the posts, in order, each decoding back
-    // to the request id and signature it carried (the emit↔decode
-    // lockstep, on REAL emitted events).
-    const events = decodeSignetLogEvents(finalCtx.events, contractAddress);
-    expect(events.map((event) => event.name)).toEqual(
-      expectedPosts.map(() => SignetEventName.SignatureRespondedEvent),
-    );
-    expect(events.map((event) => decodeSignatureRespondedEventPayload(event.payload))).toEqual(
-      expectedPosts,
-    );
-  });
-
-  it("packs the emit literal as requestId ++ bigR.x ++ bigR.y ++ s ++ recoveryId ++ zeros", async () => {
-    const { contract, ctx, contractAddress } = await deployContract("respond");
-    const { context } = await contract.circuits.respond(ctx, SIG_2);
-
-    const event = eventAt(decodeSignetLogEvents(context.events, contractAddress));
-    expect(event.payload.slice(0, 32)).toEqual(REQUEST_A);
-    expect(event.payload.slice(32, 64)).toEqual(SIG_2.signature.bigR.x);
-    expect(event.payload.slice(64, 96)).toEqual(SIG_2.signature.bigR.y);
-    expect(event.payload.slice(96, 128)).toEqual(SIG_2.signature.s);
-    expect(event.payload[128]).toBe(1); // SIG_2's recoveryId
-    expectZeroPadding(event.payload, 129);
-  });
-});
-
-describe("respondBidirectional", () => {
-  it("emits a post as a RespondBidirectionalEvent event, UNVERIFIED by design", async () => {
-    const { contract, ctx, contractAddress } = await deployContract("respondBidirectional");
-
-    const { context } = await contract.circuits.respondBidirectional(ctx, RESPOND_1);
-
-    const events = decodeSignetLogEvents(context.events, contractAddress);
-    expect(events).toHaveLength(1);
-    expect(eventAt(events).name).toBe(SignetEventName.RespondBidirectionalEvent);
-    // Every leaf landed verbatim: the contract emits, the reader verifies.
-    // The emit order, the two Uint<64> leaves' little-endian byte order and
-    // the kind's wire byte (failed is variant 1) are pinned raw.
-    expect(decodeRespondBidirectionalEventPayload(eventAt(events).payload)).toEqual({
-      requestId: REQUEST_A,
-      event: RESPOND_1,
-    });
-    const payload = eventAt(events).payload;
-    expect(payload.slice(0, 32)).toEqual(REQUEST_A);
-    expect(payload.slice(32, 40)).toEqual(
-      Uint8Array.from([0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]),
-    );
-    expect(payload.at(40)).toBe(1);
-    expect(payload.slice(41, 49)).toEqual(
-      Uint8Array.from([0x18, 0x17, 0x16, 0x15, 0x14, 0x13, 0x12, 0x11]),
-    );
-    expect(payload.slice(49, 81)).toEqual(RESPOND_1.outputHash);
-    expect(payload.slice(81, 113)).toEqual(RESPOND_1.digest);
-    expect(payload.slice(113, 145)).toEqual(RESPOND_1.signature.bigR.x);
-    expect(payload.slice(145, 177)).toEqual(RESPOND_1.signature.bigR.y);
-    expect(payload.slice(177, 209)).toEqual(RESPOND_1.signature.s);
-    expect(payload.at(209)).toBe(0);
-    expectZeroPadding(payload, 210);
-  });
-
-  it("emits a second post for the same request as its own event, nothing replaced", async () => {
-    const { contract, ctx, contractAddress } = await deployContract("respondBidirectional");
-
-    const first = await contract.circuits.respondBidirectional(ctx, RESPOND_1);
-    const second = await contract.circuits.respondBidirectional(first.context, RESPOND_2);
-
-    const events = decodeSignetLogEvents(second.context.events, contractAddress);
-    expect(events.map((event) => decodeRespondBidirectionalEventPayload(event.payload))).toEqual([
-      { requestId: REQUEST_A, event: RESPOND_1 },
-      { requestId: REQUEST_A, event: RESPOND_2 },
-    ]);
-  });
-
-  it("keeps the three event kinds apart by name in one shared log", async () => {
-    // One circuit of each kind through the same threaded context: the log
-    // holds three differently-named events a reader can partition.
-    const { contract, ctx, contractAddress } = await deployContract("respond");
-    const afterRespond = await contract.circuits.respond(ctx, SIG_1);
-    const afterNotify = await contract.circuits.signBidirectional(
-      afterRespond.context,
-      REQUEST_A,
-      signetCircuits.constructSignBidirectionalEventNotificationV1(NOTIFYING_CALLER, 1n, [
-        4n,
-        0n,
-        0n,
-        0n,
-      ]),
-    );
-    const { context } = await contract.circuits.respondBidirectional(
-      afterNotify.context,
-      RESPOND_1,
-    );
-
-    const names = decodeSignetLogEvents(context.events, contractAddress).map(
-      (event: SignetMiscEvent) => event.name,
-    );
-    expect(names).toEqual([
-      SignetEventName.SignatureRespondedEvent,
-      SignetEventName.SignBidirectionalEvent,
-      SignetEventName.RespondBidirectionalEvent,
     ]);
   });
 });
