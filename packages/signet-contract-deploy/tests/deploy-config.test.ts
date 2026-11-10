@@ -44,9 +44,9 @@ const CASES: Case[] = [
   },
   {
     name: "a deployed network uses the provided DEPLOYER_SEED",
-    env: { NETWORK_ID: "stagenet", DEPLOYER_SEED: CUSTOM_SEED },
+    env: { NETWORK_ID: "preprod", DEPLOYER_SEED: CUSTOM_SEED },
     expectedSeed: CUSTOM_SEED,
-    expectedNetworkId: "stagenet",
+    expectedNetworkId: "preprod",
   },
 ];
 
@@ -69,8 +69,8 @@ interface ThrowCase {
 const THROW_CASES: ThrowCase[] = [
   {
     name: "deployed network without DEPLOYER_SEED demands one",
-    env: { NETWORK_ID: "stagenet" },
-    expectedMessage: /DEPLOYER_SEED is required on "stagenet"/,
+    env: { NETWORK_ID: "preview" },
+    expectedMessage: /DEPLOYER_SEED is required on "preview"/,
   },
   {
     name: "deployed network with a whitespace DEPLOYER_SEED demands one",
@@ -79,13 +79,13 @@ const THROW_CASES: ThrowCase[] = [
   },
   {
     name: "deployed network rejects the (unfunded here) genesis mint seed",
-    env: { NETWORK_ID: "stagenet", DEPLOYER_SEED: GENESIS_MINT_WALLET_SEED },
-    expectedMessage: /genesis mint seed, which holds no funds on "stagenet"/,
+    env: { NETWORK_ID: "preview", DEPLOYER_SEED: GENESIS_MINT_WALLET_SEED },
+    expectedMessage: /genesis mint seed, which holds no funds on "preview"/,
   },
   {
     name: "an env-provided MIDNIGHT_FAUCET_URL appears in the funding hint",
     env: {
-      NETWORK_ID: "stagenet",
+      NETWORK_ID: "preview",
       MIDNIGHT_FAUCET_URL: "https://faucet.example",
     },
     expectedMessage: /faucet\.example/,

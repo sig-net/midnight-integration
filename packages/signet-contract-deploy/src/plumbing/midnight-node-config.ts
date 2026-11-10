@@ -48,12 +48,6 @@ export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
     nodeUrl: "http://127.0.0.1:9944",
     proofServerUrl: LOCAL_PROOF_SERVER,
   },
-  [MidnightNetwork.Stagenet]: {
-    indexerUrl: "https://indexer.stagenet.shielded.tools/api/v4/graphql",
-    indexerWsUrl: "wss://indexer.stagenet.shielded.tools/api/v4/graphql/ws",
-    nodeUrl: "https://rpc.stagenet.shielded.tools",
-    proofServerUrl: LOCAL_PROOF_SERVER,
-  },
   [MidnightNetwork.Preview]: {
     indexerUrl: "https://indexer.preview.midnight.network/api/v4/graphql",
     indexerWsUrl: "wss://indexer.preview.midnight.network/api/v4/graphql/ws",
@@ -75,16 +69,14 @@ export const DEFAULT_ENDPOINTS: Record<NetworkId, Endpoints> = {
 };
 
 /**
- * Faucet URLs per test network, for the fund-your-wallet hint: stagenet's
- * own faucet, and the Nethermind-hosted Midnight faucets for preview and
- * preprod. Mainnet carries real value and has no faucet, and the local
+ * Faucet URLs per test network, for the fund-your-wallet hint: the
+ * Nethermind-hosted Midnight faucets for preview and preprod. Mainnet carries real value and has no faucet, and the local
  * standalone chain funds via genesis, so neither has an entry. The
  * MIDNIGHT_FAUCET_URL environment variable overrides any entry and supplies
  * one where there is none (see {@link getFaucetUrl}), and without either the
  * hint degrades to a generic "fund via the network's faucet".
  */
 export const FAUCET_URLS: Partial<Record<NetworkId, string>> = {
-  [MidnightNetwork.Stagenet]: "https://faucet.stagenet.shielded.tools",
   [MidnightNetwork.Preview]: "https://midnight-tmnight-preview.nethermind.dev",
   [MidnightNetwork.Preprod]: "https://midnight-tmnight-preprod.nethermind.dev",
 };

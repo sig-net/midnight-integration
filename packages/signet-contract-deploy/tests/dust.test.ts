@@ -43,12 +43,12 @@ describe("ensureFeeReady funding deadline", () => {
         .fn<WalletFacade["waitForSyncedState"]>()
         .mockResolvedValue(state as FacadeState),
     };
-    const keys = deriveAccountKeys("01".repeat(32), "stagenet");
+    const keys = deriveAccountKeys("01".repeat(32), "preview");
     const result = ensureFeeReady(
       facade as WalletFacade,
       keys,
       state as FacadeState,
-      "stagenet",
+      "preview",
       undefined,
       2_000_000_000_000_000n,
       1_200_000,
@@ -78,14 +78,14 @@ describe("ensureFeeReady funding deadline", () => {
         .fn<WalletFacade["waitForSyncedState"]>()
         .mockResolvedValue(state as FacadeState),
     };
-    const keys = deriveAccountKeys("01".repeat(32), "stagenet");
+    const keys = deriveAccountKeys("01".repeat(32), "preview");
     await Promise.all([
       expect(
         ensureFeeReady(
           facade as WalletFacade,
           keys,
           state as FacadeState,
-          "stagenet",
+          "preview",
           undefined,
           2_000_000_000_000_000n,
         ),

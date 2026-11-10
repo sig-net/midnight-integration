@@ -17,7 +17,6 @@ package-lock.json
 package.tgz
 *.DS_Store
 *scratch*
-.env.stagenet
 .eslintcache
 coverage/
 

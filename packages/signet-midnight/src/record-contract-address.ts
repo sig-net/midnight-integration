@@ -38,7 +38,7 @@ function isDeployedNetwork(networkId: string): networkId is DeployedNetwork {
  * rejected, as it deploys its own protocol contracts per stack and has no
  * row in either table.
  *
- * @param networkId - The network id to resolve, e.g. `stagenet`.
+ * @param networkId - The network id to resolve, e.g. `preview`.
  * @returns The id as a {@link DeployedNetwork}.
  * @throws {Error} If the id names no deployed network.
  */
@@ -82,7 +82,7 @@ export function parsePublishedContract(name: string): PublishedContract {
 export interface RecordedContractAddress {
   /** The full constants.ts source with the entry rewritten. */
   source: string;
-  /** The table row as it was, e.g. `[MidnightNetwork.Stagenet]: ""`. */
+  /** The table row as it was, e.g. `[MidnightNetwork.Preprod]: ""`. */
   previousEntry: string;
   /** The table row as it is now. */
   entry: string;

@@ -14,9 +14,9 @@ import {
 } from "../src/index.ts";
 
 const PREVIEW_SIGNET = getSignetContractAddress(MidnightNetwork.Preview);
-const STAGENET_MPC_KEY = getMpcRootPublicKey(MidnightNetwork.Stagenet);
-const STAGENET_MPC_KEY_NEAR_FORM =
-  "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5";
+const PREVIEW_MPC_KEY = getMpcRootPublicKey(MidnightNetwork.Preview);
+const PREVIEW_MPC_KEY_NEAR_FORM =
+  "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
 const OTHER_KEY_COMPRESSED = "0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 
 /** One environment and what a resolver must make of it. */
@@ -115,13 +115,13 @@ describe("findMpcRootPublicKey / resolveMpcRootPublicKey", () => {
   const FOUND: readonly ResolutionCase[] = [
     {
       name: "the published key on a deployed network with nothing set",
-      env: { NETWORK_ID: "stagenet" },
-      found: { value: STAGENET_MPC_KEY, origin: CounterpartyOrigin.Published },
+      env: { NETWORK_ID: "preview" },
+      found: { value: PREVIEW_MPC_KEY, origin: CounterpartyOrigin.Published },
     },
     {
       name: "the NEAR spelling of the published key, canonicalised",
-      env: { NETWORK_ID: "stagenet", MPC_SECP256K1_PUBKEY: STAGENET_MPC_KEY_NEAR_FORM },
-      found: { value: STAGENET_MPC_KEY, origin: CounterpartyOrigin.Environment },
+      env: { NETWORK_ID: "preview", MPC_SECP256K1_PUBKEY: PREVIEW_MPC_KEY_NEAR_FORM },
+      found: { value: PREVIEW_MPC_KEY, origin: CounterpartyOrigin.Environment },
     },
     {
       name: "a compressed key on the local stack, canonicalised",
@@ -147,12 +147,12 @@ describe("findMpcRootPublicKey / resolveMpcRootPublicKey", () => {
   const REFUSED: readonly RefusedCase[] = [
     {
       name: "a set key disagreeing with the published one",
-      env: { NETWORK_ID: "stagenet", MPC_SECP256K1_PUBKEY: OTHER_KEY_COMPRESSED },
-      error: /disagrees with the MPC root public key the SDK publishes for "stagenet"/,
+      env: { NETWORK_ID: "preview", MPC_SECP256K1_PUBKEY: OTHER_KEY_COMPRESSED },
+      error: /disagrees with the MPC root public key the SDK publishes for "preview"/,
     },
     {
       name: "something that is not a public key",
-      env: { NETWORK_ID: "stagenet", MPC_SECP256K1_PUBKEY: "0x04ab" },
+      env: { NETWORK_ID: "preview", MPC_SECP256K1_PUBKEY: "0x04ab" },
       error: /not a secp256k1 public key/,
     },
   ];

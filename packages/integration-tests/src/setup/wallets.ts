@@ -6,7 +6,7 @@
 //
 // - undeployed: root defaults to the pre-funded genesis mint wallet, so the
 //   roles are funded from genesis at runtime.
-// - deployed (e.g. stagenet): root is a generated (or supplied) seed; its
+// - deployed (e.g. preview): root is a generated (or supplied) seed; its
 //   NIGHT address must be faucet-funded. The first run generates the seeds and
 //   STOPS at the root preflight printing that address; once funded, a rerun
 //   funds the roles and proceeds.

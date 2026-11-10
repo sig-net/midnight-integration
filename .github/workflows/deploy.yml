@@ -40,7 +40,6 @@ on:
         required: true
         type: choice
         options:
-          - stagenet
           - preview
           - preprod
           - mainnet

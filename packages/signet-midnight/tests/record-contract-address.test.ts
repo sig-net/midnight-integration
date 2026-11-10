@@ -24,7 +24,6 @@ const UNRECORDED = contractAddressFromHex(UNRECORDED_HEX);
 
 describe("parseDeployedNetwork", () => {
   it.each([
-    ["stagenet", MidnightNetwork.Stagenet],
     ["preview", MidnightNetwork.Preview],
     ["preprod", MidnightNetwork.Preprod],
     ["mainnet", MidnightNetwork.Mainnet],
@@ -35,10 +34,10 @@ describe("parseDeployedNetwork", () => {
   it.each([
     ["the local standalone stack", "undeployed"],
     ["an unknown id", "nope"],
-    ["a member name instead of an id", "Stagenet"],
+    ["a member name instead of an id", "Preview"],
   ])("rejects %s", (_name, networkId) => {
     expect(() => parseDeployedNetwork(networkId)).toThrow(
-      /expected one of stagenet, preview, preprod, mainnet/,
+      /expected one of preview, preprod, mainnet/,
     );
   });
 });
@@ -65,21 +64,18 @@ describe("recordContractAddress", () => {
   // A cut-down constants.ts: a table keyed by the same members, then both
   // address tables, the singleton's with one row already filled.
   const ROOT_KEYS_TABLE = `const mpcRootPublicKeys: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]: "",
   [MidnightNetwork.Preview]: "",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
 };
 `;
   const ADDRESS_TABLE = `const signetContractAddresses: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]: "",
   [MidnightNetwork.Preview]: "${EXISTING_HEX}",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
 };
 `;
   const RESPONDER_TABLE = `const responderContractAddresses: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]: "",
   [MidnightNetwork.Preview]: "",
   [MidnightNetwork.Preprod]: "",
   [MidnightNetwork.Mainnet]: "",
@@ -90,7 +86,7 @@ describe("recordContractAddress", () => {
   interface Case {
     name: string;
     contract: PublishedContract;
-    network: MidnightNetwork.Stagenet | MidnightNetwork.Preview;
+    network: MidnightNetwork.Preview | MidnightNetwork.Preprod;
     previousEntry: string;
     entry: string;
     /** The whole source after the rewrite. */
@@ -101,15 +97,15 @@ describe("recordContractAddress", () => {
     {
       name: "fills an empty singleton row",
       contract: PublishedContract.SignetContract,
-      network: MidnightNetwork.Stagenet,
-      previousEntry: '[MidnightNetwork.Stagenet]: ""',
-      entry: `[MidnightNetwork.Stagenet]: "${ADDRESS_HEX}"`,
+      network: MidnightNetwork.Preprod,
+      previousEntry: '[MidnightNetwork.Preprod]: ""',
+      entry: `[MidnightNetwork.Preprod]: "${ADDRESS_HEX}"`,
       expectedSource:
         ROOT_KEYS_TABLE +
         "\n" +
         ADDRESS_TABLE.replace(
-          '[MidnightNetwork.Stagenet]: ""',
-          `[MidnightNetwork.Stagenet]: "${ADDRESS_HEX}"`,
+          '[MidnightNetwork.Preprod]: ""',
+          `[MidnightNetwork.Preprod]: "${ADDRESS_HEX}"`,
         ) +
         "\n" +
         RESPONDER_TABLE,
@@ -161,10 +157,10 @@ describe("recordContractAddress", () => {
       recordContractAddress(
         SOURCE,
         PublishedContract.SignetContract,
-        MidnightNetwork.Stagenet,
+        MidnightNetwork.Preprod,
         address,
       ).entry,
-    ).toBe(`[MidnightNetwork.Stagenet]: "${ADDRESS_HEX}"`);
+    ).toBe(`[MidnightNetwork.Preprod]: "${ADDRESS_HEX}"`);
   });
 
   interface ThrowCase {
@@ -187,16 +183,16 @@ describe("recordContractAddress", () => {
     {
       name: "a table without the network's row",
       source:
-        ROOT_KEYS_TABLE + "\n" + ADDRESS_TABLE.replace('[MidnightNetwork.Stagenet]: "",\n', ""),
-      expectedMessage: /expected exactly one stagenet row in signetContractAddresses, found 0/,
+        ROOT_KEYS_TABLE + "\n" + ADDRESS_TABLE.replace('[MidnightNetwork.Preprod]: "",\n', ""),
+      expectedMessage: /expected exactly one preprod row in signetContractAddresses, found 0/,
     },
     {
       name: "a table with the network's row twice",
       source:
         ROOT_KEYS_TABLE +
         "\n" +
-        ADDRESS_TABLE.replace('""', '"",\n  [MidnightNetwork.Stagenet]: ""'),
-      expectedMessage: /expected exactly one stagenet row in signetContractAddresses, found 2/,
+        ADDRESS_TABLE.replace('""', '"",\n  [MidnightNetwork.Preprod]: ""'),
+      expectedMessage: /expected exactly one preprod row in signetContractAddresses, found 2/,
     },
   ];
 
@@ -205,7 +201,7 @@ describe("recordContractAddress", () => {
       recordContractAddress(
         source,
         PublishedContract.SignetContract,
-        MidnightNetwork.Stagenet,
+        MidnightNetwork.Preprod,
         ADDRESS,
       ),
     ).toThrow(expectedMessage);
@@ -223,7 +219,6 @@ describe("recordContractAddress", () => {
         real.indexOf("const signetContractAddresses"),
       );
       const networks: DeployedNetwork[] = [
-        MidnightNetwork.Stagenet,
         MidnightNetwork.Preview,
         MidnightNetwork.Preprod,
         MidnightNetwork.Mainnet,

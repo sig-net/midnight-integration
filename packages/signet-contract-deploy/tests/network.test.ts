@@ -7,15 +7,10 @@ import {
   getFaucetUrl,
   getMidnightNodeConfig,
   isLocalStandaloneNetwork,
-  NETWORK_IDS,
   type NetworkId,
 } from "../src/index.ts";
 
 describe("network ids", () => {
-  it("includes stagenet", () => {
-    expect(NETWORK_IDS).toContain("stagenet");
-  });
-
   interface StandaloneCase {
     networkId: NetworkId;
     expected: boolean;
@@ -24,7 +19,6 @@ describe("network ids", () => {
     { networkId: "undeployed", expected: true },
     { networkId: "preview", expected: false },
     { networkId: "preprod", expected: false },
-    { networkId: "stagenet", expected: false },
     { networkId: "mainnet", expected: false },
   ];
   it.each(STANDALONE_CASES)(
@@ -35,25 +29,25 @@ describe("network ids", () => {
   );
 });
 
-describe("getMidnightNodeConfig for stagenet", () => {
+describe("getMidnightNodeConfig for preview", () => {
   it("resolves the built-in endpoints from NETWORK_ID alone", () => {
-    expect(getMidnightNodeConfig({ NETWORK_ID: "stagenet" })).toEqual({
-      networkId: "stagenet",
-      indexerUrl: "https://indexer.stagenet.shielded.tools/api/v4/graphql",
-      indexerWsUrl: "wss://indexer.stagenet.shielded.tools/api/v4/graphql/ws",
-      nodeUrl: "https://rpc.stagenet.shielded.tools",
+    expect(getMidnightNodeConfig({ NETWORK_ID: "preview" })).toEqual({
+      networkId: "preview",
+      indexerUrl: "https://indexer.preview.midnight.network/api/v4/graphql",
+      indexerWsUrl: "wss://indexer.preview.midnight.network/api/v4/graphql/ws",
+      nodeUrl: "https://rpc.preview.midnight.network",
       proofServerUrl: "http://127.0.0.1:6300",
     });
   });
 
   it("resolves env-provided endpoints over the defaults (WS twin derived from the indexer URL)", () => {
     const config = getMidnightNodeConfig({
-      NETWORK_ID: "stagenet",
+      NETWORK_ID: "preview",
       MIDNIGHT_NODE_URL: "https://node.example",
       MIDNIGHT_NODE_INDEXER_URL: "https://indexer.example/api/v4/graphql",
     });
     expect(config).toEqual({
-      networkId: "stagenet",
+      networkId: "preview",
       indexerUrl: "https://indexer.example/api/v4/graphql",
       indexerWsUrl: "wss://indexer.example/api/v4/graphql/ws",
       nodeUrl: "https://node.example",
@@ -61,10 +55,10 @@ describe("getMidnightNodeConfig for stagenet", () => {
     });
   });
 
-  it("publishes the stagenet faucet URL, which MIDNIGHT_FAUCET_URL overrides", () => {
-    expect(FAUCET_URLS.stagenet).toBe("https://faucet.stagenet.shielded.tools");
-    expect(getFaucetUrl({}, "stagenet")).toBe("https://faucet.stagenet.shielded.tools");
-    expect(getFaucetUrl({ MIDNIGHT_FAUCET_URL: "https://faucet.example" }, "stagenet")).toBe(
+  it("publishes the preview faucet URL, which MIDNIGHT_FAUCET_URL overrides", () => {
+    expect(FAUCET_URLS.preview).toBe("https://midnight-tmnight-preview.nethermind.dev");
+    expect(getFaucetUrl({}, "preview")).toBe("https://midnight-tmnight-preview.nethermind.dev");
+    expect(getFaucetUrl({ MIDNIGHT_FAUCET_URL: "https://faucet.example" }, "preview")).toBe(
       "https://faucet.example",
     );
   });

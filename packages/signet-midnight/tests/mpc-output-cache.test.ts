@@ -5,12 +5,18 @@ import { createServer, type Server } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { MidnightNetwork, MpcOutputCacheReader, parseRequestIdHex } from "../src/index.ts";
+import {
+  getMpcOutputCacheUrl,
+  MidnightNetwork,
+  MpcOutputCacheReader,
+  parseRequestIdHex,
+} from "../src/index.ts";
 
 const REQUEST_ID = parseRequestIdHex("5c".repeat(32));
-const NETWORK_ID = "stagenet";
+const NETWORK_ID = "preview";
 const SIGNET_CONTRACT_ADDRESS = "ab".repeat(32);
-const EXPECTED_OBJECT_PATH = `/v1/stagenet/${NETWORK_ID}/${SIGNET_CONTRACT_ADDRESS}/${REQUEST_ID}.bin`;
+const OBJECT_PATH_UNDER_PREFIX = `/${NETWORK_ID}/${SIGNET_CONTRACT_ADDRESS}/${REQUEST_ID}.bin`;
+const EXPECTED_OBJECT_PATH = `/v1/prefix${OBJECT_PATH_UNDER_PREFIX}`;
 
 let server: Server | undefined;
 
@@ -59,23 +65,21 @@ describe("MpcOutputCacheReader", () => {
     "locates the object under <prefix>/<network>/<signet>/<request>.bin from $name",
     ({ suffix }) => {
       const reader = new MpcOutputCacheReader({
-        cacheUrl: `https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet${suffix}`,
+        cacheUrl: `https://bucket.example/v1/prefix${suffix}`,
         networkId: NETWORK_ID,
         signetContractAddress: SIGNET_CONTRACT_ADDRESS,
       });
-      expect(reader.objectUrl(REQUEST_ID)).toBe(
-        `https://storage.googleapis.com/midnight-cache-storage-testnet${EXPECTED_OBJECT_PATH}`,
-      );
+      expect(reader.objectUrl(REQUEST_ID)).toBe(`https://bucket.example${EXPECTED_OBJECT_PATH}`);
     },
   );
 
   it("defaults to the cache the package publishes for the network", () => {
     const reader = new MpcOutputCacheReader({
-      networkId: MidnightNetwork.Stagenet,
+      networkId: MidnightNetwork.Preview,
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     });
     expect(reader.objectUrl(REQUEST_ID)).toBe(
-      `https://storage.googleapis.com/midnight-cache-storage-testnet${EXPECTED_OBJECT_PATH}`,
+      `${getMpcOutputCacheUrl(MidnightNetwork.Preview)}${OBJECT_PATH_UNDER_PREFIX}`,
     );
   });
 
@@ -122,7 +126,7 @@ describe("MpcOutputCacheReader", () => {
     const paths: string[] = [];
     const baseUrl = await serveBucket(reply, paths);
     const reader = new MpcOutputCacheReader({
-      cacheUrl: `${baseUrl}/v1/stagenet`,
+      cacheUrl: `${baseUrl}/v1/prefix`,
       networkId: NETWORK_ID,
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     });
@@ -138,7 +142,7 @@ describe("MpcOutputCacheReader", () => {
     const paths: string[] = [];
     const baseUrl = await serveBucket({ status, body: new TextEncoder().encode(body) }, paths);
     const reader = new MpcOutputCacheReader({
-      cacheUrl: `${baseUrl}/v1/stagenet`,
+      cacheUrl: `${baseUrl}/v1/prefix`,
       networkId: NETWORK_ID,
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     });
@@ -149,7 +153,7 @@ describe("MpcOutputCacheReader", () => {
 
   it("throws when the cache is unreachable", async () => {
     const reader = new MpcOutputCacheReader({
-      cacheUrl: "http://127.0.0.1:1/v1/stagenet",
+      cacheUrl: "http://127.0.0.1:1/v1/prefix",
       networkId: NETWORK_ID,
       signetContractAddress: SIGNET_CONTRACT_ADDRESS,
     });

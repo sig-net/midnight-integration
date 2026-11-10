@@ -146,13 +146,13 @@ reruns reuse the same wallets; deleting a seed line regenerates that wallet.
 
 - **undeployed:** root defaults to the genesis mint wallet, so the roles are
   funded from genesis at runtime — a fresh run is fully automatic.
-- **deployed (e.g. stagenet):** root is generated on the first run, which then
+- **deployed (e.g. preview):** root is generated on the first run, which then
   **STOPS at the root preflight** and prints root's NIGHT address. Fund it via
   the faucet, then rerun: root funds the three roles and the suite proceeds.
 
-### Against a deployed network (e.g. stagenet)
+### Against a deployed network (e.g. preview)
 
-1. `NETWORK_ID=stagenet` is the whole configuration: the network's endpoints
+1. `NETWORK_ID=preview` is the whole configuration: the network's endpoints
    are built in (override one with `MIDNIGHT_NODE_URL` or
    `MIDNIGHT_NODE_INDEXER_URL` if needed, the WS twin derives from the
    latter). The proof server stays local, so keep one running at
@@ -164,7 +164,7 @@ reruns reuse the same wallets; deleting a seed line regenerates that wallet.
    shares to the deployer, one to every other role, one kept by root, or
    `FUND_CHILD_NIGHT` each) and
    the pipeline runs to the end. The fakenet responder needs its container
-   endpoints pointed at stagenet too (the `MIDNIGHT_*` compose vars).
+   endpoints pointed at preview too (the `MIDNIGHT_*` compose vars).
 
 Every other setup step (MPC keys, compile/deploy, fakenet hand-off) behaves
 exactly as on the local stack, and the same `.env`-skip rules apply: set a
@@ -208,8 +208,8 @@ the address vars, rerun the suite and watch the run for you.
 | Variable | Purpose | Default |
 |---|---|---|
 | `RUN_INTEGRATION_TESTS` | Opt-in gate (real env only, not `.env`); `test:integration-tests` sets it | unset (flow file skips) |
-| `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (deploy-package config); `undeployed` \| `preview` \| `preprod` \| `stagenet` \| `mainnet` | `undeployed` (local stack) |
-| `MIDNIGHT_FAUCET_URL` | The faucet the root-preflight stop message names when root needs funding on a deployed network (deploy-package config) | built in for `stagenet`, `preview` and `preprod` (none otherwise) |
+| `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (deploy-package config); `undeployed` \| `preview` \| `preprod` \| `mainnet` | `undeployed` (local stack) |
+| `MIDNIGHT_FAUCET_URL` | The faucet the root-preflight stop message names when root needs funding on a deployed network (deploy-package config) | built in for `preview` and `preprod` (none otherwise) |
 | `ROOT_SEED` | Funds the role wallets; does no test work. Faucet-funded on a deployed network | genesis seed `00…01` (undeployed); generated (deployed) |
 | `DEPLOYER_SEED`, `INVOKER_SEED`, `MPC_RESPONDER_SEED` | The role wallets (deploy / invoke / fakenet responder); generated + persisted to `.env` and funded from root, or set to reuse | generated on the first run and persisted to `.env` (reused after that) |
 | `FUND_CHILD_NIGHT` | NIGHT (base units) to move from root into each role wallet that needs funding | unset (split root's balance by weight: deployer 3 shares, every other role 1, root keeps 1) |
