@@ -6,11 +6,13 @@
 //
 // The read algorithm is the TS twin of the MPC's Rust reader
 // (chain-signatures/chain-midnight/src/reader.rs) and must stay in lockstep
-// with it: each record is decoded once, and id verification is a separate
-// recompute-and-drop gate ({@link lookupSignetRequestAt}).
+// with it: each record is decoded once, and verification is a separate
+// drop gate ({@link lookupSignetRequestAt}) binding the record to the
+// contract it was read from and to the id it is filed under.
 
 import type { AlignedValue } from "@midnight-ntwrk/compact-runtime";
 
+import { bytesToHex, stripHexPrefix } from "./byte-codecs.ts";
 import { decodeExactly } from "./compact-descriptors.ts";
 import { type RawContractState, signetFieldNodeByPath } from "./raw-contract-state.ts";
 import { decodeEvmType2SignBidirectionalEvent } from "./signet-evtype2tx-record-decoding.ts";
@@ -74,8 +76,9 @@ export interface SignetRequestsLedger {
  * by its caller-supplied field position. A contract chooses its own layout, so
  * the caller must know where the field sits.
  *
- * Records are decoded, not verified against the ids they are filed under:
- * {@link lookupSignetRequestAt} is the verified lookup.
+ * Records are decoded, not verified against the ids they are filed under
+ * or the contract they are read from: {@link lookupSignetRequestAt} is the
+ * verified lookup.
  *
  * @param raw - Raw contract state, e.g. a decoded `queryContractState(address)` read's `data`
  *   from the indexer or `ctx.currentQueryContext.state` from the simulator.
@@ -107,21 +110,27 @@ export function readSignetRequestsLedgerFromState(
  * Look up ONE request by id in a contract's request index at an arbitrary
  * ledger field: the single-record sibling of
  * {@link readSignetRequestsLedgerFromState} and the discovery primitive of
- * the event-based feed. The recompute-and-drop gate: the decode never sees
- * the id, so the final recompute is the only thing binding a record's
- * contents to the key it was filed under, and a mismatch (a spoofed or
- * wrongly filed record) is dropped. Every non-membership case returns
- * `undefined` rather than throwing, and the caller MUST drop such a pointer.
+ * the event-based feed. Two gates authenticate the record, and a record
+ * failing either is dropped. The sender gate: `sender` is data the storing
+ * contract chose, and it names the contract whose keys the MPC derives, so a
+ * record is genuine only when its `sender` is the contract it was read from.
+ * The id gate: the decode never sees the id, so recomputing it is the only
+ * thing binding a record's contents to the key it was filed under. Every
+ * non-membership case returns `undefined` rather than throwing, and the
+ * caller MUST drop such a pointer.
  *
  * @param raw - Raw contract state, e.g. a decoded `queryContractState(address)` read's `data`.
+ * @param contractAddress - Address of the contract `raw` was read from, as
+ *   passed to `queryContractState` (hex, `0x` prefix optional, any case).
  * @param requestsPath - Resolved ledger-tree path of the request index in
  *   `raw`, as the notification carries it.
  * @param requestId - The request id to look up.
- * @returns The stored, id-verified request record, or `undefined` when it is
- *   not a member.
+ * @returns The stored request record, verified against `contractAddress`
+ *   and `requestId`, or `undefined` when it is not a member.
  */
 export function lookupSignetRequestAt(
   raw: RawContractState,
+  contractAddress: string,
   requestsPath: readonly number[],
   requestId: RequestIdHex,
 ): SignBidirectionalEvent | undefined {
@@ -151,7 +160,16 @@ export function lookupSignetRequestAt(
   } catch {
     return undefined; // a cell that is not a decodable request record
   }
-  if (requestIdHex(calculateRequestId(record)) !== requestId) {
+  if (bytesToHex(record.sender.bytes) !== stripHexPrefix(contractAddress).toLowerCase()) {
+    return undefined; // a record naming another contract as its sender
+  }
+  let recordId: RequestIdHex;
+  try {
+    recordId = requestIdHex(calculateRequestId(record));
+  } catch {
+    return undefined; // a record with no id, e.g. a count that overruns its capacity
+  }
+  if (recordId !== requestId) {
     return undefined; // spoofed or wrongly filed record
   }
   return record;
