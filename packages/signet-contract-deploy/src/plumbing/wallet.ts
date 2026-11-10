@@ -551,6 +551,44 @@ function syncPosition(applied: bigint, highest: bigint): string {
   return `${String(applied)}/${String(highest)} (${String((applied * 100n) / highest)}%)`;
 }
 
+/** The unshielded sync facts {@link unshieldedSyncPosition} reports on. */
+export type UnshieldedSyncProgress = Pick<
+  FacadeState["unshielded"]["progress"],
+  "appliedId" | "highestTransactionId" | "isConnected" | "indexerLiveness"
+>;
+
+/**
+ * The unshielded wallet's sync position for the heartbeat. It follows one
+ * address's transactions, so its head arrives with the indexer's first
+ * progress frame for that address, and it reports synced only once the
+ * indexer's height also agrees with the node's finalized head.
+ *
+ * @param progress - The unshielded wallet's progress record.
+ * @returns What the wallet has applied, or what it is waiting for.
+ */
+export function unshieldedSyncPosition(progress: UnshieldedSyncProgress): string {
+  if (!progress.isConnected) return "waiting for the indexer's first progress frame";
+  const position =
+    progress.highestTransactionId <= 0n
+      ? "no transactions for this address"
+      : syncPosition(progress.appliedId, progress.highestTransactionId);
+  const liveness = progress.indexerLiveness;
+  switch (liveness._tag) {
+    case "Unknown":
+      return `${position}, node head check pending`;
+    case "Unavailable":
+      return `${position}, node head check failed ${String(liveness.consecutiveFailures)} time(s)`;
+    case "Behind":
+      return `${position}, indexer ${String(liveness.lag)} block(s) behind the node`;
+    case "WrongNetwork":
+      return `${position}, indexer and node disagree on block ${String(liveness.height)}`;
+    case "Skipped":
+    case "InSync":
+    case "Ahead":
+      return position;
+  }
+}
+
 /**
  * Wait for a started facade to report itself synced, logging a heartbeat
  * every {@link SYNC_HEARTBEAT_MS} with the elapsed time and each sub-wallet's
@@ -581,7 +619,7 @@ async function waitForSyncedStateLogging(
         ? "no state yet"
         : `shielded ${syncPosition(latest.shielded.progress.appliedIndex, latest.shielded.progress.highestRelevantWalletIndex)}, ` +
           `dust ${syncPosition(latest.dust.progress.appliedIndex, latest.dust.progress.highestRelevantWalletIndex)}, ` +
-          `unshielded ${syncPosition(latest.unshielded.progress.appliedId, latest.unshielded.progress.highestTransactionId)}`;
+          `unshielded ${unshieldedSyncPosition(latest.unshielded.progress)}`;
     console.log(`  ${label} wallet still syncing after ${elapsed()}: ${position}`);
   }, SYNC_HEARTBEAT_MS);
   try {
