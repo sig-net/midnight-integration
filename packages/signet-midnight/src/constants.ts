@@ -119,11 +119,11 @@ export function getMpcRootPublicKey(networkId: DeployedNetwork): string {
 }
 
 // TODO: fill in each network's signet signer address as the signet
-// signet signer is deployed there. An empty string means "not yet deployed or
+// signer is deployed there. An empty string means "not yet deployed or
 // published" and makes getSignerContractAddress throw for that network.
 const signerContractAddresses: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Preview]: "2b0f9ef9fe7e6d79628a12d245ae0d7efaaaeeca360d9f5f3e13214a5c325013",
-  [MidnightNetwork.Preprod]: "",
+  [MidnightNetwork.Preprod]: "798e602d58ca65bae159464f43091bd790b3ef23f10abb49d962bc0efeb00c5e",
   [MidnightNetwork.Mainnet]: "",
 };
 
