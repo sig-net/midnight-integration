@@ -95,7 +95,15 @@ const mpcRootPublicKeys: Record<DeployedNetwork, string> = {
     // Canonical form of the signet.js TESTNET_DEV root key:
     // secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq
     "0x04cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61ca3e59da1c194aa90108098a9e5cdc55d3b3297cdefbc085ffafd0f2c34ae61a",
-  [MidnightNetwork.Preprod]: "",
+  // TODO: uncomment and switch to this when testnet is pointed to pre-prod
+  // [MidnightNetwork.Preprod]:
+  //  // Canonical form of the signet.js TESTNET root key:
+  //  // secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5
+  //  "0x047dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d8432847f591ab25ca454effb522ec2eaf04b7e1c83ba65ae731ea98dd52eb7d458dd4",
+  [MidnightNetwork.Preprod]:
+    // Canonical form of the signet.js TESTNET_DEV root key:
+    // secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq
+    "0x04cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61ca3e59da1c194aa90108098a9e5cdc55d3b3297cdefbc085ffafd0f2c34ae61a",
   [MidnightNetwork.Mainnet]: "",
 };
 
@@ -182,9 +190,9 @@ export function getResponderContractAddress(networkId: DeployedNetwork): string 
 const mpcOutputCacheUrls: Record<DeployedNetwork, string> = {
   // The dev MPC serves Preprod and writes to this bucket under its `v1` prefix.
   [MidnightNetwork.Preview]: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
-  [MidnightNetwork.Preprod]: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
-  // TODO: activate once the test MPC serves Preprod and the dev MPC serves Preview.
+  // TODO: uncomment and switch to this when testnet is pointed to pre-prod
   // [MidnightNetwork.Preprod]: "https://storage.googleapis.com/midnight-cache-storage-testnet/v1",
+  [MidnightNetwork.Preprod]: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
   [MidnightNetwork.Mainnet]: "https://storage.googleapis.com/midnight-cache-storage-mainnet/v1",
 };
 

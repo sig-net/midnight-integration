@@ -81,21 +81,26 @@ describe("asciiUnpadded", () => {
   });
 });
 
-// The preview MPC root key as the MPC operators publish it (NEAR form), the
+// The dev MPC's root key as the MPC operators publish it (NEAR form), the
 // signet.js TESTNET_DEV key.
-const PREVIEW_MPC_ROOT_KEY_NEAR_FORM =
+const DEV_MPC_ROOT_KEY_NEAR_FORM =
   "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
-// The deployed networks with no MPC root key published yet.
-const NETWORKS_WITHOUT_MPC_ROOT_KEY: readonly DeployedNetwork[] = [
+// The deployed networks the dev MPC serves.
+const NETWORKS_WITH_DEV_MPC_ROOT_KEY: readonly DeployedNetwork[] = [
+  MidnightNetwork.Preview,
   MidnightNetwork.Preprod,
-  MidnightNetwork.Mainnet,
 ];
+// The deployed networks with no MPC root key published yet.
+const NETWORKS_WITHOUT_MPC_ROOT_KEY: readonly DeployedNetwork[] = [MidnightNetwork.Mainnet];
 describe("getMpcRootPublicKey", () => {
-  it("publishes the preview key in canonical 0x04 uncompressed SEC1 hex", () => {
-    const published = getMpcRootPublicKey(MidnightNetwork.Preview);
-    expect(published).toMatch(/^0x04[0-9a-f]{128}$/);
-    expect(published).toBe(normaliseSecp256k1PublicKey(PREVIEW_MPC_ROOT_KEY_NEAR_FORM));
-  });
+  it.each(NETWORKS_WITH_DEV_MPC_ROOT_KEY)(
+    "publishes the dev MPC's key for %s in canonical 0x04 uncompressed SEC1 hex",
+    (network) => {
+      const published = getMpcRootPublicKey(network);
+      expect(published).toMatch(/^0x04[0-9a-f]{128}$/);
+      expect(published).toBe(normaliseSecp256k1PublicKey(DEV_MPC_ROOT_KEY_NEAR_FORM));
+    },
+  );
 
   it.each(NETWORKS_WITHOUT_MPC_ROOT_KEY)(
     "throws for %s, whose key is not published yet",
