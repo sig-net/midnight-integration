@@ -17,6 +17,8 @@ import {
   type AccountFunding,
   assertRootFunded,
   deriveWalletAddresses,
+  formatFunding,
+  formatNight,
   fundChildFromRoot,
   generateHexSeed,
   GENESIS_MINT_WALLET_SEED,
@@ -123,9 +125,7 @@ export function ensureWalletSeeds(env: NodeJS.ProcessEnv): void {
  * @param funding - The wallet's measured NIGHT and DUST balances.
  */
 function logFundedPass(label: string, funding: AccountFunding): void {
-  console.log(
-    `${label} funding OK — NIGHT ${String(funding.night)}, DUST ${String(funding.dust)} (${funding.addresses.unshielded})`,
-  );
+  console.log(`${label} funding OK: ${formatFunding(funding)} (${funding.addresses.unshielded})`);
 }
 
 /**
@@ -196,12 +196,12 @@ export async function ensureWalletsFunded(
   const share = fundingShare(root.night, unfunded);
   if (unfunded.length > 0) {
     console.log(
-      `funding plan: root holds ${String(root.night)} NIGHT, one share is ${String(share)}, root keeps ${String(ROOT.shares)}` +
+      `funding plan: root holds ${formatNight(root.night)} NIGHT, one share is ${formatNight(share)} NIGHT, root keeps ${String(ROOT.shares)}` +
         (env.FUND_CHILD_NIGHT ? " (FUND_CHILD_NIGHT pins every child). " : ". ") +
         unfunded
           .map(
             (child) =>
-              `${child.label}: ${String(perChildAmount(env, share, child))} (${String(child.shares)} share(s))`,
+              `${child.label}: ${formatNight(perChildAmount(env, share, child))} NIGHT (${String(child.shares)} share(s))`,
           )
           .join(", "),
     );
@@ -214,7 +214,7 @@ export async function ensureWalletsFunded(
     }
     const amount = perChildAmount(env, share, child);
     console.log(
-      `${child.label} not fee-ready (NIGHT ${String(funding.night)}, DUST ${String(funding.dust)}) — funding ${String(amount)} from root`,
+      `${child.label} not fee-ready (${formatFunding(funding)}), funding ${formatNight(amount)} NIGHT from root`,
     );
     const funded = await explainDustSpendRejection(`fund ${child.label}`, () =>
       fundChildFromRoot(

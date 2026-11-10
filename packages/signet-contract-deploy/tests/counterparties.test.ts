@@ -56,7 +56,7 @@ describe("findSignerContractAddress / resolveSignerContractAddress", () => {
     },
     {
       name: "a set value on a deployed network the SDK publishes nothing for yet",
-      env: { NETWORK_ID: "preprod", MIDNIGHT_SIGNER_CONTRACT_ADDRESS: "cd".repeat(32) },
+      env: { NETWORK_ID: "mainnet", MIDNIGHT_SIGNER_CONTRACT_ADDRESS: "cd".repeat(32) },
       found: { value: "cd".repeat(32), origin: CounterpartyOrigin.Environment },
     },
     {
@@ -101,8 +101,8 @@ describe("findSignerContractAddress / resolveSignerContractAddress", () => {
     },
     {
       name: "nothing on a deployed network the SDK publishes nothing for yet",
-      env: { NETWORK_ID: "preprod" },
-      error: /required on "preprod": the SDK publishes no signet signer for it yet/,
+      env: { NETWORK_ID: "mainnet" },
+      error: /required on "mainnet": the SDK publishes no signet signer for it yet/,
     },
   ];
 

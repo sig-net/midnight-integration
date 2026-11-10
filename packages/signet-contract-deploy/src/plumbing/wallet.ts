@@ -31,7 +31,7 @@ import {
 import { redactUrlQuery } from "@sig-net/midnight";
 import { Cause, Option, Runtime } from "effect";
 
-import { formatDust } from "./format-dust.ts";
+import { formatDust } from "./format-amounts.ts";
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
 import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
 import { parseSeed } from "./seed.ts";
@@ -192,6 +192,12 @@ export function deriveAddresses(keys: AccountKeys, networkId: NetworkId): Wallet
 }
 
 /**
+ * Indexer events the shielded and DUST wallets apply per batch: per-batch
+ * overhead dominates a sync at the SDK's default of 10.
+ */
+const SYNC_BATCH_SIZE = 1000;
+
+/**
  * Wire up the WalletFacade for the given keys + connection config. This only
  * constructs the three sub-wallets — it does NOT start syncing.
  *
@@ -247,13 +253,6 @@ export function initialiseWalletFacade(
     },
   });
 }
-
-/**
- * Indexer events the shielded and DUST wallets apply per batch. The SDK's
- * default of 10 is dominated by per-batch overhead: a full DUST sync took
- * 209 s at 10, 80 s at 100 and 72 s at 1000, where one core is saturated.
- */
-const SYNC_BATCH_SIZE = 1000;
 
 // Dust generates continuously once NIGHT is registered, but a fresh
 // registration takes a few blocks before a spendable balance appears.

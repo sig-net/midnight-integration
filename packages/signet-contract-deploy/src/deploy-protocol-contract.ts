@@ -8,14 +8,20 @@ import { redactUrlQuery } from "@sig-net/midnight";
 
 import { type DeployTransaction, getDeployConfig } from "./plumbing/deploy.ts";
 import { envOrUndefined } from "./plumbing/env.ts";
-import { ensureFeeReady } from "./plumbing/funding.ts";
+import { formatDust } from "./plumbing/format-amounts.ts";
+import {
+  accountFunding,
+  ensureFeeReady,
+  formatFunding,
+  formatUtxoBreakdown,
+} from "./plumbing/funding.ts";
 import {
   FAUCET_URL_ENV_VAR,
   getFaucetUrl,
   MIDNIGHT_NODE_CONFIG_ENV_VARS,
   type MidnightNodeConfig,
 } from "./plumbing/midnight-node-config.ts";
-import type { NetworkId } from "./plumbing/network-id.ts";
+import { isLocalStandaloneNetwork, type NetworkId } from "./plumbing/network-id.ts";
 import {
   deriveAccountKeys,
   deriveAddresses,
@@ -64,9 +70,9 @@ export function deployEnvironmentTable(
 ): Record<string, DeploySettingRow> {
   const values: Record<string, string> = {
     [MIDNIGHT_NODE_CONFIG_ENV_VARS.networkId]: midnightNodeConfig.networkId,
-    [MIDNIGHT_NODE_CONFIG_ENV_VARS.nodeUrl]: redactUrlQuery(midnightNodeConfig.nodeUrl),
-    [MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerUrl]: redactUrlQuery(midnightNodeConfig.indexerUrl),
-    [MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerWsUrl]: redactUrlQuery(midnightNodeConfig.indexerWsUrl),
+    [MIDNIGHT_NODE_CONFIG_ENV_VARS.nodeUrl]: midnightNodeConfig.nodeUrl,
+    [MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerUrl]: midnightNodeConfig.indexerUrl,
+    [MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerWsUrl]: midnightNodeConfig.indexerWsUrl,
     [MIDNIGHT_NODE_CONFIG_ENV_VARS.proofServerUrl]: midnightNodeConfig.proofServerUrl,
     [FAUCET_URL_ENV_VAR]: getFaucetUrl(env, midnightNodeConfig.networkId) ?? "(none)",
   };
@@ -74,7 +80,7 @@ export function deployEnvironmentTable(
     Object.entries(values).map(([name, value]) => [
       name,
       {
-        value,
+        value: redactUrlQuery(value),
         source:
           envOrUndefined(env, name) === undefined
             ? DeploySettingSource.Default
@@ -145,10 +151,16 @@ export async function deployProtocolContract(
 
   console.log(`deploying ${name} to ${networkId} with:`);
   console.table(deployEnvironmentTable(env, deployConfig.midnightNodeConfig));
-  console.log(deployerFundingLine(deployConfig.deployerSeed, networkId));
 
   try {
+    // Logged ahead of the wallet sync, so the address can be funded while it runs.
+    if (wallets === undefined && !isLocalStandaloneNetwork(networkId)) {
+      console.log(deployerFundingLine(deployConfig.deployerSeed, networkId));
+    }
     const { facade, keys } = await registry.wallet(deployConfig.deployerSeed, "deployer");
+    const syncedState = await facade.waitForSyncedState();
+    const funding = accountFunding(syncedState, deriveAddresses(keys, networkId));
+    console.log(`deployer balance: ${formatFunding(funding)}\n${formatUtxoBreakdown(syncedState)}`);
 
     const deployTransaction = await buildTransaction(
       networkId,
@@ -161,7 +173,7 @@ export async function deployProtocolContract(
       facade,
       deployTransaction.serializedTransaction,
     );
-    console.log(`fee budget: 1 transaction at about ${String(fee)} DUST`);
+    console.log(`fee budget: 1 transaction at about ${formatDust(fee)} DUST`);
     const state = await facade.waitForSyncedState();
     await ensureFeeReady(facade, keys, state, networkId, getFaucetUrl(env, networkId), fee);
 

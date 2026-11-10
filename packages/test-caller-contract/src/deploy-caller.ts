@@ -18,11 +18,16 @@ import {
 } from "@sig-net/midnight";
 import { envOrUndefined } from "@sig-net/midnight-contract-deploy";
 import {
+  accountFunding,
   buildDeployTransaction,
   deriveAccountKeys,
+  deriveAddresses,
   ensureFeeReady,
+  formatFunding,
+  formatUtxoBreakdown,
   getDeployConfig,
   getFaucetUrl,
+  resolveSignerContractAddress,
   submitUnprovenTransaction,
   type TransactionIdentifier,
   withSyncedWalletFacade,
@@ -75,12 +80,14 @@ export interface CallerDeployment {
  *
  * @param env - Environment map providing `DEPLOYER_SEED`,
  *   `MIDNIGHT_SIGNER_CONTRACT_ADDRESS` (the signet signer to seal as the
- *   cross-contract emitter), optionally `CALLER_DEPLOYER_SECRET_KEY` (the
+ *   cross-contract emitter, see `resolveSignerContractAddress`), optionally
+ *   `CALLER_DEPLOYER_SECRET_KEY` (the
  *   identity secret whose commitment gates initialise; defaults to the
  *   deployer seed) and the shared Midnight node configuration (see
  *   `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
- * @throws {Error} If `MIDNIGHT_SIGNER_CONTRACT_ADDRESS` is missing/malformed, the
+ * @throws {Error} If `MIDNIGHT_SIGNER_CONTRACT_ADDRESS` is malformed, disagrees
+ *   with the published signet signer or is unset where none is published, the
  *   identity secret is malformed, the deployer wallet holds no NIGHT to pay
  *   fees with, or submission fails.
  */
@@ -96,16 +103,9 @@ export async function deployCaller(
   const deployerSecretKey = resolveCallerDeployerSecretKey(env, deployConfig.deployerSeed);
   const deployerCommitment = pureCircuits.deployerCommitment(deployerSecretKey);
 
-  // The signet signer the caller cross-contract-calls to register signature
-  // request notifications — sealed into the caller as the SignetSigner
-  // reference, so it must be deployed first.
-  const signerContractAddress = env.MIDNIGHT_SIGNER_CONTRACT_ADDRESS?.trim();
-  if (!signerContractAddress) {
-    throw new Error(
-      "MIDNIGHT_SIGNER_CONTRACT_ADDRESS is required (deploy the signet signer first)",
-    );
-  }
-  const signetSigner = contractAddressFromHex(signerContractAddress);
+  // Sealed into the caller as its SignetSigner reference, so the signet
+  // signer must be deployed first.
+  const signetSigner = contractAddressFromHex(resolveSignerContractAddress(env).value);
 
   const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
 
@@ -117,6 +117,8 @@ export async function deployCaller(
     accountKeys,
     deployConfig.midnightNodeConfig,
     async (facade, state) => {
+      const funding = accountFunding(state, deriveAddresses(accountKeys, networkId));
+      console.log(`deployer balance: ${formatFunding(funding)}\n${formatUtxoBreakdown(state)}`);
       await ensureFeeReady(facade, accountKeys, state, networkId, getFaucetUrl(env, networkId));
 
       const deployTransaction = await buildDeployTransaction(

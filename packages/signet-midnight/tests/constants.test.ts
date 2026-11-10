@@ -95,11 +95,6 @@ const NETWORKS_WITHOUT_OUTPUT_CACHE: readonly DeployedNetwork[] = [
   MidnightNetwork.Preprod,
   MidnightNetwork.Mainnet,
 ];
-// The deployed networks with no protocol contract address published.
-const NETWORKS_WITHOUT_CONTRACTS: readonly DeployedNetwork[] = [
-  MidnightNetwork.Preprod,
-  MidnightNetwork.Mainnet,
-];
 
 describe("getMpcRootPublicKey", () => {
   it("publishes the preview key in canonical 0x04 uncompressed SEC1 hex", () => {
@@ -132,11 +127,17 @@ describe("getMpcOutputCacheUrl", () => {
 });
 
 describe("getSignerContractAddress", () => {
-  it("publishes the preview signet signer", () => {
-    expect(getSignerContractAddress(MidnightNetwork.Preview)).toMatch(/^[0-9a-f]{64}$/);
+  const NETWORKS_WITH_SIGNER: readonly DeployedNetwork[] = [
+    MidnightNetwork.Preview,
+    MidnightNetwork.Preprod,
+  ];
+  const NETWORKS_WITHOUT_SIGNER: readonly DeployedNetwork[] = [MidnightNetwork.Mainnet];
+
+  it.each(NETWORKS_WITH_SIGNER)("publishes the %s signet signer", (network) => {
+    expect(getSignerContractAddress(network)).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it.each(NETWORKS_WITHOUT_CONTRACTS)(
+  it.each(NETWORKS_WITHOUT_SIGNER)(
     "throws for %s, which has no published signet signer",
     (network) => {
       expect(() => getSignerContractAddress(network)).toThrow(/no signet signer address/);
@@ -145,11 +146,16 @@ describe("getSignerContractAddress", () => {
 });
 
 describe("getResponderContractAddress", () => {
+  const NETWORKS_WITHOUT_RESPONDER: readonly DeployedNetwork[] = [
+    MidnightNetwork.Preprod,
+    MidnightNetwork.Mainnet,
+  ];
+
   it("publishes the preview responder", () => {
     expect(getResponderContractAddress(MidnightNetwork.Preview)).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it.each(NETWORKS_WITHOUT_CONTRACTS)(
+  it.each(NETWORKS_WITHOUT_RESPONDER)(
     "throws for %s, which has no published responder",
     (network) => {
       expect(() => getResponderContractAddress(network)).toThrow(

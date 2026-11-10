@@ -79,6 +79,18 @@ describe("deployEnvironmentTable", () => {
     );
     expect(JSON.stringify(table)).not.toContain("token");
   });
+
+  it("masks the query values of an overridden proof server and faucet URL", () => {
+    const env = {
+      MIDNIGHT_NODE_PROOF_SERVER_URL: "https://prover.example/?api_key=token",
+      MIDNIGHT_FAUCET_URL: "https://faucet.example/?key=token",
+    };
+    const table = deployEnvironmentTable(env, getMidnightNodeConfig(env));
+    expect(table.MIDNIGHT_NODE_PROOF_SERVER_URL?.value).toBe(
+      "https://prover.example/?api_key=REDACTED",
+    );
+    expect(table.MIDNIGHT_FAUCET_URL?.value).toBe("https://faucet.example/?key=REDACTED");
+  });
 });
 
 describe("deployerFundingLine", () => {

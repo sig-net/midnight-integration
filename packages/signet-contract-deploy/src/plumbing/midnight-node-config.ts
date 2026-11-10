@@ -190,9 +190,8 @@ export function getMidnightNodeConfig(
   }
   const indexerWsUrl =
     envOrUndefined(env, MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerWsUrl) ??
-    (indexerOverride === undefined
-      ? (builtIn?.indexerWsUrl ?? indexerWsUrlFromIndexerUrl(indexerUrl))
-      : indexerWsUrlFromIndexerUrl(indexerUrl));
+    (indexerOverride === undefined ? builtIn?.indexerWsUrl : undefined) ??
+    indexerWsUrlFromIndexerUrl(indexerUrl);
 
   return {
     networkId,
