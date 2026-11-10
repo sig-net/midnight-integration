@@ -151,7 +151,7 @@ export function getSignerContractAddress(networkId: DeployedNetwork): string {
 // makes getResponderContractAddress throw for that network.
 const responderContractAddresses: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Preview]: "1616a3cf33ffc2c4678323150374b89a18807335bcbabd31621c56e0d3c0d203",
-  [MidnightNetwork.Preprod]: "",
+  [MidnightNetwork.Preprod]: "825841d7bef91956fc4fdefe4edb7ecf9c2b985f0b4ddae7d0f1b35d9267ca2b",
   [MidnightNetwork.Mainnet]: "",
 };
 
