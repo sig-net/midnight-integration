@@ -88,10 +88,6 @@ describe("MpcOutputCacheReader", () => {
       networkId: MidnightNetwork.Undeployed,
       expected: /no MPC output cache is published for the 'undeployed' network: pass cacheUrl/,
     },
-    {
-      networkId: MidnightNetwork.Preprod,
-      expected: /no MPC output cache URL published for the 'preprod' network yet/,
-    },
   ])("refuses to default on $networkId", ({ networkId, expected }) => {
     expect(
       () => new MpcOutputCacheReader({ networkId, signerContractAddress: SIGNER_CONTRACT_ADDRESS }),

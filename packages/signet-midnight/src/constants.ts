@@ -180,12 +180,12 @@ export function getResponderContractAddress(networkId: DeployedNetwork): string 
 // string means "no cache published" and makes getMpcOutputCacheUrl throw for
 // that network.
 const mpcOutputCacheUrls: Record<DeployedNetwork, string> = {
-  // The dev MPC serves Preview, and its output storage is configured with
-  // this bucket and prefix.
-  [MidnightNetwork.Preview]:
-    "https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet",
-  [MidnightNetwork.Preprod]: "",
-  [MidnightNetwork.Mainnet]: "",
+  // The dev MPC serves Preprod and writes to this bucket under its `v1` prefix.
+  [MidnightNetwork.Preview]: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
+  [MidnightNetwork.Preprod]: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
+  // TODO: activate once the test MPC serves Preprod and the dev MPC serves Preview.
+  // [MidnightNetwork.Preprod]: "https://storage.googleapis.com/midnight-cache-storage-testnet/v1",
+  [MidnightNetwork.Mainnet]: "https://storage.googleapis.com/midnight-cache-storage-mainnet/v1",
 };
 
 /**
