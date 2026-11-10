@@ -11,7 +11,8 @@ import {
   ShieldedEncryptionPublicKey,
   UnshieldedAddress,
 } from "@midnightntwrk/wallet-sdk-address-format";
-import { DustWallet } from "@midnightntwrk/wallet-sdk-dust-wallet";
+import { type DefaultDustConfiguration, DustWallet } from "@midnightntwrk/wallet-sdk-dust-wallet";
+import type { SyncService } from "@midnightntwrk/wallet-sdk-dust-wallet/v1";
 import {
   type FacadeState,
   mergeWalletEntries,
@@ -215,18 +216,34 @@ export function initialiseWalletFacade(
         mergeWalletEntries,
       ),
     },
-    shielded: (cfg) => ShieldedWallet(cfg).startWithSeed(keys.seeds.shielded),
+    shielded: (cfg) =>
+      ShieldedWallet({ ...cfg, batchUpdates: { size: SYNC_BATCH_SIZE } }).startWithSeed(
+        keys.seeds.shielded,
+      ),
     unshielded: (cfg) =>
       UnshieldedWallet(cfg).startWithPublicKey(
         UnshieldedPublicKey.fromKeyStore(keys.unshieldedKeystore),
       ),
-    dust: (cfg) =>
-      DustWallet(cfg).startWithSeed(
+    dust: (cfg) => {
+      // DustWallet's declared configuration omits the sync fields its default sync reads.
+      const dustConfiguration: DefaultDustConfiguration & SyncService.DefaultSyncConfiguration = {
+        ...cfg,
+        batchUpdates: { size: SYNC_BATCH_SIZE },
+      };
+      return DustWallet(dustConfiguration).startWithSeed(
         keys.seeds.dust,
         ledger.LedgerParameters.initialParameters().dust,
-      ),
+      );
+    },
   });
 }
+
+/**
+ * Indexer events the shielded and DUST wallets apply per batch. The SDK's
+ * default of 10 is dominated by per-batch overhead: a full DUST sync took
+ * 209 s at 10, 80 s at 100 and 72 s at 1000, where one core is saturated.
+ */
+const SYNC_BATCH_SIZE = 1000;
 
 // Dust generates continuously once NIGHT is registered, but a fresh
 // registration takes a few blocks before a spendable balance appears.
