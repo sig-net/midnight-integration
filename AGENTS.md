@@ -113,7 +113,7 @@ exception for that specific case.
   keys, `COMPACTC_VERSION`, `RUNTIME_VERSION` and every platform hash in
   `COMPILER_BUILDS` in `packages/midnight-serde-conformance/src/toolchain.ts`,
   the npm `@midnightntwrk/*` and `@midnight-ntwrk/*` stack, the image tags in
-  `docker-compose.yaml`, the minocrab rev and `[patch.crates-io]` ledger tags
+  `docker-compose.yaml`, the minocrab rev and `midnight-*` crate versions
   in `packages/signet-responder/minocrab/Cargo.toml` (and its
   `artifacts.sha256`, which a new compactc's `zkir-v3` can move), and the
   README's Prerequisites and Matched set tables are a MATCHED SET — bump them together in one change
@@ -192,9 +192,11 @@ exception for that specific case.
   iteration yields `T`, indexing yields `T | undefined`.
 - **NEVER commit generated compiler output.** Each contract package's
   `src/managed/` is produced by `yarn compile` and is gitignored. Default
-  compile is `--skip-zk` (fast; enough for typecheck + simulator tests); run
-  `compile:zk` only when proving keys are actually needed (real deploys, and
-  the `build` of signet-contract and signet-responder). The root `yarn compile:zk` is a SUPERSET of
+  compile is `--skip-zk` (fast; enough for typecheck); run
+  `compile:zk` only when proving keys are actually needed (real deploys,
+  the `build` of signet-contract and signet-responder, and the test caller's
+  unit tests, which read the signet contract's and its own verifier keys: run
+  `yarn compile:zk` before `yarn test`). The root `yarn compile:zk` is a SUPERSET of
   `yarn compile`: it runs `yarn compile` over every member first, then each
   member's `compile:zk`, so members with no `compile:zk` script still get
   their `src/managed/`. Keep it that way: a root `compile:zk` that covers only

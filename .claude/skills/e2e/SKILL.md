@@ -33,7 +33,7 @@ flow drives all three outcome kinds to in-circuit settlement: `executed`
 ```sh
 corepack enable
 yarn install
-compact update 0.33.0-rc.2   # NEVER a bare `compact update`: see ground rules
+compact update 0.36.0        # NEVER a bare `compact update`: see ground rules
 cargo --version              # Rust via rustup: setup builds signet-responder's MinoCrab bundle
 yarn compile                 # run before the suites
 docker compose up -d          # node :9944, indexer :8088, proof server :6300, anvil :8545
@@ -102,7 +102,7 @@ contract and the signet responder it appends `MPC_ROOT_KEY`,
 to `.env` (docker compose interpolates the `fakenet` service's environment from
 that file) and runs
 `docker compose --profile fakenet up -d [--force-recreate] fakenet`
-(`ghcr.io/sig-net/fakenet:0.36.0`, built from
+(`ghcr.io/sig-net/fakenet:0.37.0`, built from
 sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 
 - Healthy startup (`docker logs -f fakenet-responder`) prints

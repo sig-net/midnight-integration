@@ -609,7 +609,7 @@ describe("getRespondBidirectionalEvents", () => {
       requesterRequestsPath: [0],
       responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
       publicDataProvider: {
-        queryContractState: () => Promise.resolve({ data: requesterState() }),
+        queryContractState: () => Promise.resolve(requesterRead()),
       },
       eventSource: {
         streamSignetEvents: () =>

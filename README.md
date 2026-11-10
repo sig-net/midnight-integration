@@ -865,7 +865,7 @@ Two guards in the workflows back this flow: a stable tag must point at a commit 
 | ------- | ------| ------  |----------- |
 | Node | ≥ 22.13 (24 recommended) | `node --version` | [nodejs.org](https://nodejs.org) or your version manager (nvm, fnm, …) |
 | Yarn 4 (via Corepack) | 4.x | `corepack enable && yarn --version` | Corepack ships with Node, and the repo's `packageManager` field pins the Yarn version |
-| Compact toolchain | compiler 0.33.0-rc.2, invoked with `--feature-zkir-v3` (see note) | `compact compile --version` → `0.33.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.33.0-rc.2` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)). If the launcher refuses the rc version, use the direct-download recipe in [.github/workflows/ci.yml](.github/workflows/ci.yml) |
+| Compact toolchain | compiler 0.36.0 | `compact compile --version` → `0.36.0` | Install the `compact` launcher per [Midnight's docs](https://docs.midnight.network/), then `compact update 0.36.0` (compiler builds live at [LFDT-Minokawa/compact releases](https://github.com/LFDT-Minokawa/compact/releases)) |
 | Rust (via rustup) | pinned per crate in `rust-toolchain.toml` | `cargo --version` | [rustup.rs](https://rustup.rs); `yarn compile:zk` builds signet-responder's zk bundle with it |
 | A docker environment | any recent engine | `docker --version` | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS/Windows) or your distro's engine, with **≥ 16 GB RAM allocated** (see note) |
 | Docker Compose v2 | ≥ 2.x | `docker compose version` | Included with Docker Desktop (plugin package on Linux) |
@@ -880,14 +880,14 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.26.0-rc.3 | [`packages/*/package.json`](packages) |
-| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.36.0` | [`docker-compose.yaml`](docker-compose.yaml) |
-| Compact compiler | 0.33.0-rc.2, invoked with `--feature-zkir-v3` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
-| Midnight node | 2.0.0-rc.4 | [`docker-compose.yaml`](docker-compose.yaml) |
-| Midnight indexer | 4.4.0-pre-alpha.16 (`l91r3-n2r3` build) | [`docker-compose.yaml`](docker-compose.yaml) |
-| Midnight proof server | 9.0.0-rc.5_experimental | [`docker-compose.yaml`](docker-compose.yaml) |
-| `@midnightntwrk/ledger-v9` | 1.0.0-rc.3 | [`package.json`](package.json) resolutions |
-| MinoCrab | `sig-net/minocrab` rev `e13f648`, with its `[patch.crates-io]` ledger tags | [`packages/signet-responder/minocrab/Cargo.toml`](packages/signet-responder/minocrab/Cargo.toml) |
+| `@sig-net/*` npm packages | 0.26.0-rc.6 | [`packages/*/package.json`](packages) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.37.0` | [`docker-compose.yaml`](docker-compose.yaml) |
+| Compact compiler | 0.36.0 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
+| Midnight node | 2.1.101 | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight indexer | 4.4.101 | [`docker-compose.yaml`](docker-compose.yaml) |
+| Midnight proof server | 9.0.1 | [`docker-compose.yaml`](docker-compose.yaml) |
+| `@midnightntwrk/ledger-v9` | 1.0.1 | [`package.json`](package.json) resolutions |
+| MinoCrab | `sig-net/minocrab` rev `6993e06`, with the `midnight-*` crates it locks (`midnight-ledger-v9` 1.0.1, `midnight-zkir` 3.2.0) | [`packages/signet-responder/minocrab/Cargo.toml`](packages/signet-responder/minocrab/Cargo.toml) |
 
 **NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). The real-EVM integration flow reads the responder's output cache simulation on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), the fakenet twin of the MPC's output storage bucket (see [Output Recovery and Serialisation](#output-recovery-and-serialisation)).
 

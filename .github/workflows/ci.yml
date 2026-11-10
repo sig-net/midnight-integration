@@ -140,12 +140,17 @@ jobs:
             packages/signet-contract/src/managed
             packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
-      - name: Ensure signet-contract prover keys (its build's publish-safety check needs them)
+      - name: Ensure signet-contract and test-caller zk keys (signet-contract's publish-safety check and the test caller's unit tests need them)
         run: |
           if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
             echo "signet-contract prover keys present (restored from the cache), skipping keygen"
           else
             yarn compile:signet-contract:zk
+          fi
+          if ls packages/test-caller-contract/src/managed/test-caller-contract/keys/*.prover >/dev/null 2>&1; then
+            echo "test-caller prover keys present (restored from the cache), skipping keygen"
+          else
+            yarn compile:test-caller-contract:zk
           fi
       - name: signet-responder zk bundle (its build needs the keys; fails on a lock mismatch)
         run: yarn compile:signet-responder:zk
