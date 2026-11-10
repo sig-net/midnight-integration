@@ -209,6 +209,7 @@ the address vars, rerun the suite and watch the run for you.
 |---|---|---|
 | `RUN_INTEGRATION_TESTS` | Opt-in gate (real env only, not `.env`); `test:integration-tests` sets it | unset (flow file skips) |
 | `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (deploy-package config); `undeployed` \| `preview` \| `preprod` \| `mainnet` | `undeployed` (local stack) |
+| `BLOCKFROST_PROJECT_ID` | Blockfrost project token for the network (deploy-package config), a secret | required on `preprod` and `mainnet` unless both the node and the indexer URL are set |
 | `MIDNIGHT_FAUCET_URL` | The faucet the root-preflight stop message names when root needs funding on a deployed network (deploy-package config) | built in for `preview` and `preprod` (none otherwise) |
 | `ROOT_SEED` | Funds the role wallets; does no test work. Faucet-funded on a deployed network | genesis seed `00…01` (undeployed); generated (deployed) |
 | `DEPLOYER_SEED`, `INVOKER_SEED`, `MPC_RESPONDER_SEED` | The role wallets (deploy / invoke / fakenet responder); generated + persisted to `.env` and funded from root, or set to reuse | generated on the first run and persisted to `.env` (reused after that) |

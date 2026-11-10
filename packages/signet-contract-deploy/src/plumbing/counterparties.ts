@@ -18,7 +18,7 @@ import {
 } from "@sig-net/midnight";
 
 import { envOrUndefined } from "./env.ts";
-import { getMidnightNodeConfig } from "./midnight-node-config.ts";
+import { getNetworkId } from "./midnight-node-config.ts";
 import { deployedNetwork, type NetworkId } from "./network-id.ts";
 
 /** Which source supplied a resolved counterparty value. */
@@ -75,7 +75,7 @@ function find(
   env: Record<string, string | undefined>,
   spec: CounterpartySpec,
 ): ResolvedCounterparty | undefined {
-  const { networkId } = getMidnightNodeConfig(env);
+  const networkId = getNetworkId(env);
   const supplied = envOrUndefined(env, spec.envVar);
   const fromEnvironment = supplied === undefined ? undefined : spec.canonicalise(supplied);
   const publishedRaw = published(networkId, spec.lookup);
@@ -101,7 +101,7 @@ function resolve(
 ): ResolvedCounterparty {
   const found = find(env, spec);
   if (found !== undefined) return found;
-  const { networkId } = getMidnightNodeConfig(env);
+  const networkId = getNetworkId(env);
   const remedy =
     deployedNetwork(networkId) === undefined
       ? spec.localStackRemedy

@@ -8,6 +8,10 @@
 # registers that NIGHT for dust generation and waits for the first spendable
 # DUST itself.
 #
+# The preprod and mainnet environments also carry a BLOCKFROST_PROJECT_ID
+# secret, the token of a Blockfrost project for that network: Blockfrost
+# serves their public node and indexer.
+#
 # A deploy sets NO contract maintenance authority (the CMA signing key is
 # sampled and dropped), so a deployed contract can never be updated: every run
 # creates a fresh, permanent contract instance, and the only way forward is a
@@ -202,11 +206,12 @@ jobs:
           NETWORK_ID: ${{ inputs.network }}
           DEPLOYER_SEED: ${{ secrets.DEPLOYER_SEED }}
           # Per-environment endpoint overrides. A blank var falls through to
-          # the built-in default, which reaches preview. Preprod and mainnet
-          # need both set, each with a Blockfrost project token.
+          # the built-in endpoints, which need the Blockfrost project token on
+          # preprod and mainnet.
           MIDNIGHT_NODE_URL: ${{ vars.MIDNIGHT_NODE_URL }}
           MIDNIGHT_NODE_INDEXER_URL: ${{ vars.MIDNIGHT_NODE_INDEXER_URL }}
           MIDNIGHT_NODE_PROOF_SERVER_URL: http://127.0.0.1:6300
+          BLOCKFROST_PROJECT_ID: ${{ secrets.BLOCKFROST_PROJECT_ID }}
           # $GITHUB_REF_NAME is the dispatching branch, so carry the tag over.
           TAG: ${{ inputs.tag }}
         run: |

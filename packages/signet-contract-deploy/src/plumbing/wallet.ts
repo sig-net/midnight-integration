@@ -28,6 +28,7 @@ import {
   type UnshieldedKeystore,
   UnshieldedWallet,
 } from "@midnightntwrk/wallet-sdk-unshielded-wallet";
+import { redactUrlQuery } from "@sig-net/midnight";
 
 import { formatDust } from "./format-dust.ts";
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
@@ -567,7 +568,7 @@ async function waitForSyncedStateLogging(
 ): Promise<FacadeState> {
   const started = Date.now();
   const elapsed = (): string => `${String(Math.round((Date.now() - started) / 1000))}s`;
-  console.log(`syncing ${label} wallet (indexer: ${config.indexerUrl})...`);
+  console.log(`syncing ${label} wallet (indexer: ${redactUrlQuery(config.indexerUrl)})...`);
   let latest: FacadeState | undefined;
   const subscription = facade.state().subscribe({
     next: (state) => {

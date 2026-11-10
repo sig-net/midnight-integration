@@ -44,7 +44,7 @@ const CASES: Case[] = [
   },
   {
     name: "a deployed network uses the provided DEPLOYER_SEED",
-    env: { NETWORK_ID: "preprod", DEPLOYER_SEED: CUSTOM_SEED },
+    env: { NETWORK_ID: "preprod", BLOCKFROST_PROJECT_ID: "token", DEPLOYER_SEED: CUSTOM_SEED },
     expectedSeed: CUSTOM_SEED,
     expectedNetworkId: "preprod",
   },
@@ -74,7 +74,7 @@ const THROW_CASES: ThrowCase[] = [
   },
   {
     name: "deployed network with a whitespace DEPLOYER_SEED demands one",
-    env: { NETWORK_ID: "preprod", DEPLOYER_SEED: "   " },
+    env: { NETWORK_ID: "preprod", BLOCKFROST_PROJECT_ID: "token", DEPLOYER_SEED: "   " },
     expectedMessage: /DEPLOYER_SEED is required on "preprod"/,
   },
   {

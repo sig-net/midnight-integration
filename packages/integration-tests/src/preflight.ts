@@ -4,6 +4,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { redactUrlQuery } from "@sig-net/midnight";
+
 const execFileAsync = promisify(execFile);
 
 /**
@@ -22,7 +24,7 @@ export async function assertHttpReachable(name: string, url: string): Promise<vo
     await fetch(url, { signal: AbortSignal.timeout(5_000) });
   } catch (error) {
     throw new Error(
-      `${name} is not reachable at ${url} — is the local Midnight stack up? Start it with \`docker compose up -d\` at the repo root. (${String(error)})`,
+      `${name} is not reachable at ${redactUrlQuery(url)}: is the local Midnight stack up? Start it with \`docker compose up -d\` at the repo root. (${String(error)})`,
       { cause: error },
     );
   }

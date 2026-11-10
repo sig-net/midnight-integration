@@ -10,7 +10,12 @@
 // built), so it is pinned afterwards via the contract's one-shot
 // `initialise` circuit — see the integration-tests flow.
 
-import { contractAddressFromHex, hexToBytes, stripHexPrefix } from "@sig-net/midnight";
+import {
+  contractAddressFromHex,
+  hexToBytes,
+  redactUrlQuery,
+  stripHexPrefix,
+} from "@sig-net/midnight";
 import { envOrUndefined } from "@sig-net/midnight-contract-deploy";
 import {
   buildDeployTransaction,
@@ -105,7 +110,7 @@ export async function deployCaller(
   const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
 
   console.log(
-    `deploying test-caller-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`,
+    `deploying test-caller-contract to ${networkId} (${redactUrlQuery(deployConfig.midnightNodeConfig.nodeUrl)})`,
   );
 
   const { contractAddress, txId } = await withSyncedWalletFacade(

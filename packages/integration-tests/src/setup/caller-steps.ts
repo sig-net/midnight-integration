@@ -6,6 +6,7 @@
 // steps.ts.
 
 import { deployCaller } from "@midnight-integration/test-caller-contract";
+import { redactUrlQuery } from "@sig-net/midnight";
 import { getMidnightNodeConfig } from "@sig-net/midnight-contract-deploy";
 
 import { requireEnv } from "../e2e-env.ts";
@@ -26,11 +27,15 @@ const MINUTE = 60_000;
  */
 export async function assertCallerEnvironment(env: NodeJS.ProcessEnv): Promise<void> {
   const nodeConfig = getMidnightNodeConfig(env);
-  await assertHttpReachable("midnight node", new URL("/health", nodeConfig.nodeUrl).href);
+  const nodeHealthUrl = new URL(nodeConfig.nodeUrl);
+  nodeHealthUrl.pathname = "/health";
+  await assertHttpReachable("midnight node", nodeHealthUrl.href);
   await assertHttpReachable("indexer", nodeConfig.indexerUrl);
   await assertHttpReachable("proof server", nodeConfig.proofServerUrl);
   await assertCommandAvailable("compact", ["--version"]);
-  console.log(`targeting the ${nodeConfig.networkId} network at ${nodeConfig.nodeUrl}`);
+  console.log(
+    `targeting the ${nodeConfig.networkId} network at ${redactUrlQuery(nodeConfig.nodeUrl)}`,
+  );
 }
 
 /**

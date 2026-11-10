@@ -24,6 +24,7 @@ import { decodeExactly } from "./compact-descriptors.ts";
 import { asciiUnpadded } from "./constants.ts";
 import { OutputKind } from "./managed/contract/index.js";
 import { contractAddressFromHex, type RequestIdHex, requestIdHex } from "./signet-requests.ts";
+import { redactUrlQuery } from "./url-redaction.ts";
 
 /**
  * The event names the signet contracts emit, exactly as their `emit`
@@ -345,7 +346,7 @@ async function fetchContractEventPage(
   });
   if (!response.ok) {
     throw new Error(
-      `indexer answered HTTP ${String(response.status)} for ${queryUrl}: ${await response.text()}`,
+      `indexer answered HTTP ${String(response.status)} for ${redactUrlQuery(queryUrl)}: ${await response.text()}`,
     );
   }
   const body = (await response.json()) as IndexerContractEventsResponse;
@@ -355,7 +356,9 @@ async function fetchContractEventPage(
   }
   const page = body.data?.contractEvents;
   if (page === undefined) {
-    throw new Error(`indexer answered the contract events query without a page: ${queryUrl}`);
+    throw new Error(
+      `indexer answered the contract events query without a page: ${redactUrlQuery(queryUrl)}`,
+    );
   }
   return page;
 }

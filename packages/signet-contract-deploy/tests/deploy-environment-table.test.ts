@@ -63,4 +63,19 @@ describe("deployEnvironmentTable", () => {
     });
     expect(JSON.stringify(table)).not.toContain(SEED);
   });
+
+  it("masks the Blockfrost project token in every URL it reports", () => {
+    const env = { NETWORK_ID: "preprod", BLOCKFROST_PROJECT_ID: "token" };
+    const table = deployEnvironmentTable(env, getMidnightNodeConfig(env));
+    expect(table.MIDNIGHT_NODE_URL?.value).toBe(
+      "https://rpc.midnight-preprod.blockfrost.io/?project_id=REDACTED",
+    );
+    expect(table.MIDNIGHT_NODE_INDEXER_URL?.value).toBe(
+      "https://midnight-preprod.blockfrost.io/api/v0?project_id=REDACTED",
+    );
+    expect(table.MIDNIGHT_NODE_INDEXER_WS_URL?.value).toBe(
+      "wss://midnight-preprod.blockfrost.io/api/v0/ws?project_id=REDACTED",
+    );
+    expect(JSON.stringify(table)).not.toContain("token");
+  });
 });

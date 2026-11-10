@@ -4,6 +4,8 @@
 // What differs per contract, its compiled assets and private state, arrives
 // as the transaction builder.
 
+import { redactUrlQuery } from "@sig-net/midnight";
+
 import { type DeployTransaction, getDeployConfig } from "./plumbing/deploy.ts";
 import { envOrUndefined } from "./plumbing/env.ts";
 import { ensureFeeReady } from "./plumbing/funding.ts";
@@ -47,7 +49,8 @@ export interface DeploySettingRow {
 
 /**
  * Tabulate every environment variable {@link deployProtocolContract} runs
- * with, except the secret `DEPLOYER_SEED`, each with its effective value.
+ * with, except the secrets `DEPLOYER_SEED` and `BLOCKFROST_PROJECT_ID`, each
+ * with its effective value and every URL's query values masked.
  *
  * @param env - The environment the deploy reads.
  * @param midnightNodeConfig - The node config resolved from `env`.
@@ -59,9 +62,9 @@ export function deployEnvironmentTable(
 ): Record<string, DeploySettingRow> {
   const values: Record<string, string> = {
     [MIDNIGHT_NODE_CONFIG_ENV_VARS.networkId]: midnightNodeConfig.networkId,
-    [MIDNIGHT_NODE_CONFIG_ENV_VARS.nodeUrl]: midnightNodeConfig.nodeUrl,
-    [MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerUrl]: midnightNodeConfig.indexerUrl,
-    [MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerWsUrl]: midnightNodeConfig.indexerWsUrl,
+    [MIDNIGHT_NODE_CONFIG_ENV_VARS.nodeUrl]: redactUrlQuery(midnightNodeConfig.nodeUrl),
+    [MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerUrl]: redactUrlQuery(midnightNodeConfig.indexerUrl),
+    [MIDNIGHT_NODE_CONFIG_ENV_VARS.indexerWsUrl]: redactUrlQuery(midnightNodeConfig.indexerWsUrl),
     [MIDNIGHT_NODE_CONFIG_ENV_VARS.proofServerUrl]: midnightNodeConfig.proofServerUrl,
     [FAUCET_URL_ENV_VAR]: getFaucetUrl(env, midnightNodeConfig.networkId) ?? "(none)",
   };
