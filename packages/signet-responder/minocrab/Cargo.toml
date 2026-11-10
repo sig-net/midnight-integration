@@ -22,18 +22,18 @@ midnight-ledger = { version = "1.0.1", package = "midnight-ledger-v9" }
 midnight-storage = "3.0.0"
 midnight-transient-crypto = "3.0.1"
 midnight-zkir-v3 = { version = "=3.2.0", package = "midnight-zkir" }
-minocrab = { git = "https://github.com/sig-net/minocrab", rev = "6993e06379a43c69a7c10d86cbde80195f7b8328" }
-minocrab-ledger = { git = "https://github.com/sig-net/minocrab", rev = "6993e06379a43c69a7c10d86cbde80195f7b8328" }
-minocrab-publisher = { git = "https://github.com/sig-net/minocrab", rev = "6993e06379a43c69a7c10d86cbde80195f7b8328" }
-minocrab-sim = { git = "https://github.com/sig-net/minocrab", rev = "6993e06379a43c69a7c10d86cbde80195f7b8328", features = ["unstable"] }
-minocrab-std = { git = "https://github.com/sig-net/minocrab", rev = "6993e06379a43c69a7c10d86cbde80195f7b8328" }
-minocrab-zkir = { git = "https://github.com/sig-net/minocrab", rev = "6993e06379a43c69a7c10d86cbde80195f7b8328" }
+minocrab = { git = "https://github.com/sig-net/minocrab", rev = "b41babe6a49be2a07e3edc7c3eaca590a2bb5409" }
+minocrab-ledger = { git = "https://github.com/sig-net/minocrab", rev = "b41babe6a49be2a07e3edc7c3eaca590a2bb5409" }
+minocrab-publisher = { git = "https://github.com/sig-net/minocrab", rev = "b41babe6a49be2a07e3edc7c3eaca590a2bb5409" }
+minocrab-sim = { git = "https://github.com/sig-net/minocrab", rev = "b41babe6a49be2a07e3edc7c3eaca590a2bb5409", features = ["unstable"] }
+minocrab-std = { git = "https://github.com/sig-net/minocrab", rev = "b41babe6a49be2a07e3edc7c3eaca590a2bb5409" }
+minocrab-zkir = { git = "https://github.com/sig-net/minocrab", rev = "b41babe6a49be2a07e3edc7c3eaca590a2bb5409" }
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
-signet-protocol = { git = "https://github.com/sig-net/minocrab", rev = "6993e06379a43c69a7c10d86cbde80195f7b8328" }
-signet-signer-interface = { git = "https://github.com/sig-net/minocrab", rev = "6993e06379a43c69a7c10d86cbde80195f7b8328" }
+signet-protocol = { git = "https://github.com/sig-net/minocrab", rev = "b41babe6a49be2a07e3edc7c3eaca590a2bb5409" }
+signet-signer-interface = { git = "https://github.com/sig-net/minocrab", rev = "b41babe6a49be2a07e3edc7c3eaca590a2bb5409" }
 
 [lints.clippy]
 # A circuit's `Discloses<(A, B, …)>` return type is its disclosure

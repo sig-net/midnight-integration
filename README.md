@@ -887,7 +887,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | Midnight indexer | 4.4.101 | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight proof server | 9.0.1 | [`docker-compose.yaml`](docker-compose.yaml) |
 | `@midnightntwrk/ledger-v9` | 1.0.1 | [`package.json`](package.json) resolutions |
-| MinoCrab | `sig-net/minocrab` rev `6993e06`, with the `midnight-*` crates it locks (`midnight-ledger-v9` 1.0.1, `midnight-zkir` 3.2.0) | [`packages/signet-responder/minocrab/Cargo.toml`](packages/signet-responder/minocrab/Cargo.toml) |
+| MinoCrab | `sig-net/minocrab` rev `b41babe`, with the `midnight-*` crates it locks (`midnight-ledger-v9` 1.0.1, `midnight-zkir` 3.2.0) | [`packages/signet-responder/minocrab/Cargo.toml`](packages/signet-responder/minocrab/Cargo.toml) |
 
 **NOTE:** each fakenet release names the `@sig-net` version it was built against ([`fakenet-v*` tags](https://github.com/sig-net/solana-signet-program/tags)). The real-EVM integration flow reads the responder's output cache simulation on port 3040 (mapped by [`docker-compose.yaml`](docker-compose.yaml)), the fakenet twin of the MPC's output storage bucket (see [Output Recovery and Serialisation](#output-recovery-and-serialisation)).
 

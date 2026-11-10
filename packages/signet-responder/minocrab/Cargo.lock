@@ -2198,7 +2198,7 @@ dependencies = [
 [[package]]
 name = "minocrab"
 version = "0.1.0"
-source = "git+https://github.com/sig-net/minocrab?rev=6993e06379a43c69a7c10d86cbde80195f7b8328#6993e06379a43c69a7c10d86cbde80195f7b8328"
+source = "git+https://github.com/sig-net/minocrab?rev=b41babe6a49be2a07e3edc7c3eaca590a2bb5409#b41babe6a49be2a07e3edc7c3eaca590a2bb5409"
 dependencies = [
  "minocrab-ir",
 ]
@@ -2206,7 +2206,7 @@ dependencies = [
 [[package]]
 name = "minocrab-ir"
 version = "0.1.0"
-source = "git+https://github.com/sig-net/minocrab?rev=6993e06379a43c69a7c10d86cbde80195f7b8328#6993e06379a43c69a7c10d86cbde80195f7b8328"
+source = "git+https://github.com/sig-net/minocrab?rev=b41babe6a49be2a07e3edc7c3eaca590a2bb5409#b41babe6a49be2a07e3edc7c3eaca590a2bb5409"
 dependencies = [
  "midnight-base-crypto",
  "minocrab-zkir",
@@ -2216,7 +2216,7 @@ dependencies = [
 [[package]]
 name = "minocrab-ledger"
 version = "0.1.0"
-source = "git+https://github.com/sig-net/minocrab?rev=6993e06379a43c69a7c10d86cbde80195f7b8328#6993e06379a43c69a7c10d86cbde80195f7b8328"
+source = "git+https://github.com/sig-net/minocrab?rev=b41babe6a49be2a07e3edc7c3eaca590a2bb5409#b41babe6a49be2a07e3edc7c3eaca590a2bb5409"
 dependencies = [
  "midnight-base-crypto",
  "midnight-onchain-state",
@@ -2230,7 +2230,7 @@ dependencies = [
 [[package]]
 name = "minocrab-macros"
 version = "0.1.0"
-source = "git+https://github.com/sig-net/minocrab?rev=6993e06379a43c69a7c10d86cbde80195f7b8328#6993e06379a43c69a7c10d86cbde80195f7b8328"
+source = "git+https://github.com/sig-net/minocrab?rev=b41babe6a49be2a07e3edc7c3eaca590a2bb5409#b41babe6a49be2a07e3edc7c3eaca590a2bb5409"
 dependencies = [
  "proc-macro2",
  "quote 1.0.47",
@@ -2240,7 +2240,7 @@ dependencies = [
 [[package]]
 name = "minocrab-publisher"
 version = "0.1.0"
-source = "git+https://github.com/sig-net/minocrab?rev=6993e06379a43c69a7c10d86cbde80195f7b8328#6993e06379a43c69a7c10d86cbde80195f7b8328"
+source = "git+https://github.com/sig-net/minocrab?rev=b41babe6a49be2a07e3edc7c3eaca590a2bb5409#b41babe6a49be2a07e3edc7c3eaca590a2bb5409"
 dependencies = [
  "anyhow",
  "midnight-base-crypto",
@@ -2262,7 +2262,7 @@ dependencies = [
 [[package]]
 name = "minocrab-sim"
 version = "0.1.0"
-source = "git+https://github.com/sig-net/minocrab?rev=6993e06379a43c69a7c10d86cbde80195f7b8328#6993e06379a43c69a7c10d86cbde80195f7b8328"
+source = "git+https://github.com/sig-net/minocrab?rev=b41babe6a49be2a07e3edc7c3eaca590a2bb5409#b41babe6a49be2a07e3edc7c3eaca590a2bb5409"
 dependencies = [
  "group 0.13.0",
  "midnight-base-crypto",
@@ -2287,7 +2287,7 @@ dependencies = [
 [[package]]
 name = "minocrab-std"
 version = "0.1.0"
-source = "git+https://github.com/sig-net/minocrab?rev=6993e06379a43c69a7c10d86cbde80195f7b8328#6993e06379a43c69a7c10d86cbde80195f7b8328"
+source = "git+https://github.com/sig-net/minocrab?rev=b41babe6a49be2a07e3edc7c3eaca590a2bb5409#b41babe6a49be2a07e3edc7c3eaca590a2bb5409"
 dependencies = [
  "midnight-base-crypto",
  "midnight-transient-crypto 3.0.1",
@@ -2300,7 +2300,7 @@ dependencies = [
 [[package]]
 name = "minocrab-zkir"
 version = "0.1.0"
-source = "git+https://github.com/sig-net/minocrab?rev=6993e06379a43c69a7c10d86cbde80195f7b8328#6993e06379a43c69a7c10d86cbde80195f7b8328"
+source = "git+https://github.com/sig-net/minocrab?rev=b41babe6a49be2a07e3edc7c3eaca590a2bb5409#b41babe6a49be2a07e3edc7c3eaca590a2bb5409"
 dependencies = [
  "midnight-transient-crypto 3.0.1",
  "midnight-zkir 3.2.0",
@@ -3285,7 +3285,7 @@ dependencies = [
 [[package]]
 name = "signet-protocol"
 version = "0.1.0"
-source = "git+https://github.com/sig-net/minocrab?rev=6993e06379a43c69a7c10d86cbde80195f7b8328#6993e06379a43c69a7c10d86cbde80195f7b8328"
+source = "git+https://github.com/sig-net/minocrab?rev=b41babe6a49be2a07e3edc7c3eaca590a2bb5409#b41babe6a49be2a07e3edc7c3eaca590a2bb5409"
 dependencies = [
  "sha2 0.11.1",
 ]
@@ -3318,7 +3318,7 @@ dependencies = [
 [[package]]
 name = "signet-signer-interface"
 version = "0.3.0"
-source = "git+https://github.com/sig-net/minocrab?rev=6993e06379a43c69a7c10d86cbde80195f7b8328#6993e06379a43c69a7c10d86cbde80195f7b8328"
+source = "git+https://github.com/sig-net/minocrab?rev=b41babe6a49be2a07e3edc7c3eaca590a2bb5409#b41babe6a49be2a07e3edc7c3eaca590a2bb5409"
 dependencies = [
  "minocrab",
  "minocrab-ledger",
