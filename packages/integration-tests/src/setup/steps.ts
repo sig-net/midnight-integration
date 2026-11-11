@@ -432,6 +432,7 @@ export async function startFakenetResponder(env: NodeJS.ProcessEnv): Promise<voi
     "fakenet",
     "up",
     "-d",
+    "--no-deps",
     ...(fakenetHandoffAppended ? ["--force-recreate"] : []),
     "fakenet",
   ];

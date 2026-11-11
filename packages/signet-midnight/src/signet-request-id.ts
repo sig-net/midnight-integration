@@ -1,6 +1,6 @@
 // The signet request id computation: the TS twin of Signet.compact's
-// `calculateEvmType2RequestIdV1` circuit (see the deviation note in
-// signet-requests.ts). Chain-agnostic entry point that digests each record's
+// `calculateEvmType2RequestIdV1` and `calculateTronRequestIdV1` circuits (see
+// the deviation note in signet-requests.ts). Chain-agnostic entry point that digests each record's
 // transaction by its `txParamType` tag, so every decomposition mints ids
 // through this one function.
 
@@ -10,12 +10,15 @@ import { compactTupleDescriptor, HASH_DOMAIN } from "./compact-descriptors.ts";
 import { HashDomain } from "./managed/contract/index.js";
 import { calculateEvmType2TxParamsDigest } from "./signet-evtype2tx-requests.ts";
 import {
+  type AnySignBidirectionalEvent,
+  isEvmType2SignBidirectionalEvent,
+  isTronSignBidirectionalEvent,
   type RequestId,
   type RequestIdPreimage,
   requestIdPreimageDescriptor,
-  type SignBidirectionalEvent,
   TxParamType,
 } from "./signet-requests.ts";
+import { calculateTronTxParamsDigest } from "./signet-tron-requests.ts";
 
 const REQUEST_ID_HASH_PREIMAGE = compactTupleDescriptor<[HashDomain, RequestIdPreimage]>([
   HASH_DOMAIN,
@@ -34,11 +37,18 @@ const REQUEST_ID_HASH_PREIMAGE = compactTupleDescriptor<[HashDomain, RequestIdPr
  * @throws {Error} If the record's `txParamType` names a decomposition this
  *   computation has no digest for, or a count overruns its capacity.
  */
-export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
-  if (request.txParamType !== TxParamType.evmType2) {
+export function calculateRequestId(request: AnySignBidirectionalEvent): RequestId {
+  const { txParamType } = request;
+  let txParamsDigest: Uint8Array;
+  if (isEvmType2SignBidirectionalEvent(request)) {
+    txParamsDigest = calculateEvmType2TxParamsDigest(request.txParams);
+  } else if (isTronSignBidirectionalEvent(request)) {
+    txParamsDigest = calculateTronTxParamsDigest(request.txParams);
+  } else {
     throw new Error(
-      `unsupported txParamType ${String(request.txParamType)}: this id computation ` +
-        `understands evmType2 (${String(TxParamType.evmType2)})`,
+      `unsupported txParamType ${String(txParamType)}: this id computation ` +
+        `understands evmType2 (${String(TxParamType.evmType2)}) and tron ` +
+        `(${String(TxParamType.tron)})`,
     );
   }
   const preimage: RequestIdPreimage = {
@@ -46,8 +56,8 @@ export function calculateRequestId(request: SignBidirectionalEvent): RequestId {
     sender: request.sender,
     path: request.path,
     algo: request.algo,
-    txParamType: request.txParamType,
-    txParamsDigest: calculateEvmType2TxParamsDigest(request.txParams),
+    txParamType,
+    txParamsDigest,
     executionDest: request.executionDest,
   };
   return upgradeFromTransient(

@@ -2,7 +2,8 @@
 // signet request ledger fields out of a contract's raw state by resolved
 // ledger-tree path, as the MPC monitor and the event feed consume signet
 // contracts. The generic tree walk lives in raw-contract-state.ts and the
-// per-decomposition record decoding in signet-evtype2tx-record-decoding.ts.
+// per-decomposition record decoding in signet-evtype2tx-record-decoding.ts
+// and signet-tron-record-decoding.ts.
 //
 // The read algorithm is the TS twin of the MPC's Rust reader
 // (chain-signatures/chain-midnight/src/reader.rs) and must stay in lockstep
@@ -18,14 +19,15 @@ import { type RawContractState, signetFieldNodeByPath } from "./raw-contract-sta
 import { decodeEvmType2SignBidirectionalEvent } from "./signet-evtype2tx-record-decoding.ts";
 import { calculateRequestId } from "./signet-request-id.ts";
 import {
+  type AnySignBidirectionalEvent,
   requestIdBytes,
   type RequestIdHex,
   requestIdHex,
   requestIdType,
-  type SignBidirectionalEvent,
   type SignBidirectionalEventIndex,
   TxParamType,
 } from "./signet-requests.ts";
+import { decodeTronSignBidirectionalEvent } from "./signet-tron-record-decoding.ts";
 
 // Atom position of `txParamType` in a stored record: the chain-agnostic head
 // of SignBidirectionalEventV1 (keyVersion through txParamType) occupies the first
@@ -44,7 +46,7 @@ const TX_PARAM_TYPE_ATOM = 4;
  * @throws {Error} If the cell is not a decodable request record of a known
  *   decomposition.
  */
-function decodeSignBidirectionalEvent(cell: AlignedValue): SignBidirectionalEvent {
+function decodeSignBidirectionalEvent(cell: AlignedValue): AnySignBidirectionalEvent {
   const what = "request record";
   const atom = cell.value[TX_PARAM_TYPE_ATOM];
   if (atom === undefined) {
@@ -60,6 +62,8 @@ function decodeSignBidirectionalEvent(cell: AlignedValue): SignBidirectionalEven
   switch (paramType) {
     case TxParamType.evmType2:
       return decodeEvmType2SignBidirectionalEvent(cell, what);
+    case TxParamType.tron:
+      return decodeTronSignBidirectionalEvent(cell, what);
     default:
       throw new Error(`unsupported txParamType ${String(paramType)}`);
   }
@@ -85,7 +89,7 @@ export interface SignetRequestsLedger {
  * @param requestsIndexPath - Resolved ledger-tree path of the request index.
  * @returns The decoded {@link SignetRequestsLedger}.
  * @throws {Error} If the field is missing, has the wrong state-value shape, or a
- *   record is not a decodable evmType2 request record.
+ *   record is not a decodable evmType2 or Tron request record.
  */
 export function readSignetRequestsLedgerFromState(
   raw: RawContractState,
@@ -133,7 +137,7 @@ export function lookupSignetRequestAt(
   contractAddress: string,
   requestsPath: readonly number[],
   requestId: RequestIdHex,
-): SignBidirectionalEvent | undefined {
+): AnySignBidirectionalEvent | undefined {
   let node;
   try {
     node = signetFieldNodeByPath(raw, requestsPath);
@@ -154,7 +158,7 @@ export function lookupSignetRequestAt(
   if (cell === undefined) {
     return undefined; // id absent, or its entry is not a cell
   }
-  let record: SignBidirectionalEvent;
+  let record: AnySignBidirectionalEvent;
   try {
     record = decodeSignBidirectionalEvent(cell);
   } catch {

@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:integration": "RUN_INTEGRATION_TESTS=1 vitest run --disable-console-intercept --bail 1",
     "test:integration:signet-caller-e2e": "yarn test:integration tests/signet-caller-e2e.test.ts",
-    "test:integration:signet-caller-evm-e2e": "yarn test:integration tests/signet-caller-evm-e2e.test.ts"
+    "test:integration:signet-caller-evm-e2e": "yarn test:integration tests/signet-caller-evm-e2e.test.ts",
+    "test:integration:signet-caller-tron-e2e": "yarn test:integration tests/signet-caller-tron-e2e.test.ts"
   },
   "dependencies": {
     "@midnight-integration/test-caller-contract": "*",
