@@ -19,5 +19,6 @@ export * from "./plumbing/midnight-node-config.ts";
 export * from "./plumbing/network-id.ts";
 export * from "./plumbing/seed.ts";
 export * from "./plumbing/wallet.ts";
+export * from "./plumbing/wallet-cache.ts";
 export * from "./signet-responder-binding.ts";
 export * from "./signet-signer-binding.ts";

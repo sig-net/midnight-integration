@@ -87,7 +87,7 @@ export async function setup(project: TestProject): Promise<void> {
   const env = buildBaseEnv();
   // One started facade per role wallet for the whole pipeline: the funding
   // step syncs each once, the deploy steps reuse them, and all stop here.
-  const wallets = new WalletRegistry(getMidnightNodeConfig(env));
+  const wallets = new WalletRegistry(getMidnightNodeConfig(env), env);
   try {
     for (const [index, [name, run]] of STEPS.entries()) {
       // Step-through mode pauses before each step after the first, exactly as

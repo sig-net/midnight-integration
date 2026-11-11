@@ -24,7 +24,7 @@ describe("child funding recheck", () => {
     const facade = {
       waitForSyncedState: vi.fn().mockResolvedValue(state),
     } as Partial<WalletFacade> as WalletFacade;
-    const registry = new WalletRegistry(getMidnightNodeConfig({ NETWORK_ID: "preview" }));
+    const registry = new WalletRegistry(getMidnightNodeConfig({ NETWORK_ID: "preview" }), {});
     const open = vi.spyOn(registry, "wallet").mockResolvedValue({ label: "user", facade, keys });
     const result = await fundChildFromRoot(registry, "root", "child", "user", 100n, 50n);
     expect(result.dust).toBe(50n);

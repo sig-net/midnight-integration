@@ -147,7 +147,7 @@ export async function deployProtocolContract(
 ): Promise<ContractDeployment> {
   const deployConfig = getDeployConfig(env);
   const { networkId } = deployConfig.midnightNodeConfig;
-  const registry = wallets ?? new WalletRegistry(deployConfig.midnightNodeConfig);
+  const registry = wallets ?? new WalletRegistry(deployConfig.midnightNodeConfig, env);
 
   console.log(`deploying ${name} to ${networkId} with:`);
   console.table(deployEnvironmentTable(env, deployConfig.midnightNodeConfig));
