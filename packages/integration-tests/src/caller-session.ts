@@ -37,6 +37,7 @@ import { expect } from "vitest";
 
 import { requireEnv } from "./e2e-env.ts";
 import { logSkip } from "./output.ts";
+import { pollUntilDefined } from "./poll.ts";
 
 /**
  * The joined caller contract handle — midnight-js's found-contract shape
@@ -127,7 +128,7 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
       return sharedWallet.context;
     },
 
-    // Default field 3: the bool-schema map every submit circuit's
+    // Default field 3: the bool-schema map every EVM submit circuit's
     // notification names except submitCheckAndDoubleRequest's (field 6).
     responseReader(requestsIndexField = 3): SignetRequestResponseReader {
       let reader = sharedReaders.get(requestsIndexField);
@@ -158,7 +159,6 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
   };
 }
 
-// Both flow files share the polling cadence below.
 const MINUTE = 60_000;
 
 /**
@@ -166,7 +166,8 @@ const MINUTE = 60_000;
  * flow only touches the default `signBidirectionalEventMap`, the EVM flow
  * also drives the 69-byte-schema map.
  */
-export type CallerRequestMap = "signBidirectionalEventMap" | "signBidirectionalEventMap69";
+export type CallerRequestMap =
+  "signBidirectionalEventMap" | "signBidirectionalEventMap69" | "tronSignBidirectionalEventMap";
 
 /**
  * Read the caller contract's current ledger, decoded with its generated
@@ -246,4 +247,25 @@ export async function ensureMpcResponseKeyStored(
     mpcResponseKey,
   );
   return "stored";
+}
+
+/**
+ * @param context - The session's caller context
+ * @param map - The request map the request lives in
+ * @param requestId - The request the verify consumes
+ * @param verify - The circuit call
+ */
+export async function verifyAndAwaitConsumption(
+  context: CallerContext,
+  map: CallerRequestMap,
+  requestId: RequestIdHex,
+  verify: () => Promise<unknown>,
+): Promise<void> {
+  await verify();
+  const consumed = await pollUntilDefined(
+    async () => ((await readCallerRequestIds(context, map)).has(requestId) ? undefined : true),
+    MINUTE,
+    1000,
+  );
+  expect(consumed, "the verify must consume the request from its map").toBe(true);
 }

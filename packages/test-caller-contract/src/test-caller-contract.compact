@@ -70,7 +70,69 @@ export ledger checkAndDoubleAmounts: Map<RequestId, Uint<128>>;
 // transaction took its nonce).
 export ledger failureVerdicts: Map<RequestId, OutputKind>;
 
+export ledger tronSignBidirectionalEventMap: SignBidirectionalEventMapV1<TronTxParams<1>, 0>;
+
+export ledger tronVerdicts: Map<RequestId, OutputKind>;
+
 witness deployerSecretKey(): Bytes<32>;
+
+export struct TronTxWindow {
+  refBlockBytes: Bytes<2>;
+  refBlockHash: Bytes<8>;
+  timestamp: Uint<64>;
+  expiration: Uint<64>;
+  feeLimit: Uint<64>;
+}
+
+circuit storeTronRequest(
+  keyVersion: Uint<8>,
+  contractAddress: Bytes<21>,
+  selector: Bytes<4>,
+  argWord: Bytes<32>,
+  tronWindow: TronTxWindow
+): [] {
+  const txParams = TronTxParams<1> {
+    refBlockBytes: tronWindow.refBlockBytes,
+    refBlockHash: tronWindow.refBlockHash,
+    timestamp: tronWindow.timestamp,
+    expiration: tronWindow.expiration,
+    feeLimit: tronWindow.feeLimit,
+    contractAddress: contractAddress,
+    callValue: 0 as Uint<64>,
+    calldata: some<EvmCalldata<1>>(EvmCalldata<1> {
+      selector: selector,
+      noWords: 1 as Uint<16>,
+      words: [argWord]
+    })
+  };
+
+  const request = constructSignBidirectionalEventV1<TronTxParams<1>, 0>(
+    keyVersion,
+    kernel.self(),
+    pad(32, "caller-path"),
+    MPCSignatureAlgorithm.ecdsa,
+    TxParamType.tron,
+    txParams,
+    tronCaip2Id(),
+    MPCDestination.unused,
+    pad(64, ""),
+    default<Bytes<0>>
+  );
+  const requestId = disclose(calculateTronRequestIdV1<1, 0>(request));
+
+  assert(!tronSignBidirectionalEventMap.member(requestId), "Request already exists");
+  tronSignBidirectionalEventMap.insert(requestId, disclose(request));
+  requestLog.pushFront(requestId as Bytes<32>);
+
+  signetSigner.signBidirectional(
+    requestId,
+    constructSignBidirectionalEventNotificationV1(
+      kernel.self(),
+      1 as Uint<8>,
+      [9, 0, 0, 0] as Vector<4, Uint<8>>,
+    ),
+  );
+}
 
 // Exported so deploy tooling and tests can compute the commitment.
 export pure circuit deployerCommitment(sk: Bytes<32>): Bytes<32> {
@@ -498,4 +560,47 @@ export circuit verifyFailureResponse(
     signBidirectionalEventMap69.remove(disclosedRequestId);
   }
   failureVerdicts.insert(disclosedRequestId, outputKind);
+}
+
+export circuit submitTronIsEvenRequest(
+  keyVersion: Uint<8>,
+  contractAddress: Bytes<21>,
+  argWord: Bytes<32>,
+  tronWindow: TronTxWindow
+): [] {
+  storeTronRequest(keyVersion, contractAddress, Bytes [0x2a, 0x2e, 0x13, 0x20], argWord, tronWindow);
+}
+
+export circuit submitTronRevertIfRequest(
+  keyVersion: Uint<8>,
+  contractAddress: Bytes<21>,
+  shouldRevert: Boolean,
+  tronWindow: TronTxWindow
+): [] {
+  storeTronRequest(keyVersion, contractAddress, Bytes [0xd4, 0x60, 0xc5, 0x1a], boolAbiWord(shouldRevert), tronWindow);
+}
+
+export circuit verifyTronResponse(
+  respondBidirectionalEvent: RespondBidirectionalEventV1,
+  serializedOutput: Bytes<0>
+): [] {
+  const disclosedRequestId = disclose(respondBidirectionalEvent.requestId);
+
+  assert(
+    initialised != 0,
+    "Not initialised: no MPC response key stored"
+  );
+
+  assert(
+    verifyRespondBidirectionalEventV1<0>(
+      serializedOutput,
+      disclose(respondBidirectionalEvent),
+      mpcResponseKey
+    ),
+    "Invalid attestation or output"
+  );
+
+  assert(tronSignBidirectionalEventMap.member(disclosedRequestId), "Request not found");
+  tronSignBidirectionalEventMap.remove(disclosedRequestId);
+  tronVerdicts.insert(disclosedRequestId, disclose(respondBidirectionalEvent.outputKind));
 }

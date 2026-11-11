@@ -8,6 +8,7 @@ import {
   bytesToHex,
   calculateEvmType2TxParamsDigest,
   calculateRequestId,
+  calculateTronTxParamsDigest,
   decodeSignBidirectionalNotification,
   evmAddressAbiWord,
   type EvmType2TxParams,
@@ -20,6 +21,9 @@ import {
   OutputKind,
   pureCircuits,
   type SignBidirectionalEvent,
+  TRON_CAIP2_ID,
+  tronAddressFromEvm,
+  type TronTxParams,
   TxParamType,
 } from "../src/index.ts";
 
@@ -648,9 +652,163 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
     expect(() =>
       pureCircuits.calculateEvmType2RequestIdV1_1_0_0_34({
         ...RECORD,
-        txParamType: TxParamType.reserved,
+        txParamType: TxParamType.tron,
       }),
     ).toThrow(/must tag txParams as evmType2/);
+  });
+});
+
+describe("Tron circuits (circuit/TS lockstep)", () => {
+  it("tronCaip2Id is tron:mainnet zero-padded to the executionDest width", () => {
+    expect(pureCircuits.tronCaip2Id()).toEqual(asciiPadded(TRON_CAIP2_ID, EXECUTION_DEST_BYTES));
+    expect(TRON_CAIP2_ID).toBe("tron:mainnet");
+  });
+
+  it("tronAddress prefixes the EVM address with 0x41", () => {
+    const evm = Uint8Array.from({ length: 20 }, (_, i) => i + 1);
+    expect(pureCircuits.tronAddress(evm)).toEqual(Uint8Array.from([0x41, ...evm]));
+    expect(tronAddressFromEvm(evm)).toEqual(pureCircuits.tronAddress(evm));
+  });
+
+  const TRANSFER_SELECTOR = Uint8Array.from([0xa9, 0x05, 0x9c, 0xbb]);
+  const SCALARS = {
+    refBlockBytes: Uint8Array.from([0x27, 0x10]),
+    refBlockHash: bytes(8, 0x42),
+    timestamp: 1_728_000_000_000n,
+    expiration: 1_728_000_060_000n,
+    feeLimit: 1_000_000_000n,
+    contractAddress: Uint8Array.from([0x41, ...bytes(20, 0xcd)]),
+    callValue: 0n,
+  };
+  const AT_1: TronTxParams = {
+    ...SCALARS,
+    calldata: {
+      is_some: true,
+      value: { selector: TRANSFER_SELECTOR, noWords: 1n, words: [bytes(32, 0x33)] },
+    },
+  };
+  const AT_2_GARBAGE: TronTxParams = {
+    ...SCALARS,
+    calldata: {
+      is_some: true,
+      value: {
+        selector: TRANSFER_SELECTOR,
+        noWords: 1n,
+        words: [bytes(32, 0x33), bytes(32, 0x99)],
+      },
+    },
+  };
+  const ABSENT_AT_1: TronTxParams = {
+    ...SCALARS,
+    calldata: {
+      is_some: false,
+      value: { selector: bytes(4, 0x77), noWords: 1n, words: [bytes(32, 0x77)] },
+    },
+  };
+  const TWO_WORDS_AT_2: TronTxParams = {
+    ...SCALARS,
+    callValue: 1_000_000n,
+    calldata: {
+      is_some: true,
+      value: { selector: bytes(4, 0xab), noWords: 2n, words: [bytes(32, 0x11), bytes(32, 0x12)] },
+    },
+  };
+
+  it.each([
+    {
+      name: "one used word at capacity 1",
+      oracle: (p: TronTxParams) => pureCircuits.calculateTronTxParamsDigestV1_1(p),
+      params: AT_1,
+    },
+    {
+      name: "one used word and a garbage slot at capacity 2",
+      oracle: (p: TronTxParams) => pureCircuits.calculateTronTxParamsDigestV1_2(p),
+      params: AT_2_GARBAGE,
+    },
+    {
+      name: "an absent calldata with garbage in its value",
+      oracle: (p: TronTxParams) => pureCircuits.calculateTronTxParamsDigestV1_1(p),
+      params: ABSENT_AT_1,
+    },
+    {
+      name: "two used words and a call value at capacity 2",
+      oracle: (p: TronTxParams) => pureCircuits.calculateTronTxParamsDigestV1_2(p),
+      params: TWO_WORDS_AT_2,
+    },
+  ])("the TS digest equals the compiled circuit: $name", ({ oracle, params }) => {
+    expect(bytesToHex(calculateTronTxParamsDigest(params))).toBe(bytesToHex(oracle(params)));
+  });
+
+  it("is the same digest whatever the capacity and whatever sits in unused slots", () => {
+    expect(pureCircuits.calculateTronTxParamsDigestV1_2(AT_2_GARBAGE)).toEqual(
+      pureCircuits.calculateTronTxParamsDigestV1_1(AT_1),
+    );
+  });
+
+  it("refuses a word count past the capacity, circuit and TS", () => {
+    const over: TronTxParams = {
+      ...AT_1,
+      calldata: { is_some: true, value: { ...AT_1.calldata.value, noWords: 2n } },
+    };
+    expect(() => pureCircuits.calculateTronTxParamsDigestV1_1(over)).toThrow(
+      /calldata noWords exceeds capacity/,
+    );
+    expect(() => calculateTronTxParamsDigest(over)).toThrow(/calldata noWords exceeds capacity/);
+  });
+
+  const TRON_RECORD: SignBidirectionalEvent<TronTxParams> = {
+    keyVersion: 1n,
+    sender: { bytes: bytes(32, 0xab) },
+    path: asciiPadded("tron-probe", 32),
+    algo: MPCSignatureAlgorithm.ecdsa,
+    txParamType: TxParamType.tron,
+    txParams: AT_1,
+    executionDest: pureCircuits.tronCaip2Id(),
+    signatureDest: MPCDestination.unused,
+    params: bytes(64, 0),
+    outputDeserializationSchema: new Uint8Array(0),
+    respondSerializationSchema: new Uint8Array(0),
+  };
+
+  it.each([
+    {
+      name: "<1, 0>",
+      oracle: (r: SignBidirectionalEvent<TronTxParams>) =>
+        pureCircuits.calculateTronRequestIdV1_1_0(r),
+      record: TRON_RECORD,
+    },
+    {
+      name: "<2, 0> with a garbage slot",
+      oracle: (r: SignBidirectionalEvent<TronTxParams>) =>
+        pureCircuits.calculateTronRequestIdV1_2_0(r),
+      record: { ...TRON_RECORD, txParams: AT_2_GARBAGE },
+    },
+    {
+      name: "<2, 0> with two used words",
+      oracle: (r: SignBidirectionalEvent<TronTxParams>) =>
+        pureCircuits.calculateTronRequestIdV1_2_0(r),
+      record: { ...TRON_RECORD, txParams: TWO_WORDS_AT_2 },
+    },
+  ])(
+    "the TS request id equals the compiled calculateTronRequestIdV1 at $name",
+    ({ oracle, record }) => {
+      expect(bytesToHex(calculateRequestId(record))).toBe(bytesToHex(oracle(record)));
+    },
+  );
+
+  it("pins the probe contract's request id", () => {
+    expect(bytesToHex(pureCircuits.calculateTronRequestIdV1_1_0(TRON_RECORD))).toBe(
+      "b8425af03222be68e9ced2b7dcb384aa7de1dd6312be7aa6d631f57cdecbff00",
+    );
+  });
+
+  it("the circuit refuses a request whose tag is not tron", () => {
+    expect(() =>
+      pureCircuits.calculateTronRequestIdV1_1_0({
+        ...TRON_RECORD,
+        txParamType: TxParamType.evmType2,
+      }),
+    ).toThrow(/must tag txParams as tron/);
   });
 });
 
@@ -662,6 +820,9 @@ describe("HashDomain protocol indices", () => {
     [HashDomain.evmType2TxWord, 3],
     [HashDomain.evmType2TxAccessEntry, 4],
     [HashDomain.evmType2TxStorageKey, 5],
+    [HashDomain.attestedOutput, 6],
+    [HashDomain.tronTxHeader, 7],
+    [HashDomain.tronTxWord, 8],
   ])("pins domain %i to protocol index %i", (domain: HashDomain, index: number) => {
     expect(domain).toBe(index);
   });

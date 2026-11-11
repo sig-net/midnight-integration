@@ -120,12 +120,12 @@ describe("calculateRequestId", () => {
     expect(calculateRequestId(changed)).not.toEqual(calculateRequestId(SAMPLE_REQUEST));
   });
 
-  it("rejects a decomposition it has no descriptor for", () => {
+  it("rejects a decomposition it has no digest for", () => {
     expect(() =>
       calculateRequestId({
         ...SAMPLE_REQUEST,
-        txParamType: TxParamType.reserved,
+        txParamType: 2,
       }),
-    ).toThrow(/unsupported txParamType 1/);
+    ).toThrow(/unsupported txParamType 2/);
   });
 });

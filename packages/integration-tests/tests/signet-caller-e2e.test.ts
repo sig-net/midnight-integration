@@ -211,7 +211,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       // response server does (through a SignetRequestResponseReader over RAW
       // contract state) and pin the contract-fixed composition against the
       // LIVE ledger, including the request-id TS-twin lockstep check.
-      const record = await session.responseReader().getSignatureRequest(signatureRequestId);
+      const record = await session.responseReader().getEvmType2SignatureRequest(signatureRequestId);
       expect(record.txParams.nonce).toBe(evmNonce);
       expect(record.txParams.chainId).toBe(31337n);
       expect(record.txParams.calldata.is_some).toBe(true);
@@ -317,7 +317,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
             // Reconstruct the signed transaction from the request record and
             // the verified response: the typed proof that the MPC's
             // signature answers THIS request from THIS derived account.
-            const request = await reader.getSignatureRequest(signatureRequestId);
+            const request = await reader.getEvmType2SignatureRequest(signatureRequestId);
             signedTransaction = signBidirectionalEventToSignedEvmTransaction(request, verified);
             break;
           }

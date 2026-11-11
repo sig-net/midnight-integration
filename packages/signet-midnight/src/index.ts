@@ -15,7 +15,8 @@ export {
 } from "./byte-codecs.ts";
 // Explicit lists for the request/state modules: the runtime descriptor
 // toolkit (compact-descriptors.ts and the per-module record descriptors) is
-// package-internal, consumed only through the reader and request functions.
+// package-internal, consumed only through the reader and request functions,
+// except the Tron record descriptors.
 export * from "./constants.ts";
 // Selective: deriveMidnightResponseSecretKey takes the MPC root secret, so
 // it is exported through ./testing with the other secret-taking helpers.
@@ -54,8 +55,11 @@ export {
 export { calculateRequestId } from "./signet-request-id.ts";
 export * from "./signet-request-response-reader.ts";
 export {
+  type AnySignBidirectionalEvent,
   type ContractAddress,
   contractAddressFromHex,
+  isEvmType2SignBidirectionalEvent,
+  isTronSignBidirectionalEvent,
   type Maybe,
   MPCDestination,
   MPCSignatureAlgorithm,
@@ -72,6 +76,15 @@ export {
   toSignBidirectionalEventIndex,
   TxParamType,
 } from "./signet-requests.ts";
+export { decodeTronSignBidirectionalEvent } from "./signet-tron-record-decoding.ts";
+export {
+  calculateTronTxParamsDigest,
+  TRON_CAIP2_ID,
+  tronSignBidirectionalEventDescriptor,
+  type TronTxParams,
+  tronTxParamsDescriptor,
+} from "./signet-tron-requests.ts";
+export * from "./tron-transactions.ts";
 export * from "./url-redaction.ts";
 // Explicit list: ecdsa-attestation.ts also backs the ./testing entry point
 // (the attestation-minting helpers that take a secret key live THERE), and

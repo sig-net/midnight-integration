@@ -18,7 +18,10 @@ import {
   verifyRespondBidirectionalAttestation,
 } from "./ecdsa-attestation.ts";
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
-import { recoverSignatureResponseSigner } from "./signature-response-verification.ts";
+import {
+  recoverSignatureResponseSigner,
+  recoverTronSignatureResponseSigner,
+} from "./signature-response-verification.ts";
 import {
   type DecodedSignetEvent,
   decodeSignetEventNamed,
@@ -33,7 +36,19 @@ import {
   signBidirectionalEventToSignedEvmTransaction,
   signBidirectionalEventToUnsignedEvmTransaction,
 } from "./signet-evtype2tx-requests.ts";
-import { type RequestIdHex, type SignBidirectionalEvent, TxParamType } from "./signet-requests.ts";
+import {
+  type AnySignBidirectionalEvent,
+  isEvmType2SignBidirectionalEvent,
+  isTronSignBidirectionalEvent,
+  type RequestIdHex,
+  type SignBidirectionalEvent,
+} from "./signet-requests.ts";
+import type { TronTxParams } from "./signet-tron-requests.ts";
+import {
+  buildSignedTronTransaction,
+  buildTronRawTransaction,
+  tronAddressFromBase58,
+} from "./tron-transactions.ts";
 
 /**
  * The least of midnight-js's `PublicDataProvider` the reader needs: a
@@ -109,17 +124,17 @@ export interface VerifiedSignatureResponseResult {
   verdicts: SignatureResponseVerdict[];
 }
 
-/**
- * Assert a fetched request carries the evmType2 decomposition, the only one
- * the EVM-transaction methods may read `txParams` from.
- *
- * @param request - The fetched request record.
- * @throws {Error} If the record carries any other decomposition.
- */
-function assertEvmType2Request(request: SignBidirectionalEvent): void {
-  if (request.txParamType !== TxParamType.evmType2) {
-    throw new Error(`unsupported txParamType ${String(request.txParamType)}`);
+function recoverAndMatchSigner(
+  request: AnySignBidirectionalEvent,
+  response: SignatureRespondedEvent,
+  expectedSigner: string,
+): { signer: string; matches: boolean } {
+  if (isTronSignBidirectionalEvent(request)) {
+    const signer = recoverTronSignatureResponseSigner(request, response, expectedSigner);
+    return { signer, matches: signer === expectedSigner };
   }
+  const signer = recoverSignatureResponseSigner(request, response);
+  return { signer, matches: signer.toLowerCase() === expectedSigner.toLowerCase() };
 }
 
 /**
@@ -189,7 +204,7 @@ export class SignetRequestResponseReader {
   private readonly config: SignetRequestResponseReaderConfig;
 
   // Request records never change once stored, so cache them across calls.
-  private readonly requestCache = new Map<RequestIdHex, SignBidirectionalEvent>();
+  private readonly requestCache = new Map<RequestIdHex, AnySignBidirectionalEvent>();
 
   /**
    * @param config - The contract pair, state source and event source to read
@@ -209,7 +224,7 @@ export class SignetRequestResponseReader {
    *   not decode as a ledger-9 contract state, or it holds no request under
    *   `requestId` at the configured index path.
    */
-  async getSignatureRequest(requestId: RequestIdHex): Promise<SignBidirectionalEvent> {
+  async getSignatureRequest(requestId: RequestIdHex): Promise<AnySignBidirectionalEvent> {
     const cached = this.requestCache.get(requestId);
     if (cached !== undefined) {
       return cached;
@@ -239,6 +254,38 @@ export class SignetRequestResponseReader {
       );
     }
     this.requestCache.set(requestId, request);
+    return request;
+  }
+
+  /**
+   * @param requestId - The request id to look up
+   * @returns The stored evmType2 request record
+   * @throws {Error} When the request cannot be fetched (see {@link getSignatureRequest}) or carries another decomposition
+   */
+  async getEvmType2SignatureRequest(requestId: RequestIdHex): Promise<SignBidirectionalEvent> {
+    const request = await this.getSignatureRequest(requestId);
+    if (!isEvmType2SignBidirectionalEvent(request)) {
+      throw new Error(
+        `request ${requestId} is not evmType2 (txParamType ${String(request.txParamType)})`,
+      );
+    }
+    return request;
+  }
+
+  /**
+   * @param requestId - The request id to look up
+   * @returns The stored Tron request record
+   * @throws {Error} When the request cannot be fetched (see {@link getSignatureRequest}) or carries another decomposition
+   */
+  async getTronSignatureRequest(
+    requestId: RequestIdHex,
+  ): Promise<SignBidirectionalEvent<TronTxParams>> {
+    const request = await this.getSignatureRequest(requestId);
+    if (!isTronSignBidirectionalEvent(request)) {
+      throw new Error(
+        `request ${requestId} is not tron (txParamType ${String(request.txParamType)})`,
+      );
+    }
     return request;
   }
 
@@ -289,13 +336,14 @@ export class SignetRequestResponseReader {
   /**
    * Fetch the signature responses posted under `requestId` and verify each
    * against the request: a valid post's signature recovers to
-   * `expectedSigner` (compared case-insensitively) over the signing hash of
-   * the request's transaction. The first valid post wins, and every
+   * `expectedSigner` (an EVM address compared case-insensitively) over the
+   * signing hash of the request's transaction. The first valid post wins, and every
    * candidate gets a verdict.
    *
    * @param requestId - The request id to fetch a verified response for.
-   * @param expectedSigner - The EVM address (0x hex, any case) the genuine
-   *   response must be signed by: the requester's MPC-derived address.
+   * @param expectedSigner - The EVM address (0x hex, any case) or base58 Tron
+   *   address the genuine response must be signed by: the requester's
+   *   MPC-derived address.
    * @returns The first valid response (if any) plus per-post verdicts.
    * @throws {Error} When the requester contract has no state or the request is
    *   not on its ledger.
@@ -318,8 +366,9 @@ export class SignetRequestResponseReader {
    * the history once and verifies many requests against it.
    *
    * @param requestId - The request id to verify responses for.
-   * @param expectedSigner - The EVM address (0x hex, any case) the genuine
-   *   response must be signed by: the requester's MPC-derived address.
+   * @param expectedSigner - The EVM address (0x hex, any case) or base58 Tron
+   *   address the genuine response must be signed by: the requester's
+   *   MPC-derived address.
    * @param events - Decoded signet events of any kinds and request ids, in
    *   emission order. Only signature responses declaring `requestId` are judged.
    * @returns The first valid response (if any) plus per-post verdicts.
@@ -344,7 +393,8 @@ export class SignetRequestResponseReader {
    * {@link verifySignatureRespondedEvents} share.
    *
    * @param requestId - The request id the responses were posted under.
-   * @param expectedSigner - The EVM address the genuine response must be signed by.
+   * @param expectedSigner - The EVM or base58 Tron address the genuine response
+   *   must be signed by.
    * @param responses - The request's posted responses, in emission order.
    * @returns The first valid response (if any) plus per-post verdicts.
    * @throws {Error} When the requester contract has no state or the request is
@@ -356,11 +406,15 @@ export class SignetRequestResponseReader {
     responses: readonly SignatureRespondedEvent[],
   ): Promise<VerifiedSignatureResponseResult> {
     const request = await this.getSignatureRequest(requestId);
+    if (isTronSignBidirectionalEvent(request)) {
+      tronAddressFromBase58(expectedSigner);
+    }
     const verdicts = responses.map((response, position): SignatureResponseVerdict => {
       const index = BigInt(position);
       let signer: string;
+      let matches: boolean;
       try {
-        signer = recoverSignatureResponseSigner(request, response);
+        ({ signer, matches } = recoverAndMatchSigner(request, response, expectedSigner));
       } catch (error) {
         return {
           index,
@@ -368,7 +422,7 @@ export class SignetRequestResponseReader {
           rejectedReason: `not a decodable signature (${String(error)})`,
         };
       }
-      if (signer.toLowerCase() !== expectedSigner.toLowerCase()) {
+      if (!matches) {
         return {
           index,
           response,
@@ -396,8 +450,7 @@ export class SignetRequestResponseReader {
    *   request under `requestId`, or the request is not an evmType2 record.
    */
   async getUnsignedEvmTransaction(requestId: RequestIdHex): Promise<Transaction> {
-    const request = await this.getSignatureRequest(requestId);
-    assertEvmType2Request(request);
+    const request = await this.getEvmType2SignatureRequest(requestId);
     return signBidirectionalEventToUnsignedEvmTransaction(request);
   }
 
@@ -420,13 +473,33 @@ export class SignetRequestResponseReader {
     requestId: RequestIdHex,
     expectedSigner: string,
   ): Promise<Transaction | undefined> {
-    const request = await this.getSignatureRequest(requestId);
-    assertEvmType2Request(request);
+    const request = await this.getEvmType2SignatureRequest(requestId);
     const { verified } = await this.getVerifiedSignatureRespondedEvent(requestId, expectedSigner);
     if (verified === undefined) {
       return undefined;
     }
     return signBidirectionalEventToSignedEvmTransaction(request, verified);
+  }
+
+  /**
+   * @param requestId - The request id to produce a signed transaction for
+   * @param expectedOwner - The requester's MPC-derived Tron address in base58 (see `deriveTronAddress`)
+   * @returns The signed protobuf `Transaction` bytes, or `undefined` when no valid response has been posted yet
+   * @throws {Error} When the requester contract has no state, the request is not on its ledger, the request is not a Tron record, or `expectedOwner` is not a base58 Tron address
+   */
+  async getSignedTronTransaction(
+    requestId: RequestIdHex,
+    expectedOwner: string,
+  ): Promise<Uint8Array | undefined> {
+    const request = await this.getTronSignatureRequest(requestId);
+    const { verified } = await this.getVerifiedSignatureRespondedEvent(requestId, expectedOwner);
+    if (verified === undefined) {
+      return undefined;
+    }
+    return buildSignedTronTransaction(
+      buildTronRawTransaction(request.txParams, tronAddressFromBase58(expectedOwner)),
+      verified.signature,
+    );
   }
 
   /**
