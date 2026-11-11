@@ -17,7 +17,7 @@ the *operational* knowledge around it. Setup (wallet seeds and funding, MPC keys
 compile, deploy, fakenet hand-off) runs in vitest globalSetup before ANY
 test, including single-file runs.
 
-The default run covers TWO flow files: the generic flow (broadcast-free: its
+The default run covers THREE flow files: the generic flow (broadcast-free: its
 request exists to be SIGNED, never broadcast, 5 online tests) and the
 real-EVM flow (30 online tests), which broadcasts the MPC-signed
 transactions on the compose `evm` service (anvil, :8545), recomputes each
@@ -27,6 +27,12 @@ simulation on :3040 (`MPC_OUTPUT_CACHE_URL`, default
 flow drives all three outcome kinds to in-circuit settlement: `executed`
 (isEven, checkAndDouble), `failed` (revertIf mines reverted) and
 `unviable` (a signed request whose nonce the isEven broadcast spends).
+The Tron flow (22 online tests) drives the same three verdicts on the
+compose `tron` service (TRE, :9090): it broadcasts the MPC-signed Tron
+transactions, and a signed request that expires unbroadcast is the
+`unviable` leg. It needs a fakenet image with Tron support
+(`FAKENET_IMAGE`, see `packages/integration-tests/README.md`), and TRE
+only produces blocks while the flow's block pusher sends filler transfers.
 
 ## Fresh-clone quickstart (zero to green)
 
@@ -36,7 +42,7 @@ yarn install
 compact update 0.36.0        # NEVER a bare `compact update`: see ground rules
 cargo --version              # Rust via rustup: setup builds signet-responder's MinoCrab bundle
 yarn compile                 # run before the suites
-docker compose up -d          # node :9944, indexer :8088, proof server :6300, anvil :8545
+docker compose up -d          # node :9944, indexer :8088, proof server :6300, anvil :8545, TRE :9090
 cd <repo-root>
 yarn test:integration-tests > /tmp/caller-e2e.log 2>&1 &
 ```
@@ -49,7 +55,8 @@ modify existing lines, and a value that conflicts with the shell
 environment is a hard error, never an overwrite. The first run zk-compiles EVERY contract (~10–25 min of
 keygen, machine-dependent: background the run and never diagnose a hang
 from duration alone), deploys them, starts the responder mid-setup, and the
-flow files run to the end (generic flow 5/5, real-EVM flow 30/30). Save the
+flow files run to the end (generic flow 5/5, real-EVM flow 30/30, Tron
+flow 22/22). Save the
 printed
 `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips
 compile + deploy (the signet and responder addresses are appended
@@ -102,7 +109,7 @@ contract and the signet responder it appends `MPC_ROOT_KEY`,
 to `.env` (docker compose interpolates the `fakenet` service's environment from
 that file) and runs
 `docker compose --profile fakenet up -d [--force-recreate] fakenet`
-(`ghcr.io/sig-net/fakenet:0.39.0`, built from
+(`ghcr.io/sig-net/fakenet:0.40.0`, built from
 sig-net/solana-signet-program, Midnight-only via `DISABLE_SOLANA`).
 
 - Healthy startup (`docker logs -f fakenet-responder`) prints

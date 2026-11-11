@@ -28,6 +28,7 @@
     "test:integration-tests": "yarn workspace @midnight-integration/integration-tests run test:integration",
     "test:integration-tests:signet-caller-e2e": "yarn workspace @midnight-integration/integration-tests run test:integration:signet-caller-e2e",
     "test:integration-tests:signet-caller-evm-e2e": "yarn workspace @midnight-integration/integration-tests run test:integration:signet-caller-evm-e2e",
+    "test:integration-tests:signet-caller-tron-e2e": "yarn workspace @midnight-integration/integration-tests run test:integration:signet-caller-tron-e2e",
     "compile:signet-signer": "yarn workspace @sig-net/midnight-signer run compile",
     "compile:signet-signer:zk": "yarn workspace @sig-net/midnight-signer run compile:zk",
     "test:signet-signer": "yarn workspace @sig-net/midnight-signer run test",

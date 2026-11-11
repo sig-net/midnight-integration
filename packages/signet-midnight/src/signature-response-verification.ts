@@ -8,39 +8,68 @@ import { getAddress, recoverAddress } from "ethers";
 import { signatureRespondedEventToSignature } from "./ecdsa-attestation.ts";
 import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 import { signBidirectionalEventToUnsignedEvmTransaction } from "./signet-evtype2tx-requests.ts";
-import { type SignBidirectionalEvent, TxParamType } from "./signet-requests.ts";
+import {
+  type AnySignBidirectionalEvent,
+  isEvmType2SignBidirectionalEvent,
+  type SignBidirectionalEvent,
+} from "./signet-requests.ts";
+import type { TronTxParams } from "./signet-tron-requests.ts";
+import {
+  buildTronRawTransaction,
+  tronAddressFromBase58,
+  tronAddressFromEvm,
+  tronAddressToBase58,
+  tronTransactionId,
+} from "./tron-transactions.ts";
 
 /**
  * Recover the address that produced a response signature, over the signing
- * digest of the transaction the request describes: the response-side
- * dispatch on the request's `txParamType`.
+ * digest of the evmType2 transaction the request describes.
  *
  * @param request - The on-ledger request record the response answers.
  * @param response - The posted signature record answering it.
  * @returns The checksummed recovered signer address.
- * @throws {Error} If the request's `txParamType` names a decomposition this
- *   library does not sign-verify, the response is not a decodable signature,
+ * @throws {Error} If the request's `txParamType` is not evmType2, the response
+ *   is not a decodable signature,
  *   or the request record is malformed (see
  *   {@link signBidirectionalEventToUnsignedEvmTransaction}).
  */
 export function recoverSignatureResponseSigner(
-  request: SignBidirectionalEvent,
+  request: AnySignBidirectionalEvent,
   response: SignatureRespondedEvent,
 ): string {
-  switch (request.txParamType) {
-    case TxParamType.evmType2:
-      return recoverAddress(
-        signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash,
-        signatureRespondedEventToSignature(response),
-      );
-    default:
-      throw new Error(`unsupported txParamType ${String(request.txParamType)}`);
+  if (!isEvmType2SignBidirectionalEvent(request)) {
+    throw new Error(`unsupported txParamType ${String(request.txParamType)}`);
   }
+  return recoverAddress(
+    signBidirectionalEventToUnsignedEvmTransaction(request).unsignedHash,
+    signatureRespondedEventToSignature(response),
+  );
 }
 
 /**
- * Verify a posted response against its request: does the signature recover
- * to `expectedSigner`? Never throws: a malformed or wrongly-signed response
+ * @param request - The on-ledger Tron request record the response answers
+ * @param response - The posted signature record answering it
+ * @param owner - The base58 Tron address the transaction is assembled from
+ * @returns The recovered signer as a base58 Tron address
+ * @throws {Error} If `owner` is not a Tron address, the record does not assemble or the response is not a decodable signature
+ */
+export function recoverTronSignatureResponseSigner(
+  request: SignBidirectionalEvent<TronTxParams>,
+  response: SignatureRespondedEvent,
+  owner: string,
+): string {
+  const txid = tronTransactionId(
+    buildTronRawTransaction(request.txParams, tronAddressFromBase58(owner)),
+  );
+  return tronAddressToBase58(
+    tronAddressFromEvm(recoverAddress(txid, signatureRespondedEventToSignature(response))),
+  );
+}
+
+/**
+ * Verify a posted response against its evmType2 request: does the signature
+ * recover to `expectedSigner`? Never throws: a malformed or wrongly-signed response
  * is simply not valid.
  *
  * @param request - The on-ledger request record the response answers.
@@ -49,12 +78,30 @@ export function recoverSignatureResponseSigner(
  * @returns `true` iff the response is a valid signature by `expectedSigner`.
  */
 export function verifySignatureRespondedEvent(
-  request: SignBidirectionalEvent,
+  request: AnySignBidirectionalEvent,
   response: SignatureRespondedEvent,
   expectedSigner: string,
 ): boolean {
   try {
     return recoverSignatureResponseSigner(request, response) === getAddress(expectedSigner);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param request - The on-ledger Tron request record the response answers
+ * @param response - The posted signature record answering it
+ * @param expectedOwner - The base58 Tron address that must have signed
+ * @returns `true` iff the response is a valid signature by `expectedOwner`
+ */
+export function verifyTronSignatureRespondedEvent(
+  request: SignBidirectionalEvent<TronTxParams>,
+  response: SignatureRespondedEvent,
+  expectedOwner: string,
+): boolean {
+  try {
+    return recoverTronSignatureResponseSigner(request, response, expectedOwner) === expectedOwner;
   } catch {
     return false;
   }

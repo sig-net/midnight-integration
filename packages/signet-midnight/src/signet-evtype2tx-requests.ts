@@ -25,6 +25,7 @@ import {
   compactMaybeDescriptor,
   compactStructDescriptor,
   compactTupleDescriptor,
+  DOMAIN_FIELD_BYTES_32,
   FIELD,
   HASH_DOMAIN,
   type Maybe,
@@ -319,12 +320,6 @@ const EVM_TYPE2_DIGEST_HEAD = compactTupleDescriptor<
   BYTES_4,
   UINT_16,
   UINT_8,
-]);
-/** One fold step over a calldata word or storage key. */
-const DOMAIN_FIELD_BYTES_32 = compactTupleDescriptor<[HashDomain, bigint, Uint8Array]>([
-  HASH_DOMAIN,
-  FIELD,
-  BYTES_32,
 ]);
 /** One fold step over a used access-list entry with its keys' digest. */
 const EVM_TYPE2_DIGEST_ENTRY = compactTupleDescriptor<

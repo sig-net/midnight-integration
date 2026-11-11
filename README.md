@@ -812,7 +812,7 @@ yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
 
 ## Integration Tests
 
-Two end to end suites run against the local docker stack. The generic suite drives the smallest possible client (the test caller [contract](./packages/test-caller-contract/src/test-caller-contract.compact)) through the protocol: submit a signature request, get discovered via the signet signer's notification events, receive the MPC signature and check it against the caller's derived account, then verify in-circuit a respond-bidirectional attestation that the suite signs itself with the caller's response key, derived from the setup's MPC root key. The real-EVM suite carries on past signing: it broadcasts the signed call to the local anvil chain, lets the fakenet observe the mined execution and post its attestation, recomputes the attested bytes from the mined call's trace, checks the fakenet's output cache holds the same bytes, picks the attestation that verifies over them, and settles it in-circuit, for an executed call, a reverted one (`failed`) and a request whose nonce another transaction took (`unviable`). Get them running locally:
+Three end to end suites run against the local docker stack. The generic suite drives the smallest possible client (the test caller [contract](./packages/test-caller-contract/src/test-caller-contract.compact)) through the protocol: submit a signature request, get discovered via the signet signer's notification events, receive the MPC signature and check it against the caller's derived account, then verify in-circuit a respond-bidirectional attestation that the suite signs itself with the caller's response key, derived from the setup's MPC root key. The real-EVM suite carries on past signing: it broadcasts the signed call to the local anvil chain, lets the fakenet observe the mined execution and post its attestation, recomputes the attested bytes from the mined call's trace, checks the fakenet's output cache holds the same bytes, picks the attestation that verifies over them, and settles it in-circuit, for an executed call, a reverted one (`failed`) and a request whose nonce another transaction took (`unviable`). The Tron suite does the same on a local Tron chain (TRE): it broadcasts the MPC-signed `TriggerSmartContract` call, lets the fakenet watch the solidified receipt, and settles the attested verdict in-circuit for an executed call, a reverted one (`failed`) and a request that expired unbroadcast (`unviable`). A Tron request carries no output schema (the MPC refuses one), so the Tron suite checks verdicts only, never return data. Get them running locally:
 
 1. Ensure you have all of the [prerequisites](#prerequisites) installed.
 2. From the repository root, install workspace dependencies, select the required Compact toolchain explicitly, and compile:
@@ -824,12 +824,13 @@ Two end to end suites run against the local docker stack. The generic suite driv
                                 # latest stable, whatever it is.
    yarn compile
    ```
-3. Start the local stack (Midnight node, indexer, proof server, anvil EVM) with `docker compose up -d`. The fakenet MPC responder is started automatically by the test setup once the signet signer and the responder are deployed.
+3. Start the local stack (Midnight node, indexer, proof server, anvil EVM, TRE Tron) with `docker compose up -d`. The fakenet MPC responder is started automatically by the test setup once the signet signer and the responder are deployed.
 4. Run the suites and watch them go. The first run can take **~10–25 minutes** (it generates zk proving keys for every contract, deploys them and hands off to the fakenet responder, all automatically, no `.env` inserts needed):
    ```sh
-   yarn test:integration-tests                          # both suites, requires 'yarn compile'
+   yarn test:integration-tests                          # all three suites, requires 'yarn compile'
    yarn test:integration-tests:signet-caller-e2e        # generic caller flow only, requires 'yarn compile'
    yarn test:integration-tests:signet-caller-evm-e2e    # real-EVM flow only, requires 'yarn compile'
+   yarn test:integration-tests:signet-caller-tron-e2e   # Tron flow only, requires 'yarn compile'
    ```
    Whichever selection you run, the setup pipeline runs first (narrowing the selection never skips setup). Green looks like every test in the selected flow files passing. Afterwards, save the printed `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips compile and deploy (~2 minutes). The signet signer and responder addresses are appended to `.env` automatically.
 
@@ -880,8 +881,8 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.26.0-rc.13 | [`packages/*/package.json`](packages) |
-| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.39.0` | [`docker-compose.yaml`](docker-compose.yaml) |
+| `@sig-net/*` npm packages | 0.27.0-rc.2 | [`packages/*/package.json`](packages) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.40.0` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.36.0 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
 | Midnight node | 2.1.101 | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight indexer | 4.4.101 | [`docker-compose.yaml`](docker-compose.yaml) |
@@ -904,5 +905,5 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | [`packages/midnight-serde-rs`](packages/midnight-serde-rs) | `signet-midnight-serde` (crates.io) | Native Rust Borsh types and derives, with optional zero padding and compiler-backed compatibility fixtures |
 | [`packages/test-caller-contract`](packages/test-caller-contract) | repo-private | Integration-testing caller contract: submit signature requests, verify the MPC's attestations in-circuit and settle every outcome kind (`executed`, `failed`, `unviable`), the smallest thing that drives the protocol. Testing only, not an integration example |
 | [`packages/test-caller-contract-20-field`](packages/test-caller-contract-20-field) | repo-private | Integration-testing caller contract: the 20-field lockstep fixture proving the raw ledger readers resolve field numbers through the compiler's chunked (>15-field) state layout. Testing only |
-| [`packages/integration-tests`](packages/integration-tests) | repo-private | The two e2e suites, the generic flow (submit → notification → MPC signature → in-circuit verify) and the real-EVM flow (broadcast → attestation → in-circuit settlement of every outcome kind), against the local docker stack (`docker-compose.yaml`: midnight node/indexer/proof server + anvil EVM + fakenet MPC responder) |
+| [`packages/integration-tests`](packages/integration-tests) | repo-private | The three e2e suites, the generic flow (submit → notification → MPC signature → in-circuit verify), the real-EVM flow (broadcast → attestation → in-circuit settlement of every outcome kind) and the Tron flow (the same verdicts on a local Tron chain), against the local docker stack (`docker-compose.yaml`: midnight node/indexer/proof server + anvil EVM + TRE Tron + fakenet MPC responder) |
 | [`packages/lib`](packages/lib) | repo-private | Shared midnight-js provider adapters |

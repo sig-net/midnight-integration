@@ -2,17 +2,18 @@
 
 Everything that needs a **running stack** lives here (nowhere else in the
 repo touches a network from tests). The pipeline has a shared setup half
-and two flow files:
+and three flow files:
 
 - **Setup** (`src/setup/`, run by vitest **globalSetup** — see
   `vitest.config.ts`): environment preflight → deploy the `SignetEvmTarget`
-  EVM contract → resolve or generate the wallet seeds → preflight root
+  EVM contract → deploy the `SignetTronTarget` contract on TRE → resolve or
+  generate the wallet seeds → preflight root
   funding + fund the role wallets → MPC key derivation → zk-compile + deploy
   the signet signer and the signet responder → persist the fakenet
   hand-off values to `.env`
   (append-only) + start the responder container → zk-compile + deploy the
   caller contract → derive `MPC_RESPONSE_KEY` → fund the caller's derived
-  EVM sender. Runs ONCE
+  EVM sender → fund the caller's derived Tron account. Runs ONCE
   in vitest's main process before ANY test file, including single-file runs.
   Every step that produces a value skips itself when its env var is already
   set (the hand-off steps: when the values are already in `.env` / the
@@ -20,9 +21,13 @@ and two flow files:
   top up only a shortfall. The setup pipeline also prepares the EVM side for the
   real-EVM flow: it deploys the `SignetEvmTarget` contract (hardhat compile
   + anvil deploy) and funds the caller's derived EVM sender from the anvil
-  dev funder account. The generic flow itself never broadcasts: its request
-  exists to be SIGNED, and it reads the EVM chain only for the derived
-  sender's nonce.
+  dev funder account. It prepares the Tron side the same way for the Tron
+  flow: it deploys the `SignetTronTarget` contract (the same hardhat
+  compile, paris EVM target, deployed through TRE's `deploycontract`) and
+  funds the caller's derived Tron account with TRX from TRE's dev funder
+  account (private key `0x00…01`). The generic flow itself never
+  broadcasts: its request exists to be SIGNED, and it reads the EVM chain
+  only for the derived sender's nonce.
 - **The generic flow file** (`tests/signet-caller-e2e.test.ts`, `--bail 1`): one
   ordered pipeline whose tests run in source order and feed each other
   through module-scoped state —
@@ -76,17 +81,51 @@ and two flow files:
 
   Self-sufficient (its own idempotent initialise stage), so it
   never depends on the generic flow file having run first.
+- **The Tron flow file** (`tests/signet-caller-tron-e2e.test.ts`): the
+  same continuation on a local Tron chain (the compose `tron` service,
+  TRE). The caller contract requests `TriggerSmartContract` calls against
+  the `SignetTronTarget` Solidity contract through its Tron circuits
+  (`submitTronIsEvenRequest`, `submitTronRevertIfRequest`, requests in
+  the width-0 map at field 9). Each submit names a fresh TaPoS window: the
+  current head block as reference, its timestamp, an expiration and a fee
+  limit. The MPC signs the transaction id (sha256 of the raw transaction
+  it assembles with the derived Tron account as owner);
+  `getSignedTronTransaction` attaches the verified signature and the suite
+  broadcasts the result through `/wallet/broadcasthex`. The fakenet reads
+  the solidified receipt and attests the verdict over an EMPTY output (a
+  Tron request carries no output schema: the MPC refuses one, so no return
+  data is ever attested), and `verifyTronResponse` settles it at width 0
+  and records it in `tronVerdicts`. One leg per outcome kind:
+  - `executed`: `isEven(6)` succeeds, attested at its receipt's block.
+  - `failed`: `revertIf(true)` reverts, attested at its receipt's block.
+  - `unviable`: an `isEven(7)` request whose window closes one 3-second
+    slot after its reference is signed and never broadcast. Once the
+    solidified chain passes the expiration, the fakenet attests it
+    unviable at the first solidified block at or past it (the suite finds
+    that block independently).
+
+  TRE produces a block only when a transaction arrives, and the fakenet
+  never sends one. So every wait on a solidified receipt or an expiry runs
+  inside the block pusher (`src/tron-block-pusher.ts`), which sends a
+  1-sun TRX transfer from the dev funder every 2 seconds. Every run submits
+  fresh requests (fresh windows), so the Tron flow has no request-id
+  resume variables. Self-sufficient like the real-EVM flow.
 
 The unit tests beside them (`tests/env-file.test.ts`,
 `tests/funding-split.test.ts`, `tests/local-evm.test.ts`,
-`tests/mpc-keys.test.ts`) run offline under plain `yarn test`; each flow file
+`tests/local-tron.test.ts`, `tests/mpc-keys.test.ts`) run offline under plain `yarn test`; each flow file
 gates itself with `describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)`.
 
 ## Prerequisites
 
 - **Local dev stack**: `docker compose up -d` at the repo root — Midnight
   (node :9944, indexer :8088, proof server :6300) plus the `evm` service
-  (anvil, :8545). The real-EVM flow broadcasts on this chain (target
+  (anvil, :8545) and the `tron` service (TRE `tronbox/tre:2.0.0`, java-tron
+  HTTP API on :9090). TRE is ready once `curl http://127.0.0.1:9090/admin/accounts`
+  lists its "Available Accounts"; the setup refuses to run its Tron steps
+  before that. The Tron flow deploys and broadcasts on this chain, and the
+  fakenet reads solidified receipts from it (`FAKENET_TRON_RPC_URL`,
+  defaulting to the in-network `http://tron:9090`). The real-EVM flow broadcasts on this chain (target
   contract deploy, signed-transaction broadcast, output tracing by the
   responder), and the fakenet responder's config also needs it reachable to
   boot (`FAKENET_EVM_RPC_URL`, defaulting to the in-network
@@ -117,6 +156,16 @@ gates itself with `describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)`.
   docker compose pull fakenet          # pull the pinned image (bump its tag in docker-compose.yaml on a fakenet-v* release)
   ```
 
+  The Tron flow needs a responder with Tron support (it signs Tron
+  requests and watches their receipts on `TRON_RPC_URL`). The service's
+  image is `FAKENET_IMAGE`, defaulting to the pinned tag. To run a locally
+  built image, build it from a solana-signet-program checkout (from its
+  repo root: `docker build -f fakenet-signer/Dockerfile -t fakenet:tron-local .`)
+  and set `FAKENET_IMAGE=fakenet:tron-local` in the repo-root `.env` (or the
+  shell) before the setup starts the responder. A responder without Tron
+  support never signs a Tron request, and the Tron flow's signature poll
+  times out.
+
   The container's config interpolates from the same repo-root `.env`
   (`MIDNIGHT_*`, `MPC_ROOT_KEY`, … with in-network defaults when unset), so
   pointing the stack at another environment is a `.env` change.
@@ -125,9 +174,10 @@ gates itself with `describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)`.
 
 ```sh
 # All three from the repo root. Run 'yarn compile' first.
-yarn test:integration-tests                            # both flow files
+yarn test:integration-tests                            # all three flow files
 yarn test:integration-tests:signet-caller-e2e          # just the generic (broadcast-free) caller flow file
 yarn test:integration-tests:signet-caller-evm-e2e      # just the real-EVM flow file (broadcast, attestation, output cache, settlement)
+yarn test:integration-tests:signet-caller-tron-e2e     # just the Tron flow file (TRE broadcast, verdict attestation, settlement)
 ```
 
 Either way the globalSetup pipeline runs first — setup is never skipped by
@@ -180,7 +230,8 @@ the value to save — and for the fakenet hand-off values
 starts the responder container**, so nothing blocks on a human between
 deploy and the flow. A fresh deployment is ONE run: globalSetup
 zk-compiles the contracts (~10+ min: background it), deploys them, hands off to the responder mid-setup, and the flow files run to the
-end (5 tests in the generic flow, 30 in the real-EVM flow).
+end (5 tests in the generic flow, 30 in the real-EVM flow, 22 in the Tron
+flow).
 
 **Redeploying after a circuit change?** Any `.compact` edit that alters a
 circuit, struct layout, or the request-id hash domain needs fresh deploys:
@@ -222,6 +273,10 @@ the address vars, rerun the suite and watch the run for you.
 | `FAKENET_EVM_RPC_URL` | EVM endpoint as reachable from the fakenet CONTAINER (compose-only; not read by the tests) | `http://evm:8545` |
 | `EVM_RPC_URL` | The host-side EVM JSON-RPC endpoint the tests and EVM setup steps use (anvil) | `http://127.0.0.1:8545` |
 | `EVM_TARGET_CONTRACT_ADDRESS` | The deployed `SignetEvmTarget` Solidity contract: set with code at the address to skip hardhat compile + deploy (a codeless address redeploys) | deployed by setup |
+| `FAKENET_IMAGE` | The fakenet responder image the compose `fakenet` service runs (compose-only; not read by the tests). The Tron flow needs one with Tron support | `ghcr.io/sig-net/fakenet:0.40.0` (the pinned tag) |
+| `FAKENET_TRON_RPC_URL` | java-tron HTTP API as reachable from the fakenet CONTAINER, passed as its `TRON_RPC_URL` (compose-only; not read by the tests) | `http://tron:9090` |
+| `TRON_RPC_URL` | The host-side java-tron HTTP API the tests and Tron setup steps use (TRE) | `http://127.0.0.1:9090` |
+| `TRON_TARGET_CONTRACT_ADDRESS` | The deployed `SignetTronTarget` contract (base58 `T…`): set with code at the address to skip hardhat compile + TRE deploy (a codeless address redeploys) | deployed by setup |
 | `MPC_OUTPUT_CACHE_URL` | The fakenet's output cache simulation, down to its object prefix: where the real-EVM flow reads each attestation's cached bytes through `MpcOutputCacheReader` | `http://localhost:3040/v1/fakenet` |
 | `CALLER_EVM_REQUEST_ID_ISEVEN` | Resume the real-EVM `isEven` pipeline with an existing request id, skipping its submit prove | unset |
 | `CALLER_EVM_REQUEST_ID_CHECKANDDOUBLE` | Resume the real-EVM `checkAndDouble` pipeline with an existing request id, skipping its submit prove | unset |
@@ -232,6 +287,12 @@ the address vars, rerun the suite and watch the run for you.
 | `STEP_THROUGH` | `1` pauses before each setup step and each test (hit enter) — interactive debugging only, never unattended | unset |
 
 ## Gotchas
+
+- A Tron flow wait (receipt, expiry or attestation) timing out with
+  `block pusher: filler transfer failed` warnings means TRE is down or its
+  dev funder is drained: `docker logs local-tron`, or recreate the `tron`
+  service (a fresh TRE also needs `TRON_TARGET_CONTRACT_ADDRESS` unset or
+  it is redeployed automatically).
 
 - The signature-poll test timing out while everything else passes means the
   MPC responder is down or watching a stale signet signer or responder
