@@ -116,6 +116,8 @@ export async function deployCaller(
   const { contractAddress, txId } = await withSyncedWalletFacade(
     accountKeys,
     deployConfig.midnightNodeConfig,
+    "deployer",
+    env,
     async (facade, state) => {
       const funding = accountFunding(state, deriveAddresses(accountKeys, networkId));
       console.log(`deployer balance: ${formatFunding(funding)}\n${formatUtxoBreakdown(state)}`);

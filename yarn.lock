@@ -2303,6 +2303,7 @@ __metadata:
     "@midnightntwrk/ledger-v9": "npm:1.0.1"
     "@midnightntwrk/wallet-sdk-abstractions": "npm:3.0.0"
     "@midnightntwrk/wallet-sdk-address-format": "npm:4.0.0"
+    "@midnightntwrk/wallet-sdk-capabilities": "npm:4.0.0"
     "@midnightntwrk/wallet-sdk-dust-wallet": "npm:5.0.0"
     "@midnightntwrk/wallet-sdk-facade": "npm:5.0.0"
     "@midnightntwrk/wallet-sdk-hd": "npm:4.0.0"
