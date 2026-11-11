@@ -273,7 +273,7 @@ the address vars, rerun the suite and watch the run for you.
 | `FAKENET_EVM_RPC_URL` | EVM endpoint as reachable from the fakenet CONTAINER (compose-only; not read by the tests) | `http://evm:8545` |
 | `EVM_RPC_URL` | The host-side EVM JSON-RPC endpoint the tests and EVM setup steps use (anvil) | `http://127.0.0.1:8545` |
 | `EVM_TARGET_CONTRACT_ADDRESS` | The deployed `SignetEvmTarget` Solidity contract: set with code at the address to skip hardhat compile + deploy (a codeless address redeploys) | deployed by setup |
-| `FAKENET_IMAGE` | The fakenet responder image the compose `fakenet` service runs (compose-only; not read by the tests). The Tron flow needs one with Tron support | `ghcr.io/sig-net/fakenet:0.35.0` (the pinned tag) |
+| `FAKENET_IMAGE` | The fakenet responder image the compose `fakenet` service runs (compose-only; not read by the tests). The Tron flow needs one with Tron support | `ghcr.io/sig-net/fakenet:0.40.0` (the pinned tag) |
 | `FAKENET_TRON_RPC_URL` | java-tron HTTP API as reachable from the fakenet CONTAINER, passed as its `TRON_RPC_URL` (compose-only; not read by the tests) | `http://tron:9090` |
 | `TRON_RPC_URL` | The host-side java-tron HTTP API the tests and Tron setup steps use (TRE) | `http://127.0.0.1:9090` |
 | `TRON_TARGET_CONTRACT_ADDRESS` | The deployed `SignetTronTarget` contract (base58 `T…`): set with code at the address to skip hardhat compile + TRE deploy (a codeless address redeploys) | deployed by setup |
