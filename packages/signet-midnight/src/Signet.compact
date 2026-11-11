@@ -77,6 +77,8 @@ module Signet {
     evmType2TxAccessEntry,
     evmType2TxStorageKey,
     attestedOutput,
+    tronTxHeader,
+    tronTxWord,
   }
 
   // ---- SignBidirectionalEvent ------------------------------------------------------------------------
@@ -116,7 +118,8 @@ module Signet {
                                // (https://chainagnostic.org/CAIPs/caip-2), zero-padded: 64 bytes
                                // hold any CAIP-2 id (at most 41). An Ethereum target
                                // (mainnet, Sepolia or a local anvil) uses ethereumCaip2Id():
-                               // the network itself is txParams' chainId.
+                               // the network itself is txParams' chainId. A Tron target uses
+                               // tronCaip2Id().
 
     // ---- Protocol-only fields: outside the request id ----
 
@@ -160,7 +163,7 @@ module Signet {
   // contains so an off-chain consumer (e.g. the MPC) knows how to re-assemble it.
   export enum TxParamType {
     evmType2, // EvmType2TxParams: an EIP-1559 EVM transaction (envelope + calldata)
-    reserved, // Reserved for future use. Exists to keep enum >= 2 (proof server bug).
+    tron,     // TronTxParams: a Tron TriggerSmartContract call
   }
 
   // Construction helper for the canonical Signet SignBidirectionalEventV1.
@@ -210,7 +213,8 @@ module Signet {
   // destination. Fields the execution does not depend on (the serialisation schemas and
   // the reserved MPC parameters signatureDest and params) stay out. The transaction
   // enters as a digest computed per TxParamType over its USED entries only
-  // (calculateEvmType2TxParamsDigestV1 for evmType2), so one execution has one id
+  // (calculateEvmType2TxParamsDigestV1 for evmType2, calculateTronTxParamsDigestV1
+  // for tron), so one execution has one id
   // whatever capacities the requester compiled with and whatever sits in unused slots.
   //
   // KEY: the field order follows SignBidirectionalEventV1's and is relied upon for consistent
@@ -248,7 +252,8 @@ module Signet {
   export contract SignetSigner {
     // Called by client contracts to notify the MPC of a SignBidirectionalEvent.
     circuit signBidirectional(
-      // Canonical id of the SignBidirectionalEvent (calculateEvmType2RequestIdV1 for evmType2).
+      // Canonical id of the SignBidirectionalEvent (calculateEvmType2RequestIdV1 for evmType2,
+      // calculateTronRequestIdV1 for tron).
       // Disclosed in the emitted notification event: the MPC looks this id up in the
       // caller's own request map.
       requestId: RequestId,
@@ -674,6 +679,100 @@ module Signet {
       algo: request.algo,
       txParamType: request.txParamType,
       txParamsDigest: calculateEvmType2TxParamsDigestV1<maxCalldataWords, maxAccessListEntries, maxStorageKeysPerEntry>(request.txParams),
+      executionDest: request.executionDest,
+    };
+    return calculateRequestIdV1(preimage);
+  }
+
+  // ---- Tron Transaction Parameters -------------------------------------------------------------------
+
+  // The caip2Id of every request targeting Tron, whichever Tron network the MPC
+  // deployment watches. The MPC routes on this exact string (Chain::Tron in
+  // sig-net/mpc signet-primitives/src/chain.rs) and rejects the request for any
+  // other value.
+  export pure circuit tronCaip2Id(): Bytes<64> {
+    return pad(64, "tron:mainnet");
+  }
+
+  // The 21-byte Tron form of a 20-byte EVM address: 0x41 followed by the address.
+  // TronTxParams.contractAddress takes this form.
+  export pure circuit tronAddress(evmAddress: Bytes<20>): Bytes<21> {
+    return Bytes[0x41, ...evmAddress];
+  }
+
+  // The Tron transaction to be signed: a TriggerSmartContract call, decomposed into
+  // the fields of its protobuf raw message. The MPC assembles the raw message off
+  // chain, fixing the contract type to TriggerSmartContract and setting
+  // owner_address from the request's derived key, and signs sha256 of its bytes
+  // (the transaction id). The calldata words follow EvmCalldata's rules: a
+  // compile-time capacity plus a runtime count of used words.
+  //
+  // KEY: texual order of the fields in this structure must remain fixed as is as their order
+  //      is relied upon for consistent hashing and decoding from ledger state.
+  export struct TronTxParams<#maxCalldataWords> {
+    refBlockBytes: Bytes<2>;         // the reference block height's low two bytes, big-endian
+    refBlockHash: Bytes<8>;          // the reference block id's bytes 8..16
+    timestamp: Uint<64>;             // milliseconds
+    expiration: Uint<64>;            // milliseconds
+    feeLimit: Uint<64>;              // sun
+    contractAddress: Bytes<21>;      // the target contract in tronAddress form
+    callValue: Uint<64>;             // sun
+    calldata: Maybe<EvmCalldata<maxCalldataWords>>; // none = empty call data
+  }
+
+  // Digest of a TronTxParams over the bytes that reach the signed transaction: the
+  // scalar fields with the calldata presence, selector and word count, then the
+  // calldata words below that count. Words past the count are skipped and an absent
+  // calldata contributes only its absence, so one transaction has one digest
+  // whatever capacity the requester compiled its struct with. Off-chain code uses
+  // the TypeScript twin calculateTronTxParamsDigest in @sig-net/midnight.
+  export pure circuit calculateTronTxParamsDigestV1<#maxCalldataWords>(
+    txParams: TronTxParams<maxCalldataWords>
+  ): Bytes<32> {
+    const calldata = txParams.calldata;
+    const noWords = calldata.is_some ? calldata.value.noWords : 0 as Uint<16>;
+    const selector = calldata.is_some ? calldata.value.selector : default<Bytes<4>>;
+
+    assert(noWords <= maxCalldataWords, "calldata noWords exceeds capacity");
+
+    const head = transientHash<[HashDomain, Bytes<2>, Bytes<8>, Uint<64>, Uint<64>, Uint<64>, Bytes<21>, Uint<64>, Boolean, Bytes<4>, Uint<16>]>([
+      HashDomain.tronTxHeader,
+      txParams.refBlockBytes,
+      txParams.refBlockHash,
+      txParams.timestamp,
+      txParams.expiration,
+      txParams.feeLimit,
+      txParams.contractAddress,
+      txParams.callValue,
+      calldata.is_some,
+      selector,
+      noWords
+    ]);
+
+    const wordsScan = fold(
+      (acc: [Uint<16>, Field], word: Bytes<32>): [Uint<16>, Field] =>
+        [(acc[0] + 1) as Uint<16>, acc[0] < noWords ? transientHash<[HashDomain, Field, Bytes<32>]>([HashDomain.tronTxWord, acc[1], word]) : acc[1]],
+      [0 as Uint<16>, head],
+      calldata.value.words
+    );
+
+    return upgradeFromTransient(wordsScan[1]);
+  }
+
+  // The request id of a Tron request: its preimage with the transaction digested
+  // by calculateTronTxParamsDigestV1. Off-chain code uses the TypeScript twin:
+  //    import { calculateRequestId } from "@sig-net/midnight";
+  export pure circuit calculateTronRequestIdV1<#maxCalldataWords, #LenOutputDeserialization>(
+    request: SignBidirectionalEventV1<TronTxParams<maxCalldataWords>, LenOutputDeserialization, 0>
+  ): RequestId {
+    assert(request.txParamType == TxParamType.tron, "txParamType must tag txParams as tron");
+    const preimage = RequestIdPreimageV1 {
+      keyVersion: request.keyVersion,
+      sender: request.sender,
+      path: request.path,
+      algo: request.algo,
+      txParamType: request.txParamType,
+      txParamsDigest: calculateTronTxParamsDigestV1<maxCalldataWords>(request.txParams),
       executionDest: request.executionDest,
     };
     return calculateRequestIdV1(preimage);

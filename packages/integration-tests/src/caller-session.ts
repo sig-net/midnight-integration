@@ -37,6 +37,7 @@ import { expect } from "vitest";
 
 import { requireEnv } from "./e2e-env.ts";
 import { logSkip } from "./output.ts";
+import { pollUntilDefined } from "./poll.ts";
 
 /**
  * The joined caller contract handle — midnight-js's found-contract shape
@@ -127,8 +128,9 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
       return sharedWallet.context;
     },
 
-    // Default field 3: the bool-schema map every submit circuit's
+    // Default field 3: the bool-schema map every EVM submit circuit's
     // notification names except submitCheckAndDoubleRequest's (field 6).
+    // The Tron submit circuits name field 9.
     responseReader(requestsIndexField = 3): SignetRequestResponseReader {
       let reader = sharedReaders.get(requestsIndexField);
       if (!reader) {
@@ -158,15 +160,16 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
   };
 }
 
-// Both flow files share the polling cadence below.
+// The flow files share the polling cadence below.
 const MINUTE = 60_000;
 
 /**
- * The per-schema-width request maps the caller contract keeps: the generic
- * flow only touches the default `signBidirectionalEventMap`, the EVM flow
- * also drives the 69-byte-schema map.
+ * The request maps the caller contract keeps: the generic flow only touches
+ * the default `signBidirectionalEventMap`, the EVM flow also drives the
+ * 69-byte-schema map, and the Tron flow the width-0 Tron map.
  */
-export type CallerRequestMap = "signBidirectionalEventMap" | "signBidirectionalEventMap69";
+export type CallerRequestMap =
+  "signBidirectionalEventMap" | "signBidirectionalEventMap69" | "tronSignBidirectionalEventMap";
 
 /**
  * Read the caller contract's current ledger, decoded with its generated
@@ -246,4 +249,29 @@ export async function ensureMpcResponseKeyStored(
     mpcResponseKey,
   );
   return "stored";
+}
+
+/**
+ * Drive one verify circuit and wait for the request to leave its map: the
+ * consumption is the observable effect, and it only happens once every
+ * in-circuit check passed.
+ *
+ * @param context - The session's caller context.
+ * @param map - The request map the request lives in.
+ * @param requestId - The request the verify consumes.
+ * @param verify - The circuit call.
+ */
+export async function verifyAndAwaitConsumption(
+  context: CallerContext,
+  map: CallerRequestMap,
+  requestId: RequestIdHex,
+  verify: () => Promise<unknown>,
+): Promise<void> {
+  await verify();
+  const consumed = await pollUntilDefined(
+    async () => ((await readCallerRequestIds(context, map)).has(requestId) ? undefined : true),
+    MINUTE,
+    1000,
+  );
+  expect(consumed, "the verify must consume the request from its map").toBe(true);
 }

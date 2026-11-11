@@ -288,7 +288,7 @@ jobs:
             packages/signet-signer/src/managed
             packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
-      - name: Start the local stack (midnight node, indexer, proof server, anvil)
+      - name: Start the local stack (midnight node, indexer, proof server, anvil, TRE)
         run: docker compose up -d
       - name: Wait for the stack
         run: |
@@ -297,12 +297,16 @@ jobs:
           timeout 180 bash -c 'until curl -fs -X POST -H "content-type: application/json" -d "{\"query\":\"{__typename}\"}" http://127.0.0.1:8088/api/v4/graphql >/dev/null 2>&1; do sleep 3; done'
           curl -fsS -X POST -H 'content-type: application/json' \
             -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' http://127.0.0.1:8545
+          # TRE lists its dev accounts only once their funding has landed.
+          timeout 180 bash -c 'until curl -fsS -m 2 http://127.0.0.1:9090/admin/accounts 2>/dev/null | grep -q "Available Accounts"; do sleep 3; done'
       # The suite's setup deploys the contracts, writes MPC_ROOT_KEY and the
       # signet and responder addresses to .env, and starts the fakenet
       # responder. Anvil is the EVM chain the flow files and the responder
       # share: the setup deploys the EVM target and funds the derived sender
-      # there.
-      - name: Integration suite (generic signet-caller e2e)
+      # there. TRE is the Tron chain: the setup deploys the Tron target and
+      # funds the derived Tron account there, and the Tron flow file runs in
+      # the same suite.
+      - name: Integration suite (generic, real-EVM and Tron signet-caller e2e)
         env:
           TRUST_PREBUILT_ZK_KEYS: "1"
         run: yarn test:integration-tests

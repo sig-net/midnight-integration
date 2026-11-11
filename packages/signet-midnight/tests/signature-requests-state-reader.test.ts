@@ -452,12 +452,20 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
     ).toThrow(/txParamType atom holds 2 bytes/);
   });
 
-  it("rejects the reserved txParamType variant", () => {
+  it("rejects an unknown txParamType", () => {
+    const { value, alignment } = cellsOf();
+    value[4] = Uint8Array.of(2);
+    expect(() =>
+      readSignetRequestsLedgerFromState(indexStateWithCell({ value, alignment }), [0]),
+    ).toThrow(/unsupported txParamType 2/);
+  });
+
+  it("decodes a cell tagged tron with the Tron layout, refusing an evmType2 cell", () => {
     const { value, alignment } = cellsOf();
     value[4] = Uint8Array.of(1);
     expect(() =>
       readSignetRequestsLedgerFromState(indexStateWithCell({ value, alignment }), [0]),
-    ).toThrow(/unsupported txParamType 1/);
+    ).toThrow(/calldata-word region holds a non-Bytes<32> atom/);
   });
 
   it("rejects a non-Map field as the requests index", () => {
@@ -469,7 +477,7 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
 
   it("lookupSignetRequestAt returns undefined for a stored cell that is not a decodable record", () => {
     const { value, alignment } = cellsOf();
-    value[4] = Uint8Array.of(1); // the reserved txParamType variant
+    value[4] = Uint8Array.of(2); // an unknown txParamType
     const id = bytes(32, 0x43);
     const state = StateValue.newArray().arrayPush(
       StateValue.newMap(

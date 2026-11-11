@@ -12,7 +12,9 @@
 // responder compile/deploy, fakenet hand-off and caller compile/deploy, it
 // deploys the EVM target (early: fast and midnight-free) and funds the
 // caller's derived EVM sender (last: the derivation needs the deployed
-// caller's address).
+// caller's address). The Tron leg mirrors it on the local TRE: the
+// SignetTronTarget deploy runs early, the derived Tron account's funding
+// last.
 
 import { getMidnightNodeConfig, WalletRegistry } from "@sig-net/midnight-contract-deploy";
 import type { TestProject } from "vitest/node";
@@ -38,6 +40,7 @@ import {
   persistFakenetHandoffToDotEnv,
   startFakenetResponder,
 } from "./steps.ts";
+import { deployTronTargetStep, fundDerivedTronAccountStep } from "./tron-steps.ts";
 import { ensureWalletSeeds, ensureWalletsFunded } from "./wallets.ts";
 
 /**
@@ -52,6 +55,10 @@ const STEPS: [
   [
     "setup: deploy the SignetEvmTarget EVM contract (hardhat compile + anvil deploy)",
     deployEvmTargetStep,
+  ],
+  [
+    "setup: deploy the SignetTronTarget contract (hardhat compile + TRE deploy)",
+    deployTronTargetStep,
   ],
   [
     "setup: resolve/generate wallet seeds (root + deployer/invoker/mpc responder)",
@@ -73,6 +80,7 @@ const STEPS: [
   ["setup: deploy caller contract", deployCallerContractStep],
   ["setup: check/derive MPC_RESPONSE_KEY for the caller contract", ensureMpcResponseKey],
   ["setup: fund the caller's derived EVM sender with ETH", fundDerivedSenderStep],
+  ["setup: fund the caller's derived Tron account with TRX", fundDerivedTronAccountStep],
 ];
 
 /**

@@ -16,6 +16,8 @@ export {
   verifyRespondBidirectionalAttestationV1,
   constructSignBidirectionalEventNotificationV1,
   ethereumCaip2Id,
+  tronCaip2Id,
+  tronAddress,
   evmAddressAbiWord,
   numericAbiWord,
   boolAbiWord,
@@ -153,4 +155,33 @@ export pure circuit constructSignBidirectionalEventV1_1_0_0_34(
     request.params,
     request.outputDeserializationSchema
   );
+}
+
+// ---- Fixed-width Tron oracles (tests only) ---------------------------------
+// Pin the TS twins calculateTronTxParamsDigest and calculateRequestId against
+// the compiled circuits at one used calldata word and at a shape with an
+// unused word slot.
+
+export pure circuit calculateTronTxParamsDigestV1_1(
+  txParams: TronTxParams<1>
+): Bytes<32> {
+  return calculateTronTxParamsDigestV1<1>(txParams);
+}
+
+export pure circuit calculateTronTxParamsDigestV1_2(
+  txParams: TronTxParams<2>
+): Bytes<32> {
+  return calculateTronTxParamsDigestV1<2>(txParams);
+}
+
+export pure circuit calculateTronRequestIdV1_1_0(
+  request: SignBidirectionalEventV1<TronTxParams<1>, 0, 0>
+): RequestId {
+  return calculateTronRequestIdV1<1, 0>(request);
+}
+
+export pure circuit calculateTronRequestIdV1_2_0(
+  request: SignBidirectionalEventV1<TronTxParams<2>, 0, 0>
+): RequestId {
+  return calculateTronRequestIdV1<2, 0>(request);
 }

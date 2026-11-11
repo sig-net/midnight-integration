@@ -36,16 +36,22 @@ import {
 // compiler emits.
 
 /** Protocol HashDomain enum, matching the Compact variant indices and byte width. */
-export const HASH_DOMAIN = new CompactTypeEnum(6, 1);
+export const HASH_DOMAIN = new CompactTypeEnum(8, 1);
 
 /** `Boolean`. */
 export const BOOLEAN = CompactTypeBoolean;
 /** `Field`: the accumulator of the transaction digest folds. */
 export const FIELD = CompactTypeField;
+/** Descriptor of a Compact `Bytes<2>`. */
+export const BYTES_2 = new CompactTypeBytes(2);
 /** `Bytes<4>`. */
 export const BYTES_4 = new CompactTypeBytes(4);
+/** Descriptor of a Compact `Bytes<8>`. */
+export const BYTES_8 = new CompactTypeBytes(8);
 /** Descriptor of a Compact `Bytes<20>`. */
 export const BYTES_20 = new CompactTypeBytes(20);
+/** Descriptor of a Compact `Bytes<21>`. */
+export const BYTES_21 = new CompactTypeBytes(21);
 /** Descriptor of a Compact `Bytes<32>`. */
 export const BYTES_32 = new CompactTypeBytes(32);
 /** Descriptor of a Compact `Bytes<64>`. */
@@ -229,3 +235,13 @@ export function attestedOutputPreimageDescriptor(
     new CompactTypeBytes(serializedOutputLength),
   ]);
 }
+
+/**
+ * Descriptor of the tuple `[HashDomain, Field, Bytes<32>]`: one fold step of a
+ * transaction digest over a calldata word or storage key.
+ */
+export const DOMAIN_FIELD_BYTES_32 = compactTupleDescriptor<[number, bigint, Uint8Array]>([
+  HASH_DOMAIN,
+  FIELD,
+  BYTES_32,
+]);

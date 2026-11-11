@@ -2,7 +2,8 @@
 // library `Signet.compact` (same directory): the request record, its enums,
 // request ids, and the runtime-descriptor toolkit shared by every tx-params
 // decomposition. Everything specific to the EVM Type-2 decomposition lives
-// in `signet-evtype2tx-requests.ts`.
+// in `signet-evtype2tx-requests.ts`, and the Tron one in
+// `signet-tron-requests.ts`.
 //
 // The shapes MUST stay structurally in lockstep with the Compact structs,
 // field by field in declaration order. Enforced by each consuming contract's
@@ -25,6 +26,7 @@ import {
   UINT_8,
 } from "./compact-descriptors.ts";
 import type { EvmType2TxParams } from "./signet-evtype2tx-requests.ts";
+import type { TronTxParams } from "./signet-tron-requests.ts";
 
 // Public re-export: these types appear throughout the request record's shape.
 export type { ContractAddress, Maybe } from "./compact-descriptors.ts";
@@ -69,12 +71,8 @@ export const requestIdType: CompactType<RequestId> = BYTES_32;
 export const TxParamType = {
   /** `EvmType2TxParams` (signet-evtype2tx-requests.ts): an EIP-1559 EVM transaction. */
   evmType2: 0,
-  /**
-   * Never emitted: the Compact-side padding variant that keeps the enum at
-   * >= 2 variants, so it compiles to a one-byte value rather than a
-   * zero-byte one the proof server cannot parse inside a hash preimage.
-   */
-  reserved: 1,
+  /** `TronTxParams` (signet-tron-requests.ts): a Tron `TriggerSmartContract` call. */
+  tron: 1,
 } as const;
 
 /**
@@ -84,7 +82,11 @@ export const TxParamType = {
 export const MPCSignatureAlgorithm = {
   /** ECDSA over secp256k1. */
   ecdsa: 0,
-  /** Never emitted: the >= 2 variants padding (see {@link TxParamType}). */
+  /**
+   * Never emitted: the padding variant that keeps the enum at >= 2 variants,
+   * so it compiles to a one-byte value rather than a zero-byte one the proof
+   * server cannot parse inside a hash preimage.
+   */
   reserved: 1,
 } as const;
 
@@ -95,7 +97,7 @@ export const MPCSignatureAlgorithm = {
 export const MPCDestination = {
   /** The only currently-valid value. */
   unused: 0,
-  /** Never emitted: the >= 2 variants padding (see {@link TxParamType}). */
+  /** Never emitted: the >= 2 variants padding (see {@link MPCSignatureAlgorithm}). */
   reserved: 1,
 } as const;
 
@@ -159,6 +161,36 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
   outputDeserializationSchema: Uint8Array;
   /** Reserved and ignored by the MPC, contract-declared width (zero in the V1 helper). */
   respondSerializationSchema: Uint8Array;
+}
+
+/** A request record over any decomposition this library reads. */
+export type AnySignBidirectionalEvent =
+  SignBidirectionalEvent | SignBidirectionalEvent<TronTxParams>;
+
+/**
+ * Whether a request record carries the evmType2 decomposition, by its
+ * `txParamType` tag.
+ *
+ * @param request - The request record.
+ * @returns `true` iff the record is tagged {@link TxParamType.evmType2}.
+ */
+export function isEvmType2SignBidirectionalEvent(
+  request: AnySignBidirectionalEvent,
+): request is SignBidirectionalEvent {
+  return request.txParamType === TxParamType.evmType2;
+}
+
+/**
+ * Whether a request record carries the Tron decomposition, by its
+ * `txParamType` tag.
+ *
+ * @param request - The request record.
+ * @returns `true` iff the record is tagged {@link TxParamType.tron}.
+ */
+export function isTronSignBidirectionalEvent(
+  request: AnySignBidirectionalEvent,
+): request is SignBidirectionalEvent<TronTxParams> {
+  return request.txParamType === TxParamType.tron;
 }
 
 // ---- Runtime descriptor toolkit (TS twin of the compiled struct codecs) ----
@@ -273,7 +305,7 @@ export type RequestIdHex = string & {
 };
 
 /** Plain-JS index parsed out of the ledger, keyed by hex request id. */
-export type SignBidirectionalEventIndex = Map<RequestIdHex, SignBidirectionalEvent>;
+export type SignBidirectionalEventIndex = Map<RequestIdHex, AnySignBidirectionalEvent>;
 
 /**
  * Render a request id in its canonical TS form (see {@link RequestIdHex}).
@@ -329,7 +361,7 @@ export const PATH_BYTES = 32;
  * @returns A new `Map` from {@link requestIdHex} key to request record.
  */
 export function toSignBidirectionalEventIndex(
-  ledgerIndex: Iterable<[RequestId, SignBidirectionalEvent]>,
+  ledgerIndex: Iterable<[RequestId, AnySignBidirectionalEvent]>,
 ): SignBidirectionalEventIndex {
   const index: SignBidirectionalEventIndex = new Map();
   for (const [requestId, request] of ledgerIndex) {

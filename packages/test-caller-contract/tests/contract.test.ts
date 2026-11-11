@@ -20,6 +20,8 @@ import {
   decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
   decodeSignetLogEvents,
+  isEvmType2SignBidirectionalEvent,
+  isTronSignBidirectionalEvent,
   MPCDestination,
   MPCSignatureAlgorithm,
   OutputKind,
@@ -32,11 +34,13 @@ import {
   respondBidirectionalEventToCircuitInput,
   serializeRespondOutput,
   type SignBidirectionalEvent,
+  type SignBidirectionalEventIndex,
   type SignBidirectionalEventLedgerMap,
   SignetEventName,
   signetFieldNodeByPath,
   type SignetMiscEvent,
   toSignBidirectionalEventIndex,
+  type TronTxParams,
   TxParamType,
 } from "@sig-net/midnight";
 import { attestRespondBidirectional, secp256k1PublicKeyOf } from "@sig-net/midnight/testing";
@@ -47,6 +51,7 @@ import {
   Contract,
   ledger,
   pureCircuits as callerCircuits,
+  type TronTxWindow,
   witnesses,
 } from "../src/index.ts";
 // The signet signer (callee) module: the same one the caller's generated
@@ -66,7 +71,7 @@ import { readVerifierKeys } from "./verifier-keys.ts";
  * @returns The one stored request id.
  * @throws If the index does not hold at least one entry.
  */
-function onlyRequestId(index: ReadonlyMap<RequestIdHex, SignBidirectionalEvent>): RequestIdHex {
+function onlyRequestId(index: SignBidirectionalEventIndex): RequestIdHex {
   const [idHex] = [...index.keys()];
   if (idHex === undefined) {
     throw new Error(`expected one stored request, got ${String(index.size)}`);
@@ -78,17 +83,22 @@ function onlyRequestId(index: ReadonlyMap<RequestIdHex, SignBidirectionalEvent>)
  * The single `(id, record)` entry of a freshly-submitted caller's index.
  *
  * @param index - The decoded request index.
- * @returns The one stored entry.
- * @throws If the index does not hold at least one entry.
+ * @returns The one stored entry, an evmType2 request.
+ * @throws If the index does not hold at least one entry, or the entry is not
+ *   an evmType2 request.
  */
 function onlyRequestEntry(
-  index: ReadonlyMap<RequestIdHex, SignBidirectionalEvent>,
+  index: SignBidirectionalEventIndex,
 ): readonly [RequestIdHex, SignBidirectionalEvent] {
   const entry = [...index.entries()][0];
   if (entry === undefined) {
     throw new Error(`expected one stored request, got ${String(index.size)}`);
   }
-  return entry;
+  const [idHex, record] = entry;
+  if (!isEvmType2SignBidirectionalEvent(record)) {
+    throw new Error(`expected an evmType2 request, got txParamType ${String(record.txParamType)}`);
+  }
+  return [idHex, record];
 }
 
 /**
@@ -1078,6 +1088,309 @@ describe("verifyFailureResponse", () => {
 
     const success = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
     await expect(contract.circuits.verifyResponse(next, success, OUTPUT_SUCCESS)).rejects.toThrow(
+      /Request not found/,
+    );
+  });
+});
+
+// ---- Tron fixtures ----
+
+// A Tron target contract (any 0x41-prefixed 21 bytes at the simulator level)
+// and the caller-supplied transaction window: the TaPoS reference, the
+// validity window and the fee ceiling the MPC signs verbatim.
+const TRON_TARGET = Uint8Array.from([0x41, ...bytes(20, 0x88)]);
+const TRON_WINDOW: TronTxWindow = {
+  refBlockBytes: Uint8Array.of(0x12, 0x34),
+  refBlockHash: bytes(8, 0xab),
+  timestamp: 1_700_000_000_000n,
+  expiration: 1_700_003_600_000n,
+  feeLimit: 100_000_000n,
+};
+const EXPECTED_TRON_CAIP2 = signetCircuits.tronCaip2Id();
+// The Tron map's ledger field: the depth-1 path the Tron notifications name.
+const TRON_REQUESTS_INDEX_FIELD = 9;
+
+/**
+ * The single `(id, record)` entry of a freshly-submitted caller's Tron index.
+ *
+ * @param index - The decoded Tron request index.
+ * @returns The one stored entry, a Tron request.
+ * @throws If the index does not hold at least one entry, or the entry is not
+ *   a Tron request.
+ */
+function onlyTronRequestEntry(
+  index: SignBidirectionalEventIndex,
+): readonly [RequestIdHex, SignBidirectionalEvent<TronTxParams>] {
+  const entry = [...index.entries()][0];
+  if (entry === undefined) {
+    throw new Error(`expected one stored request, got ${String(index.size)}`);
+  }
+  const [idHex, record] = entry;
+  if (!isTronSignBidirectionalEvent(record)) {
+    throw new Error(`expected a Tron request, got txParamType ${String(record.txParamType)}`);
+  }
+  return [idHex, record];
+}
+
+describe("Tron submit circuits round-trip", () => {
+  // Per-circuit lockstep expectations: the circuit call with its typed
+  // argument, the ABI word that argument must land as and the selector
+  // literal the contract fixes for each SignetTronTarget method.
+  const CASES = [
+    {
+      name: "submitTronIsEvenRequest",
+      submit: (contract: Contract<CallerPrivateState>, ctx: CircuitContext<CallerPrivateState>) =>
+        contract.circuits.submitTronIsEvenRequest(
+          ctx,
+          KEY_VERSION,
+          TRON_TARGET,
+          ARG_WORD,
+          TRON_WINDOW,
+        ),
+      expectedWord: ARG_WORD,
+      selector: SELECTOR_IS_EVEN,
+    },
+    {
+      // The Boolean argument is composed into its ABI word in-circuit.
+      name: "submitTronRevertIfRequest",
+      submit: (contract: Contract<CallerPrivateState>, ctx: CircuitContext<CallerPrivateState>) =>
+        contract.circuits.submitTronRevertIfRequest(
+          ctx,
+          KEY_VERSION,
+          TRON_TARGET,
+          true,
+          TRON_WINDOW,
+        ),
+      expectedWord: boolAbiWord(true),
+      selector: SELECTOR_REVERT_IF,
+    },
+  ];
+
+  it.each(CASES)(
+    "$name stores the caller-supplied target, word and window as a width-0 Tron request",
+    async ({ submit, expectedWord, selector }) => {
+      const { contract, ctx } = await deployContract();
+
+      const next = (await submit(contract, ctx)).context;
+      const state = next.callContext.currentQueryContext.state;
+
+      const typedIndex = toSignBidirectionalEventIndex(ledger(state).tronSignBidirectionalEventMap);
+      expect(typedIndex.size).toBe(1);
+      const [idHex, record] = onlyTronRequestEntry(typedIndex);
+      // MPC-style: the RAW reader decodes the same record from the field-9
+      // map without ledger(), measuring its Tron capacity from the cell.
+      expect(
+        readSignetRequestsLedgerFromState(state, [TRON_REQUESTS_INDEX_FIELD]).requestsIndex,
+      ).toEqual(typedIndex);
+
+      expect(record.txParamType).toBe(TxParamType.tron);
+      expect(record.txParams).toEqual({
+        ...TRON_WINDOW,
+        contractAddress: TRON_TARGET,
+        callValue: 0n,
+        calldata: {
+          is_some: true,
+          value: { selector, noWords: 1n, words: [expectedWord] },
+        },
+      });
+      expect(record.sender.bytes).toEqual(CALLER_ADDRESS_BYTES);
+      expect(record.path).toEqual(EXPECTED_PATH);
+      expect(record.executionDest).toEqual(EXPECTED_TRON_CAIP2);
+      // Empty: the MPC refuses a Tron request whose output schema has any width.
+      expect(record.outputDeserializationSchema).toEqual(new Uint8Array(0));
+      expect(record.respondSerializationSchema).toEqual(EXPECTED_RESPOND_SCHEMA);
+
+      // Map key = the request-id TS twin over the Tron digest.
+      expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
+
+      // The notification names the Tron map's position.
+      const notificationEvent = eventAt(decodeSignetLogEvents(next.events, SIGNET_ADDRESS));
+      const notificationPost = decodeSignBidirectionalEventNotificationPayload(
+        notificationEvent.payload,
+      );
+      expect(requestIdHex(notificationPost.requestId)).toBe(idHex);
+      expect(decodeSignBidirectionalNotification(notificationPost.event).requestsPath).toEqual([
+        TRON_REQUESTS_INDEX_FIELD,
+      ]);
+    },
+  );
+
+  it("refuses a second identical submit while the first is outstanding", async () => {
+    const { contract, ctx } = await deployContract();
+    const next = (
+      await contract.circuits.submitTronIsEvenRequest(
+        ctx,
+        KEY_VERSION,
+        TRON_TARGET,
+        ARG_WORD,
+        TRON_WINDOW,
+      )
+    ).context;
+    await expect(
+      contract.circuits.submitTronIsEvenRequest(
+        next,
+        KEY_VERSION,
+        TRON_TARGET,
+        ARG_WORD,
+        TRON_WINDOW,
+      ),
+    ).rejects.toThrow(/Request already exists/);
+  });
+
+  it("a different window is a different transaction: same call, distinct ids", async () => {
+    const { contract, ctx } = await deployContract();
+    const next = (
+      await contract.circuits.submitTronIsEvenRequest(
+        ctx,
+        KEY_VERSION,
+        TRON_TARGET,
+        ARG_WORD,
+        TRON_WINDOW,
+      )
+    ).context;
+    const after = (
+      await contract.circuits.submitTronIsEvenRequest(next, KEY_VERSION, TRON_TARGET, ARG_WORD, {
+        ...TRON_WINDOW,
+        expiration: TRON_WINDOW.expiration + 3_000n,
+      })
+    ).context;
+
+    const state = ledger(after.callContext.currentQueryContext.state);
+    expect(toSignBidirectionalEventIndex(state.tronSignBidirectionalEventMap).size).toBe(2);
+  });
+
+  it("Tron requests stay out of the EVM maps", async () => {
+    const { contract, ctx } = await deployContract();
+    const afterEvm = (await contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, KEY_VERSION))
+      .context;
+    const afterTron = (
+      await contract.circuits.submitTronRevertIfRequest(
+        afterEvm,
+        KEY_VERSION,
+        TRON_TARGET,
+        true,
+        TRON_WINDOW,
+      )
+    ).context;
+
+    const state = ledger(afterTron.callContext.currentQueryContext.state);
+    expect(toSignBidirectionalEventIndex(state.signBidirectionalEventMap).size).toBe(1);
+    expect(state.signBidirectionalEventMap69.isEmpty()).toBe(true);
+    expect(toSignBidirectionalEventIndex(state.tronSignBidirectionalEventMap).size).toBe(1);
+  });
+});
+
+describe("verifyTronResponse", () => {
+  // Every outcome of a Tron request is attested over an EMPTY output.
+  const OUTPUT_EMPTY = new Uint8Array(0);
+
+  /** Deploy + submitTronIsEvenRequest: a pending request in the field-9 map. */
+  const tronRequestSubmitted = async () => {
+    const { contract, ctx } = await deployContract();
+    const next = (
+      await contract.circuits.submitTronIsEvenRequest(
+        ctx,
+        KEY_VERSION,
+        TRON_TARGET,
+        ARG_WORD,
+        TRON_WINDOW,
+      )
+    ).context;
+    const index = toSignBidirectionalEventIndex(
+      ledger(next.callContext.currentQueryContext.state).tronSignBidirectionalEventMap,
+    );
+    return { contract, ctx: next, requestId: requestIdBytes(onlyRequestId(index)) };
+  };
+
+  it.each([OutputKind.executed, OutputKind.failed, OutputKind.unviable])(
+    "a genuine kind-%s attestation verifies at width 0, consumes the request and records the verdict",
+    async (outputKind) => {
+      const { contract, ctx, requestId } = await tronRequestSubmitted();
+      const event = respond(MPC_RESPONSE_SECRET, requestId, outputKind, OUTPUT_EMPTY);
+
+      const next = (await contract.circuits.verifyTronResponse(ctx, event, OUTPUT_EMPTY)).context;
+
+      const state = ledger(next.callContext.currentQueryContext.state);
+      expect(state.tronSignBidirectionalEventMap.isEmpty()).toBe(true);
+      expect(state.tronVerdicts.lookup(requestId)).toBe(outputKind);
+      expect(state.failureVerdicts.isEmpty()).toBe(true);
+    },
+  );
+
+  it("rejects while uninitialised (no stored key yet)", async () => {
+    const { contract, ctx } = await deployUninitialised();
+    const next = (
+      await contract.circuits.submitTronIsEvenRequest(
+        ctx,
+        KEY_VERSION,
+        TRON_TARGET,
+        ARG_WORD,
+        TRON_WINDOW,
+      )
+    ).context;
+    const requestId = requestIdBytes(
+      onlyRequestId(
+        toSignBidirectionalEventIndex(
+          ledger(next.callContext.currentQueryContext.state).tronSignBidirectionalEventMap,
+        ),
+      ),
+    );
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_EMPTY);
+    await expect(contract.circuits.verifyTronResponse(next, event, OUTPUT_EMPTY)).rejects.toThrow(
+      /Not initialised/,
+    );
+  });
+
+  it("rejects an imposter's signature", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(IMPOSTER_SECRET, requestId, OutputKind.executed, OUTPUT_EMPTY);
+    await expect(contract.circuits.verifyTronResponse(ctx, event, OUTPUT_EMPTY)).rejects.toThrow(
+      /Invalid attestation or output/,
+    );
+  });
+
+  it("rejects a tampered kind: a failed attestation relabelled executed", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
+    await expect(
+      contract.circuits.verifyTronResponse(
+        ctx,
+        { ...event, outputKind: OutputKind.executed },
+        OUTPUT_EMPTY,
+      ),
+    ).rejects.toThrow(/Invalid attestation or output/);
+  });
+
+  it("rejects a cross-width replay: a 1-byte-output attestation cannot verify at width 0", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    await expect(contract.circuits.verifyTronResponse(ctx, event, OUTPUT_EMPTY)).rejects.toThrow(
+      /Invalid attestation or output/,
+    );
+  });
+
+  it("rejects a genuinely attested EVM request: it settles Tron requests only", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
+    await expect(contract.circuits.verifyTronResponse(ctx, event, OUTPUT_EMPTY)).rejects.toThrow(
+      /Request not found/,
+    );
+  });
+
+  it("verifyFailureResponse does not settle a Tron request", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
+    await expect(contract.circuits.verifyFailureResponse(ctx, event, OUTPUT_EMPTY)).rejects.toThrow(
+      /Request not found/,
+    );
+  });
+
+  it("a second settle of the SAME request rejects (the first consumed it)", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.unviable, OUTPUT_EMPTY);
+    const next = (await contract.circuits.verifyTronResponse(ctx, event, OUTPUT_EMPTY)).context;
+
+    await expect(contract.circuits.verifyTronResponse(next, event, OUTPUT_EMPTY)).rejects.toThrow(
       /Request not found/,
     );
   });

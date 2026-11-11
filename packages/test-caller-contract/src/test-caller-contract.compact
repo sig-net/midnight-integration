@@ -14,6 +14,11 @@
 //   checkAndDouble leg narrows an attested uint256 word to Uint<128> in-circuit)
 // - settlement of a failed or unviable execution: the width-0 attestation the MPC posts when
 //   the transaction reverted or lost its nonce, recorded under its verified output kind
+// - Tron requests against the SignetTronTarget Solidity contract on a local Tron chain: one
+//   submit circuit per target method, the caller supplying the transaction's TaPoS reference,
+//   timestamps and fee limit, and one width-0 verify circuit recording the MPC's verdict
+//   (executed, failed or unviable). The MPC refuses a Tron request whose output schema is not
+//   empty, so Tron requests live in their own width-0 map and carry no return data
 // ========================================================================================================
 pragma language_version >= 0.25;
 
@@ -70,7 +75,85 @@ export ledger checkAndDoubleAmounts: Map<RequestId, Uint<128>>;
 // transaction took its nonce).
 export ledger failureVerdicts: Map<RequestId, OutputKind>;
 
+// field 9: the request map of Tron requests: TriggerSmartContract calls with
+// <1 calldata word> and an EMPTY output schema, the only width the MPC admits
+// for a Tron request. Shared by submitTronIsEvenRequest and
+// submitTronRevertIfRequest.
+export ledger tronSignBidirectionalEventMap: SignBidirectionalEventMapV1<TronTxParams<1>, 0>;
+
+// field 10: the MPC's verdict on each settled Tron request, keyed by the
+// request it settled: executed, failed (the call reverted) or unviable (the
+// transaction expired unexecuted).
+export ledger tronVerdicts: Map<RequestId, OutputKind>;
+
 witness deployerSecretKey(): Bytes<32>;
+
+// The caller-supplied fields of a Tron transaction: the TaPoS reference to a
+// recent block, the validity window and the energy fee ceiling. The MPC signs
+// exactly these values, so the caller reads them from the Tron chain at
+// submit time.
+export struct TronTxWindow {
+  refBlockBytes: Bytes<2>;   // the reference block height's low two bytes, big-endian
+  refBlockHash: Bytes<8>;    // the reference block id's bytes 8..16
+  timestamp: Uint<64>;       // milliseconds
+  expiration: Uint<64>;      // milliseconds
+  feeLimit: Uint<64>;        // sun
+}
+
+// Store a Tron TriggerSmartContract request with one calldata word in the
+// field-9 map and notify the MPC: the shared body of the Tron submit
+// circuits. The output schema is empty (the MPC refuses any other width for a
+// Tron request), so the attested output is empty whatever the outcome.
+circuit storeTronRequest(
+  keyVersion: Uint<8>,
+  contractAddress: Bytes<21>,
+  selector: Bytes<4>,
+  argWord: Bytes<32>,
+  tronWindow: TronTxWindow
+): [] {
+  const txParams = TronTxParams<1> {
+    refBlockBytes: tronWindow.refBlockBytes,
+    refBlockHash: tronWindow.refBlockHash,
+    timestamp: tronWindow.timestamp,
+    expiration: tronWindow.expiration,
+    feeLimit: tronWindow.feeLimit,
+    contractAddress: contractAddress,
+    callValue: 0 as Uint<64>,
+    calldata: some<EvmCalldata<1>>(EvmCalldata<1> {
+      selector: selector,
+      noWords: 1 as Uint<16>,
+      words: [argWord]
+    })
+  };
+
+  const request = constructSignBidirectionalEventV1<TronTxParams<1>, 0>(
+    keyVersion,
+    kernel.self(),
+    pad(32, "caller-path"),
+    MPCSignatureAlgorithm.ecdsa,
+    TxParamType.tron,
+    txParams,
+    tronCaip2Id(),
+    MPCDestination.unused,
+    pad(64, ""),
+    default<Bytes<0>>
+  );
+  const requestId = disclose(calculateTronRequestIdV1<1, 0>(request));
+
+  assert(!tronSignBidirectionalEventMap.member(requestId), "Request already exists");
+  tronSignBidirectionalEventMap.insert(requestId, disclose(request));
+  requestLog.pushFront(requestId as Bytes<32>);
+
+  // tronSignBidirectionalEventMap sits at flat field 9, path [9] at depth 1.
+  signetSigner.signBidirectional(
+    requestId,
+    constructSignBidirectionalEventNotificationV1(
+      kernel.self(),
+      1 as Uint<8>,
+      [9, 0, 0, 0] as Vector<4, Uint<8>>,
+    ),
+  );
+}
 
 // Exported so deploy tooling and tests can compute the commitment.
 export pure circuit deployerCommitment(sk: Bytes<32>): Bytes<32> {
@@ -498,4 +581,64 @@ export circuit verifyFailureResponse(
     signBidirectionalEventMap69.remove(disclosedRequestId);
   }
   failureVerdicts.insert(disclosedRequestId, outputKind);
+}
+
+// Tron leg, stage 1a: SignetTronTarget.isEven(uint256) on the local Tron
+// chain. The e2e broadcasts the signed transaction, the MPC watches its
+// solidified receipt and attests it executed over an empty output, which
+// verifyTronResponse settles. The selector is the first 4 bytes of
+// keccak256("isEven(uint256)"), pinned here and lockstep-checked against
+// ethers in the e2e. contractAddress is the target in tronAddress form.
+export circuit submitTronIsEvenRequest(
+  keyVersion: Uint<8>,
+  contractAddress: Bytes<21>,
+  argWord: Bytes<32>,
+  tronWindow: TronTxWindow
+): [] {
+  storeTronRequest(keyVersion, contractAddress, Bytes [0x2a, 0x2e, 0x13, 0x20], argWord, tronWindow);
+}
+
+// Tron leg, stage 1b: SignetTronTarget.revertIf(bool), broadcast by the e2e
+// with shouldRevert = true so the call reverts and the MPC attests it
+// failed. The selector is the first 4 bytes of keccak256("revertIf(bool)"),
+// pinned here and lockstep-checked against ethers in the e2e. The argument
+// is composed in-circuit with boolAbiWord.
+export circuit submitTronRevertIfRequest(
+  keyVersion: Uint<8>,
+  contractAddress: Bytes<21>,
+  shouldRevert: Boolean,
+  tronWindow: TronTxWindow
+): [] {
+  storeTronRequest(keyVersion, contractAddress, Bytes [0xd4, 0x60, 0xc5, 0x1a], boolAbiWord(shouldRevert), tronWindow);
+}
+
+// Tests settlement of a Tron request: every outcome of a Tron request is
+// attested over an EMPTY output (its output schema is empty), so the
+// attestation verifies at width 0 whatever its kind. The verified kind is
+// the verdict: executed (the call succeeded), failed (it reverted) or
+// unviable (it expired unexecuted). The request is consumed from the field-9
+// map and the verdict recorded under it.
+export circuit verifyTronResponse(
+  respondBidirectionalEvent: RespondBidirectionalEventV1,
+  serializedOutput: Bytes<0>
+): [] {
+  const disclosedRequestId = disclose(respondBidirectionalEvent.requestId);
+
+  assert(
+    initialised != 0,
+    "Not initialised: no MPC response key stored"
+  );
+
+  assert(
+    verifyRespondBidirectionalEventV1<0>(
+      serializedOutput,
+      disclose(respondBidirectionalEvent),
+      mpcResponseKey
+    ),
+    "Invalid attestation or output"
+  );
+
+  assert(tronSignBidirectionalEventMap.member(disclosedRequestId), "Request not found");
+  tronSignBidirectionalEventMap.remove(disclosedRequestId);
+  tronVerdicts.insert(disclosedRequestId, disclose(respondBidirectionalEvent.outputKind));
 }

@@ -80,6 +80,7 @@ import {
   ensureMpcResponseKeyStored,
   readCallerLedger,
   readCallerRequestIds as readRequestIds,
+  verifyAndAwaitConsumption,
 } from "../src/caller-session.ts";
 import { CALLER_PATH_HEX } from "../src/constants.ts";
 import { requireEnv as requireEnvOf } from "../src/e2e-env.ts";
@@ -93,6 +94,7 @@ import {
 } from "../src/local-evm.ts";
 import { fetchAttestedOutput, mpcOutputCacheUrl } from "../src/mpc-output-cache.ts";
 import { banner, logSkip } from "../src/output.ts";
+import { pollUntilDefined } from "../src/poll.ts";
 import { pollSignetNotification } from "../src/signet-notifications.ts";
 
 const MINUTE = 60_000;
@@ -269,53 +271,6 @@ if (FIRST_METHOD === undefined) {
   throw new Error("METHODS must name at least one target method");
 }
 
-/**
- * Poll `read` until it returns a value or `timeoutMs` elapses.
- *
- * @param read - The lookup to repeat.
- * @param timeoutMs - How long to keep polling.
- * @param intervalMs - The pause between polls.
- * @returns The first defined value, or undefined at the deadline.
- */
-async function pollUntilDefined<T>(
-  read: () => Promise<T | undefined>,
-  timeoutMs: number,
-  intervalMs: number,
-): Promise<T | undefined> {
-  const deadline = Date.now() + timeoutMs;
-  let value = await read();
-  while (value === undefined && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-    value = await read();
-  }
-  return value;
-}
-
-/**
- * Drive one verify circuit and wait for the request to leave its map: the
- * consumption is the observable effect, and it only happens once every
- * in-circuit check passed.
- *
- * @param context - The session's caller context.
- * @param map - The request map the request lives in.
- * @param requestId - The request the verify consumes.
- * @param verify - The circuit call.
- */
-async function verifyAndAwaitConsumption(
-  context: CallerContext,
-  map: CallerRequestMap,
-  requestId: RequestIdHex,
-  verify: () => Promise<unknown>,
-): Promise<void> {
-  await verify();
-  const consumed = await pollUntilDefined(
-    async () => ((await readRequestIds(context, map)).has(requestId) ? undefined : true),
-    MINUTE,
-    1000,
-  );
-  expect(consumed, "the verify must consume the request from its map").toBe(true);
-}
-
 describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e", () => {
   installFlowHooks();
 
@@ -402,7 +357,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
       }
       supersededRequestId = firstFresh;
 
-      const record = await session.responseReader().getSignatureRequest(supersededRequestId);
+      const record = await session
+        .responseReader()
+        .getEvmType2SignatureRequest(supersededRequestId);
       expect(record.txParams.nonce).toBe(evmNonce);
 
       banner([
@@ -439,7 +396,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
           if (verified === undefined) {
             return undefined;
           }
-          const request = await reader.getSignatureRequest(supersededRequestId);
+          const request = await reader.getEvmType2SignatureRequest(supersededRequestId);
           return signBidirectionalEventToSignedEvmTransaction(request, verified);
         },
         3 * MINUTE,
@@ -468,7 +425,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
     // A resumed request may already have been consumed by a prior run's
     // verify. Checked once at resume time so the signature-poll, broadcast
     // and recompute stages skip and the flow routes to the verify stage's
-    // already-consumed skip instead of failing in getSignatureRequest.
+    // already-consumed skip instead of failing in getEvmType2SignatureRequest.
     let alreadyConsumed = false;
 
     it(
@@ -525,7 +482,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         // literals, and the request-id TS twin.
         const record = await session
           .responseReader(method.requestsIndexField)
-          .getSignatureRequest(requestId);
+          .getEvmType2SignatureRequest(requestId);
         expect(record.txParams.nonce).toBe(evmNonce);
         expect(record.txParams.to).toEqual(to);
         expect(record.txParams.calldata.is_some).toBe(true);
@@ -603,7 +560,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
             if (verified === undefined) {
               return undefined;
             }
-            const request = await reader.getSignatureRequest(requestId);
+            const request = await reader.getEvmType2SignatureRequest(requestId);
             return signBidirectionalEventToSignedEvmTransaction(request, verified);
           },
           3 * MINUTE,
@@ -912,7 +869,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
       // The attested height is the block that spent the request's nonce,
       // found here by an independent bisection of the sender's transaction
       // count (the first method's broadcast is the transaction that spent it).
-      const request = await reader.getSignatureRequest(supersededRequestId);
+      const request = await reader.getEvmType2SignatureRequest(supersededRequestId);
       const nonceTakenBlock = await findNonceConsumedBlock(
         evmRpcUrl(env),
         derivedSender(),

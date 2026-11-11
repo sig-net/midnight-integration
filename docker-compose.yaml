@@ -1,6 +1,6 @@
 # Local development stack for the integration tests: Midnight (node +
-# indexer + proof server), a local EVM dev chain, and the fakenet MPC
-# responder. `docker compose up -d`.
+# indexer + proof server), a local EVM dev chain, a local Tron dev chain,
+# and the fakenet MPC responder. `docker compose up -d`.
 #
 # The three midnight image tags are a MATCHED SET on the ledger-9 line: the
 # release set Midnight mainnet runs (node 2.1.101, indexer 4.4.101, proof
@@ -66,6 +66,24 @@ services:
     ports:
       - '127.0.0.1:8545:8545'
 
+  tron:
+    # TRE (TRON Runtime Environment): a single-node java-tron dev chain whose
+    # HTTP API serves the full node (/wallet) and solidity node
+    # (/walletsolidity) routes on one port. useDefaultPrivateKey pre-funds
+    # TRE's deterministic dev accounts (private key 0x00…01 among them, the
+    # e2e's funder) and lists them at /admin/accounts once funded. The
+    # target chain of the Tron e2e flow, which deploys its target contract
+    # here and broadcasts the MPC-signed transactions, and the chain the
+    # fakenet responder reads solidified receipts from. TRE produces a block
+    # only when a transaction arrives: the Tron flow pushes filler transfers
+    # while it waits. Tag-pinned only: the vendor publishes no digest.
+    container_name: 'local-tron'
+    image: 'tronbox/tre:2.0.0'
+    environment:
+      useDefaultPrivateKey: 'true'
+    ports:
+      - '127.0.0.1:9090:9090'
+
   fakenet:
     # The MPC fakenet responder (sig-net/solana-signet-program, fakenet-signer
     # workspace) in Midnight-only mode (DISABLE_SOLANA). Polls the signet signer's
@@ -81,7 +99,10 @@ services:
     # starts this service. Manual equivalent (and the FAKENET_MANAGED=0 path):
     #   docker compose --profile fakenet up -d --force-recreate fakenet
     container_name: 'fakenet-responder'
-    image: 'ghcr.io/sig-net/fakenet:0.39.0'
+    # FAKENET_IMAGE swaps in another build of the responder, e.g. a locally
+    # built image (see packages/integration-tests/README.md). The Tron flow
+    # needs a responder with Tron support.
+    image: '${FAKENET_IMAGE:-ghcr.io/sig-net/fakenet:0.39.0}'
     profiles: ['fakenet']
     depends_on:
       indexer:
@@ -89,6 +110,8 @@ services:
       proof-server:
         condition: service_started
       evm:
+        condition: service_started
+      tron:
         condition: service_started
     extra_hosts: # To let the container reach services on the HOST (e.g. a hardhat node)
       - 'host.docker.internal:host-gateway'
@@ -106,6 +129,9 @@ services:
       # the in-network `evm` service above (loopback in-container would be
       # the container itself, hence the dedicated variable).
       EVM_RPC_URL: '${FAKENET_EVM_RPC_URL:-http://evm:8545}'
+      # The java-tron HTTP API the responder's Tron watcher reads solidified
+      # receipts and blocks from; defaults to the in-network `tron` service.
+      TRON_RPC_URL: '${FAKENET_TRON_RPC_URL:-http://tron:9090}'
       MIDNIGHT_NETWORK_ID: '${MIDNIGHT_NETWORK_ID:-undeployed}'
       MIDNIGHT_INDEXER_URL: '${MIDNIGHT_INDEXER_URL:-http://indexer:8088/api/v4/graphql}'
       MIDNIGHT_INDEXER_WS_URL: '${MIDNIGHT_INDEXER_WS_URL:-ws://indexer:8088/api/v4/graphql/ws}'
