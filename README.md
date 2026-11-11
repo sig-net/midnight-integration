@@ -824,7 +824,7 @@ Three end to end suites run against the local docker stack. The generic suite dr
                                 # latest stable, whatever it is.
    yarn compile
    ```
-3. Start the local stack (Midnight node, indexer, proof server, anvil EVM, TRE Tron) with `docker compose up -d`. The fakenet MPC responder is started automatically by the test setup once the signet signer and the responder are deployed. The Tron suite needs a fakenet image with Tron support: set `FAKENET_IMAGE` to one (see [`packages/integration-tests`](packages/integration-tests/README.md#prerequisites)).
+3. Start the local stack (Midnight node, indexer, proof server, anvil EVM, TRE Tron) with `docker compose up -d`. The fakenet MPC responder is started automatically by the test setup once the signet signer and the responder are deployed.
 4. Run the suites and watch them go. The first run can take **~10–25 minutes** (it generates zk proving keys for every contract, deploys them and hands off to the fakenet responder, all automatically, no `.env` inserts needed):
    ```sh
    yarn test:integration-tests                          # all three suites, requires 'yarn compile'
@@ -882,7 +882,7 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
 | `@sig-net/*` npm packages | 0.27.0-rc.2 | [`packages/*/package.json`](packages) |
-| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.39.0` | [`docker-compose.yaml`](docker-compose.yaml) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.40.0` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.36.0 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
 | Midnight node | 2.1.101 | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight indexer | 4.4.101 | [`docker-compose.yaml`](docker-compose.yaml) |
