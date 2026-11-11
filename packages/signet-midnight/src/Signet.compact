@@ -77,6 +77,8 @@ module Signet {
     evmType2TxAccessEntry,
     evmType2TxStorageKey,
     attestedOutput,
+    tronTxHeader,
+    tronTxWord,
   }
 
   // ---- SignBidirectionalEvent ------------------------------------------------------------------------
@@ -160,7 +162,7 @@ module Signet {
   // contains so an off-chain consumer (e.g. the MPC) knows how to re-assemble it.
   export enum TxParamType {
     evmType2, // EvmType2TxParams: an EIP-1559 EVM transaction (envelope + calldata)
-    reserved, // Reserved for future use. Exists to keep enum >= 2 (proof server bug).
+    tron,
   }
 
   // Construction helper for the canonical Signet SignBidirectionalEventV1.
@@ -674,6 +676,74 @@ module Signet {
       algo: request.algo,
       txParamType: request.txParamType,
       txParamsDigest: calculateEvmType2TxParamsDigestV1<maxCalldataWords, maxAccessListEntries, maxStorageKeysPerEntry>(request.txParams),
+      executionDest: request.executionDest,
+    };
+    return calculateRequestIdV1(preimage);
+  }
+
+  export pure circuit tronCaip2Id(): Bytes<64> {
+    return pad(64, "tron:mainnet");
+  }
+
+  export pure circuit tronAddress(evmAddress: Bytes<20>): Bytes<21> {
+    return Bytes[0x41, ...evmAddress];
+  }
+
+  export struct TronTxParams<#maxCalldataWords> {
+    refBlockBytes: Bytes<2>;
+    refBlockHash: Bytes<8>;
+    timestamp: Uint<64>;
+    expiration: Uint<64>;
+    feeLimit: Uint<64>;
+    contractAddress: Bytes<21>;
+    callValue: Uint<64>;
+    calldata: Maybe<EvmCalldata<maxCalldataWords>>;
+  }
+
+  export pure circuit calculateTronTxParamsDigestV1<#maxCalldataWords>(
+    txParams: TronTxParams<maxCalldataWords>
+  ): Bytes<32> {
+    const calldata = txParams.calldata;
+    const noWords = calldata.is_some ? calldata.value.noWords : 0 as Uint<16>;
+    const selector = calldata.is_some ? calldata.value.selector : default<Bytes<4>>;
+
+    assert(noWords <= maxCalldataWords, "calldata noWords exceeds capacity");
+
+    const head = transientHash<[HashDomain, Bytes<2>, Bytes<8>, Uint<64>, Uint<64>, Uint<64>, Bytes<21>, Uint<64>, Boolean, Bytes<4>, Uint<16>]>([
+      HashDomain.tronTxHeader,
+      txParams.refBlockBytes,
+      txParams.refBlockHash,
+      txParams.timestamp,
+      txParams.expiration,
+      txParams.feeLimit,
+      txParams.contractAddress,
+      txParams.callValue,
+      calldata.is_some,
+      selector,
+      noWords
+    ]);
+
+    const wordsScan = fold(
+      (acc: [Uint<16>, Field], word: Bytes<32>): [Uint<16>, Field] =>
+        [(acc[0] + 1) as Uint<16>, acc[0] < noWords ? transientHash<[HashDomain, Field, Bytes<32>]>([HashDomain.tronTxWord, acc[1], word]) : acc[1]],
+      [0 as Uint<16>, head],
+      calldata.value.words
+    );
+
+    return upgradeFromTransient(wordsScan[1]);
+  }
+
+  export pure circuit calculateTronRequestIdV1<#maxCalldataWords, #LenOutputDeserialization>(
+    request: SignBidirectionalEventV1<TronTxParams<maxCalldataWords>, LenOutputDeserialization, 0>
+  ): RequestId {
+    assert(request.txParamType == TxParamType.tron, "txParamType must tag txParams as tron");
+    const preimage = RequestIdPreimageV1 {
+      keyVersion: request.keyVersion,
+      sender: request.sender,
+      path: request.path,
+      algo: request.algo,
+      txParamType: request.txParamType,
+      txParamsDigest: calculateTronTxParamsDigestV1<maxCalldataWords>(request.txParams),
       executionDest: request.executionDest,
     };
     return calculateRequestIdV1(preimage);
