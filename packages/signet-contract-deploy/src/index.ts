@@ -12,6 +12,7 @@ export * from "./deploy-signet-responder.ts";
 export * from "./deploy-signet-signer.ts";
 export * from "./plumbing/counterparties.ts";
 export * from "./plumbing/deploy.ts";
+export * from "./plumbing/dust-generation.ts";
 export * from "./plumbing/env.ts";
 export * from "./plumbing/format-amounts.ts";
 export * from "./plumbing/funding.ts";

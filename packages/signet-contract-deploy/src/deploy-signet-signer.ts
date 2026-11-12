@@ -5,7 +5,13 @@
 // compiled assets to carry keys (its published dist/managed always does; an
 // in-repo checkout needs `yarn compile:zk`).
 
-import { type ContractDeployment, deployProtocolContract } from "./deploy-protocol-contract.ts";
+import {
+  type ContractDeployEstimate,
+  type ContractDeployment,
+  deployProtocolContract,
+  type DeployTransactionBuilder,
+  estimateProtocolContractDeploy,
+} from "./deploy-protocol-contract.ts";
 import { buildDeployTransaction } from "./plumbing/deploy.ts";
 import type { WalletRegistry } from "./plumbing/wallet.ts";
 import {
@@ -32,16 +38,40 @@ export async function deploySignetSigner(
   env: Record<string, string | undefined> = process.env,
   wallets?: WalletRegistry,
 ): Promise<ContractDeployment> {
-  return deployProtocolContract(
+  return deployProtocolContract("signet-signer", buildSignetSignerDeployTransaction, env, wallets);
+}
+
+/**
+ * Price the signet signer's deploy through {@link estimateProtocolContractDeploy},
+ * which logs the deployer's balances, the deploy fee and the NIGHT that
+ * generates it, and submits nothing.
+ *
+ * @param env - Environment map providing `DEPLOYER_SEED` and the shared
+ *   Midnight node configuration (see `getMidnightNodeConfig`).
+ * @param wallets - A registry to take the deployer wallet from. Without one,
+ *   a private registry is opened for this estimate and closed after it.
+ * @returns The estimate.
+ * @throws {Error} If the deployer wallet cannot be synced or the transaction cannot be built or priced.
+ */
+export async function estimateSignetSignerDeploy(
+  env: Record<string, string | undefined> = process.env,
+  wallets?: WalletRegistry,
+): Promise<ContractDeployEstimate> {
+  return estimateProtocolContractDeploy(
     "signet-signer",
-    (networkId, coinPublicKeyHex) =>
-      buildDeployTransaction(
-        signetSignerCompiledContract,
-        networkId,
-        coinPublicKeyHex,
-        createSignetSignerPrivateState(),
-      ),
+    buildSignetSignerDeployTransaction,
     env,
     wallets,
   );
 }
+
+const buildSignetSignerDeployTransaction: DeployTransactionBuilder = (
+  networkId,
+  coinPublicKeyHex,
+) =>
+  buildDeployTransaction(
+    signetSignerCompiledContract,
+    networkId,
+    coinPublicKeyHex,
+    createSignetSignerPrivateState(),
+  );
