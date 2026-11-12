@@ -17,9 +17,9 @@ This repository contains the pieces that make that flow available on Midnight:
 - [Client-agnostic Compact and TS SDK](./packages/signet-midnight/README.md)
   - For Midnight Contract and dApp builders to integrate with Sig Network
   - Located in `packages/signet-midnight`
-- [Sig Network Protocol Singleton Contract](./packages/signet-contract/README.md)
+- [Sig Network Signer Contract](./packages/signet-signer/README.md)
   - The protocol contract that integrating Midnight contracts communicate with via cross contract call
-  - Located in `packages/signet-contract`
+  - Located in `packages/signet-signer`
 - [Sig Network Responder Contract](./packages/signet-responder/README.md)
   - The contract the MPC posts its responses to: its `respond` and `respondBidirectional` circuits, proven with MinoCrab-compiled circuits
   - Located in `packages/signet-responder`
@@ -40,8 +40,8 @@ The protocol is best understood in 5 steps:
 
 - **1.** A user interacts with a dApp, which starts a cross chain interaction by calling a circuit on a contract on Midnight that has integrated with Sig Network.
    - The integrating contract constructs a **[SignBidirectionalEventV1](./packages/signet-midnight/src/Signet.compact#L89)** (aka. signature request) which it stores in its ledger's **[SignBidirectionalEventMapV1](./packages/signet-midnight/src/Signet.compact#L242)** against the associated **[RequestId](./packages/signet-midnight/src/Signet.compact#L206)** (hash of the request's keyVersion, sender, path, algo, txParamType, txParamsDigest and executionDest). The **SignBidirectionalEvent** contains the fields of a transaction destined for a foreign blockchain, as well as a path property which the Sig Network Distributed MPC uses to derive a **Request Signing Key** to sign the transaction (see [Derived Keys](#derived-keys) for more on this key).
-   - Then the integrating contract performs a cross contract call to the [`signBidirectional`](./packages/signet-contract/src/signet-contract.compact#L30) circuit on the [**Sig Network Singleton** contract](./packages/signet-contract/src/signet-contract.compact) which emits a `SignBidirectionalEvent` contract event carrying the [**SignBidirectionalEventNotification**](./packages/signet-midnight/src/Signet.compact#L263). The **SignBidirectionalEventNotification** carries the address of the integrating client contract and the ledger location of its request map, and the **RequestId** travels beside it as `signBidirectional`'s first argument, so the emitted event gives the MPC everything it needs to find the stored **SignBidirectionalEvent** signature request.
-- **2.** The MPC network, watching for events on the Singleton contract, picks up the emitted `SignBidirectionalEvent` contract event, which carries the **SignBidirectionalEventNotification**, and honours the signature request it points to.
+   - Then the integrating contract performs a cross contract call to the [`signBidirectional`](./packages/signet-signer/src/signet-signer.compact#L30) circuit on the [**Sig Network Signer** contract](./packages/signet-signer/src/signet-signer.compact) which emits a `SignBidirectionalEvent` contract event carrying the [**SignBidirectionalEventNotification**](./packages/signet-midnight/src/Signet.compact#L263). The **SignBidirectionalEventNotification** carries the address of the integrating client contract and the ledger location of its request map, and the **RequestId** travels beside it as `signBidirectional`'s first argument, so the emitted event gives the MPC everything it needs to find the stored **SignBidirectionalEvent** signature request.
+- **2.** The MPC network, watching for events on the Signer contract, picks up the emitted `SignBidirectionalEvent` contract event, which carries the **SignBidirectionalEventNotification**, and honours the signature request it points to.
   - The MPC verifies the notification before honouring it (see [Sign Bidirectional Event Discovery & Verification](#sign-bidirectional-event-discovery--verification)).
   - The MPC uses the information in the event to find and read the addressed **SignBidirectionalEvent** signature request that the identified Integrating Client Contract stored in its state in step **1.**.
   - It honours the request by constructing the contained foreign blockchain transaction and signing it with the associated **Request Signing Key**, derived for that contract and the path of the signature request.
@@ -126,11 +126,11 @@ Smaller unsigned integers need no entry of their own: Solidity returns a `uint8`
 
 Getting the output yourself is the most trustless route: the dApp broadcast the transaction in step **3.**, so it can read the result from a node of its own choosing, with no third party in the loop.
 
-A Sig Network MPC node _may_ also publish the attested bytes into a cache. MPC nodes read the output to attest it and can be configured to upload it to a public bucket. If configured to do this, then BEFORE the attestation is posted to chain the serialised output is written to an object at the path `<prefix>/<networkId>/<signetContractAddress>/<requestId>.bin`.
+A Sig Network MPC node _may_ also publish the attested bytes into a cache. MPC nodes read the output to attest it and can be configured to upload it to a public bucket. If configured to do this, then BEFORE the attestation is posted to chain the serialised output is written to an object at the path `<prefix>/<networkId>/<signerContractAddress>/<requestId>.bin`.
 
 Hosted EVM providers often gate `debug_traceTransaction` behind a paid tier. An application without one may read the attested bytes from the cache this package publishes for its network:
 
-- [`MpcOutputCacheReader`](./packages/signet-midnight/src/mpc-output-cache.ts) is the client. Construct it with the network id and the signet contract address. The cache URL defaults to the one [`getMpcOutputCacheUrl`](./packages/signet-midnight/src/constants.ts) publishes for that network (stagenet: `https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet`).
+- [`MpcOutputCacheReader`](./packages/signet-midnight/src/mpc-output-cache.ts) is the client. Construct it with the network id and the signet signer address. The cache URL defaults to the one [`getMpcOutputCacheUrl`](./packages/signet-midnight/src/constants.ts) publishes for that network.
 - `fetchSerializedOutput(requestId)` returns the attested bytes. It returns `undefined` while the bytes are not in the cache (the MPC may not have written them yet, or may not write them at all, since the cache is optional), so poll it beside the attestation events.
 - The local fakenet responder simulates the same bucket on port 3040 under the prefix `v1/fakenet`. Pass `cacheUrl: "http://127.0.0.1:3040/v1/fakenet"` and the same reader works against the local stack.
 
@@ -138,14 +138,14 @@ Whichever route supplies it, the serialised output is UNTRUSTED until step **5.*
 
 ## Sign Bidirectional Event Discovery & Verification
 
-The MPC receives notification of pending **SignBidirectionalEvent** signature requests via `SignBidirectionalEvent` contract events emitted by the Sig Network Singleton contract, each carrying a versioned **SignBidirectionalEventNotification**. The v1 payload of this notification contains:
+The MPC receives notification of pending **SignBidirectionalEvent** signature requests via `SignBidirectionalEvent` contract events emitted by the Sig Network Signer contract, each carrying a versioned **SignBidirectionalEventNotification**. The v1 payload of this notification contains:
 - `callerAddress` to locate the caller contract
 - `requestsPathDepth` and `requestsPath` to locate the `signBidirectionalEventMap` in its ledger storage (see [The Request Map's Ledger-Tree Path](#the-request-maps-ledger-tree-path)).
 
 The **RequestId** itself is not part of the payload: it is `signBidirectional`'s own first argument, disclosed in the same emitted event.
 
 The MPC only generates signatures for **Verified Request Events**, which it discovers as follows:
-- it picks up a notification event emitted by the Sig Network Singleton contract
+- it picks up a notification event emitted by the Sig Network Signer contract
 - it confirms the notification event was emitted by a cross contract invocation of the `signBidirectional` circuit (direct invocations outside cross contract calls are ignored)
 - it confirms the cross contract caller address equals the `callerAddress` in the notification
 - it reads the `SignBidirectionalEvent` from ledger state at the `callerAddress`
@@ -199,7 +199,7 @@ A failed foreign transaction (one that reverted on chain, or whose nonce another
 A signet-compliant client contract:
 
 - it stores its requests in a public `SignBidirectionalEventMapV1` in its own ledger
-- it pins its counterparties: the Signet singleton contract and its own MPC response key
+- it pins its counterparties: the Signet signer and its own MPC response key
 - it submits signature requests
 - it verifies execution responses in-circuit
 - it records the target-chain height known when each request is made and accepts only responses above that height
@@ -245,7 +245,7 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
    // Snapshot lastSeen per request so later responses cannot move its threshold.
    export ledger heightAtRequest: Map<RequestId, Uint<64>>;
 
-   // Required: The Signet singleton signer interface, set at deploy.
+   // Required: The SignetSigner interface, set at deploy.
    // Used to notify the MPC of events you add to your signBidirectionalEventMap.
    sealed ledger signetSigner: SignetSigner;
 
@@ -269,9 +269,9 @@ Set up your contract for integration with the Sig Network MPC's sign bidirection
      return upgradeFromTransient(transientHash<Vector<2, Bytes<32>>>([pad(32, "my-contract:deployer:"), sk]));
    }
 
-   // Required: set signet contract and (recommended) deployer commitment on deployment.
-   constructor(signetContract: SignetSigner, deployerCommitment: Bytes<32>) {
-     signetSigner = disclose(signetContract);
+   // Required: set signet signer and (recommended) deployer commitment on deployment.
+   constructor(signetSigner: SignetSigner, deployerCommitment: Bytes<32>) {
+     signetSigner = disclose(signetSigner);
      deployer = disclose(deployerCommitment);
      lastSeen = 0;
    }
@@ -369,7 +369,7 @@ const expectedSigner = deriveEvmAddress(
 
 `responderEventsFromBlock` bounds the event scan the reader runs on every poll, which otherwise walks the Signet responder's whole history. Responses are emitted after their request, so it must not exceed the block in which the oldest request you still expect responses for was submitted: a fresh client takes the tip before its first request, a client resuming earlier requests uses the oldest pending request's block or omits the field. A value too high does not fail, it hides responses. Direct consumers of `streamSignetEvents` pass the same bound as `{ fromBlock }`.
 
-> **mpcRootPublicKey** is the root public key of the MPC network. On a local stack there is no fixed value: this repository's [integration-test setup](packages/integration-tests) generates a fresh `MPC_ROOT_KEY`, prints it during setup and appends it to the repo-root `.env`. For the public networks (stagenet, preview, preprod, mainnet) the fixed values are published in `@sig-net/midnight` via `getMpcRootPublicKey`, as `0x04…` uncompressed SEC1 hex (stagenet's and preview's are published, the others are placeholders until each network's key is). Every key entry point (`deriveEvmAddress`, `deriveMidnightResponseKey`, `parseSecp256k1PublicKey`) also accepts NEAR's `secp256k1:<base58>` spelling, the one signet.js and the MPC operators currently publish keys in, and `normaliseSecp256k1PublicKey` converts any spelling to the canonical one.
+> **mpcRootPublicKey** is the root public key of the MPC network. On a local stack there is no fixed value: this repository's [integration-test setup](packages/integration-tests) generates a fresh `MPC_ROOT_KEY`, prints it during setup and appends it to the repo-root `.env`. For the public networks (preview, preprod, mainnet) the fixed values are published in `@sig-net/midnight` via `getMpcRootPublicKey`, as `0x04…` uncompressed SEC1 hex. Every key entry point (`deriveEvmAddress`, `deriveMidnightResponseKey`, `parseSecp256k1PublicKey`) also accepts NEAR's `secp256k1:<base58>` spelling, the one signet.js and the MPC operators currently publish keys in, and `normaliseSecp256k1PublicKey` converts any spelling to the canonical one.
 >
 > **responderContractAddress** is the address of the deployed Signet responder contract. On a local stack the same setup deploys a fresh responder, prints the address as `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS` and appends it to `.env`. For the public networks the addresses are published in `@sig-net/midnight` via `getResponderContractAddress` (placeholders until each deployment lands).
 
@@ -746,7 +746,7 @@ Every change must also pass the linter and the formatter, which CI enforces on e
 
 ## Compiling, Building and Running Unit Tests
 
-Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime. One package needs zk output: the test caller's unit tests read the signet contract's and the test caller's own verifier keys, so run `yarn compile:zk` before them. 
+Packages can be compiled (with or without generating zk keys), built and unit tested either independently or together. Only the packages with contracts that run in integration tests have a zk compile option. Unit tests run offline against a simulated Midnight runtime. One package needs zk output: the test caller's unit tests read the signet signer's and the test caller's own verifier keys, so run `yarn compile:zk` before them. 
 
 From the root of the repository:
 
@@ -790,11 +790,11 @@ yarn lint:fix      # apply every autofix
 
 ## --- Compile, build or test a single package independently ---
 
-# The @sig-net/midnight-contract package:
-yarn compile:signet-contract
-yarn compile:signet-contract:zk  # generates signet-contract zk keys
-yarn test:signet-contract        # requires 'yarn compile:signet-midnight' and 'yarn compile:signet-contract'
-yarn build:signet-contract       # requires 'yarn compile:signet-midnight' and 'yarn compile:signet-contract:zk'
+# The @sig-net/midnight-signer package:
+yarn compile:signet-signer
+yarn compile:signet-signer:zk  # generates signet-signer zk keys
+yarn test:signet-signer        # requires 'yarn compile:signet-midnight' and 'yarn compile:signet-signer'
+yarn build:signet-signer       # requires 'yarn compile:signet-midnight' and 'yarn compile:signet-signer:zk'
 
 # The @sig-net/midnight-responder package:
 yarn compile:signet-responder
@@ -812,7 +812,7 @@ yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
 
 ## Integration Tests
 
-Two end to end suites run against the local docker stack. The generic suite drives the smallest possible client (the test caller [contract](./packages/test-caller-contract/src/test-caller-contract.compact)) through the protocol: submit a signature request, get discovered via the signet contract's notification events, receive the MPC signature and check it against the caller's derived account, then verify in-circuit a respond-bidirectional attestation that the suite signs itself with the caller's response key, derived from the setup's MPC root key. The real-EVM suite carries on past signing: it broadcasts the signed call to the local anvil chain, lets the fakenet observe the mined execution and post its attestation, recomputes the attested bytes from the mined call's trace, checks the fakenet's output cache holds the same bytes, picks the attestation that verifies over them, and settles it in-circuit, for an executed call, a reverted one (`failed`) and a request whose nonce another transaction took (`unviable`). Get them running locally:
+Two end to end suites run against the local docker stack. The generic suite drives the smallest possible client (the test caller [contract](./packages/test-caller-contract/src/test-caller-contract.compact)) through the protocol: submit a signature request, get discovered via the signet signer's notification events, receive the MPC signature and check it against the caller's derived account, then verify in-circuit a respond-bidirectional attestation that the suite signs itself with the caller's response key, derived from the setup's MPC root key. The real-EVM suite carries on past signing: it broadcasts the signed call to the local anvil chain, lets the fakenet observe the mined execution and post its attestation, recomputes the attested bytes from the mined call's trace, checks the fakenet's output cache holds the same bytes, picks the attestation that verifies over them, and settles it in-circuit, for an executed call, a reverted one (`failed`) and a request whose nonce another transaction took (`unviable`). Get them running locally:
 
 1. Ensure you have all of the [prerequisites](#prerequisites) installed.
 2. From the repository root, install workspace dependencies, select the required Compact toolchain explicitly, and compile:
@@ -824,14 +824,14 @@ Two end to end suites run against the local docker stack. The generic suite driv
                                 # latest stable, whatever it is.
    yarn compile
    ```
-3. Start the local stack (Midnight node, indexer, proof server, anvil EVM) with `docker compose up -d`. The fakenet MPC responder is started automatically by the test setup once the signet contract and the responder are deployed.
+3. Start the local stack (Midnight node, indexer, proof server, anvil EVM) with `docker compose up -d`. The fakenet MPC responder is started automatically by the test setup once the signet signer and the responder are deployed.
 4. Run the suites and watch them go. The first run can take **~10–25 minutes** (it generates zk proving keys for every contract, deploys them and hands off to the fakenet responder, all automatically, no `.env` inserts needed):
    ```sh
    yarn test:integration-tests                          # both suites, requires 'yarn compile'
    yarn test:integration-tests:signet-caller-e2e        # generic caller flow only, requires 'yarn compile'
    yarn test:integration-tests:signet-caller-evm-e2e    # real-EVM flow only, requires 'yarn compile'
    ```
-   Whichever selection you run, the setup pipeline runs first (narrowing the selection never skips setup). Green looks like every test in the selected flow files passing. Afterwards, save the printed `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips compile and deploy (~2 minutes). The signet contract and responder addresses are appended to `.env` automatically.
+   Whichever selection you run, the setup pipeline runs first (narrowing the selection never skips setup). Green looks like every test in the selected flow files passing. Afterwards, save the printed `MIDNIGHT_CALLER_CONTRACT_ADDRESS` into `.env` so the next run skips compile and deploy (~2 minutes). The signet signer and responder addresses are appended to `.env` automatically.
 
 **TIP:** If you are using Claude Code you can ask it to do all of this for you using this [skill](.claude/skills/e2e/SKILL.md), for example:
 ```
@@ -844,18 +844,18 @@ Use your /e2e skill to get the integration suite running for me, from fresh clon
 
 > **NOTE:** this release and deployment process is a draft under discussion. Expect it to change.
 
-The signet singleton and the signet responder are deployed with **no contract maintenance authority**: the deploy flow samples the maintenance key and drops it (see [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), which deploys one of them per run), so a deployed contract can never be upgraded. Every deployment creates a fresh, permanent contract at a new address, and that address reaches integrators only through the SDK: the deploy workflow opens a pull request that records it in the per-network table behind `getSignetContractAddress` or `getResponderContractAddress` in `@sig-net/midnight`, a human reviews it, and the next version bump release publishes it. A new responder address changes no client contract, as clients read it from the SDK. A new singleton address has these consequences:
+The signet signer and the signet responder are deployed with **no contract maintenance authority**: the deploy flow samples the maintenance key and drops it (see [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), which deploys one of them per run), so a deployed contract can never be upgraded. Every deployment creates a fresh, permanent contract at a new address, and that address reaches integrators only through the SDK: the deploy workflow opens a pull request that records it in the per-network table behind `getSignerContractAddress` or `getResponderContractAddress` in `@sig-net/midnight`, a human reviews it, and the next version bump release publishes it. A new responder address changes no client contract, as clients read it from the SDK. A new signet signer address has these consequences:
 
-- **stagenet, preview, preprod:** client contracts redeploy against the new singleton address. The MPC stops monitoring the old address.
-- **mainnet:** client contracts upgrade their singleton reference to the new address. The MPC keeps monitoring the old address for an announced period.
+- **preview, preprod:** client contracts redeploy against the new signet signer address. The MPC stops monitoring the old address.
+- **mainnet:** client contracts upgrade their signet signer reference to the new address. The MPC keeps monitoring the old address for an announced period.
 
 The flow from a change to a release:
 
 1. Every pull request merges to `dev`.
 2. Release candidates are tagged from `dev` as `v*.*.*-rc.N`, each with an associated GitHub release. The tag push runs [`.github/workflows/publish.yml`](.github/workflows/publish.yml), which publishes the `@sig-net/*` packages to npm under the `rc` dist-tag.
-   - When the release carries a concrete contract change, the [`deploy`](.github/workflows/deploy.yml) workflow is dispatched by hand with that tag as its `tag` input, once per changed contract, to stagenet, preview and preprod. A new singleton address makes dependent contracts redeploy, and a new responder address reaches clients through the SDK release that records it.
+   - When the release carries a concrete contract change, the [`deploy`](.github/workflows/deploy.yml) workflow is dispatched by hand with that tag as its `tag` input, once per changed contract, to preview and preprod. A new signet signer address makes dependent contracts redeploy, and a new responder address reaches clients through the SDK release that records it.
    - Every other release candidate is an SDK-only npm publish.
-3. `dev` merges to `main`, and a stable `v*.*.*` tag is made from `main` with an associated GitHub release. The publish workflow publishes the packages to npm under `latest`, and the deploy workflow is dispatched with that tag once per changed contract. A new singleton address makes dependent contracts redeploy (on mainnet, by upgrading their singleton reference as above), and a new responder address reaches clients through the SDK.
+3. `dev` merges to `main`, and a stable `v*.*.*` tag is made from `main` with an associated GitHub release. The publish workflow publishes the packages to npm under `latest`, and the deploy workflow is dispatched with that tag once per changed contract. A new signet signer address makes dependent contracts redeploy (on mainnet, by upgrading their signet signer reference as above), and a new responder address reaches clients through the SDK.
 
 Two guards in the workflows back this flow: a stable tag must point at a commit on `main` (both workflows refuse one that does not), and the deploy workflow refuses a prerelease tag for mainnet.
 
@@ -880,8 +880,8 @@ These versions move together. Bumping one alone produces a stack that compiles b
 
 | Component | Version | Pinned in |
 | ------- | ------ | ------ |
-| `@sig-net/*` npm packages | 0.26.0-rc.8 | [`packages/*/package.json`](packages) |
-| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.38.0` | [`docker-compose.yaml`](docker-compose.yaml) |
+| `@sig-net/*` npm packages | 0.26.0-rc.15 | [`packages/*/package.json`](packages) |
+| fakenet MPC responder | `ghcr.io/sig-net/fakenet:0.39.0` | [`docker-compose.yaml`](docker-compose.yaml) |
 | Compact compiler | 0.36.0 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/publish.yml`](.github/workflows/publish.yml), [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) |
 | Midnight node | 2.1.101 | [`docker-compose.yaml`](docker-compose.yaml) |
 | Midnight indexer | 4.4.101 | [`docker-compose.yaml`](docker-compose.yaml) |
@@ -896,9 +896,9 @@ These versions move together. Bumping one alone produces a stack that compiles b
 | Package | npm | What it is |
 |---|---|---|
 | [`packages/signet-midnight`](packages/signet-midnight) | `@sig-net/midnight` | Client-agnostic signet protocol library: shared Compact modules, TS twins of the wire structs, state readers, event decoders, request feed, crypto (epsilon derivation, secp256k1 ECDSA attestations) |
-| [`packages/signet-contract`](packages/signet-contract) | `@sig-net/midnight-contract` | The central singleton contract: emits unverified request-notification events |
+| [`packages/signet-signer`](packages/signet-signer) | `@sig-net/midnight-signer` | The signet signer: emits unverified request-notification events |
 | [`packages/signet-responder`](packages/signet-responder) | `@sig-net/midnight-responder` | The response contract: `respond` and `respondBidirectional` emit unverified response events, proven with MinoCrab-compiled circuits checked against its Compact source |
-| [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the singleton and the responder + the generic deploy/wallet plumbing |
+| [`packages/signet-contract-deploy`](packages/signet-contract-deploy) | `@sig-net/midnight-contract-deploy` | Deploy tooling for the signet signer and the responder + the generic deploy/wallet plumbing |
 | [`packages/midnight-serde-ts`](packages/midnight-serde-ts) | `@sig-net/midnight-serde` | Native borsh-js schemas and values, with optional zero padding and documented Compact compatibility |
 | [`packages/midnight-serde-conformance`](packages/midnight-serde-conformance) | repo-private | Compiler-backed fixtures for the documented Borsh-compatible subset and a shared Rust replay corpus |
 | [`packages/midnight-serde-rs`](packages/midnight-serde-rs) | `signet-midnight-serde` (crates.io) | Native Rust Borsh types and derives, with optional zero padding and compiler-backed compatibility fixtures |

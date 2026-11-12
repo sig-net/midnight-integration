@@ -20,7 +20,7 @@ export const NETWORK_IDS: readonly NetworkId[] = Object.values(MidnightNetwork);
  * Whether a network's genesis mint wallet is pre-funded. TRUE only for the
  * local standalone chain ({@link MidnightNetwork.Undeployed}), whose genesis
  * block mints to the well-known genesis seed. Every deployed network
- * (preview / preprod / stagenet / mainnet) starts each wallet at zero, so a
+ * (preview / preprod / mainnet) starts each wallet at zero, so a
  * run against one needs a seed funded out of band (via that network's
  * faucet).
  *
@@ -34,7 +34,6 @@ export function isLocalStandaloneNetwork(networkId: NetworkId): boolean {
 
 /** Every deployed network, the ones the SDK may publish counterparty values for. */
 export const DEPLOYED_NETWORKS: readonly DeployedNetwork[] = [
-  MidnightNetwork.Stagenet,
   MidnightNetwork.Preview,
   MidnightNetwork.Preprod,
   MidnightNetwork.Mainnet,

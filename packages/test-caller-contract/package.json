@@ -9,8 +9,8 @@
     "./managed/*": "./src/managed/*"
   },
   "scripts": {
-    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/test-caller-contract.compact src/managed/test-caller-contract && rm -f src/managed/SignetNotifier && ln -sfn ../../../signet-contract/src/managed src/managed/SignetSigner",
-    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/test-caller-contract.compact src/managed/test-caller-contract && rm -f src/managed/SignetNotifier && ln -sfn ../../../signet-contract/src/managed src/managed/SignetSigner",
+    "compile": "COMPACT_PATH=../../node_modules compact compile --skip-zk src/test-caller-contract.compact src/managed/test-caller-contract && rm -f src/managed/SignetNotifier && ln -sfn ../../../signet-signer/src/managed src/managed/SignetSigner",
+    "compile:zk": "COMPACT_PATH=../../node_modules compact compile src/test-caller-contract.compact src/managed/test-caller-contract && rm -f src/managed/SignetNotifier && ln -sfn ../../../signet-signer/src/managed src/managed/SignetSigner",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "deploy": "tsx --env-file-if-exists=../../.env deploy.ts"

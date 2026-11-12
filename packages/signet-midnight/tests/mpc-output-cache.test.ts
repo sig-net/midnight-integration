@@ -5,12 +5,18 @@ import { createServer, type Server } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { MidnightNetwork, MpcOutputCacheReader, parseRequestIdHex } from "../src/index.ts";
+import {
+  getMpcOutputCacheUrl,
+  MidnightNetwork,
+  MpcOutputCacheReader,
+  parseRequestIdHex,
+} from "../src/index.ts";
 
 const REQUEST_ID = parseRequestIdHex("5c".repeat(32));
-const NETWORK_ID = "stagenet";
-const SIGNET_CONTRACT_ADDRESS = "ab".repeat(32);
-const EXPECTED_OBJECT_PATH = `/v1/stagenet/${NETWORK_ID}/${SIGNET_CONTRACT_ADDRESS}/${REQUEST_ID}.bin`;
+const NETWORK_ID = "preview";
+const SIGNER_CONTRACT_ADDRESS = "ab".repeat(32);
+const OBJECT_PATH_UNDER_PREFIX = `/${NETWORK_ID}/${SIGNER_CONTRACT_ADDRESS}/${REQUEST_ID}.bin`;
+const EXPECTED_OBJECT_PATH = `/v1/prefix${OBJECT_PATH_UNDER_PREFIX}`;
 
 let server: Server | undefined;
 
@@ -59,23 +65,21 @@ describe("MpcOutputCacheReader", () => {
     "locates the object under <prefix>/<network>/<signet>/<request>.bin from $name",
     ({ suffix }) => {
       const reader = new MpcOutputCacheReader({
-        cacheUrl: `https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet${suffix}`,
+        cacheUrl: `https://bucket.example/v1/prefix${suffix}`,
         networkId: NETWORK_ID,
-        signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+        signerContractAddress: SIGNER_CONTRACT_ADDRESS,
       });
-      expect(reader.objectUrl(REQUEST_ID)).toBe(
-        `https://storage.googleapis.com/midnight-cache-storage-testnet${EXPECTED_OBJECT_PATH}`,
-      );
+      expect(reader.objectUrl(REQUEST_ID)).toBe(`https://bucket.example${EXPECTED_OBJECT_PATH}`);
     },
   );
 
   it("defaults to the cache the package publishes for the network", () => {
     const reader = new MpcOutputCacheReader({
-      networkId: MidnightNetwork.Stagenet,
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      networkId: MidnightNetwork.Preview,
+      signerContractAddress: SIGNER_CONTRACT_ADDRESS,
     });
     expect(reader.objectUrl(REQUEST_ID)).toBe(
-      `https://storage.googleapis.com/midnight-cache-storage-testnet${EXPECTED_OBJECT_PATH}`,
+      `${getMpcOutputCacheUrl(MidnightNetwork.Preview)}${OBJECT_PATH_UNDER_PREFIX}`,
     );
   });
 
@@ -84,13 +88,9 @@ describe("MpcOutputCacheReader", () => {
       networkId: MidnightNetwork.Undeployed,
       expected: /no MPC output cache is published for the 'undeployed' network: pass cacheUrl/,
     },
-    {
-      networkId: MidnightNetwork.Preprod,
-      expected: /no MPC output cache URL published for the 'preprod' network yet/,
-    },
   ])("refuses to default on $networkId", ({ networkId, expected }) => {
     expect(
-      () => new MpcOutputCacheReader({ networkId, signetContractAddress: SIGNET_CONTRACT_ADDRESS }),
+      () => new MpcOutputCacheReader({ networkId, signerContractAddress: SIGNER_CONTRACT_ADDRESS }),
     ).toThrow(expected);
   });
 
@@ -122,9 +122,9 @@ describe("MpcOutputCacheReader", () => {
     const paths: string[] = [];
     const baseUrl = await serveBucket(reply, paths);
     const reader = new MpcOutputCacheReader({
-      cacheUrl: `${baseUrl}/v1/stagenet`,
+      cacheUrl: `${baseUrl}/v1/prefix`,
       networkId: NETWORK_ID,
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      signerContractAddress: SIGNER_CONTRACT_ADDRESS,
     });
     const fetched = await reader.fetchSerializedOutput(REQUEST_ID);
     expect(fetched).toEqual(expected);
@@ -138,9 +138,9 @@ describe("MpcOutputCacheReader", () => {
     const paths: string[] = [];
     const baseUrl = await serveBucket({ status, body: new TextEncoder().encode(body) }, paths);
     const reader = new MpcOutputCacheReader({
-      cacheUrl: `${baseUrl}/v1/stagenet`,
+      cacheUrl: `${baseUrl}/v1/prefix`,
       networkId: NETWORK_ID,
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      signerContractAddress: SIGNER_CONTRACT_ADDRESS,
     });
     await expect(reader.fetchSerializedOutput(REQUEST_ID)).rejects.toThrow(
       `MPC output cache answered HTTP ${String(status)} for ${baseUrl}${EXPECTED_OBJECT_PATH}: ${body}`,
@@ -149,9 +149,9 @@ describe("MpcOutputCacheReader", () => {
 
   it("throws when the cache is unreachable", async () => {
     const reader = new MpcOutputCacheReader({
-      cacheUrl: "http://127.0.0.1:1/v1/stagenet",
+      cacheUrl: "http://127.0.0.1:1/v1/prefix",
       networkId: NETWORK_ID,
-      signetContractAddress: SIGNET_CONTRACT_ADDRESS,
+      signerContractAddress: SIGNER_CONTRACT_ADDRESS,
     });
     await expect(reader.fetchSerializedOutput(REQUEST_ID)).rejects.toThrow();
   });

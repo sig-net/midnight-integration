@@ -7,7 +7,7 @@
 //    - client contract(s): contracts on the Midnight blockchain that integrate with the Signet
 //                          Distributed MPC network to execute arbitrary transactions on foreign
 //                          blockchains.
-//    - Signet singleton: a single contract on the Midnight blockchain through which clients notify
+//    - Signet signer: a single contract on the Midnight blockchain through which clients notify
 //                        the MPC of signature requests.
 //    - Signet responder: the contract through which the MPC posts back signatures and signed
 //                        attestations of foreign executions, each emitted as a contract event
@@ -22,7 +22,7 @@
 //  - RequestId: 32-byte id derived by calculateRequestIdV1.
 //  - SignBidirectionalEventMapV1: the RequestId -> SignBidirectionalEventV1 map a client contract
 //    declares in its own ledger for the MPC to read requests from.
-//  - SignetSigner: the contract interface client contracts call to notify the Signet singleton.
+//  - SignetSigner: the contract interface client contracts call to notify the Signet signer.
 //  - SignBidirectionalEventNotification: the notification delivered through that call, versioned by
 //    the version byte it carries.
 //  - SignatureRespondedEventV1: the MPC's posted signature answering a request.
@@ -37,9 +37,9 @@
 // These key types are best understood within the sign bidirectional flow that they enable:
 // 1. Client contract stores a SignBidirectionalEvent in a SignBidirectionalEventMap in its own ledger
 //    (against the calculated RequestId) and requests a signature from the MPC via a cross contract call
-//    against the SignetSigner interface. The Signet singleton emits the SignBidirectionalEventNotification
+//    against the SignetSigner interface. The Signet signer emits the SignBidirectionalEventNotification
 //    as a contract event.
-// 2. MPC polls the Signet singleton contract's events for SignBidirectionalEventNotifications and
+// 2. MPC polls the Signet signer's events for SignBidirectionalEventNotifications and
 //    uses each one to look the declared SignBidirectionalEvent signature request up in the named
 //    client's own ledger. It generates the signature and posts a SignatureRespondedEvent (the requested
 //    signature) through the Signet responder, which emits it as a contract event.
@@ -237,14 +237,14 @@ module Signet {
 
   // Named mapping of RequestId to SignBidirectionalEvent. Declared by client contracts
   // in their ledger. Client contract tells MPC field location of this map when making a cross
-  // contract call, via SignetSigner, to the Signet singleton. The MPC looks here to find
+  // contract call, via SignetSigner, to the Signet signer. The MPC looks here to find
   // SignBidirectionalEvents.
   export new type SignBidirectionalEventMapV1<TxParams, #LenOutputDeserialization> = Map<RequestId, SignBidirectionalEventV1<TxParams, LenOutputDeserialization, 0>>;
 
   // ---- Cross Contract SignBidirectionalEventNotification ---------------------------------------------
 
   // Contract interface used by client contract to make cross contract calls to
-  // Signet singleton to notify the MPC of a SignBidirectionalEvent.
+  // Signet signer to notify the MPC of a SignBidirectionalEvent.
   export contract SignetSigner {
     // Called by client contracts to notify the MPC of a SignBidirectionalEvent.
     circuit signBidirectional(
@@ -258,7 +258,7 @@ module Signet {
     ): [];
   }
 
-  // Notification delivered by client contracts via cross contract call to Signet singleton
+  // Notification delivered by client contracts via cross contract call to Signet signer
   // (via SignetSigner interface) to notify the MPC of a SignBidirectionalEvent.
   export struct SignBidirectionalEventNotification {
     // Notification payload layout version.

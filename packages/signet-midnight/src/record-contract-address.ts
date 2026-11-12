@@ -10,8 +10,8 @@ import { type DeployedNetwork, MidnightNetwork } from "./constants.ts";
 
 /** A contract whose per-network addresses constants.ts publishes. */
 export enum PublishedContract {
-  /** The signet singleton, behind `getSignetContractAddress`. */
-  SignetContract = "signet-contract",
+  /** The signet signer, behind `getSignerContractAddress`. */
+  SignetSigner = "signet-signer",
   /** The signet responder, behind `getResponderContractAddress`. */
   SignetResponder = "signet-responder",
 }
@@ -38,7 +38,7 @@ function isDeployedNetwork(networkId: string): networkId is DeployedNetwork {
  * rejected, as it deploys its own protocol contracts per stack and has no
  * row in either table.
  *
- * @param networkId - The network id to resolve, e.g. `stagenet`.
+ * @param networkId - The network id to resolve, e.g. `preview`.
  * @returns The id as a {@link DeployedNetwork}.
  * @throws {Error} If the id names no deployed network.
  */
@@ -82,7 +82,7 @@ export function parsePublishedContract(name: string): PublishedContract {
 export interface RecordedContractAddress {
   /** The full constants.ts source with the entry rewritten. */
   source: string;
-  /** The table row as it was, e.g. `[MidnightNetwork.Stagenet]: ""`. */
+  /** The table row as it was, e.g. `[MidnightNetwork.Preprod]: ""`. */
   previousEntry: string;
   /** The table row as it is now. */
   entry: string;
@@ -90,7 +90,7 @@ export interface RecordedContractAddress {
 
 /** Each published contract's address table in constants.ts. */
 const ADDRESS_TABLES: Record<PublishedContract, string> = {
-  [PublishedContract.SignetContract]: "signetContractAddresses",
+  [PublishedContract.SignetSigner]: "signerContractAddresses",
   [PublishedContract.SignetResponder]: "responderContractAddresses",
 };
 

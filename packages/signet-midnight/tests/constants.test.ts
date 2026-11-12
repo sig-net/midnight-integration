@@ -10,7 +10,7 @@ import {
   getMpcOutputCacheUrl,
   getMpcRootPublicKey,
   getResponderContractAddress,
-  getSignetContractAddress,
+  getSignerContractAddress,
   MidnightNetwork,
   normaliseSecp256k1PublicKey,
 } from "../src/index.ts";
@@ -81,92 +81,90 @@ describe("asciiUnpadded", () => {
   });
 });
 
-// The stagenet MPC root key as the MPC operators publish it (NEAR form): the
-// constant must be that very key in the canonical spelling.
-const STAGENET_MPC_ROOT_KEY_NEAR_FORM =
-  "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5";
-// The preview MPC root key as the MPC operators publish it (NEAR form), the
-// signet.js TESTNET_DEV key.
-const PREVIEW_MPC_ROOT_KEY_NEAR_FORM =
-  "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
-// The deployed networks with no MPC root key published yet.
-const NETWORKS_WITHOUT_MPC_ROOT_KEY: readonly DeployedNetwork[] = [
-  MidnightNetwork.Preprod,
-  MidnightNetwork.Mainnet,
-];
-// The deployed networks with no MPC output cache published yet.
-const NETWORKS_WITHOUT_OUTPUT_CACHE: readonly DeployedNetwork[] = [
-  MidnightNetwork.Preprod,
-  MidnightNetwork.Mainnet,
-];
-// The deployed networks with no protocol contract address published.
-const NETWORKS_WITHOUT_CONTRACTS: readonly DeployedNetwork[] = [
-  MidnightNetwork.Stagenet,
-  MidnightNetwork.Preprod,
-  MidnightNetwork.Mainnet,
-];
-
+// Each MPC's root key as the MPC operators publish it (NEAR form): the dev MPC
+// (signet.js TESTNET_DEV) serves preview, the testnet MPC (signet.js TESTNET)
+// serves preprod and the mainnet MPC (signet.js MAINNET) serves mainnet.
+const MPC_ROOT_KEYS_NEAR_FORM = [
+  {
+    network: MidnightNetwork.Preview,
+    nearForm:
+      "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq",
+  },
+  {
+    network: MidnightNetwork.Preprod,
+    nearForm:
+      "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5",
+  },
+  {
+    network: MidnightNetwork.Mainnet,
+    nearForm:
+      "secp256k1:4tY4qMzusmgX5wYdG35663Y3Qar3CTbpApotwk9ZKLoF79XA4DjG8XoByaKdNHKQX9Lz5hd7iJqsWdTKyA7dKa6Z",
+  },
+] as const;
 describe("getMpcRootPublicKey", () => {
-  it("publishes the stagenet key in canonical 0x04 uncompressed SEC1 hex", () => {
-    const published = getMpcRootPublicKey(MidnightNetwork.Stagenet);
-    expect(published).toMatch(/^0x04[0-9a-f]{128}$/);
-    expect(published).toBe(normaliseSecp256k1PublicKey(STAGENET_MPC_ROOT_KEY_NEAR_FORM));
-  });
-
-  it("publishes the preview key in canonical 0x04 uncompressed SEC1 hex", () => {
-    const published = getMpcRootPublicKey(MidnightNetwork.Preview);
-    expect(published).toMatch(/^0x04[0-9a-f]{128}$/);
-    expect(published).toBe(normaliseSecp256k1PublicKey(PREVIEW_MPC_ROOT_KEY_NEAR_FORM));
-  });
-
-  it.each(NETWORKS_WITHOUT_MPC_ROOT_KEY)(
-    "throws for %s, whose key is not published yet",
-    (network) => {
-      expect(() => getMpcRootPublicKey(network)).toThrow(/no MPC root public key published/);
+  it.each(MPC_ROOT_KEYS_NEAR_FORM)(
+    "publishes the $network MPC's key in canonical 0x04 uncompressed SEC1 hex",
+    ({ network, nearForm }) => {
+      const published = getMpcRootPublicKey(network);
+      expect(published).toMatch(/^0x04[0-9a-f]{128}$/);
+      expect(published).toBe(normaliseSecp256k1PublicKey(nearForm));
     },
   );
 });
 
 describe("getMpcOutputCacheUrl", () => {
-  it("publishes the stagenet cache down to the MPC's object prefix", () => {
-    expect(getMpcOutputCacheUrl(MidnightNetwork.Stagenet)).toBe(
-      "https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet",
-    );
-  });
-
-  it("publishes the preview cache down to the dev MPC's object prefix", () => {
-    expect(getMpcOutputCacheUrl(MidnightNetwork.Preview)).toBe(
-      "https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet",
-    );
-  });
-
-  it.each(NETWORKS_WITHOUT_OUTPUT_CACHE)(
-    "throws for %s, whose cache is not published yet",
-    (network) => {
-      expect(() => getMpcOutputCacheUrl(network)).toThrow(/no MPC output cache URL/);
+  it.each([
+    {
+      network: MidnightNetwork.Preview,
+      expected: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
+    },
+    {
+      network: MidnightNetwork.Preprod,
+      expected: "https://storage.googleapis.com/midnight-cache-storage-testnet/v1",
+    },
+    {
+      network: MidnightNetwork.Mainnet,
+      expected: "https://storage.googleapis.com/midnight-cache-storage-mainnet/v1",
+    },
+  ] as const)(
+    "publishes the $network cache down to the MPC's object prefix",
+    ({ network, expected }) => {
+      expect(getMpcOutputCacheUrl(network)).toBe(expected);
     },
   );
 });
 
-describe("getSignetContractAddress", () => {
-  it("publishes the preview singleton", () => {
-    expect(getSignetContractAddress(MidnightNetwork.Preview)).toMatch(/^[0-9a-f]{64}$/);
+describe("getSignerContractAddress", () => {
+  const NETWORKS_WITH_SIGNER: readonly DeployedNetwork[] = [
+    MidnightNetwork.Preview,
+    MidnightNetwork.Preprod,
+  ];
+  const NETWORKS_WITHOUT_SIGNER: readonly DeployedNetwork[] = [MidnightNetwork.Mainnet];
+
+  it.each(NETWORKS_WITH_SIGNER)("publishes the %s signet signer", (network) => {
+    expect(getSignerContractAddress(network)).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it.each(NETWORKS_WITHOUT_CONTRACTS)(
-    "throws for %s, which has no published singleton",
+  it.each(NETWORKS_WITHOUT_SIGNER)(
+    "throws for %s, which has no published signet signer",
     (network) => {
-      expect(() => getSignetContractAddress(network)).toThrow(/no signet contract address/);
+      expect(() => getSignerContractAddress(network)).toThrow(/no signet signer address/);
     },
   );
 });
 
 describe("getResponderContractAddress", () => {
-  it("publishes the preview responder", () => {
-    expect(getResponderContractAddress(MidnightNetwork.Preview)).toMatch(/^[0-9a-f]{64}$/);
+  const NETWORKS_WITH_RESPONDER: readonly DeployedNetwork[] = [
+    MidnightNetwork.Preview,
+    MidnightNetwork.Preprod,
+  ];
+  const NETWORKS_WITHOUT_RESPONDER: readonly DeployedNetwork[] = [MidnightNetwork.Mainnet];
+
+  it.each(NETWORKS_WITH_RESPONDER)("publishes the %s responder", (network) => {
+    expect(getResponderContractAddress(network)).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it.each(NETWORKS_WITHOUT_CONTRACTS)(
+  it.each(NETWORKS_WITHOUT_RESPONDER)(
     "throws for %s, which has no published responder",
     (network) => {
       expect(() => getResponderContractAddress(network)).toThrow(

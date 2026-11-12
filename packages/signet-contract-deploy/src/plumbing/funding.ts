@@ -1,4 +1,4 @@
-import { formatDust } from "./format-dust.ts";
+import { formatDust, formatNight } from "./format-amounts.ts";
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
 import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
 import {
@@ -50,6 +50,56 @@ export function deriveWalletAddresses(seed: string, config: MidnightNodeConfig):
 }
 
 /**
+ * Take a wallet's funding snapshot from its synced state.
+ *
+ * @param state - The synced wallet facade state the balances are read from.
+ * @param addresses - The same wallet's addresses.
+ * @returns The wallet's {@link AccountFunding} as of now.
+ */
+export function accountFunding(state: FacadeState, addresses: WalletAddresses): AccountFunding {
+  return { addresses, night: totalNight(state), dust: state.dust.balance(new Date()) };
+}
+
+/**
+ * Write a funding snapshot's balances for a log line, in whole NIGHT and DUST.
+ *
+ * @param funding - The wallet's measured NIGHT and DUST balances.
+ * @returns The balances, as `<night> NIGHT, <dust> spendable DUST`.
+ */
+export function formatFunding(funding: AccountFunding): string {
+  return `${formatNight(funding.night)} NIGHT, ${formatDust(funding.dust)} spendable DUST`;
+}
+
+/**
+ * Itemise the UTXOs a wallet's balances sit in, for the log lines under its
+ * balance: the NIGHT UTXOs with how many are registered for dust generation,
+ * then the DUST UTXOs, one indented line each, in whole NIGHT and DUST.
+ *
+ * @param state - The synced wallet facade state the UTXOs are read from.
+ * @returns The breakdown, as newline-joined lines.
+ */
+export function formatUtxoBreakdown(state: FacadeState): string {
+  const night = state.unshielded.availableCoins;
+  const registered = night.filter((coin) => coin.meta.registeredForDustGeneration).length;
+  const dust = state.dust.availableCoins;
+  return [
+    `  NIGHT in ${String(night.length)} UTXO(s), ${String(registered)} registered for dust generation`,
+    ...night.map(
+      (coin) =>
+        `    ${formatNight(coin.utxo.value)} NIGHT, ` +
+        `${coin.meta.registeredForDustGeneration ? "registered" : "not registered"}, ` +
+        `created ${coin.meta.ctime.toISOString()}`,
+    ),
+    `  DUST in ${String(dust.length)} UTXO(s)`,
+    ...dust.map(
+      (coin) =>
+        `    ${formatDust(coin.generatedNow)} DUST of a ${formatDust(coin.maxCap)} DUST cap` +
+        (coin.dtime === undefined ? "" : ", decaying"),
+    ),
+  ].join("\n");
+}
+
+/**
  * Read a wallet's funding snapshot (addresses + NIGHT + DUST) from its synced
  * state, syncing it first if the registry has not opened it yet.
  *
@@ -64,12 +114,10 @@ export async function readAccountFunding(
   label: string,
 ): Promise<AccountFunding> {
   const { facade, keys } = await wallets.wallet(seed, label);
-  const state = await facade.waitForSyncedState();
-  return {
-    addresses: deriveAddresses(keys, wallets.config.networkId),
-    night: totalNight(state),
-    dust: state.dust.balance(new Date()),
-  };
+  return accountFunding(
+    await facade.waitForSyncedState(),
+    deriveAddresses(keys, wallets.config.networkId),
+  );
 }
 
 /**

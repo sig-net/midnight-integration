@@ -8,7 +8,7 @@ and two flow files:
   `vitest.config.ts`): environment preflight → deploy the `SignetEvmTarget`
   EVM contract → resolve or generate the wallet seeds → preflight root
   funding + fund the role wallets → MPC key derivation → zk-compile + deploy
-  the signet contract and the signet responder → persist the fakenet
+  the signet signer and the signet responder → persist the fakenet
   hand-off values to `.env`
   (append-only) + start the responder container → zk-compile + deploy the
   caller contract → derive `MPC_RESPONSE_KEY` → fund the caller's derived
@@ -36,7 +36,7 @@ and two flow files:
      (contract-fixed minimal calldata) and read the request back MPC-style
      from the raw ledger.
   3. Golden notification: the submit emitted a decodable
-     `SignBidirectionalEvent` event on the signet contract declaring
+     `SignBidirectionalEvent` event on the signet signer declaring
      the stored request's id, read through the indexer's contract-events
      query and the shared event decoders, exactly as the MPC reads it.
   4. `pollSignatureResponse` — the fakenet's ECDSA response arrives on the
@@ -100,9 +100,9 @@ gates itself with `describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)`.
 - For the signature-response leg: the fakenet MPC responder — the `fakenet`
   compose service (image pinned in the root `docker-compose.yaml`, built from
   [sig-net/solana-signet-program](https://github.com/sig-net/solana-signet-program)).
-  **The setup starts it for you**: right after deploying the signet contract
+  **The setup starts it for you**: right after deploying the signet signer
   and the responder it appends `MPC_ROOT_KEY`,
-  `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and
+  `MIDNIGHT_SIGNER_CONTRACT_ADDRESS` and
   `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS` to `.env`
   (append-only — existing lines are never touched; a conflicting value is a
   hard error, never an overwrite) and runs the compose command below —
@@ -146,13 +146,13 @@ reruns reuse the same wallets; deleting a seed line regenerates that wallet.
 
 - **undeployed:** root defaults to the genesis mint wallet, so the roles are
   funded from genesis at runtime — a fresh run is fully automatic.
-- **deployed (e.g. stagenet):** root is generated on the first run, which then
+- **deployed (e.g. preview):** root is generated on the first run, which then
   **STOPS at the root preflight** and prints root's NIGHT address. Fund it via
   the faucet, then rerun: root funds the three roles and the suite proceeds.
 
-### Against a deployed network (e.g. stagenet)
+### Against a deployed network (e.g. preview)
 
-1. `NETWORK_ID=stagenet` is the whole configuration: the network's endpoints
+1. `NETWORK_ID=preview` is the whole configuration: the network's endpoints
    are built in (override one with `MIDNIGHT_NODE_URL` or
    `MIDNIGHT_NODE_INDEXER_URL` if needed, the WS twin derives from the
    latter). The proof server stays local, so keep one running at
@@ -164,7 +164,7 @@ reruns reuse the same wallets; deleting a seed line regenerates that wallet.
    shares to the deployer, one to every other role, one kept by root, or
    `FUND_CHILD_NIGHT` each) and
    the pipeline runs to the end. The fakenet responder needs its container
-   endpoints pointed at stagenet too (the `MIDNIGHT_*` compose vars).
+   endpoints pointed at preview too (the `MIDNIGHT_*` compose vars).
 
 Every other setup step (MPC keys, compile/deploy, fakenet hand-off) behaves
 exactly as on the local stack, and the same `.env`-skip rules apply: set a
@@ -175,7 +175,7 @@ its variable is set, the
 step verifies it and logs `SKIPPED`, so a populated `.env` goes straight to
 the contract calls (~2 min total). Unset, the step does the work, prints
 the value to save — and for the fakenet hand-off values
-(`MPC_ROOT_KEY`, `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` and
+(`MPC_ROOT_KEY`, `MIDNIGHT_SIGNER_CONTRACT_ADDRESS` and
 `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`) **appends them to `.env` itself and
 starts the responder container**, so nothing blocks on a human between
 deploy and the flow. A fresh deployment is ONE run: globalSetup
@@ -185,7 +185,7 @@ end (5 tests in the generic flow, 30 in the real-EVM flow).
 **Redeploying after a circuit change?** Any `.compact` edit that alters a
 circuit, struct layout, or the request-id hash domain needs fresh deploys:
 
-1. Comment out `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`,
+1. Comment out `MIDNIGHT_SIGNER_CONTRACT_ADDRESS`,
    `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS` and
    `MIDNIGHT_CALLER_CONTRACT_ADDRESS` in `.env` (delete the appended lines
    or comment them). A change to the responder alone needs only its own
@@ -208,12 +208,13 @@ the address vars, rerun the suite and watch the run for you.
 | Variable | Purpose | Default |
 |---|---|---|
 | `RUN_INTEGRATION_TESTS` | Opt-in gate (real env only, not `.env`); `test:integration-tests` sets it | unset (flow file skips) |
-| `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (deploy-package config); `undeployed` \| `preview` \| `preprod` \| `stagenet` \| `mainnet` | `undeployed` (local stack) |
-| `MIDNIGHT_FAUCET_URL` | The faucet the root-preflight stop message names when root needs funding on a deployed network (deploy-package config) | built in for `stagenet`, `preview` and `preprod` (none otherwise) |
+| `NETWORK_ID`, `MIDNIGHT_NODE_*` | Midnight endpoints (deploy-package config); `undeployed` \| `preview` \| `preprod` \| `mainnet` | `undeployed` (local stack) |
+| `BLOCKFROST_PROJECT_ID` | Blockfrost project token for the network (deploy-package config), a secret | required on `preprod` and `mainnet` unless both the node and the indexer URL are set |
+| `MIDNIGHT_FAUCET_URL` | The faucet the root-preflight stop message names when root needs funding on a deployed network (deploy-package config) | built in for `preview` and `preprod` (none otherwise) |
 | `ROOT_SEED` | Funds the role wallets; does no test work. Faucet-funded on a deployed network | genesis seed `00…01` (undeployed); generated (deployed) |
 | `DEPLOYER_SEED`, `INVOKER_SEED`, `MPC_RESPONDER_SEED` | The role wallets (deploy / invoke / fakenet responder); generated + persisted to `.env` and funded from root, or set to reuse | generated on the first run and persisted to `.env` (reused after that) |
 | `FUND_CHILD_NIGHT` | NIGHT (base units) to move from root into each role wallet that needs funding | unset (split root's balance by weight: deployer 3 shares, every other role 1, root keeps 1) |
-| `MIDNIGHT_SIGNET_CONTRACT_ADDRESS`, `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | deployed by setup (signet and responder appended to `.env` automatically; caller printed — save it to skip redeploys) |
+| `MIDNIGHT_SIGNER_CONTRACT_ADDRESS`, `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts: set to skip compile+deploy | deployed by setup (signet and responder appended to `.env` automatically, caller printed: save it to skip redeploys) |
 | `MPC_ROOT_KEY` | Fakenet signer root key | generated (random) by setup, appended to `.env` |
 | `MPC_SECP256K1_PUBKEY` | MPC root public key | derived from root key |
 | `MPC_RESPONSE_KEY` | The MPC respond-bidirectional key for the caller contract (pinned on-chain by the flow's initialise leg) | derived from root key + caller contract address |
@@ -233,7 +234,7 @@ the address vars, rerun the suite and watch the run for you.
 ## Gotchas
 
 - The signature-poll test timing out while everything else passes means the
-  MPC responder is down or watching a stale signet contract or responder
+  MPC responder is down or watching a stale signet signer or responder
   address —
   `docker logs fakenet-responder`.
 - Proof failures surface as `Failed Proof Server response … 400`; the real

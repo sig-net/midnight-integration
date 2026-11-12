@@ -9,12 +9,12 @@ import { basename, dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { signetContractManagedPath, signetResponderManagedPath } from "../src/index.ts";
+import { signetResponderManagedPath, signetSignerManagedPath } from "../src/index.ts";
 
 describe.each([
   {
-    name: "signetContractManagedPath",
-    managedPath: signetContractManagedPath,
+    name: "signetSignerManagedPath",
+    managedPath: signetSignerManagedPath,
     circuits: ["signBidirectional"],
   },
   {

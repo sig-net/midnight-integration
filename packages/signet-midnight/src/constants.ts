@@ -1,6 +1,6 @@
 // MPC routing constants, the padded-ASCII codec for the signet request
 // structs, and the published per-network counterparty values (the MPC root
-// public key and the signet singleton and responder addresses). Field widths mirror
+// public key and the signet signer and responder addresses). Field widths mirror
 // Signet.compact (the wire format: keep in lockstep), and the string
 // constants are the values the MPC network routes on.
 //
@@ -70,8 +70,6 @@ export function asciiUnpadded(bytes: Uint8Array): string {
 export enum MidnightNetwork {
   /** Local standalone stack (Docker node, indexer and proof server on localhost). */
   Undeployed = "undeployed",
-  /** Public staging network, pre-preview. */
-  Stagenet = "stagenet",
   /** Public test network for early and breaking changes (bleeding-edge ledger). */
   Preview = "preview",
   /** Public test network that mirrors mainnet config: the final staging step. */
@@ -84,25 +82,26 @@ export enum MidnightNetwork {
  * A public, long-lived Midnight network: every named network except the
  * local standalone stack. Only these have fixed protocol counterparty
  * values published in this package (see {@link getMpcRootPublicKey},
- * {@link getSignetContractAddress} and {@link getResponderContractAddress}).
+ * {@link getSignerContractAddress} and {@link getResponderContractAddress}).
  */
 export type DeployedNetwork = Exclude<MidnightNetwork, MidnightNetwork.Undeployed>;
 
 // Each network's MPC root public key in the canonical `0x04…` uncompressed
-// SEC1 hex (`normaliseSecp256k1PublicKey`), filled in as the MPC operators
-// publish it for that network. An empty string means "not yet published" and
-// makes getMpcRootPublicKey throw for that network.
+// SEC1 hex (`normaliseSecp256k1PublicKey`), as the MPC operators publish it
+// for that network.
 const mpcRootPublicKeys: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]:
-    // Canonical form of the signet.js TESTNET root key:
-    // secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5
-    "0x047dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d8432847f591ab25ca454effb522ec2eaf04b7e1c83ba65ae731ea98dd52eb7d458dd4",
   [MidnightNetwork.Preview]:
     // Canonical form of the signet.js TESTNET_DEV root key:
     // secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq
     "0x04cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61ca3e59da1c194aa90108098a9e5cdc55d3b3297cdefbc085ffafd0f2c34ae61a",
-  [MidnightNetwork.Preprod]: "",
-  [MidnightNetwork.Mainnet]: "",
+  [MidnightNetwork.Preprod]:
+    // Canonical form of the signet.js TESTNET root key:
+    // secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5
+    "0x047dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d8432847f591ab25ca454effb522ec2eaf04b7e1c83ba65ae731ea98dd52eb7d458dd4",
+  [MidnightNetwork.Mainnet]:
+    // Canonical form of the signet.js MAINNET root key:
+    // secp256k1:4tY4qMzusmgX5wYdG35663Y3Qar3CTbpApotwk9ZKLoF79XA4DjG8XoByaKdNHKQX9Lz5hd7iJqsWdTKyA7dKa6Z
+    "0x04c27e4cd21fd26e3a80b2b62335bbfb666dc6128543b8993879c1b5bc8e9595330d540f7769fa481e4b83374f7d1dea6261b36b19629e6b5dcfdd8cbfa073b3f6",
 };
 
 /**
@@ -114,41 +113,35 @@ const mpcRootPublicKeys: Record<DeployedNetwork, string> = {
  *
  * @param networkId - The deployed network to look up.
  * @returns The network's MPC root public key.
- * @throws {Error} When the network's key is not yet published in this package.
  */
 export function getMpcRootPublicKey(networkId: DeployedNetwork): string {
-  const publicKey = mpcRootPublicKeys[networkId];
-  if (!publicKey) {
-    throw new Error(`no MPC root public key published for the '${networkId}' network yet`);
-  }
-  return publicKey;
+  return mpcRootPublicKeys[networkId];
 }
 
-// TODO: fill in each network's signet contract address as the signet
-// singleton is deployed there. An empty string means "not yet deployed or
-// published" and makes getSignetContractAddress throw for that network.
-const signetContractAddresses: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]: "",
+// TODO: fill in each network's signet signer address as the signet
+// signer is deployed there. An empty string means "not yet deployed or
+// published" and makes getSignerContractAddress throw for that network.
+const signerContractAddresses: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Preview]: "2b0f9ef9fe7e6d79628a12d245ae0d7efaaaeeca360d9f5f3e13214a5c325013",
-  [MidnightNetwork.Preprod]: "",
+  [MidnightNetwork.Preprod]: "c423fca48329307ba00383e8c40cf1b3a83a7728a2b6721e863cfa16d25fb3ec",
   [MidnightNetwork.Mainnet]: "",
 };
 
 /**
- * The address of the central signet singleton contract on a deployed
+ * The address of the signet signer on a deployed
  * Midnight network: the contract a requester contract seals at deploy and
  * notifies of its requests. A local standalone stack has no fixed address:
- * each stack deploys its own singleton.
+ * each stack deploys its own signet signer.
  *
  * @param networkId - The deployed network to look up.
- * @returns The network's signet contract address.
- * @throws {Error} When the singleton's address is not yet published in this
+ * @returns The network's signet signer address.
+ * @throws {Error} When the signet signer's address is not yet published in this
  *   package.
  */
-export function getSignetContractAddress(networkId: DeployedNetwork): string {
-  const contractAddress = signetContractAddresses[networkId];
+export function getSignerContractAddress(networkId: DeployedNetwork): string {
+  const contractAddress = signerContractAddresses[networkId];
   if (!contractAddress) {
-    throw new Error(`no signet contract address published for the '${networkId}' network yet`);
+    throw new Error(`no signet signer address published for the '${networkId}' network yet`);
   }
   return contractAddress;
 }
@@ -157,9 +150,8 @@ export function getSignetContractAddress(networkId: DeployedNetwork): string {
 // deployed there. An empty string means "not yet deployed or published" and
 // makes getResponderContractAddress throw for that network.
 const responderContractAddresses: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]: "",
   [MidnightNetwork.Preview]: "1616a3cf33ffc2c4678323150374b89a18807335bcbabd31621c56e0d3c0d203",
-  [MidnightNetwork.Preprod]: "",
+  [MidnightNetwork.Preprod]: "627ef19bb1db09b4261e31a4f87a6b299581c3d635c409bad9ac4547370ef4d5",
   [MidnightNetwork.Mainnet]: "",
 };
 
@@ -184,18 +176,11 @@ export function getResponderContractAddress(networkId: DeployedNetwork): string 
 }
 
 // The public URL of each network's MPC output cache down to the MPC's
-// configured object prefix (`publisher.output_storage.prefix`). An empty
-// string means "no cache published" and makes getMpcOutputCacheUrl throw for
-// that network.
+// configured object prefix (`publisher.output_storage.prefix`).
 const mpcOutputCacheUrls: Record<DeployedNetwork, string> = {
-  [MidnightNetwork.Stagenet]:
-    "https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet",
-  // The dev MPC serves Preview, and its output storage is configured with
-  // this bucket and prefix.
-  [MidnightNetwork.Preview]:
-    "https://storage.googleapis.com/midnight-cache-storage-dev/v1/stagenet",
-  [MidnightNetwork.Preprod]: "",
-  [MidnightNetwork.Mainnet]: "",
+  [MidnightNetwork.Preview]: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
+  [MidnightNetwork.Preprod]: "https://storage.googleapis.com/midnight-cache-storage-testnet/v1",
+  [MidnightNetwork.Mainnet]: "https://storage.googleapis.com/midnight-cache-storage-mainnet/v1",
 };
 
 /**
@@ -206,13 +191,7 @@ const mpcOutputCacheUrls: Record<DeployedNetwork, string> = {
  *
  * @param networkId - The deployed network to look up.
  * @returns The network's output cache URL.
- * @throws {Error} When no cache is published for the network in this
- *   package.
  */
 export function getMpcOutputCacheUrl(networkId: DeployedNetwork): string {
-  const cacheUrl = mpcOutputCacheUrls[networkId];
-  if (!cacheUrl) {
-    throw new Error(`no MPC output cache URL published for the '${networkId}' network yet`);
-  }
-  return cacheUrl;
+  return mpcOutputCacheUrls[networkId];
 }

@@ -4,6 +4,8 @@ dist/
 logs/
 midnight-level-db*/
 .env
+# Wallet sync caches reveal balances: packages/signet-contract-deploy/README.md describes them.
+.wallet-cache-*
 reports/
 package-lock.json
 .yarn/*
@@ -17,7 +19,6 @@ package-lock.json
 package.tgz
 *.DS_Store
 *scratch*
-.env.stagenet
 .eslintcache
 coverage/
 

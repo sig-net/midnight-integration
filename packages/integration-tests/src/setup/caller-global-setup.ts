@@ -28,10 +28,10 @@ import {
 } from "./caller-steps.ts";
 import { deployEvmTargetStep, fundDerivedSenderStep } from "./evm-steps.ts";
 import {
-  compileSignetContract,
   compileSignetResponder,
-  deploySignetContractStep,
+  compileSignetSigner,
   deploySignetResponderStep,
+  deploySignetSignerStep,
   ensureMpcResponseKey,
   ensureMpcRootKey,
   ensureMpcSecp256k1Pubkey,
@@ -62,9 +62,9 @@ const STEPS: [
   ["setup: check/derive MPC_SECP256K1_PUBKEY public key", ensureMpcSecp256k1Pubkey],
   // Both compiles run before either deploy, so a compile failure never
   // strands a deployed address the hand-off step has not persisted yet.
-  ["setup: compile signet-contract contract with proving keys", compileSignetContract],
+  ["setup: compile signet-signer contract with proving keys", compileSignetSigner],
   ["setup: compile signet-responder contract with its MinoCrab zk bundle", compileSignetResponder],
-  ["setup: deploy signet-contract", deploySignetContractStep],
+  ["setup: deploy signet-signer", deploySignetSignerStep],
   ["setup: deploy signet-responder", deploySignetResponderStep],
   ["setup: persist fakenet hand-off values to .env (append-only)", persistFakenetHandoffToDotEnv],
   ["setup: start the fakenet responder (docker compose)", startFakenetResponder],
@@ -87,7 +87,7 @@ export async function setup(project: TestProject): Promise<void> {
   const env = buildBaseEnv();
   // One started facade per role wallet for the whole pipeline: the funding
   // step syncs each once, the deploy steps reuse them, and all stop here.
-  const wallets = new WalletRegistry(getMidnightNodeConfig(env));
+  const wallets = new WalletRegistry(getMidnightNodeConfig(env), env);
   try {
     for (const [index, [name, run]] of STEPS.entries()) {
       // Step-through mode pauses before each step after the first, exactly as

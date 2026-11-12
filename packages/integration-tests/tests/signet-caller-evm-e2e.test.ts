@@ -552,7 +552,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
     );
 
     it(
-      `${method.name} notification: emitted on the signet contract naming field ${String(method.requestsIndexField)}`,
+      `${method.name} notification: emitted on the signet signer naming field ${String(method.requestsIndexField)}`,
       async () => {
         expect(requestId).toBeDefined();
         // The notification declares the stored request's id: id + this
@@ -742,7 +742,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         const outputCache = new MpcOutputCacheReader({
           cacheUrl: mpcOutputCacheUrl(env),
           networkId: getMidnightNodeConfig(env).networkId,
-          signetContractAddress: requireEnv("MIDNIGHT_SIGNET_CONTRACT_ADDRESS"),
+          signerContractAddress: requireEnv("MIDNIGHT_SIGNER_CONTRACT_ADDRESS"),
         });
         const cached = await fetchAttestedOutput(outputCache, requestId);
         expect(cached, "the fakenet must cache exactly the bytes a client recomputes").toEqual(

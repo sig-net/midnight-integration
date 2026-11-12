@@ -70,7 +70,6 @@ describe("defaultAdditionalFeeOverhead", () => {
 
   const CASES: readonly OverheadCase[] = [
     { networkId: MidnightNetwork.Undeployed, overhead: 50_000_000_000_000n },
-    { networkId: MidnightNetwork.Stagenet, overhead: 0n },
     { networkId: MidnightNetwork.Preview, overhead: 0n },
     { networkId: MidnightNetwork.Preprod, overhead: 0n },
     { networkId: MidnightNetwork.Mainnet, overhead: 0n },

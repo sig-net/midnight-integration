@@ -16,11 +16,11 @@ readVerifierKeys(
   "yarn compile:test-caller-contract:zk",
 );
 
-// Stand-in signet-contract reference sealed as the cross-contract emitter.
+// Stand-in signet-signer reference sealed as the cross-contract emitter.
 // (The MPC response key is NOT a constructor arg: it is pinned after deploy
 // via the deployer-gated initialise, once the contract address — the key's
 // derivation input — exists. The constructor seals the deployer commitment.)
-const SIGNET_CONTRACT_REF = { bytes: new Uint8Array(32).fill(0x5e) };
+const SIGNET_SIGNER_REF = { bytes: new Uint8Array(32).fill(0x5e) };
 const DEPLOYER_SECRET = new Uint8Array(32).fill(0xd0);
 const DEPLOYER_COMMITMENT = pureCircuits.deployerCommitment(DEPLOYER_SECRET);
 
@@ -35,7 +35,7 @@ describe("caller deploy tx", () => {
       CPK,
       createCallerPrivateState(DEPLOYER_SECRET),
       DEPLOYER_COMMITMENT,
-      SIGNET_CONTRACT_REF,
+      SIGNET_SIGNER_REF,
     );
 
     expect(deployTransaction.contractAddress).not.toHaveLength(0);

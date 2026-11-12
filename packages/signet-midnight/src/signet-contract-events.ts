@@ -1,5 +1,5 @@
 // MPC-/client-style decoders for the signet contracts' emitted events: the
-// central SIGNET contract emits the requests, the signet responder the MPC's
+// signet signer emits the requests, the signet responder the MPC's
 // responses. Every circuit of either contract emits one `Misc` contract event
 // (MIP-0002 public log emission) whose 32-byte name tags the event kind and
 // whose 256-byte payload packs the record:
@@ -10,7 +10,7 @@
 //                               ++ digest (32) ++ bigR.x (32) ++ bigR.y (32) ++ s (32)
 //                               ++ recoveryId (1) ++ zeros (46)
 // The decoders here are the byte-plumbing twins of the emit literals in
-// signet-contract.compact and signet-responder.compact: field order and
+// signet-signer.compact and signet-responder.compact: field order and
 // offsets must match byte-for-byte (each contract's simulator tests pin the
 // lockstep against real emits).
 // Every event is UNAUTHENTICATED: verification is the reader's job. The
@@ -24,6 +24,7 @@ import { decodeExactly } from "./compact-descriptors.ts";
 import { asciiUnpadded } from "./constants.ts";
 import { OutputKind } from "./managed/contract/index.js";
 import { contractAddressFromHex, type RequestIdHex, requestIdHex } from "./signet-requests.ts";
+import { redactUrlQuery } from "./url-redaction.ts";
 
 /**
  * The event names the signet contracts emit, exactly as their `emit`
@@ -90,6 +91,12 @@ export interface SignetEventStreamOptions {
    * not exceed the block of the oldest request whose responses are wanted.
    */
   readonly fromBlock?: number;
+  /**
+   * Inclusive highest Midnight block height to read events up to. Omit to
+   * read to the tip. With `fromBlock` it cuts one slice of the history, so
+   * a consumer can read the newest slice first and extend backwards.
+   */
+  readonly toBlock?: number;
 }
 
 /**
@@ -105,7 +112,7 @@ export interface SignetEventSource<TEvent extends SignetMiscEvent = SignetMiscEv
    * yielded before the next page is requested, so a consumer sees progress
    * per page, and leaving the `for await` loop early stops further requests.
    *
-   * @param contractAddress - The signet contract or responder to read events of.
+   * @param contractAddress - The signet signer or responder to read events of.
    * @param options - Bounds on the walk, see {@link SignetEventStreamOptions}.
    * @returns The decoded events, oldest first.
    */
@@ -309,7 +316,7 @@ interface IndexerContractEventsResponse {
  * @param queryUrl - The indexer's GraphQL query endpoint.
  * @param contractAddress - The contract whose events to read.
  * @param offset - Events to skip from the start of the walk.
- * @param fromBlock - Inclusive lowest block height to read from, or undefined for the whole history.
+ * @param bounds - The block range to read, see {@link SignetEventStreamOptions}.
  * @returns The page's rows, oldest first.
  * @throws {Error} When the indexer cannot be reached, answers a status that
  *   is not 2xx, rejects the query, or answers without a page.
@@ -318,7 +325,7 @@ async function fetchContractEventPage(
   queryUrl: string,
   contractAddress: string,
   offset: number,
-  fromBlock: number | undefined,
+  bounds: SignetEventStreamOptions,
 ): Promise<IndexerContractEventRow[]> {
   const response = await fetch(queryUrl, {
     method: "POST",
@@ -329,7 +336,8 @@ async function fetchContractEventPage(
         filter: {
           contractAddress,
           types: ["MISC"],
-          ...(fromBlock === undefined ? {} : { fromBlock }),
+          ...(bounds.fromBlock === undefined ? {} : { fromBlock: bounds.fromBlock }),
+          ...(bounds.toBlock === undefined ? {} : { toBlock: bounds.toBlock }),
         },
         limit: EVENT_PAGE_LIMIT,
         offset,
@@ -338,7 +346,7 @@ async function fetchContractEventPage(
   });
   if (!response.ok) {
     throw new Error(
-      `indexer answered HTTP ${String(response.status)} for ${queryUrl}: ${await response.text()}`,
+      `indexer answered HTTP ${String(response.status)} for ${redactUrlQuery(queryUrl)}: ${await response.text()}`,
     );
   }
   const body = (await response.json()) as IndexerContractEventsResponse;
@@ -348,7 +356,9 @@ async function fetchContractEventPage(
   }
   const page = body.data?.contractEvents;
   if (page === undefined) {
-    throw new Error(`indexer answered the contract events query without a page: ${queryUrl}`);
+    throw new Error(
+      `indexer answered the contract events query without a page: ${redactUrlQuery(queryUrl)}`,
+    );
   }
   return page;
 }
@@ -373,12 +383,7 @@ export function signetEventSourceFromIndexer(
       const address = bytesToHex(contractAddressFromHex(contractAddress).bytes);
       let tipId: number | undefined;
       for (let offset = 0; ; offset += EVENT_PAGE_LIMIT) {
-        const page = await fetchContractEventPage(
-          config.queryUrl,
-          address,
-          offset,
-          options?.fromBlock,
-        );
+        const page = await fetchContractEventPage(config.queryUrl, address, offset, options ?? {});
         for (const row of page) {
           const event = signetMiscEventFromIndexerRow(row);
           if (event === undefined) continue;
@@ -871,7 +876,7 @@ export function decodeSignetEventNamed<
  * an event that is not a signet event, or that does not decode, is the
  * caller's policy: a responder skips both, an explorer shows both.
  *
- * WARNING: this THROWS on input anyone can put on chain. The signet contract
+ * WARNING: this THROWS on input anyone can put on chain. A signet contract
  * is unauthenticated, so a `SignBidirectionalEvent` with an unsupported
  * version or a zero path depth costs its sender one transaction. A loop over
  * a live stream must catch, or use {@link tryDecodeSignetEvent}.

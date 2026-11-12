@@ -1,13 +1,13 @@
 {
   "name": "@sig-net/midnight-contract-deploy",
-  "version": "0.26.0-rc.8",
+  "version": "0.26.0-rc.15",
   "repository": {
     "type": "git",
     "url": "https://github.com/sig-net/midnight-integration",
     "directory": "packages/signet-contract-deploy"
   },
   "type": "module",
-  "description": "Deploy tooling for the signet contracts on Midnight: the operator deploy flows of the central signet contract and the signet responder, the Node bindings of @sig-net/midnight-contract and @sig-net/midnight-responder to their compiled assets, and the generic deploy/wallet plumbing (node config, seed parsing, key derivation, wallet facade, unproven-tx build/submit) any Compact contract's deploy script composes.",
+  "description": "Deploy tooling for the signet contracts on Midnight: the operator deploy flows of the central signet signer and the signet responder, the Node bindings of @sig-net/midnight-signer and @sig-net/midnight-responder to their compiled assets, and the generic deploy/wallet plumbing (node config, seed parsing, key derivation, wallet facade, unproven-tx build/submit) any Compact contract's deploy script composes.",
   "//exports": "Local dev consumes raw TS source. `publishConfig.exports` below swaps this to the emitted ./dist at publish time, so npm consumers get JS + .d.ts while the monorepo keeps resolving to src.",
   "exports": {
     ".": "./src/index.ts"
@@ -20,7 +20,8 @@
     "prepack": "yarn build",
     "test": "vitest run",
     "deploy": "tsx --env-file-if-exists=../../.env deploy.ts",
-    "deploy:signet-responder": "tsx --env-file-if-exists=../../.env deploy-signet-responder.ts"
+    "deploy:signet-responder": "tsx --env-file-if-exists=../../.env deploy-signet-responder.ts",
+    "generate:wallet": "tsx generate-wallet.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -42,15 +43,16 @@
     "@midnightntwrk/ledger-v9": "1.0.1",
     "@midnightntwrk/wallet-sdk-abstractions": "3.0.0",
     "@midnightntwrk/wallet-sdk-address-format": "4.0.0",
+    "@midnightntwrk/wallet-sdk-capabilities": "4.0.0",
     "@midnightntwrk/wallet-sdk-dust-wallet": "5.0.0",
     "@midnightntwrk/wallet-sdk-facade": "5.0.0",
     "@midnightntwrk/wallet-sdk-hd": "4.0.0",
     "@midnightntwrk/wallet-sdk-shielded": "4.0.0",
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "4.0.0",
     "@scure/bip39": "^2.2.0",
-    "@sig-net/midnight": "^0.26.0-rc.8",
-    "@sig-net/midnight-contract": "^0.26.0-rc.8",
-    "@sig-net/midnight-responder": "^0.26.0-rc.8",
+    "@sig-net/midnight": "^0.26.0-rc.15",
+    "@sig-net/midnight-responder": "^0.26.0-rc.15",
+    "@sig-net/midnight-signer": "^0.26.0-rc.15",
     "effect": "^3.22.2"
   },
   "devDependencies": {

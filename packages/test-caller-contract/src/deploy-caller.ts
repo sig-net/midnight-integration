@@ -1,7 +1,7 @@
 // Caller deploy flow: builds, balances, proves and submits the caller's
 // deploy transaction using the generic plumbing in
 // @sig-net/midnight-contract-deploy. Everything contract-specific lives HERE:
-// the constructor args (the deployer commitment and the signet contract
+// the constructor args (the deployer commitment and the signet signer
 // reference) and the private state (the deployer's identity secret).
 // Requires `yarn compile:zk` output (verifier keys) in src/managed.
 //
@@ -10,14 +10,24 @@
 // built), so it is pinned afterwards via the contract's one-shot
 // `initialise` circuit — see the integration-tests flow.
 
-import { contractAddressFromHex, hexToBytes, stripHexPrefix } from "@sig-net/midnight";
+import {
+  contractAddressFromHex,
+  hexToBytes,
+  redactUrlQuery,
+  stripHexPrefix,
+} from "@sig-net/midnight";
 import { envOrUndefined } from "@sig-net/midnight-contract-deploy";
 import {
+  accountFunding,
   buildDeployTransaction,
   deriveAccountKeys,
+  deriveAddresses,
   ensureFeeReady,
+  formatFunding,
+  formatUtxoBreakdown,
   getDeployConfig,
   getFaucetUrl,
+  resolveSignerContractAddress,
   submitUnprovenTransaction,
   type TransactionIdentifier,
   withSyncedWalletFacade,
@@ -62,20 +72,22 @@ export interface CallerDeployment {
  * Deploy the signet caller contract: read config from `env`, build/prove the
  * deploy transaction and submit it through a synced wallet. Progress is
  * logged to the console. The constructor takes the deployer's identity
- * commitment (which gates initialise) and the signet contract address,
+ * commitment (which gates initialise) and the signet signer address,
  * sealed as the cross-contract notification target. The MPC
  * response key for the freshly deployed contract must then be pinned with a
  * separate `initialise` call (derive it from the MPC root public key + the
  * NEW contract address + the fixed path "midnight response key").
  *
  * @param env - Environment map providing `DEPLOYER_SEED`,
- *   `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` (the signet contract to seal as the
- *   cross-contract emitter), optionally `CALLER_DEPLOYER_SECRET_KEY` (the
+ *   `MIDNIGHT_SIGNER_CONTRACT_ADDRESS` (the signet signer to seal as the
+ *   cross-contract emitter, see `resolveSignerContractAddress`), optionally
+ *   `CALLER_DEPLOYER_SECRET_KEY` (the
  *   identity secret whose commitment gates initialise; defaults to the
  *   deployer seed) and the shared Midnight node configuration (see
  *   `getMidnightNodeConfig`).
  * @returns The deployed contract address and deploy transaction id.
- * @throws {Error} If `MIDNIGHT_SIGNET_CONTRACT_ADDRESS` is missing/malformed, the
+ * @throws {Error} If `MIDNIGHT_SIGNER_CONTRACT_ADDRESS` is malformed, disagrees
+ *   with the published signet signer or is unset where none is published, the
  *   identity secret is malformed, the deployer wallet holds no NIGHT to pay
  *   fees with, or submission fails.
  */
@@ -91,27 +103,24 @@ export async function deployCaller(
   const deployerSecretKey = resolveCallerDeployerSecretKey(env, deployConfig.deployerSeed);
   const deployerCommitment = pureCircuits.deployerCommitment(deployerSecretKey);
 
-  // The signet contract the caller cross-contract-calls to register signature
-  // request notifications — sealed into the caller as the SignetSigner
-  // reference, so it must be deployed first.
-  const signetContractAddress = env.MIDNIGHT_SIGNET_CONTRACT_ADDRESS?.trim();
-  if (!signetContractAddress) {
-    throw new Error(
-      "MIDNIGHT_SIGNET_CONTRACT_ADDRESS is required (deploy the signet contract first)",
-    );
-  }
-  const signetSigner = contractAddressFromHex(signetContractAddress);
+  // Sealed into the caller as its SignetSigner reference, so the signet
+  // signer must be deployed first.
+  const signetSigner = contractAddressFromHex(resolveSignerContractAddress(env).value);
 
   const accountKeys = deriveAccountKeys(deployConfig.deployerSeed, networkId);
 
   console.log(
-    `deploying test-caller-contract to ${networkId} (${deployConfig.midnightNodeConfig.nodeUrl})`,
+    `deploying test-caller-contract to ${networkId} (${redactUrlQuery(deployConfig.midnightNodeConfig.nodeUrl)})`,
   );
 
   const { contractAddress, txId } = await withSyncedWalletFacade(
     accountKeys,
     deployConfig.midnightNodeConfig,
+    "deployer",
+    env,
     async (facade, state) => {
+      const funding = accountFunding(state, deriveAddresses(accountKeys, networkId));
+      console.log(`deployer balance: ${formatFunding(funding)}\n${formatUtxoBreakdown(state)}`);
       await ensureFeeReady(facade, accountKeys, state, networkId, getFaucetUrl(env, networkId));
 
       const deployTransaction = await buildDeployTransaction(

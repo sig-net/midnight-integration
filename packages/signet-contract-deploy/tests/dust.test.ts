@@ -1,25 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { formatDust } from "../src/plumbing/format-dust.ts";
 import { ensureFeeReady } from "../src/plumbing/funding.ts";
 import { deriveAccountKeys, type FacadeState, type WalletFacade } from "../src/plumbing/wallet.ts";
 
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-});
-
-describe("formatDust", () => {
-  const cases: readonly { specks: bigint; dust: string }[] = [
-    { specks: 0n, dust: "0" },
-    { specks: 1n, dust: "0.000000000000001" },
-    { specks: 1_000_000_000_000_000n, dust: "1" },
-    { specks: 44_177_741_500_169_214n, dust: "44.177741500169214" },
-    { specks: -2_500_000_000_000_000n, dust: "-2.5" },
-  ];
-  it.each(cases)("formats $specks SPECKs as $dust DUST", ({ specks, dust }) => {
-    expect(formatDust(specks)).toBe(dust);
-  });
 });
 
 describe("ensureFeeReady funding deadline", () => {
@@ -43,12 +29,12 @@ describe("ensureFeeReady funding deadline", () => {
         .fn<WalletFacade["waitForSyncedState"]>()
         .mockResolvedValue(state as FacadeState),
     };
-    const keys = deriveAccountKeys("01".repeat(32), "stagenet");
+    const keys = deriveAccountKeys("01".repeat(32), "preview");
     const result = ensureFeeReady(
       facade as WalletFacade,
       keys,
       state as FacadeState,
-      "stagenet",
+      "preview",
       undefined,
       2_000_000_000_000_000n,
       1_200_000,
@@ -78,14 +64,14 @@ describe("ensureFeeReady funding deadline", () => {
         .fn<WalletFacade["waitForSyncedState"]>()
         .mockResolvedValue(state as FacadeState),
     };
-    const keys = deriveAccountKeys("01".repeat(32), "stagenet");
+    const keys = deriveAccountKeys("01".repeat(32), "preview");
     await Promise.all([
       expect(
         ensureFeeReady(
           facade as WalletFacade,
           keys,
           state as FacadeState,
-          "stagenet",
+          "preview",
           undefined,
           2_000_000_000_000_000n,
         ),
