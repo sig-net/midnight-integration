@@ -1,6 +1,6 @@
 {
   "name": "@sig-net/midnight-contract-deploy",
-  "version": "0.26.0-rc.14",
+  "version": "0.26.0-rc.15",
   "repository": {
     "type": "git",
     "url": "https://github.com/sig-net/midnight-integration",
@@ -49,9 +49,9 @@
     "@midnightntwrk/wallet-sdk-shielded": "4.0.0",
     "@midnightntwrk/wallet-sdk-unshielded-wallet": "4.0.0",
     "@scure/bip39": "^2.2.0",
-    "@sig-net/midnight": "^0.26.0-rc.14",
-    "@sig-net/midnight-responder": "^0.26.0-rc.14",
-    "@sig-net/midnight-signer": "^0.26.0-rc.14",
+    "@sig-net/midnight": "^0.26.0-rc.15",
+    "@sig-net/midnight-responder": "^0.26.0-rc.15",
+    "@sig-net/midnight-signer": "^0.26.0-rc.15",
     "effect": "^3.22.2"
   },
   "devDependencies": {
