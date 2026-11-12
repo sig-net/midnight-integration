@@ -20,7 +20,8 @@
     "prepack": "yarn build",
     "test": "vitest run",
     "deploy": "tsx --env-file-if-exists=../../.env deploy.ts",
-    "deploy:signet-responder": "tsx --env-file-if-exists=../../.env deploy-signet-responder.ts"
+    "deploy:signet-responder": "tsx --env-file-if-exists=../../.env deploy-signet-responder.ts",
+    "generate:wallet": "tsx generate-wallet.ts"
   },
   "publishConfig": {
     "access": "public",
