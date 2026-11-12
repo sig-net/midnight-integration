@@ -16,9 +16,8 @@ export interface MpcOutputCacheConfig {
    * The cache's public URL down to the MPC's configured object prefix, e.g.
    * `https://storage.googleapis.com/<bucket>/<prefix>`. A trailing slash is
    * tolerated. Defaults to the cache this package publishes for `networkId`
-   * ({@link getMpcOutputCacheUrl}), so a network with none (the local
-   * standalone stack, and any deployed network with no published cache yet)
-   * must pass it.
+   * ({@link getMpcOutputCacheUrl}), so the local standalone stack, which
+   * has none, must pass it.
    */
   readonly cacheUrl?: string;
   /** The Midnight network id the MPC serves: the path segment after the prefix. */
@@ -37,8 +36,7 @@ const DEPLOYED_NETWORKS: readonly string[] = Object.values(MidnightNetwork).filt
  *
  * @param networkId - The Midnight network id the MPC serves.
  * @returns The published cache URL.
- * @throws {Error} When `networkId` is not a deployed network, or is one with
- *   no cache published yet.
+ * @throws {Error} When `networkId` is not a deployed network.
  */
 function publishedCacheUrl(networkId: string): string {
   if (!DEPLOYED_NETWORKS.includes(networkId)) {
