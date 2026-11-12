@@ -143,12 +143,13 @@ function displayPath(path: string, root: string | undefined): string {
  * Decide where a wallet's cache file lives. The wallet's
  * {@link walletCacheEnvVar} names an explicit path, resolved against the
  * repository root when relative. Otherwise the default path is
- * `.wallet-cache-<networkId>-<label>-<fingerprint>.json` in the repository
- * root, where the fingerprint is the first 12 hex digits of the SHA-256 of
- * the unshielded address, so two seeds under one label never share a file.
+ * `.wallet-cache-<networkId>-<fingerprint>.json` in the repository root,
+ * where the fingerprint is the first 12 hex digits of the SHA-256 of the
+ * unshielded address, so one seed keeps one file under every label that
+ * opens it.
  *
  * @param env - The environment holding the wallet's cache path variable.
- * @param label - The wallet's role name.
+ * @param label - The wallet's role name, which names its path variable.
  * @param networkId - The network the wallet syncs on.
  * @param addresses - The wallet's addresses, fingerprinted into the default name.
  * @param workingDirectory - Where the repository root search starts.
@@ -176,10 +177,7 @@ export function resolveWalletCacheLocation(
   }
   if (root === undefined) return undefined;
   const fingerprint = createHash("sha256").update(addresses.unshielded).digest("hex").slice(0, 12);
-  const path = join(
-    root,
-    `.wallet-cache-${networkId}-${labelWords(label).join("-").toLowerCase()}-${fingerprint}.json`,
-  );
+  const path = join(root, `.wallet-cache-${networkId}-${fingerprint}.json`);
   return {
     path,
     source: WalletCachePathSource.Default,
@@ -720,7 +718,7 @@ async function indexerBlockQuery<A, I>(
   const errors = answer.errors ?? [];
   if (errors.length > 0) {
     throw new Error(
-      `indexer ${redactUrlQuery(indexerUrl)} refused the block query: ${errors.map((error) => error.message).join("; ")}`,
+      `indexer ${redactUrlQuery(indexerUrl)} refused the block query: ${errors.map((error) => error.message).join(", ")}`,
     );
   }
   return answer.data?.block ?? undefined;
@@ -733,17 +731,17 @@ async function indexerBlockQuery<A, I>(
  *
  * @param chain - Reads the wallet's chain.
  * @returns The anchor, or undefined while the indexer's latest block is the genesis block.
- * @throws {Error} If the chain cannot be reached or reports no genesis block.
+ * @throws {Error} If the chain cannot be reached or reports no genesis or latest block.
  */
 export async function readChainAnchor(
   chain: WalletCacheChain,
 ): Promise<WalletChainAnchor | undefined> {
-  const [genesis, tip] = await Promise.all([chain.readBlock(0), chain.readTip()]);
-  if (genesis === undefined) {
-    throw new Error("the indexer reports no genesis block to anchor the wallet cache to");
+  const [genesis, latest] = await Promise.all([chain.readBlock(0), chain.readBlock()]);
+  if (genesis === undefined || latest === undefined) {
+    throw new Error("the indexer reports no genesis or latest block to anchor the wallet cache to");
   }
-  if (tip.block.height === 0) return undefined;
-  return { genesisHash: genesis.hash, seenBlock: tip.block };
+  if (latest.height === 0) return undefined;
+  return { genesisHash: genesis.hash, seenBlock: latest };
 }
 
 /** How far a ledger event cursor may run past the newest event id, as a cursor can name the next event to read. */

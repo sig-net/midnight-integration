@@ -1,5 +1,5 @@
 // MPC-/client-style decoders for the signet contracts' emitted events: the
-// central SIGNET contract emits the requests, the signet responder the MPC's
+// signet signer emits the requests, the signet responder the MPC's
 // responses. Every circuit of either contract emits one `Misc` contract event
 // (MIP-0002 public log emission) whose 32-byte name tags the event kind and
 // whose 256-byte payload packs the record:
