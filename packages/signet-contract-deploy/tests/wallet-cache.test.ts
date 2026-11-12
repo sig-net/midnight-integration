@@ -129,27 +129,27 @@ describe("resolveWalletCacheLocation", () => {
       env: {},
       label: "deployer",
       workingDirectory: "repo/packages/member",
-      path: "repo/.wallet-cache-preview-deployer-b686cb5aafe0.json",
+      path: "repo/.wallet-cache-preview-b686cb5aafe0.json",
       source: WalletCachePathSource.Default,
-      displayPath: ".wallet-cache-preview-deployer-b686cb5aafe0.json",
+      displayPath: ".wallet-cache-preview-b686cb5aafe0.json",
     },
     {
       name: "the default path in a worktree, whose .git is a file",
       env: {},
       label: "mpc responder",
       workingDirectory: "worktree",
-      path: "worktree/.wallet-cache-preview-mpc-responder-b686cb5aafe0.json",
+      path: "worktree/.wallet-cache-preview-b686cb5aafe0.json",
       source: WalletCachePathSource.Default,
-      displayPath: ".wallet-cache-preview-mpc-responder-b686cb5aafe0.json",
+      displayPath: ".wallet-cache-preview-b686cb5aafe0.json",
     },
     {
       name: "the default path when the variable is blank",
       env: { DEPLOYER_WALLET_CACHE_PATH: "  " },
       label: "deployer",
       workingDirectory: "repo",
-      path: "repo/.wallet-cache-preview-deployer-b686cb5aafe0.json",
+      path: "repo/.wallet-cache-preview-b686cb5aafe0.json",
       source: WalletCachePathSource.Default,
-      displayPath: ".wallet-cache-preview-deployer-b686cb5aafe0.json",
+      displayPath: ".wallet-cache-preview-b686cb5aafe0.json",
     },
     {
       name: "a relative explicit path, against the repository root",
@@ -202,7 +202,7 @@ describe("resolveWalletCacheLocation", () => {
     expect(location?.source).toBe(WalletCachePathSource.Explicit);
   });
 
-  it("gives two seeds under one label different default files", () => {
+  it("gives two seeds different default files", () => {
     const first = resolveWalletCacheLocation(
       {},
       "user",
@@ -217,10 +217,27 @@ describe("resolveWalletCacheLocation", () => {
       { ...ADDRESSES, unshielded: "mn_addr_preview1otherseed" },
       join(scratch, "repo"),
     );
-    expect(first?.path).toBe(join(scratch, "repo", ".wallet-cache-preview-user-b686cb5aafe0.json"));
-    expect(second?.path).toBe(
-      join(scratch, "repo", ".wallet-cache-preview-user-bb191ab50c78.json"),
+    expect(first?.path).toBe(join(scratch, "repo", ".wallet-cache-preview-b686cb5aafe0.json"));
+    expect(second?.path).toBe(join(scratch, "repo", ".wallet-cache-preview-bb191ab50c78.json"));
+  });
+
+  it("gives one seed the same default file under two labels", () => {
+    const asRoot = resolveWalletCacheLocation(
+      {},
+      "root",
+      "preview",
+      ADDRESSES,
+      join(scratch, "repo"),
     );
+    const asDeployer = resolveWalletCacheLocation(
+      {},
+      "deployer",
+      "preview",
+      ADDRESSES,
+      join(scratch, "repo"),
+    );
+    expect(asRoot?.path).toBe(join(scratch, "repo", ".wallet-cache-preview-b686cb5aafe0.json"));
+    expect(asDeployer?.path).toBe(asRoot?.path);
   });
 
   it("has no location without a repository root or a named path", () => {

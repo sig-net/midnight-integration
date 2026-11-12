@@ -214,7 +214,7 @@ the address vars, rerun the suite and watch the run for you.
 | `ROOT_SEED` | Funds the role wallets; does no test work. Faucet-funded on a deployed network | genesis seed `00…01` (undeployed); generated (deployed) |
 | `DEPLOYER_SEED`, `INVOKER_SEED`, `MPC_RESPONDER_SEED` | The role wallets (deploy / invoke / fakenet responder); generated + persisted to `.env` and funded from root, or set to reuse | generated on the first run and persisted to `.env` (reused after that) |
 | `FUND_CHILD_NIGHT` | NIGHT (base units) to move from root into each role wallet that needs funding | unset (split root's balance by weight: deployer 3 shares, every other role 1, root keeps 1) |
-| `MIDNIGHT_SIGNER_CONTRACT_ADDRESS`, `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts; set to skip compile+deploy | deployed by setup (signet and responder appended to `.env` automatically; caller printed — save it to skip redeploys) |
+| `MIDNIGHT_SIGNER_CONTRACT_ADDRESS`, `MIDNIGHT_RESPONDER_CONTRACT_ADDRESS`, `MIDNIGHT_CALLER_CONTRACT_ADDRESS` | Deployed contracts: set to skip compile+deploy | deployed by setup (signet and responder appended to `.env` automatically, caller printed: save it to skip redeploys) |
 | `MPC_ROOT_KEY` | Fakenet signer root key | generated (random) by setup, appended to `.env` |
 | `MPC_SECP256K1_PUBKEY` | MPC root public key | derived from root key |
 | `MPC_RESPONSE_KEY` | The MPC respond-bidirectional key for the caller contract (pinned on-chain by the flow's initialise leg) | derived from root key + caller contract address |
