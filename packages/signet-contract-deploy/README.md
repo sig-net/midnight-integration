@@ -26,6 +26,22 @@ Everything is read from the environment:
 | `MPC_SECP256K1_PUBKEY` | Optional on a deployed network: the MPC root public key a requester's derived accounts start from, in SEC1 hex or NEAR `secp256k1:<base58>` form. `resolveMpcRootPublicKey` takes the key `@sig-net/midnight` publishes for the network when it is unset, refuses a set value that disagrees with it, and returns `0x04…` uncompressed hex either way. |
 | `MIDNIGHT_FAUCET_URL` | The faucet named in the unfunded-wallet hint. Built in per network: preview `https://midnight-tmnight-preview.nethermind.dev`, preprod `https://midnight-tmnight-preprod.nethermind.dev`. Set it to override one of those, or to name a faucet for a network without one. |
 
+## Estimating a deploy
+
+Set `DEPLOY_ESTIMATE_ONLY=1` to price a deploy without making it:
+
+```bash
+DEPLOY_ESTIMATE_ONLY=1 yarn deploy:signet-signer
+```
+
+```bash
+DEPLOY_ESTIMATE_ONLY=1 yarn deploy:signet-responder
+```
+
+The run syncs the deployer wallet, builds the deploy transaction and logs the wallet's NIGHT and DUST balances with their UTXOs, the transaction's fee in DUST, and the NIGHT that generates that fee within 1 minute, 10 minutes, 1 hour and 1 day of being registered, and at the generation cap. It registers no NIGHT and submits nothing. Only `1` asks for an estimate: any other set value except `0` stops the run, so a misspelt request never deploys. In code the same estimate is `estimateSignetSignerDeploy` and `estimateSignetResponderDeploy`.
+
+The NIGHT figures come from the ledger's initial dust parameters: one NIGHT generates 0.000008267 DUST a second until it holds 5 DUST, its cap, which takes about 7 days. They count from registering NIGHT that holds no DUST yet, and they cover the deploy transaction's fee alone: the balancing inputs added at submission cost a little more. A fee burns DUST and leaves the NIGHT in place, so the same NIGHT pays for later transactions as its DUST regenerates.
+
 In a checkout of the [sig-net/midnight-integration](https://github.com/sig-net/midnight-integration) repository, `yarn deploy:signet-signer` and `yarn deploy:signet-responder` also load the repository root's `.env` file whenever one exists. A variable already set in the shell takes precedence over the same key in the file.
 
 ## Usage

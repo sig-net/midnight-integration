@@ -8,6 +8,7 @@ import {
   deployerFundingLine,
   DeploySettingSource,
   getMidnightNodeConfig,
+  isDeployEstimateOnly,
 } from "../src/index.ts";
 
 const SEED = "00000000000000000000000000000000000000000000000000000000000000aa";
@@ -121,5 +122,22 @@ describe("deployerFundingLine", () => {
 
   it("refuses a seed that is neither hex nor a mnemonic", () => {
     expect(() => deployerFundingLine("not a seed", "preview")).toThrow();
+  });
+});
+
+describe("isDeployEstimateOnly", () => {
+  it.each([
+    { name: "unset", env: {}, estimateOnly: false },
+    { name: "blank", env: { DEPLOY_ESTIMATE_ONLY: " " }, estimateOnly: false },
+    { name: "0", env: { DEPLOY_ESTIMATE_ONLY: "0" }, estimateOnly: false },
+    { name: "1", env: { DEPLOY_ESTIMATE_ONLY: "1" }, estimateOnly: true },
+  ])("is $estimateOnly when the variable is $name", ({ env, estimateOnly }) => {
+    expect(isDeployEstimateOnly(env)).toBe(estimateOnly);
+  });
+
+  it.each(["true", "yes", "2"])("refuses %s, so a misspelt request never deploys", (value) => {
+    expect(() => isDeployEstimateOnly({ DEPLOY_ESTIMATE_ONLY: value })).toThrow(
+      `DEPLOY_ESTIMATE_ONLY must be 1 or 0, got "${value}"`,
+    );
   });
 });
