@@ -81,24 +81,30 @@ describe("asciiUnpadded", () => {
   });
 });
 
-// The dev MPC's root key as the MPC operators publish it (NEAR form), the
-// signet.js TESTNET_DEV key.
-const DEV_MPC_ROOT_KEY_NEAR_FORM =
-  "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
-// The deployed networks the dev MPC serves.
-const NETWORKS_WITH_DEV_MPC_ROOT_KEY: readonly DeployedNetwork[] = [
-  MidnightNetwork.Preview,
-  MidnightNetwork.Preprod,
-];
+// Each MPC's root key as the MPC operators publish it (NEAR form): the dev MPC
+// (signet.js TESTNET_DEV) serves preview and the testnet MPC (signet.js
+// TESTNET) serves preprod.
+const MPC_ROOT_KEYS_NEAR_FORM = [
+  {
+    network: MidnightNetwork.Preview,
+    nearForm:
+      "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq",
+  },
+  {
+    network: MidnightNetwork.Preprod,
+    nearForm:
+      "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5",
+  },
+] as const;
 // The deployed networks with no MPC root key published yet.
 const NETWORKS_WITHOUT_MPC_ROOT_KEY: readonly DeployedNetwork[] = [MidnightNetwork.Mainnet];
 describe("getMpcRootPublicKey", () => {
-  it.each(NETWORKS_WITH_DEV_MPC_ROOT_KEY)(
-    "publishes the dev MPC's key for %s in canonical 0x04 uncompressed SEC1 hex",
-    (network) => {
+  it.each(MPC_ROOT_KEYS_NEAR_FORM)(
+    "publishes the $network MPC's key in canonical 0x04 uncompressed SEC1 hex",
+    ({ network, nearForm }) => {
       const published = getMpcRootPublicKey(network);
       expect(published).toMatch(/^0x04[0-9a-f]{128}$/);
-      expect(published).toBe(normaliseSecp256k1PublicKey(DEV_MPC_ROOT_KEY_NEAR_FORM));
+      expect(published).toBe(normaliseSecp256k1PublicKey(nearForm));
     },
   );
 
@@ -118,7 +124,7 @@ describe("getMpcOutputCacheUrl", () => {
     },
     {
       network: MidnightNetwork.Preprod,
-      expected: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
+      expected: "https://storage.googleapis.com/midnight-cache-storage-testnet/v1",
     },
     {
       network: MidnightNetwork.Mainnet,
