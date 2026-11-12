@@ -95,15 +95,10 @@ const mpcRootPublicKeys: Record<DeployedNetwork, string> = {
     // Canonical form of the signet.js TESTNET_DEV root key:
     // secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq
     "0x04cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61ca3e59da1c194aa90108098a9e5cdc55d3b3297cdefbc085ffafd0f2c34ae61a",
-  // TODO: uncomment and switch to this when testnet is pointed to pre-prod
-  // [MidnightNetwork.Preprod]:
-  //  // Canonical form of the signet.js TESTNET root key:
-  //  // secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5
-  //  "0x047dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d8432847f591ab25ca454effb522ec2eaf04b7e1c83ba65ae731ea98dd52eb7d458dd4",
   [MidnightNetwork.Preprod]:
-    // Canonical form of the signet.js TESTNET_DEV root key:
-    // secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq
-    "0x04cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61ca3e59da1c194aa90108098a9e5cdc55d3b3297cdefbc085ffafd0f2c34ae61a",
+    // Canonical form of the signet.js TESTNET root key:
+    // secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5
+    "0x047dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d8432847f591ab25ca454effb522ec2eaf04b7e1c83ba65ae731ea98dd52eb7d458dd4",
   [MidnightNetwork.Mainnet]: "",
 };
 
@@ -131,7 +126,7 @@ export function getMpcRootPublicKey(networkId: DeployedNetwork): string {
 // published" and makes getSignerContractAddress throw for that network.
 const signerContractAddresses: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Preview]: "2b0f9ef9fe7e6d79628a12d245ae0d7efaaaeeca360d9f5f3e13214a5c325013",
-  [MidnightNetwork.Preprod]: "798e602d58ca65bae159464f43091bd790b3ef23f10abb49d962bc0efeb00c5e",
+  [MidnightNetwork.Preprod]: "c423fca48329307ba00383e8c40cf1b3a83a7728a2b6721e863cfa16d25fb3ec",
   [MidnightNetwork.Mainnet]: "",
 };
 
@@ -159,7 +154,7 @@ export function getSignerContractAddress(networkId: DeployedNetwork): string {
 // makes getResponderContractAddress throw for that network.
 const responderContractAddresses: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Preview]: "1616a3cf33ffc2c4678323150374b89a18807335bcbabd31621c56e0d3c0d203",
-  [MidnightNetwork.Preprod]: "825841d7bef91956fc4fdefe4edb7ecf9c2b985f0b4ddae7d0f1b35d9267ca2b",
+  [MidnightNetwork.Preprod]: "627ef19bb1db09b4261e31a4f87a6b299581c3d635c409bad9ac4547370ef4d5",
   [MidnightNetwork.Mainnet]: "",
 };
 
@@ -188,11 +183,8 @@ export function getResponderContractAddress(networkId: DeployedNetwork): string 
 // string means "no cache published" and makes getMpcOutputCacheUrl throw for
 // that network.
 const mpcOutputCacheUrls: Record<DeployedNetwork, string> = {
-  // The dev MPC serves Preprod and writes to this bucket under its `v1` prefix.
   [MidnightNetwork.Preview]: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
-  // TODO: uncomment and switch to this when testnet is pointed to pre-prod
-  // [MidnightNetwork.Preprod]: "https://storage.googleapis.com/midnight-cache-storage-testnet/v1",
-  [MidnightNetwork.Preprod]: "https://storage.googleapis.com/midnight-cache-storage-dev/v1",
+  [MidnightNetwork.Preprod]: "https://storage.googleapis.com/midnight-cache-storage-testnet/v1",
   [MidnightNetwork.Mainnet]: "https://storage.googleapis.com/midnight-cache-storage-mainnet/v1",
 };
 
