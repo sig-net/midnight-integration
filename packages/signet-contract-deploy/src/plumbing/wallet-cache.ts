@@ -9,7 +9,7 @@ import { redactUrlQuery } from "@sig-net/midnight";
 import { Either, Schema } from "effect";
 
 import { envOrUndefined } from "./env.ts";
-import type { NetworkId } from "./network-id.ts";
+import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
 import type { WalletAddresses } from "./wallet.ts";
 
 /**
@@ -728,17 +728,21 @@ async function indexerBlockQuery<A, I>(
 
 /**
  * The anchor a cache written now records: the genesis block's hash and the
- * latest block the indexer reports.
+ * latest block the indexer reports. A restarted local chain repeats its
+ * genesis block, so only a later block tells one run of it from the next.
  *
  * @param chain - Reads the wallet's chain.
- * @returns The anchor.
+ * @returns The anchor, or undefined while the indexer's latest block is the genesis block.
  * @throws {Error} If the chain cannot be reached or reports no genesis block.
  */
-export async function readChainAnchor(chain: WalletCacheChain): Promise<WalletChainAnchor> {
+export async function readChainAnchor(
+  chain: WalletCacheChain,
+): Promise<WalletChainAnchor | undefined> {
   const [genesis, tip] = await Promise.all([chain.readBlock(0), chain.readTip()]);
   if (genesis === undefined) {
     throw new Error("the indexer reports no genesis block to anchor the wallet cache to");
   }
+  if (tip.block.height === 0) return undefined;
   return { genesisHash: genesis.hash, seenBlock: tip.block };
 }
 
@@ -747,16 +751,20 @@ const LEDGER_EVENT_CURSOR_SLACK = 1n;
 
 /**
  * Check a cache against the chain the wallet syncs on now: the chain holds
- * the anchor's genesis and its seen block at its height, which a wiped and
- * restarted chain does not, the seen block is not past the tip, and no
+ * the anchor's genesis, the seen block is past genesis and at its height on
+ * the chain, which a wiped and restarted chain does not hold, and no
  * sub-wallet cursor is past the tip (the shielded and DUST cursors against
  * the newest ledger event id, the unshielded cursor against the newest
  * transaction id), which a doctored file or another chain's cache can be.
+ * A tip below the seen block refuses the cache on the local standalone
+ * stack, whose chain restarts under the same genesis, and throws on a
+ * deployed network, where only an indexer still catching up explains it.
  *
  * @param envelope - A cache {@link checkWalletCacheEnvelope} accepted.
  * @param chain - Reads the wallet's chain.
  * @returns The refusal, or undefined when the cache is on this chain.
- * @throws {Error} If the chain cannot be reached, which says nothing about the cache.
+ * @throws {Error} If the chain cannot be reached or a deployed network's indexer
+ *   is behind the seen block, neither of which says anything about the cache.
  */
 export async function checkWalletCacheChain(
   envelope: WalletCacheEnvelope,
@@ -772,14 +780,22 @@ export async function checkWalletCacheChain(
     rejection: WalletCacheRejection.ChainMismatch,
     detail,
   });
-  if (genesis?.hash !== genesisHash || seen?.hash !== seenBlock.hash) {
-    return beyond(
-      `the chain holds no block ${String(seenBlock.height)} ${seenBlock.hash} under genesis ${genesisHash}`,
-    );
+  if (genesis?.hash !== genesisHash) {
+    return beyond(`the chain's genesis is not ${genesisHash}`);
+  }
+  if (seenBlock.height === 0) {
+    return beyond("the seen block is the genesis block, which a restarted chain repeats");
   }
   if (seenBlock.height > tip.block.height) {
+    const behind = `seen block ${String(seenBlock.height)} is past the tip at ${String(tip.block.height)}`;
+    if (isLocalStandaloneNetwork(envelope.networkId)) return beyond(behind);
+    throw new Error(
+      `the wallet cache's ${behind} on ${envelope.networkId}: the indexer is still catching up, retry once it has`,
+    );
+  }
+  if (seen?.hash !== seenBlock.hash) {
     return beyond(
-      `seen block ${String(seenBlock.height)} is past the tip at ${String(tip.block.height)}`,
+      `the chain holds no block ${String(seenBlock.height)} ${seenBlock.hash} under genesis ${genesisHash}`,
     );
   }
   const inner = innerSnapshotFacts(envelope.snapshots);

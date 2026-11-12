@@ -11,6 +11,7 @@ import { deriveAddresses, loadWalletCache, type WalletAddresses } from "../src/p
 import {
   checkWalletCacheChain,
   checkWalletCacheEnvelope,
+  readChainAnchor,
   resolveWalletCacheLocation,
   sealWalletCache,
   WALLET_CACHE_WRITE_INTERVAL_MS,
@@ -505,7 +506,6 @@ describe("checkWalletCacheChain", () => {
     { name: "another genesis", ...ON_CHAIN, genesis: "a0", refused: true },
     { name: "another block at the seen height", ...ON_CHAIN, block100: "b0", refused: true },
     { name: "a chain short of the seen height", ...ON_CHAIN, block100: undefined, refused: true },
-    { name: "a tip below the seen block", ...ON_CHAIN, tipHeight: 90, refused: true },
     {
       name: "both ledger cursors past the newest event",
       ...ON_CHAIN,
@@ -554,6 +554,63 @@ describe("checkWalletCacheChain", () => {
     };
     const refusal = await checkWalletCacheChain(fixture.envelope, chain);
     expect(refusal?.rejection).toBe(row.refused ? WalletCacheRejection.ChainMismatch : undefined);
+  });
+
+  const TIP_BELOW_SEEN_BLOCK: WalletCacheChain = {
+    readBlock: (height) => Promise.resolve(height === 0 ? { height: 0, hash: "aa" } : undefined),
+    readTip: () =>
+      Promise.resolve({
+        block: { height: 90, hash: "tip" },
+        lastTransactionId: 800000n,
+        lastLedgerEventId: 1900000n,
+      }),
+  };
+
+  it("throws on a deployed network whose tip is below the seen block", async () => {
+    await expect(checkWalletCacheChain(fixture.envelope, TIP_BELOW_SEEN_BLOCK)).rejects.toThrow(
+      "seen block 100 is past the tip at 90 on preview: the indexer is still catching up",
+    );
+  });
+
+  it("refuses on the local stack when the tip is below the seen block", async () => {
+    const local = sealWalletCache({ ...fixture.envelope, networkId: "undeployed" });
+    await expect(checkWalletCacheChain(local, TIP_BELOW_SEEN_BLOCK)).resolves.toMatchObject({
+      rejection: WalletCacheRejection.ChainMismatch,
+      detail: "seen block 100 is past the tip at 90",
+    });
+  });
+
+  it("refuses a cache whose seen block is the genesis block", async () => {
+    const atGenesis = sealWalletCache({
+      ...fixture.envelope,
+      chainAnchor: { genesisHash: "aa", seenBlock: { height: 0, hash: "aa" } },
+    });
+    await expect(checkWalletCacheChain(atGenesis, FIXTURE_CHAIN)).resolves.toMatchObject({
+      rejection: WalletCacheRejection.ChainMismatch,
+      detail: "the seen block is the genesis block, which a restarted chain repeats",
+    });
+  });
+});
+
+describe("readChainAnchor", () => {
+  it("anchors to the genesis hash and the latest block", async () => {
+    await expect(readChainAnchor(FIXTURE_CHAIN)).resolves.toEqual({
+      genesisHash: "aa",
+      seenBlock: { height: 150, hash: "tip" },
+    });
+  });
+
+  it("has no anchor while the latest block is the genesis block", async () => {
+    const atGenesis: WalletCacheChain = {
+      readBlock: () => Promise.resolve({ height: 0, hash: "aa" }),
+      readTip: () =>
+        Promise.resolve({
+          block: { height: 0, hash: "aa" },
+          lastTransactionId: undefined,
+          lastLedgerEventId: undefined,
+        }),
+    };
+    await expect(readChainAnchor(atGenesis)).resolves.toBeUndefined();
   });
 });
 

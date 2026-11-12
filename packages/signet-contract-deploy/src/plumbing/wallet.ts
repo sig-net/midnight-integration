@@ -852,7 +852,7 @@ export interface OpenWalletParams {
  * @param params - The wallet to open, see {@link OpenWalletParams}.
  * @returns The opened wallet.
  * @throws {WalletCacheInvalidError} If the wallet's explicitly named cache is refused.
- * @throws {Error} If the cache file or the chain anchor cannot be read, or building, starting or syncing the facade fails.
+ * @throws {Error} If the cache file or the chain anchor cannot be read, a deployed network's indexer is behind the cache, or building, starting or syncing the facade fails.
  */
 export async function openSyncedWallet(params: OpenWalletParams): Promise<OpenedWallet> {
   const { keys, config, label, env, options = {} } = params;
@@ -874,6 +874,11 @@ export async function openSyncedWallet(params: OpenWalletParams): Promise<Opened
   } else {
     restored = await loadWalletCache(location, keys, config, options, chain, label);
     chainAnchor = await readChainAnchor(chain);
+    if (chainAnchor === undefined) {
+      console.log(
+        `${label} wallet: the indexer holds no block past genesis to anchor a cache to, running without one`,
+      );
+    }
   }
 
   const history =
