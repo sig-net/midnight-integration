@@ -26,6 +26,16 @@ Everything is read from the environment:
 | `MPC_SECP256K1_PUBKEY` | Optional on a deployed network: the MPC root public key a requester's derived accounts start from, in SEC1 hex or NEAR `secp256k1:<base58>` form. `resolveMpcRootPublicKey` takes the key `@sig-net/midnight` publishes for the network when it is unset, refuses a set value that disagrees with it, and returns `0x04…` uncompressed hex either way. |
 | `MIDNIGHT_FAUCET_URL` | The faucet named in the unfunded-wallet hint. Built in per network: preview `https://midnight-tmnight-preview.nethermind.dev`, preprod `https://midnight-tmnight-preprod.nethermind.dev`. Set it to override one of those, or to name a faucet for a network without one. |
 
+## Generating a wallet
+
+In a checkout of the repository, `yarn generate:wallet` prints a fresh wallet: a random 24-word BIP-39 mnemonic, the same seed in hex, and the wallet's unshielded (NIGHT), shielded and dust addresses on each network named after it.
+
+```bash
+yarn generate:wallet preprod mainnet
+```
+
+The networks are `undeployed`, `preview`, `preprod` and `mainnet`, and with none named the addresses of all four are printed. The seed is the same on every network: only the address encoding differs. `Seed Words` and `Seed Hex` are two spellings of one secret, and either is a valid `DEPLOYER_SEED`. Nothing is written to disk and nothing touches a network, so the printed secret is the only copy: store it before closing the terminal. In code the same flow is `generateWallet` and `formatGeneratedWallet`.
+
 ## Estimating a deploy
 
 Set `DEPLOY_ESTIMATE_ONLY=1` to price a deploy without making it:
