@@ -495,7 +495,8 @@ export function respondBidirectionalEventToCircuitInput(
  * checks a posted respond-bidirectional attestation's signature against the
  * contract's pinned MPC response key, over the request id, block height,
  * output kind, output length and output hash the post declares, without the
- * output. A post this accepts is an outcome the MPC attested for the request
+ * output, and requires the post's `digest` to be the digest of those fields.
+ * A post this accepts is an outcome the MPC attested for the request
  * it names; the output it attests is checked by {@link verifyAttestedOutput}.
  * Takes the record as read off the ledger (big-endian). Malformed records
  * return `false` rather than throwing.
@@ -524,6 +525,7 @@ export function verifyRespondBidirectionalAttestation(
   } catch {
     return false;
   }
+  if (bytesToHex(respondBidirectionalEvent.digest) !== bytesToHex(digest)) return false;
   // Compact form the verifier takes: r || s big-endian, and the key as
   // uncompressed SEC1 (0x04 || x || y).
   const compactSignature = new Uint8Array(64);
