@@ -39,13 +39,13 @@ The protocol is best understood in 5 steps:
 ![The sign bidirectional protocol flow: five steps between a dApp, contracts on Midnight, the Sig Network MPC and a foreign blockchain](./docs/sign-bidirectional-flow.drawio.png)
 
 - **1.** A user interacts with a dApp, which starts a cross chain interaction by calling a circuit on a contract on Midnight that has integrated with Sig Network.
-   - The integrating contract constructs a **[SignBidirectionalEventV1](./packages/signet-midnight/src/Signet.compact#L89)** (aka. signature request) which it stores in its ledger's **[SignBidirectionalEventMapV1](./packages/signet-midnight/src/Signet.compact#L242)** against the associated **[RequestId](./packages/signet-midnight/src/Signet.compact#L206)** (hash of the request's keyVersion, sender, path, algo, txParamType, txParamsDigest and executionDest). The **SignBidirectionalEvent** contains the fields of a transaction destined for a foreign blockchain, as well as a path property which the Sig Network Distributed MPC uses to derive a **Request Signing Key** to sign the transaction (see [Derived Keys](#derived-keys) for more on this key).
-   - Then the integrating contract performs a cross contract call to the [`signBidirectional`](./packages/signet-contract/src/signet-contract.compact#L30) circuit on the [**Sig Network Singleton** contract](./packages/signet-contract/src/signet-contract.compact) which emits a `SignBidirectionalEvent` contract event carrying the [**SignBidirectionalEventNotification**](./packages/signet-midnight/src/Signet.compact#L263). The **SignBidirectionalEventNotification** carries the address of the integrating client contract and the ledger location of its request map, and the **RequestId** travels beside it as `signBidirectional`'s first argument, so the emitted event gives the MPC everything it needs to find the stored **SignBidirectionalEvent** signature request.
+   - The integrating contract constructs a **[SignBidirectionalEventV1](./packages/signet-midnight/src/Signet.compact#L89)** (aka. signature request) which it stores in its ledger's **[SignBidirectionalEventMapV1](./packages/signet-midnight/src/Signet.compact#L243)** against the associated **[RequestId](./packages/signet-midnight/src/Signet.compact#L207)** (hash of the request's keyVersion, sender, path, algo, txParamType, txParamsDigest and executionDest). The **SignBidirectionalEvent** contains the fields of a transaction destined for a foreign blockchain, as well as a path property which the Sig Network Distributed MPC uses to derive a **Request Signing Key** to sign the transaction (see [Derived Keys](#derived-keys) for more on this key).
+   - Then the integrating contract performs a cross contract call to the [`signBidirectional`](./packages/signet-contract/src/signet-contract.compact#L30) circuit on the [**Sig Network Singleton** contract](./packages/signet-contract/src/signet-contract.compact) which emits a `SignBidirectionalEvent` contract event carrying the [**SignBidirectionalEventNotification**](./packages/signet-midnight/src/Signet.compact#L264). The **SignBidirectionalEventNotification** carries the address of the integrating client contract and the ledger location of its request map, and the **RequestId** travels beside it as `signBidirectional`'s first argument, so the emitted event gives the MPC everything it needs to find the stored **SignBidirectionalEvent** signature request.
 - **2.** The MPC network, watching for events on the Singleton contract, picks up the emitted `SignBidirectionalEvent` contract event, which carries the **SignBidirectionalEventNotification**, and honours the signature request it points to.
   - The MPC verifies the notification before honouring it (see [Sign Bidirectional Event Discovery & Verification](#sign-bidirectional-event-discovery--verification)).
   - The MPC uses the information in the event to find and read the addressed **SignBidirectionalEvent** signature request that the identified Integrating Client Contract stored in its state in step **1.**.
   - It honours the request by constructing the contained foreign blockchain transaction and signing it with the associated **Request Signing Key**, derived for that contract and the path of the signature request.
-  - The signature is then made available on Midnight with the MPC calling the [`respond`](./packages/signet-responder/src/signet-responder.compact#L27) circuit on the [**Sig Network Responder** contract](./packages/signet-responder/src/signet-responder.compact), emitting a **[SignatureRespondedEventV1](./packages/signet-midnight/src/Signet.compact#L327)**.
+  - The signature is then made available on Midnight with the MPC calling the [`respond`](./packages/signet-responder/src/signet-responder.compact#L27) circuit on the [**Sig Network Responder** contract](./packages/signet-responder/src/signet-responder.compact), emitting a **[SignatureRespondedEventV1](./packages/signet-midnight/src/Signet.compact#L328)**.
 - **3.** The integrating dApp, watching for events on the Responder contract, picks up the emitted **SignatureRespondedEvent** and relays the fully signed transaction to the foreign chain.
   - The dApp verifies the posted MPC signature is by the requested signer (i.e. the **Request Signing Key**) and uses it to construct the fully signed foreign blockchain transaction.
   - Acting as the relayer, the dApp then submits the signed transaction to the foreign chain for execution.
@@ -59,14 +59,14 @@ The protocol is best understood in 5 steps:
       - `unviable`: a finalised transaction of another request from the same account took its nonce, so it can never execute.
     - **`blockHeight`**: the height of the finalised target-chain block that settled the verdict, in that chain's own numbering (a slot on Solana).
     - **`serializedOutput`**: only present under `executed`, and possibly empty. The MPC extracts the output of the transaction execution (if any) and decodes it using the `outputDeserializationSchema` given in the **SignBidirectionalEvent** from step **2.**. It maps the decoded values to Compact-compatible types and serialises them with Borsh against a schema derived from that mapping. The integrating contract reads the result in-circuit with Compact's built-in `deserialize<T, N>(...)`. See [Output Recovery and Serialisation](#output-recovery-and-serialisation) for detail. Under `failed` and `unviable` the output is empty (zero bytes).
-  - The MPC creates the attestation as the ECDSA signature over the **attestation digest**, signed with the integrating contract's own **Response Signing Key** (see [Derived Keys](#derived-keys)). The digest is `upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, outputHash]))`, where `outputHash = upgradeFromTransient(transientHash([HashDomain.attestedOutput, serializedOutput]))` (see [`calculateSignetAttestationDigestV1`](./packages/signet-midnight/src/Signet.compact#L409) and [`calculateAttestedOutputHashV1`](./packages/signet-midnight/src/Signet.compact#L397)). The digest's inputs are fixed-width, so a reader checks the signature from the event alone; the output hash does not commit to the output's width, so the digest commits to it beside the hash.
-  - The output attestation is then made available on Midnight with the MPC calling the [`respondBidirectional`](./packages/signet-responder/src/signet-responder.compact#L54) circuit on the **Sig Network Responder**, emitting a **[RespondBidirectionalEventV1](./packages/signet-midnight/src/Signet.compact#L353)**. The output itself never travels on chain: the event carries the request id, the attested block height, the output kind, the output's byte width, the output hash, the attestation digest and the attesting signature.
+  - The MPC creates the attestation as the ECDSA signature over the **attestation digest**, signed with the integrating contract's own **Response Signing Key** (see [Derived Keys](#derived-keys)). The digest is `upgradeFromTransient(transientHash([HashDomain.attestationDigest, requestId, blockHeight, outputKind, serializedOutputLength, outputHash]))`, where `outputHash = upgradeFromTransient(transientHash([HashDomain.attestedOutput, serializedOutput]))` (see [`calculateSignetAttestationDigestV1`](./packages/signet-midnight/src/Signet.compact#L410) and [`calculateAttestedOutputHashV1`](./packages/signet-midnight/src/Signet.compact#L398)). The digest's inputs are fixed-width, so a reader checks the signature from the event alone; the output hash does not commit to the output's width, so the digest commits to it beside the hash.
+  - The output attestation is then made available on Midnight with the MPC calling the [`respondBidirectional`](./packages/signet-responder/src/signet-responder.compact#L54) circuit on the **Sig Network Responder**, emitting a **[RespondBidirectionalEventV1](./packages/signet-midnight/src/Signet.compact#L354)**. The output itself never travels on chain: the event carries the request id, the attested block height, the output kind, the output's byte width, the output hash, the attestation digest and the attesting signature.
 - **5.** The integrating dApp collects the execution output and its attestation and submits both back to the integrating contract, completing the cross chain interaction.
   - The dApp extracts the posted output attestation from the emitted **RespondBidirectionalEvent**.
   - It then reconstructs the exact serialised output the MPC attested, mirroring step **4.**:
     - **`executed`:** the dApp obtains the actual execution output off chain (see [Output Recovery and Serialisation](#output-recovery-and-serialisation): it broadcast the transaction in step **3.**, so it can read the result) and serialises it exactly as the MPC did in step **4.**, running the same rule ([`executedEvmRespondOutput`](./packages/signet-midnight/src/abi-serde.ts) for an EVM chain), so the bytes match the attested ones byte for byte.
     - **`failed` or `unviable`:** there is no output to obtain, and the serialised output is empty, exactly as in step **4.**.
-  - It submits the attestation and the reconstructed serialised output to a completing circuit on the integrating contract, which checks the output bytes against the posted width and output hash, recomputes the attestation digest and verifies the MPC's signature in-circuit via [`verifyRespondBidirectionalEventV1`](./packages/signet-midnight/src/Signet.compact#L485) against the response key the contract pinned after deploy (see [Derived Keys](#derived-keys)). All three kinds verify identically, since step **4.** attests each with the same digest construction and key.
+  - It submits the attestation and the reconstructed serialised output to a completing circuit on the integrating contract, which checks the output bytes against the posted width and output hash, recomputes the attestation digest, requires the posted digest to equal it and verifies the MPC's signature in-circuit via [`verifyRespondBidirectionalEventV1`](./packages/signet-midnight/src/Signet.compact#L491) against the response key the contract pinned after deploy (see [Derived Keys](#derived-keys)). All three kinds verify identically, since step **4.** attests each with the same digest construction and key.
   - The completing circuit settles on the verified `outputKind`: under `executed` the output bytes are the foreign call's return data, decoded and Borsh-serialised (empty when the call returns nothing), to be deserialised in-circuit with `deserialize<T, N>(...)`, and under `failed` (the foreign transaction reverted) or `unviable` (it can never execute) the output is empty. The kind is inside the signed digest, so a post cannot present a failure as a success or a success as a failure: see [Handling Failure](#handling-failure).
 
 ## Output Recovery and Serialisation
@@ -149,7 +149,7 @@ The MPC only generates signatures for **Verified Request Events**, which it disc
 - it confirms the notification event was emitted by a cross contract invocation of the `signBidirectional` circuit (direct invocations outside cross contract calls are ignored)
 - it confirms the cross contract caller address equals the `callerAddress` in the notification
 - it reads the `SignBidirectionalEvent` from ledger state at the `callerAddress`
-- it confirms the `sender` in the `SignBidirectionalEvent` matches the `callerAddress` from the notification
+- it confirms the `sender` in the `SignBidirectionalEvent` matches the `callerAddress` from the notification (`sender` is data the storing contract chose, and it names the contract whose keys are derived, so a record read from any other contract is not that contract's request)
 - it confirms the read `SignBidirectionalEvent`'s request-id preimage fields (keyVersion, sender, path, algo, txParamType, txParamsDigest and executionDest, so neither schema and no reserved parameter) hash back to the notified **RequestId**
 
 If any of these checks fail the request is dropped silently.
@@ -170,7 +170,7 @@ Every key the MPC uses is derived for the **requesting contract** and a **path**
 
 The key the MPC signs requested foreign transactions with:
 
-`requestSigningKey = f(mpcRootKey[keyVersion], caip2ChainId, contractAddress, hex::encode(path))`
+`requestSigningKey = f(mpcRootKey, keyVersion, caip2ChainId, contractAddress, hex::encode(path))`
 
 The path is 32 opaque bytes of the contract's choosing (e.g. a fixed literal for a contract-owned account like "vault" or a hash of a caller's secret for per-user accounts). There are no format requirements, with one exception: the path `pad(32, "midnight response key")` is reserved for the response key, and `constructSignBidirectionalEventV1` refuses it. **CRITICAL:** the MPC renders the path as `hex::encode(path)` before it derives the key: lowercase hex of the full 32 bytes, no trimming, no `0x` prefix. The contract address is always part of the derivation, so no contract can reach another contract's derived keys.
 
@@ -178,11 +178,11 @@ The path is 32 opaque bytes of the contract's choosing (e.g. a fixed literal for
 
 The key the MPC signs remote execution attestations with when posting them back to Midnight:
 
-`responseKey = f(mpcRootKey[keyVersion], caip2ChainId, contractAddress, "midnight response key")`
+`responseKey = f(mpcRootKey, keyVersion, caip2ChainId, contractAddress, "midnight response key")`
 
 The same derivation, but with the path fixed to the literal `"midnight response key"`, giving each contract one well-known response key. This fixed path is a protocol string that enters the derivation verbatim (no hex rendering, unlike a request's 32 path bytes). A contract pins its own response key in its ledger after deploy and verifies every response against it in-circuit (step 5 of the flow above).
 
-> **keyVersion** is the version of the MPC root key that the derivation starts from. Current deployments use version `1`.
+> **keyVersion** is the version of the MPC's signing keys: a new version can change the MPC root key, the format of the derivation, or both. The only accepted value is `1` (`SIGNET_DEFAULT_KEY_VERSION` in `@sig-net/midnight`), the latest version the MPC supports: `constructSignBidirectionalEventV1` asserts it, as the MPC drops a request naming any other version.
 >
 > **caip2ChainId** is the [CAIP-2](https://chainagnostic.org/CAIPs/caip-2) id the MPC assigns to requests originating from Midnight contracts. It is the fixed literal `midnight:mainnet` (`MIDNIGHT_CAIP2_ID` in `@sig-net/midnight`) on every Midnight network, so a contract derives the same keys wherever it is deployed. The request record's `executionDest` field is a different value: the MPC's routing key for the TARGET chain (see [EVM Type 2 Transactions and ABI Calldata Words](#evm-type-2-transactions-and-abi-calldata-words)).
 
@@ -351,8 +351,9 @@ const reader = new SignetRequestResponseReader({
    // responder emits, queried from the same indexer
    eventSource: signetEventSourceFromIndexer({ queryUrl: indexerUrl }),
 
-   // Lowest Midnight block to scan for responses: the tip, taken BEFORE
-   // the first request is submitted (see "Bounding the event scan" below)
+   // Lowest Midnight block a request's first scan for responses starts at: the
+   // tip, taken BEFORE the first request is submitted (see "Bounding the event
+   // scan" below)
    responderEventsFromBlock: (await publicDataProvider.queryBlock())?.height,
 });
 
@@ -367,7 +368,9 @@ const expectedSigner = deriveEvmAddress(
 
 #### Bounding the event scan
 
-`responderEventsFromBlock` bounds the event scan the reader runs on every poll, which otherwise walks the Signet responder's whole history. Responses are emitted after their request, so it must not exceed the block in which the oldest request you still expect responses for was submitted: a fresh client takes the tip before its first request, a client resuming earlier requests uses the oldest pending request's block or omits the field. A value too high does not fail, it hides responses. Direct consumers of `streamSignetEvents` pass the same bound as `{ fromBlock }`.
+`responderEventsFromBlock` is where the reader's first scan for a request's responses starts, which otherwise walks the Signet responder's whole history. Set it to the block just before the oldest request whose responses are still pending. Responses are emitted after their request, so it must not exceed the block in which that request was submitted: a fresh client takes the tip before its first request, a client resuming earlier requests uses the oldest pending request's block or omits the field. A value too high does not fail, it hides responses. Direct consumers of `streamSignetEvents` pass the same bound as `{ fromBlock }`.
+
+Keep one reader for the life of the client and poll through it. Per request it remembers the indexer event it has read up to, so each later poll resumes there and reads only newer events. It also keeps the distinct responses it has read (a post repeated byte for byte is one candidate) with each one's verification outcome, so no response is verified twice, however many invalid posts a third party leaves under your request id. Once a valid response has been read, the verifying getters return it without another scan.
 
 > **mpcRootPublicKey** is the root public key of the MPC network. On a local stack there is no fixed value: this repository's [integration-test setup](packages/integration-tests) generates a fresh `MPC_ROOT_KEY`, prints it during setup and appends it to the repo-root `.env`. For the public networks (stagenet, preview, preprod, mainnet) the fixed values are published in `@sig-net/midnight` via `getMpcRootPublicKey`, as `0x04…` uncompressed SEC1 hex (stagenet's and preview's are published, the others are placeholders until each network's key is). Every key entry point (`deriveEvmAddress`, `deriveMidnightResponseKey`, `parseSecp256k1PublicKey`) also accepts NEAR's `secp256k1:<base58>` spelling, the one signet.js and the MPC operators currently publish keys in, and `normaliseSecp256k1PublicKey` converts any spelling to the canonical one.
 >
@@ -405,12 +408,18 @@ const expectedSigner = deriveEvmAddress(
 
    **NOTE:** Return `requestId` from this circuit call so the client can use it in the next steps. You can also compute it off-chain with the `calculateRequestId` TS twin. Both give the raw 32 bytes, and the reader methods below take the id as hex, so convert it once with `requestIdHex(requestId)` from `@sig-net/midnight` and pass that value as `requestId` in steps 2 to 4.
 
+   **NOTE:** Never make a request that was already answered. The `Request already outstanding` check above stops a second copy only while the first is still open. When step 5 settles a request, it removes the request from `signBidirectionalEventMap`, so a later copy passes the check. That copy never gets a response, because its transaction already ran. To try again, make a new request with a new nonce.
+
+   **NOTE:** Never make a request with a nonce that is already used. Its transaction can never run, and the MPC does not report this, so the request stays open forever.
+
 2. Poll the Signet responder for the MPC's signature response. The responder emits each response as a contract event that carries the request id it answers beside the signature. The id is unauthenticated routing data: it scopes the read to your request's posts and proves nothing. The event log is unauthenticated (anyone can post under any id), so use the verifying getter. It only returns a post whose signature recovers to `expectedSigner` over the signing hash of the requested transaction:
 
    ```ts
-   const { verified } = await reader.getVerifiedSignatureRespondedEvent(requestId, expectedSigner);
+   const verified = await reader.getVerifiedSignatureRespondedEvent(requestId, expectedSigner);
    // verified === undefined: no valid response posted yet, poll again.
    ```
+
+   The getter stops at the first valid post. To see why the other posts under your request id were rejected, `reader.getSignatureResponseVerdicts(requestId, expectedSigner)` returns a verdict for each of them.
 
 3. Construct the signed transaction and submit it to the foreign chain. The reader rebuilds the transaction from the request record on your ledger and attaches the verified MPC signature:
 
@@ -433,7 +442,7 @@ const expectedSigner = deriveEvmAddress(
    // undefined: no attestation of that output posted yet, poll again.
    ```
 
-5. Deliver the response and the serialised output to your contract, which checks the output against the posted width and hash, recomputes the attestation digest, verifies the event in-circuit against the response key pinned in Setup step 4, and consumes the request the event names. The digest binds that request id, so consume it from the verified event and never an id taken from elsewhere. The wire event carries `bigR.x` and `s` big-endian and the circuit reads them little-endian, so hand the circuit the flipped record:
+5. Deliver the response and the serialised output to your contract, which checks the output against the posted width and hash, recomputes the attestation digest, requires the posted digest to equal it, verifies the event in-circuit against the response key pinned in Setup step 4, and consumes the request the event names. The digest binds that request id, so consume it from the verified event and never an id taken from elsewhere. The wire event carries `bigR.x` and `s` big-endian and the circuit reads them little-endian, so hand the circuit the flipped record:
 
    ```ts
    const circuitInput = respondBidirectionalEventToCircuitInput(respondBidirectionalEvent);

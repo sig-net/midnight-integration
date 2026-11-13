@@ -433,11 +433,15 @@ describe("submitSignatureRequest round-trip", () => {
     ).rejects.toThrow(/Request already exists/);
   });
 
-  it("rejects the legacy key version 0", async () => {
+  it.each([
+    { name: "the legacy key version 0", keyVersion: 0n },
+    { name: "key version 2, beyond the latest the MPC supports", keyVersion: 2n },
+    { name: "the widest key version 255", keyVersion: 255n },
+  ])("rejects $name", async ({ keyVersion }) => {
     const { contract, ctx } = await deployContract();
-    await expect(contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, 0n)).rejects.toThrow(
-      /keyVersion must be >= 1/,
-    );
+    await expect(
+      contract.circuits.submitSignatureRequest(ctx, EVM_NONCE, keyVersion),
+    ).rejects.toThrow(/keyVersion must be 1/);
   });
 });
 

@@ -432,7 +432,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
       const reader = session.responseReader();
       const signedTx = await pollUntilDefined(
         async () => {
-          const { verified } = await reader.getVerifiedSignatureRespondedEvent(
+          const verified = await reader.getVerifiedSignatureRespondedEvent(
             supersededRequestId,
             expectedSigner,
           );
@@ -588,7 +588,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller real-EVM e2e"
         const warned = new Set<bigint>();
         signedTx = await pollUntilDefined(
           async () => {
-            const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(
+            const { verified, verdicts } = await reader.getSignatureResponseVerdicts(
               requestId,
               expectedSigner,
             );
