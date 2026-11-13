@@ -101,7 +101,7 @@ module Signet {
     // CRITICAL: the MPC renders the path as hex::encode(path) for key derivation (lowercase hex
     // of the full 32 bytes, no trimming, no 0x prefix). The sender is always part
     // of the derivation, so no contract can reach another contract's derived keys.
-    keyVersion: Uint<8>;        // Version of the MPC key derivation scheme. Always 1.
+    keyVersion: Uint<8>;        // Version of the MPC signing keys. Always 1.
     sender: ContractAddress;    // Address of the client contract that stores and notifies of this
                                 // request. Set with kernel.self().
     path: Bytes<32>;            // Key derivation path: 32 opaque bytes, client contract's choice.
