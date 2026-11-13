@@ -405,6 +405,10 @@ const expectedSigner = deriveEvmAddress(
 
    **NOTE:** Return `requestId` from this circuit call so the client can use it in the next steps. You can also compute it off-chain with the `calculateRequestId` TS twin. Both give the raw 32 bytes, and the reader methods below take the id as hex, so convert it once with `requestIdHex(requestId)` from `@sig-net/midnight` and pass that value as `requestId` in steps 2 to 4.
 
+   **NOTE:** Never make a request that was already answered. The `Request already outstanding` check above stops a second copy only while the first is still open. When step 5 settles a request, it removes the request from `signBidirectionalEventMap`, so a later copy passes the check. That copy never gets a response, because its transaction already ran. To try again, make a new request with a new nonce.
+
+   **NOTE:** Never make a request with a nonce that is already used. Its transaction can never run, and the MPC does not report this, so the request stays open forever.
+
 2. Poll the Signet responder for the MPC's signature response. The responder emits each response as a contract event that carries the request id it answers beside the signature. The id is unauthenticated routing data: it scopes the read to your request's posts and proves nothing. The event log is unauthenticated (anyone can post under any id), so use the verifying getter. It only returns a post whose signature recovers to `expectedSigner` over the signing hash of the requested transaction:
 
    ```ts
