@@ -473,7 +473,7 @@ export interface RespondBidirectionalEvent {
   outputHash: Uint8Array;
   /**
    * The attestation digest the signature is over, 32 bytes. A verifier
-   * recomputes it from the fields above.
+   * recomputes it from the fields above and refuses a post whose copy differs.
    */
   digest: Uint8Array;
   /** ECDSA signature over the attestation digest. */

@@ -69,6 +69,9 @@ const CPK = "0".repeat(64);
 const EVM_NONCE = 7n;
 const KEY_VERSION = 1n;
 
+// The address the contract runs at: what kernel.self() stamps as a record's sender.
+const CONTRACT_ADDRESS = sampleContractAddress();
+
 // ---- Harness ----
 
 const deployContract = async () => {
@@ -78,7 +81,7 @@ const deployContract = async () => {
   );
   const ctx = createCircuitContext({
     circuitId: "submitSignatureRequest",
-    contractAddress: sampleContractAddress(),
+    contractAddress: CONTRACT_ADDRESS,
     coinPublicKeyOrZswapState: CPK,
     contractState: currentContractState,
     privateState: currentPrivateState,
@@ -131,7 +134,9 @@ describe("chunked ledger raw parsing (20 fields, REAL compiler output)", () => {
     const entry = [...typedIndex.entries()][0];
     if (entry === undefined) throw new Error("the size assertion above proves this is unreachable");
     const [idHex, record] = entry;
-    expect(lookupSignetRequestAt(state, REQUESTS_INDEX_PATH, idHex)).toEqual(record);
+    expect(lookupSignetRequestAt(state, CONTRACT_ADDRESS, REQUESTS_INDEX_PATH, idHex)).toEqual(
+      record,
+    );
 
     // The map key is the record's request id: the TS twin recomputes it from
     // the raw-read record.

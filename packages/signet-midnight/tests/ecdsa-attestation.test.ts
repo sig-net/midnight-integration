@@ -497,10 +497,10 @@ describe("verifyRespondBidirectionalAttestationV1 (compiled circuit): no output 
       expected: false,
     },
     {
-      name: "ignores the posted digest copy",
+      name: "fails when the posted digest was tampered with",
       event: { ...valid, digest: bytes(32, 0x00) },
       pk: MPC_PUBLIC,
-      expected: true,
+      expected: false,
     },
   ];
 

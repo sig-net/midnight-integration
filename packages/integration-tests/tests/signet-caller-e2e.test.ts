@@ -301,7 +301,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
       }, 2 * MINUTE);
       try {
         while (!giveUp.signal.aborted) {
-          const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(
+          const { verified, verdicts } = await reader.getSignatureResponseVerdicts(
             signatureRequestId,
             expectedSigner,
           );

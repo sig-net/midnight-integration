@@ -20,8 +20,8 @@ export const MPC_PARAMS_BYTES = 64;
 export const SELECTOR_BYTES = 4;
 
 /**
- * Default MPC key version (`keyVersion` field value). `constructSignBidirectionalEventV1`
- * requires `keyVersion >= 1`.
+ * The MPC signing key version (`keyVersion` field value):
+ * `constructSignBidirectionalEventV1` requires exactly this value.
  */
 export const SIGNET_DEFAULT_KEY_VERSION = 1n;
 

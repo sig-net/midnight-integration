@@ -14,7 +14,7 @@ import {
 } from "@midnight-ntwrk/compact-runtime";
 import { SerializedContractState } from "@midnight-ntwrk/midnight-js-types";
 import { computeAddress, SigningKey } from "ethers";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   calculateRequestId,
@@ -38,6 +38,7 @@ import {
   SignetRequestResponseReader,
   TxParamType,
 } from "../src/index.ts";
+import { recoverSignatureResponseSigner } from "../src/signature-response-verification.ts";
 import { signBidirectionalEventDescriptor } from "../src/signet-evtype2tx-requests.ts";
 // Package-internal descriptors, imported from their defining modules.
 import { requestIdType } from "../src/signet-requests.ts";
@@ -47,11 +48,26 @@ import {
   secp256k1PublicKeyOf,
 } from "../src/testing.ts";
 import {
+  indexedEventsOf,
   notificationEventOf,
   respondBidirectionalEventOf,
   signatureRespondedEventOf,
   streamOf,
 } from "./signet-event-fixtures.ts";
+
+// Calls through to the real recovery, so tests can count how often the
+// reader pays for one.
+vi.mock(import("../src/signature-response-verification.ts"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    recoverSignatureResponseSigner: vi.fn(actual.recoverSignatureResponseSigner),
+  };
+});
+
+beforeEach(() => {
+  vi.mocked(recoverSignatureResponseSigner).mockClear();
+});
 
 // The ERC20 transfer(address,uint256) selector: a realistic calldata fixture.
 const ERC20_TRANSFER_SELECTOR = new Uint8Array([0xa9, 0x05, 0x9c, 0xbb]);
@@ -70,7 +86,8 @@ const UNKNOWN_ID_HEX = requestIdHex(bytes(32, 0x30));
 // when reading REQUEST_ID's posts. Routing data only, so it needs no record.
 const FOREIGN_REQUEST_ID = bytes(32, 0x31);
 
-const REQUESTER_ADDRESS = "requester-contract-address";
+// REQUEST's `sender`: the reader's lookup drops a record read from any other address.
+const REQUESTER_ADDRESS = "00".repeat(32);
 const RESPONDER_CONTRACT_ADDRESS = "responder-contract-address";
 
 /**
@@ -245,11 +262,10 @@ const makeReader = (
     responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
     publicDataProvider,
     eventSource: {
-      streamSignetEvents: (contractAddress, options) => {
+      streamSignetEvents: (contractAddress) => {
         expect(contractAddress).toBe(RESPONDER_CONTRACT_ADDRESS);
-        expect(options).toBeUndefined();
         queries.events += 1;
-        return streamOf(events);
+        return streamOf(indexedEventsOf(events));
       },
     },
   });
@@ -277,6 +293,21 @@ describe("getSignatureRequest", () => {
     await reader.getSignatureRequest(REQUEST_ID_HEX);
     await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS);
     expect(queries.requester).toBe(1);
+  });
+
+  it("throws for a record whose sender is not the requester contract", async () => {
+    // The state holds REQUEST under its real id, but is served for an address
+    // REQUEST's sender does not name.
+    const reader = new SignetRequestResponseReader({
+      requesterContractAddress: "11".repeat(32),
+      requesterRequestsPath: [0],
+      responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
+      publicDataProvider: { queryContractState: () => Promise.resolve(requesterRead()) },
+      eventSource: { streamSignetEvents: () => streamOf([]) },
+    });
+    await expect(reader.getSignatureRequest(REQUEST_ID_HEX)).rejects.toThrow(
+      /not on the requester contract's ledger/,
+    );
   });
 
   it("throws when the requester contract has no state", async () => {
@@ -352,10 +383,12 @@ describe("getSignatureRespondedEvents", () => {
       },
       eventSource: {
         streamSignetEvents: () =>
-          streamOf([
-            undecodableNotification,
-            signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE),
-          ]),
+          streamOf(
+            indexedEventsOf([
+              undecodableNotification,
+              signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE),
+            ]),
+          ),
       },
     });
     expect(await reader.getSignatureRespondedEvents(REQUEST_ID_HEX)).toEqual([GENUINE_RESPONSE]);
@@ -373,7 +406,9 @@ describe("getSignatureRespondedEvents", () => {
       eventSource: {
         streamSignetEvents: (_contractAddress, options) => {
           seen.push(options);
-          return streamOf([signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE)]);
+          return streamOf(
+            indexedEventsOf([signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE)]),
+          );
         },
       },
       responderEventsFromBlock: 382000,
@@ -444,19 +479,58 @@ describe("getVerifiedSignatureRespondedEvent", () => {
     const { reader } = makeReader([], [], {
       signatureResponses: [GENUINE_RESPONSE],
     });
-    const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(
+    expect(
+      await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS),
+    ).toBeUndefined();
+    expect(recoverSignatureResponseSigner).not.toHaveBeenCalled();
+  });
+
+  it.each(VERDICT_CASES)("resolves $name", async ({ posts, expectedSigner, verifiedPost }) => {
+    const { reader } = makeReader(posts);
+    expect(await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, expectedSigner)).toEqual(
+      verifiedPost === undefined ? undefined : posts[verifiedPost],
+    );
+  });
+
+  it("stops verifying at the first valid post", async () => {
+    const { reader } = makeReader([GENUINE_RESPONSE, IMPOSTER_RESPONSE, UNDECODABLE_RESPONSE]);
+    expect(await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS)).toEqual(
+      GENUINE_RESPONSE,
+    );
+    expect(recoverSignatureResponseSigner).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a valid response already read without touching the event source", async () => {
+    const { reader, queries } = makeReader([IMPOSTER_RESPONSE, GENUINE_RESPONSE]);
+    await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS);
+    expect(await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS)).toEqual(
+      GENUINE_RESPONSE,
+    );
+    expect(queries.events).toBe(1);
+    expect(recoverSignatureResponseSigner).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("getSignatureResponseVerdicts", () => {
+  it("judges a repeated post once, as one candidate", async () => {
+    const { reader } = makeReader([IMPOSTER_RESPONSE, IMPOSTER_RESPONSE, GENUINE_RESPONSE]);
+    const { verified, verdicts } = await reader.getSignatureResponseVerdicts(
       REQUEST_ID_HEX,
       MPC_ADDRESS,
     );
-    expect(verified).toBeUndefined();
-    expect(verdicts).toEqual([]);
+    expect(verified).toEqual(GENUINE_RESPONSE);
+    expect(verdicts.map((verdict) => verdict.response)).toEqual([
+      IMPOSTER_RESPONSE,
+      GENUINE_RESPONSE,
+    ]);
+    expect(recoverSignatureResponseSigner).toHaveBeenCalledTimes(2);
   });
 
   it.each(VERDICT_CASES)(
     "resolves $name",
     async ({ posts, expectedSigner, verifiedPost, rejectedReasons }) => {
       const { reader } = makeReader(posts);
-      const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(
+      const { verified, verdicts } = await reader.getSignatureResponseVerdicts(
         REQUEST_ID_HEX,
         expectedSigner,
       );
@@ -486,6 +560,103 @@ describe("getVerifiedSignatureRespondedEvent", () => {
       });
     },
   );
+});
+
+describe("polling the same request again", () => {
+  // The responder's event log, growing between polls: the imposter's post
+  // sits in block 10, and the MPC's lands in block 12 after the first poll.
+  const IMPOSTER_EVENT = indexedEventsOf(
+    [signatureRespondedEventOf(REQUEST_ID, IMPOSTER_RESPONSE)],
+    10,
+  );
+  const BOTH_EVENTS = indexedEventsOf(
+    [
+      signatureRespondedEventOf(REQUEST_ID, IMPOSTER_RESPONSE),
+      respondBidirectionalEventOf(REQUEST_ID, RESPOND_BIDIRECTIONAL),
+      signatureRespondedEventOf(REQUEST_ID, GENUINE_RESPONSE),
+    ],
+    10,
+  );
+
+  it("resumes each scan at the block of the last event read and verifies only new posts", async () => {
+    let log = IMPOSTER_EVENT;
+    const scans: unknown[] = [];
+    const reader = new SignetRequestResponseReader({
+      requesterContractAddress: REQUESTER_ADDRESS,
+      requesterRequestsPath: [0],
+      responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
+      publicDataProvider: { queryContractState: () => Promise.resolve(requesterRead()) },
+      eventSource: {
+        streamSignetEvents: (_contractAddress, options) => {
+          scans.push(options);
+          const fromBlock = options?.fromBlock ?? 0;
+          return streamOf(log.filter((event) => event.blockHeight >= fromBlock));
+        },
+      },
+      responderEventsFromBlock: 5,
+    });
+
+    expect(
+      await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS),
+    ).toBeUndefined();
+    expect(
+      await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS),
+    ).toBeUndefined();
+    // The imposter's post is re-read by the second scan and judged by the first alone.
+    expect(recoverSignatureResponseSigner).toHaveBeenCalledTimes(1);
+
+    log = BOTH_EVENTS;
+    expect(await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS)).toEqual(
+      GENUINE_RESPONSE,
+    );
+    expect(recoverSignatureResponseSigner).toHaveBeenCalledTimes(2);
+    expect(scans).toStrictEqual([{ fromBlock: 5 }, { fromBlock: 10 }, { fromBlock: 10 }]);
+
+    // Both kinds were kept by the scans above, and this one resumes past them.
+    expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([
+      RESPOND_BIDIRECTIONAL,
+    ]);
+    expect(scans.at(-1)).toStrictEqual({ fromBlock: 12 });
+  });
+
+  it("scans the whole history first when no lower bound is configured", async () => {
+    const scans: unknown[] = [];
+    const reader = new SignetRequestResponseReader({
+      requesterContractAddress: REQUESTER_ADDRESS,
+      requesterRequestsPath: [0],
+      responderContractAddress: RESPONDER_CONTRACT_ADDRESS,
+      publicDataProvider: { queryContractState: () => Promise.resolve(requesterRead()) },
+      eventSource: {
+        streamSignetEvents: (_contractAddress, options) => {
+          scans.push(options);
+          return streamOf(IMPOSTER_EVENT);
+        },
+      },
+    });
+    await reader.getSignatureRespondedEvents(REQUEST_ID_HEX);
+    await reader.getSignatureRespondedEvents(REQUEST_ID_HEX);
+    expect(scans).toStrictEqual([undefined, { fromBlock: 10 }]);
+  });
+
+  it("returns an attested post already read without touching the event source", async () => {
+    const { reader, queries } = makeReader(
+      [],
+      [RESPOND_BIDIRECTIONAL, ATTESTED_RESPOND_BIDIRECTIONAL],
+    );
+    await reader.getVerifiedRespondBidirectionalEvent(
+      REQUEST_ID_HEX,
+      ATTESTED_OUTPUT,
+      MPC_RESPONSE_KEY,
+    );
+    expect(
+      await reader.getVerifiedRespondBidirectionalEvent(
+        REQUEST_ID_HEX,
+        ATTESTED_OUTPUT,
+        MPC_RESPONSE_KEY,
+      ),
+    ).toEqual(ATTESTED_RESPOND_BIDIRECTIONAL);
+    expect(queries.events).toBe(1);
+  });
 });
 
 describe("verification over decoded events already in hand", () => {
@@ -633,7 +804,12 @@ describe("getRespondBidirectionalEvents", () => {
       },
       eventSource: {
         streamSignetEvents: () =>
-          streamOf([undecodable, respondBidirectionalEventOf(REQUEST_ID, RESPOND_BIDIRECTIONAL)]),
+          streamOf(
+            indexedEventsOf([
+              undecodable,
+              respondBidirectionalEventOf(REQUEST_ID, RESPOND_BIDIRECTIONAL),
+            ]),
+          ),
       },
     });
     expect(await reader.getRespondBidirectionalEvents(REQUEST_ID_HEX)).toEqual([

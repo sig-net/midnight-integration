@@ -91,7 +91,7 @@ module Signet {
 
     // MPC Key Derivation Parameters.
     // Every key the MPC signs with is scoped by the requesting contract:
-    //   derivedSigningKey = f(mpcRootKey[keyVersion], caip2ChainId, sender, hex::encode(path))
+    //   derivedSigningKey = f(mpcRootKey, keyVersion, caip2ChainId, sender, hex::encode(path))
     // where caip2ChainId is the CAIP-2 id of the ORIGINATING chain (the Midnight
     // variant for requests made from Midnight contracts), not this record's target
     // executionDest. The path is 32 opaque bytes of the client contract's choosing (e.g. a
@@ -101,7 +101,7 @@ module Signet {
     // CRITICAL: the MPC renders the path as hex::encode(path) for key derivation (lowercase hex
     // of the full 32 bytes, no trimming, no 0x prefix). The sender is always part
     // of the derivation, so no contract can reach another contract's derived keys.
-    keyVersion: Uint<8>;        // MPC root-key version to derive from. Currently 1.
+    keyVersion: Uint<8>;        // Version of the MPC signing keys. Always 1.
     sender: ContractAddress;    // Address of the client contract that stores and notifies of this
                                 // request. Set with kernel.self().
     path: Bytes<32>;            // Key derivation path: 32 opaque bytes, client contract's choice.
@@ -176,7 +176,8 @@ module Signet {
     params: Bytes<64>,
     outputDeserializationSchema: Bytes<LenOutputDeserialization>,
   ): SignBidirectionalEventV1<TxParams, LenOutputDeserialization, 0> {
-    assert(keyVersion >= 1, "keyVersion must be >= 1");
+    // 1 is the latest version the MPC supports, and it drops a request naming any other.
+    assert(keyVersion == 1, "keyVersion must be 1");
     assert(signatureDest == MPCDestination.unused, "signatureDest must be unused");
     assert(params == default<Bytes<64>>, "params must be zero");
     // The protocol reserves the "midnight response key" path for the MPC's
@@ -342,7 +343,7 @@ module Signet {
   // mpcResponseKey is derived like request signing keys, with the path set to the
   // fixed "midnight response key" (a protocol string that enters the derivation
   // verbatim, unlike a request's hex-encoded 32 path bytes):
-  //  mpcResponseKey = f(mpcRootKey[keyVersion], caip2ChainId, sender, "midnight response key")
+  //  mpcResponseKey = f(mpcRootKey, keyVersion, caip2ChainId, sender, "midnight response key")
   //
   // The output travels off chain. The event carries everything the digest is
   // computed from, so its signature checks without the output
@@ -369,9 +370,9 @@ module Signet {
     // calculateAttestedOutputHashV1 of the serialised output, signed into the
     // digest.
     outputHash: Bytes<32>;
-    // The attestation digest the signature is over (calculateSignetAttestationDigestV1),
-    // for off-chain readers. The verifying circuits recompute it from the
-    // fields above and never read this copy.
+    // The attestation digest the signature is over (calculateSignetAttestationDigestV1).
+    // The verifying circuits recompute it from the fields above and refuse an
+    // event whose copy differs.
     digest: Bytes<32>;
     // The MPC's ECDSA signature over the attestation digest.
     signature: Signature;
@@ -418,8 +419,8 @@ module Signet {
 
   // Verifies a RespondBidirectionalEvent's signature against the MPC response
   // key, without the output: recomputes the digest from the event's request
-  // id, block height, output kind, output length and output hash. The event's
-  // digest field is never read. A true result proves the MPC attested this
+  // id, block height, output kind, output length and output hash, and
+  // requires the event's digest field to equal it. A true result proves the MPC attested this
   // outcome for this request, and an output the event carries only as its
   // length and hash: a client that consumes output bytes checks them against
   // that length and hash with verifyAttestedOutputV1, or verifies with
@@ -452,7 +453,7 @@ module Signet {
 
     // secp256k1EcdsaVerify aborts on the identity point, so the key check
     // must short-circuit before it.
-    return mpcResponseKey != default<Secp256k1Point> && secp256k1EcdsaVerify(
+    const signed = mpcResponseKey != default<Secp256k1Point> && secp256k1EcdsaVerify(
       digest,
       Secp256k1EcdsaSignature {
         r: respondBidirectionalEvent.signature.bigR.x as Secp256k1Scalar,
@@ -460,6 +461,7 @@ module Signet {
       },
       mpcResponseKey
     );
+    return respondBidirectionalEvent.digest == digest && signed;
   }
 
   // Whether serializedOutput is the output an attestation declares: its width
