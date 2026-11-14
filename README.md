@@ -755,6 +755,11 @@ From the root of the repository:
 # Run this from the repository root.
 yarn install
 
+# Everything CI's unit and rust jobs check, in CI's order: format check, compile, the
+# signet-responder MinoCrab crate, zk keys, lint, build, unit tests, the Rust serde crate.
+# Needs the compact toolchain and Rust (see Prerequisites).
+yarn verify
+
 ## --- Compile, build or test: All Packages (whole workspace, from repository root) ---
 
 # Quick compile: all packages (checks syntax and generates circuits)
@@ -801,6 +806,7 @@ yarn compile:signet-responder
 yarn compile:signet-responder:zk  # builds the MinoCrab zk bundle (needs Rust, see Prerequisites)
 yarn test:signet-responder        # requires 'yarn compile:signet-midnight' and 'yarn compile:signet-responder'
 yarn build:signet-responder       # requires 'yarn compile:signet-midnight' and 'yarn compile:signet-responder:zk'
+yarn test:signet-responder:minocrab  # the MinoCrab crate's parity tests: they compile the contract themselves, so any compile state works
 
 # The @sig-net/midnight SDK package:
 yarn compile:signet-midnight  # NOTE: no :zk option

@@ -49,10 +49,20 @@ Example applications built on these packages (e.g. the ERC20 vault) live in
 from npm.
 
 Run `yarn install` from the repo root — never from inside a member.
+To run ALL the offline verification, run `yarn verify` (`scripts/verify.sh`):
+CI's `unit` job calls the same script, so its order is CI's order. Do not
+assemble the sequence by hand.
 Run `yarn compile:zk` (a superset of `yarn compile`) once before `test` and
 `build`: signet-contract's and signet-responder's `build` refuse to run without
 their prover keys, and the test caller's unit tests read the signet contract's
-and its own verifier keys. The contract packages AND
+and its own verifier keys. The exception is the signet-responder MinoCrab
+crate (`yarn test:signet-responder:minocrab`, plain `cargo test` in
+`packages/signet-responder/minocrab`), which no root `test` runs: its parity
+tests compile `signet-responder.compact` with compactc `--skip-zk` into their
+own directory under `target/`, so they need the compact toolchain and
+`yarn install`, and never read `src/managed/`. They pass whether or not
+`yarn compile:zk` has run, so never point them back at `src/managed/`: the zk
+bundle rewrites it. The contract packages AND
 `packages/signet-midnight` typecheck against their generated `src/managed/`
 output (signet-midnight compiles its Compact module's pure circuits via
 `src/circuits.compact` — skip-zk only, no `compile:zk` script on purpose).
@@ -137,8 +147,9 @@ exception for that specific case.
   `tsconfig.build.json`, ship ONLY `dist/` (`files: ["dist"]`; `@sig-net/midnight` also ships `src/*.compact`), and swap their
   entry to it through `publishConfig.exports` at pack time — the monorepo itself
   still resolves their raw `src/index.ts`, never `dist/`.
-- **ALWAYS finish a change with `yarn format:check && yarn lint && yarn build &&
-  yarn test`** from the root (the lint and format scripts are root-only).
+- **ALWAYS finish a change with `yarn verify`** from the root: format check,
+  compile, the MinoCrab crate, zk keys, lint, build, the unit tests and the
+  Rust serde crate, in CI's order (the lint and format scripts are root-only).
   `tsx` and vitest execute without typechecking — "it runs" is NOT verification. If you add a new
   top-level TS directory to a member, add it to that member's tsconfig `include`
   in the same change; a file outside `include` passes silently and then breaks in
@@ -153,8 +164,8 @@ exception for that specific case.
   from the root already covers every member, so there are no
   `lint:<package-dir>` variants). Type-aware rules read the generated
   `src/managed/` types, so **`yarn lint` runs AFTER `yarn compile`**, the same
-  ordering `yarn build` needs — this is why CI's `unit` job runs format-check
-  before compile and lint after it.
+  ordering `yarn build` needs — this is why `scripts/verify.sh` runs
+  format-check before compile and lint after it.
 - **`eslint.config.js` turns NO rule off beyond `eslint-config-prettier`,
   which turns off the rules that would fight Prettier. Keep it that way.** The
   config has zero `"off"` entries: every finding is fixed in the code instead.

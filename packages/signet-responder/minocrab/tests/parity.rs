@@ -1,9 +1,9 @@
 //! The MinoCrab circuits against compactc's compile of
-//! `../src/signet-responder.compact` (run `yarn compile` first): both reject
-//! the calls the Compact source rejects. That they accept the MPC's call with
-//! identical public inputs is the bundle build's own gate (`tests/bundle.rs`).
+//! `../src/signet-responder.compact`: both reject the calls the Compact source
+//! rejects. That they accept the MPC's call with identical public inputs is
+//! the bundle build's own gate (`tests/bundle.rs`).
 
-use std::path::Path;
+mod common;
 
 use midnight_zkir_v3::IrSource;
 use minocrab_publisher::call::{
@@ -16,8 +16,7 @@ use signet_responder_zk::{
 
 /// (ours, compactc's) for one circuit.
 fn pair(circuit: &str) -> (IrSource, IrSource) {
-    let managed = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/managed");
-    let reference = compactc_circuits(&managed)
+    let reference = compactc_circuits(common::compactc_output())
         .unwrap_or_else(|e| panic!("{e:#}"))
         .into_iter()
         .find(|(name, _)| *name == circuit)
