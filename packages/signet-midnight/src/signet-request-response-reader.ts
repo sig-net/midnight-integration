@@ -295,8 +295,8 @@ interface RequestResponseScan {
  * Reader over one requester contract / responder contract pair. Construct once
  * per pair and reuse across polls: per request it caches the request record,
  * the distinct responses read so far with each one's verification outcome,
- * and the event cursor, so a poll reads only events emitted since the
- * previous one and no response is verified twice.
+ * and the event cursor, so a poll handles only events it has not seen yet
+ * and no response is verified twice.
  */
 export class SignetRequestResponseReader {
   private readonly config: SignetRequestResponseReaderConfig;
@@ -379,10 +379,10 @@ export class SignetRequestResponseReader {
   }
 
   /**
-   * Read the responder contract's events emitted since the previous scan of
-   * `requestId` and keep the posts of either response kind that declare it,
-   * skipping posts whose payload does not decode and repeats of a post
-   * already kept. The declared id is routing data only.
+   * Read the responder contract's events from the block where the previous
+   * scan of `requestId` stopped, skip the ones it already saw, and keep the
+   * posts of either response kind that declare it, skipping posts whose
+   * payload does not decode and repeats of a post already kept. The declared id is routing data only.
    *
    * @param requestId - The request id the kept posts must declare.
    * @returns The request's scan state, read up to the indexer's tip.
@@ -467,8 +467,8 @@ export class SignetRequestResponseReader {
    * verifies against the request: its signature recovers to `expectedSigner`
    * (compared case-insensitively) over the signing hash of the request's
    * transaction. The fast path of a poll loop: a valid response already read
-   * is returned without touching the event source, a scan reads only the
-   * events emitted since the previous one, and verification stops at the
+   * is returned without touching the event source, a scan handles only the
+   * events it has not seen yet, and verification stops at the
    * first valid post. {@link getSignatureResponseVerdicts} says why the
    * other posts were rejected.
    *
@@ -659,8 +659,8 @@ export class SignetRequestResponseReader {
    * runs in-circuit. The output must be the exact unpadded bytes the
    * attestation commits to, so a post that verifies here is the post that
    * proves at claim time. An attested post already read is judged without
-   * touching the event source, and a scan reads only the events emitted
-   * since the previous one.
+   * touching the event source, and a scan handles only the events it has
+   * not seen yet.
    *
    * @param requestId - The request id the posts must declare and the
    *   attestation must commit to.
