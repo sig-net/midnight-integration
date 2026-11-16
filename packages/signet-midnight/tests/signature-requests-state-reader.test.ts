@@ -93,6 +93,9 @@ const CAPACITIES = {
   accessList: [2, 1, 2],
 } as const;
 
+// SAMPLE_REQUEST's `sender`: the address the synthetic states are read from.
+const CONTRACT_ADDRESS = "01".repeat(32);
+
 // Real ids: the ledger files each record under its computed id, and
 // lookupSignetRequestAt recomputes it and drops mismatches.
 const SAMPLE_REQUEST_ID = calculateRequestId(SAMPLE_REQUEST);
@@ -314,6 +317,7 @@ describe("lookupSignetRequestAt", () => {
   it("returns the record for a member id at the right path", () => {
     const request = lookupSignetRequestAt(
       stateWithSecondIndex(),
+      CONTRACT_ADDRESS,
       [0],
       requestIdHex(SAMPLE_REQUEST_ID),
     );
@@ -323,6 +327,7 @@ describe("lookupSignetRequestAt", () => {
   it("resolves a member of the index at a non-zero field", () => {
     const request = lookupSignetRequestAt(
       stateWithSecondIndex(),
+      CONTRACT_ADDRESS,
       [2],
       requestIdHex(FIELD2_REQUEST_ID),
     );
@@ -342,31 +347,105 @@ describe("lookupSignetRequestAt", () => {
         ),
       ),
     );
-    expect(lookupSignetRequestAt(state, [0], requestIdHex(spoofedId))).toBeUndefined();
+    expect(
+      lookupSignetRequestAt(state, CONTRACT_ADDRESS, [0], requestIdHex(spoofedId)),
+    ).toBeUndefined();
+  });
+
+  it.each([
+    { name: "with a 0x prefix", contractAddress: `0x${CONTRACT_ADDRESS}` },
+    { name: "in upper case", contractAddress: "0X" + CONTRACT_ADDRESS.toUpperCase() },
+  ])("accepts the contract address $name", ({ contractAddress }) => {
+    expect(
+      lookupSignetRequestAt(
+        stateWithSecondIndex(),
+        contractAddress,
+        [0],
+        requestIdHex(SAMPLE_REQUEST_ID),
+      ),
+    ).toEqual(SAMPLE_REQUEST);
+  });
+
+  it("drops a record whose sender is not the contract the state was read from", () => {
+    // The record hashes to the id it is filed under: only the sender gate
+    // keeps a record naming another contract out.
+    expect(
+      lookupSignetRequestAt(
+        stateWithSecondIndex(),
+        "02".repeat(32),
+        [0],
+        requestIdHex(SAMPLE_REQUEST_ID),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("drops a record whose calldata word count overruns its capacity", () => {
+    // The cell decodes, and the id computation refuses the record.
+    const overrun: SignBidirectionalEvent = {
+      ...SAMPLE_REQUEST,
+      txParams: {
+        ...SAMPLE_REQUEST.txParams,
+        calldata: {
+          is_some: true,
+          value: { ...SAMPLE_REQUEST.txParams.calldata.value, noWords: 3n },
+        },
+      },
+    };
+    expect(() => calculateRequestId(overrun)).toThrow(/calldata noWords exceeds capacity/);
+    const id = bytes(32, 0x5c);
+    const state = StateValue.newArray().arrayPush(
+      StateValue.newMap(
+        new StateMap().insert(
+          { value: requestIdType.toValue(id), alignment: requestIdType.alignment() },
+          requestCell(overrun, CAPACITIES.sample),
+        ),
+      ),
+    );
+    expect(lookupSignetRequestAt(state, CONTRACT_ADDRESS, [0], requestIdHex(id))).toBeUndefined();
   });
 
   it("returns undefined for a non-member id", () => {
     expect(
-      lookupSignetRequestAt(stateWithSecondIndex(), [0], requestIdHex(bytes(32, 0x99))),
+      lookupSignetRequestAt(
+        stateWithSecondIndex(),
+        CONTRACT_ADDRESS,
+        [0],
+        requestIdHex(bytes(32, 0x99)),
+      ),
     ).toBeUndefined();
   });
 
   it("returns undefined for a member looked up at the wrong field", () => {
     // SAMPLE_REQUEST_ID lives at field 0, not field 2.
     expect(
-      lookupSignetRequestAt(stateWithSecondIndex(), [2], requestIdHex(SAMPLE_REQUEST_ID)),
+      lookupSignetRequestAt(
+        stateWithSecondIndex(),
+        CONTRACT_ADDRESS,
+        [2],
+        requestIdHex(SAMPLE_REQUEST_ID),
+      ),
     ).toBeUndefined();
   });
 
   it("returns undefined when the field is not a Map (e.g. the nonce cell)", () => {
     expect(
-      lookupSignetRequestAt(stateWithSecondIndex(), [1], requestIdHex(SAMPLE_REQUEST_ID)),
+      lookupSignetRequestAt(
+        stateWithSecondIndex(),
+        CONTRACT_ADDRESS,
+        [1],
+        requestIdHex(SAMPLE_REQUEST_ID),
+      ),
     ).toBeUndefined();
   });
 
   it("returns undefined when the path is out of range", () => {
     expect(
-      lookupSignetRequestAt(stateWithSecondIndex(), [9], requestIdHex(SAMPLE_REQUEST_ID)),
+      lookupSignetRequestAt(
+        stateWithSecondIndex(),
+        CONTRACT_ADDRESS,
+        [9],
+        requestIdHex(SAMPLE_REQUEST_ID),
+      ),
     ).toBeUndefined();
   });
 
@@ -375,7 +454,9 @@ describe("lookupSignetRequestAt", () => {
     const viaReader = readSignetRequestsLedgerFromState(raw, [0]).requestsIndex.get(
       requestIdHex(SAMPLE_REQUEST_ID),
     );
-    expect(lookupSignetRequestAt(raw, [0], requestIdHex(SAMPLE_REQUEST_ID))).toEqual(viaReader);
+    expect(
+      lookupSignetRequestAt(raw, CONTRACT_ADDRESS, [0], requestIdHex(SAMPLE_REQUEST_ID)),
+    ).toEqual(viaReader);
   });
 
   // EVM nonce 0 is mined so the computed id ends in 0x00 (guarded below).
@@ -402,9 +483,9 @@ describe("lookupSignetRequestAt", () => {
         ),
       ),
     );
-    expect(lookupSignetRequestAt(state, [0], requestIdHex(TRAILING_ZERO_REQUEST_ID))).toEqual(
-      TRAILING_ZERO_REQUEST,
-    );
+    expect(
+      lookupSignetRequestAt(state, CONTRACT_ADDRESS, [0], requestIdHex(TRAILING_ZERO_REQUEST_ID)),
+    ).toEqual(TRAILING_ZERO_REQUEST);
   });
 });
 
@@ -482,7 +563,7 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
         ),
       ),
     );
-    expect(lookupSignetRequestAt(state, [0], requestIdHex(id))).toBeUndefined();
+    expect(lookupSignetRequestAt(state, CONTRACT_ADDRESS, [0], requestIdHex(id))).toBeUndefined();
   });
 
   it("skips an index entry whose value is not a cell", () => {

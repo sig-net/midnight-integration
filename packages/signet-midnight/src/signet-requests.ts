@@ -111,7 +111,7 @@ export const MPCDestination = {
  * schemas and the reserved MPC parameters stay out.
  */
 export interface RequestIdPreimage {
-  /** MPC root-key version to derive from (>= 1). */
+  /** MPC signing key version (1). */
   keyVersion: bigint;
   /** Address of the client contract that stores this event (`kernel.self()`). */
   sender: ContractAddress;
@@ -137,7 +137,7 @@ export interface RequestIdPreimage {
  * contract-declared byte widths in their array lengths.
  */
 export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
-  /** MPC root-key version to derive from (>= 1). */
+  /** MPC signing key version (1). */
   keyVersion: bigint;
   /** Address of the client contract that stores this event (`kernel.self()`). */
   sender: ContractAddress;

@@ -8,6 +8,7 @@
 
 import {
   bigintToBytes32,
+  type IndexedSignetMiscEvent,
   type RespondBidirectionalEvent,
   type SignatureRespondedEvent,
   type SignBidirectionalNotificationRecord,
@@ -133,4 +134,28 @@ export function streamOf<T>(events: readonly T[]): AsyncIterable<T> {
       return { next: () => Promise.resolve(iterator.next()) };
     },
   };
+}
+
+/**
+ * Dress fixture events as the indexer serves them: event `i` (0-based) gets
+ * id `i + 1` and sits alone in block `firstBlockHeight + i`.
+ *
+ * @param events - The events, in emission order.
+ * @param firstBlockHeight - Height of the block holding the first event.
+ * @returns The events with their indexer cursor and block.
+ */
+export function indexedEventsOf(
+  events: readonly SignetMiscEvent[],
+  firstBlockHeight = 1,
+): IndexedSignetMiscEvent[] {
+  return events.map((event, position) => ({
+    ...event,
+    id: position + 1,
+    maxId: events.length,
+    transactionId: position + 1,
+    transactionHash: (position + 1).toString(16).padStart(64, "0"),
+    blockHeight: firstBlockHeight + position,
+    blockHash: (firstBlockHeight + position).toString(16).padStart(64, "0"),
+    blockTimestamp: new Date(0),
+  }));
 }

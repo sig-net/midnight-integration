@@ -3,7 +3,7 @@
 // This belongs in github.com/sig-net/signet.js, kept here until upstreamed.
 //
 // v2.0.0 (COLON-separated) is the only scheme this SDK derives: the Compact
-// contracts assert `keyVersion >= 1`, which selects v2.
+// contracts assert `keyVersion == 1`, which selects v2.
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { computeAddress, keccak256, toUtf8Bytes } from "ethers";
@@ -47,8 +47,8 @@ export const MIDNIGHT_CAIP2_ID = "midnight:mainnet";
 export const MIDNIGHT_RESPOND_BIDIRECTIONAL_PATH = "midnight response key";
 
 /**
- * The two fields of a request record that, with the root key of its
- * `keyVersion`, select its request signing key. The record's tx-params
+ * The two fields of a request record that, with the MPC root key, select
+ * its request signing key. The record's tx-params
  * decomposition plays no part, so a record over any decomposition satisfies
  * it.
  */
@@ -136,9 +136,9 @@ export function deriveEvmAddress(
  * record's `sender`, and the path is the lowercase hex of its FULL 32
  * `path` bytes.
  *
- * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key of the
- *   record's `keyVersion`, in any spelling `parseSecp256k1PublicKey`
- *   accepts (SEC1 hex or NEAR `secp256k1:<base58>`).
+ * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key, in any
+ *   spelling `parseSecp256k1PublicKey` accepts (SEC1 hex or NEAR
+ *   `secp256k1:<base58>`).
  * @param request - The on-ledger request record, or its `sender` and `path`.
  * @returns The request signing public key as a Compact-runtime
  *   `Secp256k1Point`.
@@ -160,9 +160,9 @@ export function deriveSignBidirectionalEventSigningKey(
  * signature response (SignatureRespondedEvent) to that request must recover
  * to.
  *
- * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key of the
- *   record's `keyVersion`, in any spelling `parseSecp256k1PublicKey`
- *   accepts (SEC1 hex or NEAR `secp256k1:<base58>`).
+ * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key, in any
+ *   spelling `parseSecp256k1PublicKey` accepts (SEC1 hex or NEAR
+ *   `secp256k1:<base58>`).
  * @param request - The on-ledger request record, or its `sender` and `path`.
  * @returns The derived EVM address as a 0x-prefixed EIP-55 checksummed string.
  */
