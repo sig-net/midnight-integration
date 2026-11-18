@@ -276,7 +276,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
         expect(requestId).toBeDefined();
         const reader = session.responseReader(TRON_REQUESTS_INDEX_FIELD);
         signedTransaction = await pollUntilDefined(
-          () => reader.getSignedTronTransaction(requestId, derivedAccount().base58),
+          () => reader.getSignedTronTransaction(requestId, requireEnv("MPC_SECP256K1_PUBKEY")),
           3 * MINUTE,
           1000,
         );

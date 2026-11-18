@@ -465,7 +465,7 @@ export function signBidirectionalEventToUnsignedEvmTransaction(
  * signed (see {@link signBidirectionalEventToUnsignedEvmTransaction}) and
  * attach the signature. Does NOT check that the signature recovers to the
  * requester's derived address: the response events are unauthenticated, so
- * verify first with `verifySignatureRespondedEvent`.
+ * verify first with `verifyEvmSignatureRespondedEvent`.
  *
  * @param request - The on-ledger request record.
  * @param response - The posted signature record answering it.
