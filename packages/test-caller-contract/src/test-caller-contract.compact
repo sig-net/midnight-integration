@@ -70,7 +70,7 @@ export ledger checkAndDoubleAmounts: Map<RequestId, Uint<128>>;
 // transaction took its nonce).
 export ledger failureVerdicts: Map<RequestId, OutputKind>;
 
-export ledger tronSignBidirectionalEventMap: SignBidirectionalEventMapV1<TronTxParams<1>, 0>;
+export ledger tronSignBidirectionalEventMap: SignBidirectionalEventMapV1<TronTxParams<1>, 34>;
 
 export ledger tronVerdicts: Map<RequestId, OutputKind>;
 
@@ -106,7 +106,8 @@ circuit storeTronRequest(
     })
   };
 
-  const request = constructSignBidirectionalEventV1<TronTxParams<1>, 0>(
+  const outputSchema = "[{\"name\":\"success\",\"type\":\"bool\"}]" as Bytes<34>;
+  const request = constructSignBidirectionalEventV1<TronTxParams<1>, 34>(
     keyVersion,
     kernel.self(),
     pad(32, "caller-path"),
@@ -116,9 +117,9 @@ circuit storeTronRequest(
     tronCaip2Id(),
     MPCDestination.unused,
     pad(64, ""),
-    default<Bytes<0>>
+    outputSchema
   );
-  const requestId = disclose(calculateTronRequestIdV1<1, 0>(request));
+  const requestId = disclose(calculateTronRequestIdV1<1, 34>(request));
 
   assert(!tronSignBidirectionalEventMap.member(requestId), "Request already exists");
   tronSignBidirectionalEventMap.insert(requestId, disclose(request));
@@ -582,6 +583,38 @@ export circuit submitTronRevertIfRequest(
 
 export circuit verifyTronResponse(
   respondBidirectionalEvent: RespondBidirectionalEventV1,
+  serializedOutput: Bytes<1>
+): [] {
+  const disclosedRequestId = disclose(respondBidirectionalEvent.requestId);
+
+  assert(
+    initialised != 0,
+    "Not initialised: no MPC response key stored"
+  );
+
+  assert(
+    verifyRespondBidirectionalEventV1<1>(
+      serializedOutput,
+      disclose(respondBidirectionalEvent),
+      mpcResponseKey
+    ),
+    "Invalid attestation or output"
+  );
+  assert(
+    respondBidirectionalEvent.outputKind == OutputKind.executed,
+    "Attestation is not an execution"
+  );
+
+  const response = deserialize<BoolResponse, 1>(serializedOutput);
+  assert(response.success, "Foreign call reported failure");
+
+  assert(tronSignBidirectionalEventMap.member(disclosedRequestId), "Request not found");
+  tronSignBidirectionalEventMap.remove(disclosedRequestId);
+  tronVerdicts.insert(disclosedRequestId, OutputKind.executed);
+}
+
+export circuit verifyTronFailureResponse(
+  respondBidirectionalEvent: RespondBidirectionalEventV1,
   serializedOutput: Bytes<0>
 ): [] {
   const disclosedRequestId = disclose(respondBidirectionalEvent.requestId);
@@ -599,8 +632,13 @@ export circuit verifyTronResponse(
     ),
     "Invalid attestation or output"
   );
+  const outputKind = disclose(respondBidirectionalEvent.outputKind);
+  assert(
+    outputKind == OutputKind.failed || outputKind == OutputKind.unviable,
+    "Attestation is not a failure"
+  );
 
   assert(tronSignBidirectionalEventMap.member(disclosedRequestId), "Request not found");
   tronSignBidirectionalEventMap.remove(disclosedRequestId);
-  tronVerdicts.insert(disclosedRequestId, disclose(respondBidirectionalEvent.outputKind));
+  tronVerdicts.insert(disclosedRequestId, outputKind);
 }

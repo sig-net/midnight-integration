@@ -562,6 +562,120 @@ export function evmTraceOutputFromCallFrame(frame: JsonValue): EvmTraceOutput {
   return { kind: EvmTraceOutputKind.Output, returnData: ethers.getBytes(`0x${digits}`) };
 }
 
+const TRON_SUCCESS_RESULTS = new Set(["SUCESS", "SUCCESS"]);
+
+const TRON_FAILURE_RESULTS = new Set([
+  "FAILED",
+  "REVERT",
+  "BAD_JUMP_DESTINATION",
+  "OUT_OF_MEMORY",
+  "PRECOMPILED_CONTRACT",
+  "STACK_TOO_SMALL",
+  "STACK_TOO_LARGE",
+  "ILLEGAL_OPERATION",
+  "STACK_OVERFLOW",
+  "OUT_OF_ENERGY",
+  "OUT_OF_TIME",
+  "JVM_STACK_OVER_FLOW",
+  "UNKNOWN",
+  "TRANSFER_FAILED",
+  "INVALID_CODE",
+]);
+
+/**
+ * Decode a Tron hex string, `0x` optional, as the MPC's `decode_bytes`.
+ *
+ * @param value - The hex string.
+ * @param label - What the string is, for the error.
+ * @returns The bytes.
+ * @throws {Error} If the string is not even-length hex.
+ */
+function tronHexBytes(value: string, label: string): Uint8Array {
+  const digits = value.startsWith("0x") ? value.slice(2) : value;
+  if (!/^[0-9a-fA-F]*$/.test(digits) || digits.length % 2 !== 0) {
+    throw new Error(`${label} is not hex: "${value}"`);
+  }
+  return ethers.getBytes(`0x${digits}`);
+}
+
+/**
+ * The {@link EvmTraceOutput} of a solidified Tron receipt, the JSON body of
+ * `/walletsolidity/gettransactioninfobyid`, read exactly as the MPC reads it
+ * (`TronReceipt::execution_outcome` in its `chain-tron/src/types.rs`). The
+ * Tron twin of {@link evmTraceOutputFromCallFrame}: pass the result to
+ * {@link executedEvmRespondOutput} with the request's output schema and
+ * `isEvmContractCall(assembleCalldata(request.txParams.calldata))` to rebuild
+ * the exact output the MPC attests for the executed call.
+ *
+ * - The receipt must be a JSON object with a string `id` (a pending
+ *   transaction answers `{}`).
+ * - Its verdict is the top-level `result`, else `receipt.result`: `SUCCESS`
+ *   (or Tron's `SUCESS`) reads on; a failure member (`REVERT`,
+ *   `OUT_OF_ENERGY`, ...) refuses, as the MPC attests `failed` over an empty
+ *   output instead; any other value refuses as unclassifiable.
+ * - Every `contractResult` element must be hex (`0x` optional). The first
+ *   element is the top call's return data, {@link EvmTraceOutputKind.Output}
+ *   (an empty string is empty return data). An absent or empty
+ *   `contractResult` is {@link EvmTraceOutputKind.NoReturnData}.
+ *
+ * @param receipt - The JSON body of `/walletsolidity/gettransactioninfobyid`.
+ * @returns The receipt's return data, for {@link executedEvmRespondOutput}.
+ * @throws {Error} If the receipt is not an object, has no `id`, reports a
+ *   failed or unclassifiable result, or carries a `contractResult` that is
+ *   not an array of hex strings.
+ */
+export function evmTraceOutputFromTronReceipt(receipt: JsonValue): EvmTraceOutput {
+  if (!isJsonObject(receipt)) {
+    throw new Error(`gettransactioninfobyid result is not a receipt: ${JSON.stringify(receipt)}`);
+  }
+  if (ownString(receipt, "id") === undefined) {
+    throw new Error(
+      `gettransactioninfobyid result has no receipt \`id\` (still pending?): ${JSON.stringify(receipt)}`,
+    );
+  }
+  const nested = Object.hasOwn(receipt, "receipt") ? receipt.receipt : undefined;
+  const result =
+    ownString(receipt, "result") ??
+    (nested !== undefined && isJsonObject(nested) ? ownString(nested, "result") : undefined);
+  if (result === undefined) {
+    throw new Error("gettransactioninfobyid receipt carries no execution result");
+  }
+  if (TRON_FAILURE_RESULTS.has(result)) {
+    const resMessage = ownString(receipt, "resMessage");
+    throw new Error(
+      resMessage !== undefined && resMessage !== ""
+        ? `gettransactioninfobyid reports the call failed: ${result} (${resMessage})`
+        : `gettransactioninfobyid reports the call failed: ${result}`,
+    );
+  }
+  if (!TRON_SUCCESS_RESULTS.has(result)) {
+    throw new Error(`gettransactioninfobyid receipt has an unclassifiable result "${result}"`);
+  }
+  const contractResult = Object.hasOwn(receipt, "contractResult")
+    ? receipt.contractResult
+    : undefined;
+  if (contractResult === undefined) {
+    return { kind: EvmTraceOutputKind.NoReturnData };
+  }
+  if (!Array.isArray(contractResult)) {
+    throw new Error(
+      `gettransactioninfobyid contractResult is not an array: ${JSON.stringify(contractResult)}`,
+    );
+  }
+  const elements = (contractResult as readonly JsonValue[]).map((element, index) => {
+    if (typeof element !== "string") {
+      throw new Error(
+        `gettransactioninfobyid contractResult[${String(index)}] is not a string: ${JSON.stringify(element)}`,
+      );
+    }
+    return tronHexBytes(element, `gettransactioninfobyid contractResult[${String(index)}]`);
+  });
+  const [returnData] = elements;
+  return returnData === undefined
+    ? { kind: EvmTraceOutputKind.NoReturnData }
+    : { kind: EvmTraceOutputKind.Output, returnData };
+}
+
 // ===========================================================================
 // Helpers from here down. Apart from canonicalSchemaText, everything below
 // serves the exports above.

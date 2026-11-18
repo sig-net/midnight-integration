@@ -10,6 +10,7 @@ import {
   type EvmSchemaInput,
   type EvmTraceOutput,
   evmTraceOutputFromCallFrame,
+  evmTraceOutputFromTronReceipt,
   EvmTraceOutputKind,
   executedEvmRespondOutput,
   isEvmContractCall,
@@ -531,6 +532,157 @@ describe("evmTraceOutputFromCallFrame: refusals", () => {
 
   it.each(cases)("$name", ({ frame, error }) => {
     expect(() => evmTraceOutputFromCallFrame(frame)).toThrow(error);
+  });
+});
+
+// ===========================================================================
+// evmTraceOutputFromTronReceipt
+// ===========================================================================
+
+const TRON_TXID = "24157817b0db1a156e7244d4417cbd7303f32b06449fcbad739f124b6b8e4c82";
+const ABI_FALSE_WORD = "00".repeat(32);
+const ABI_TRUE_WORD = "00".repeat(31) + "01";
+
+describe("evmTraceOutputFromTronReceipt: the MPC's reading of a solidified receipt", () => {
+  const cases: { name: string; receipt: JsonValue; expected: EvmTraceOutput }[] = [
+    {
+      name: "a success's contractResult[0] is its return data [success_body_with_return]",
+      receipt: {
+        id: TRON_TXID,
+        blockNumber: 71896097,
+        fee: 472800,
+        contractResult: [ABI_FALSE_WORD],
+        receipt: { result: "SUCCESS" },
+      },
+      expected: { kind: EvmTraceOutputKind.Output, returnData: new Uint8Array(32) },
+    },
+    {
+      name: "a success without contractResult has no return data [success_body]",
+      receipt: {
+        id: TRON_TXID,
+        blockNumber: 71896097,
+        fee: 472800,
+        receipt: { result: "SUCCESS" },
+      },
+      expected: { kind: EvmTraceOutputKind.NoReturnData },
+    },
+    {
+      name: "an empty contractResult array has no return data",
+      receipt: { id: TRON_TXID, contractResult: [], receipt: { result: "SUCCESS" } },
+      expected: { kind: EvmTraceOutputKind.NoReturnData },
+    },
+    {
+      name: "an empty contractResult element is empty return data",
+      receipt: { id: TRON_TXID, contractResult: [""], receipt: { result: "SUCCESS" } },
+      expected: { kind: EvmTraceOutputKind.Output, returnData: new Uint8Array(0) },
+    },
+    {
+      name: "only the first element is the top call's return data",
+      receipt: {
+        id: TRON_TXID,
+        contractResult: [ABI_TRUE_WORD, ABI_FALSE_WORD],
+        receipt: { result: "SUCCESS" },
+      },
+      expected: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: new Uint8Array([...new Uint8Array(31), 1]),
+      },
+    },
+    {
+      name: "a 0x prefix is tolerated",
+      receipt: { id: TRON_TXID, contractResult: ["0x01"], receipt: { result: "SUCCESS" } },
+      expected: { kind: EvmTraceOutputKind.Output, returnData: new Uint8Array([1]) },
+    },
+    {
+      name: "the top-level SUCESS spelling is a success",
+      receipt: { id: TRON_TXID, result: "SUCESS", contractResult: [ABI_TRUE_WORD] },
+      expected: {
+        kind: EvmTraceOutputKind.Output,
+        returnData: new Uint8Array([...new Uint8Array(31), 1]),
+      },
+    },
+  ];
+
+  it.each(cases)("$name", ({ receipt, expected }) => {
+    expect(evmTraceOutputFromTronReceipt(receipt)).toEqual(expected);
+  });
+
+  it("rebuilds the attested output of a USDT-style transfer that returned false", () => {
+    const schema = nulPadded(BOOL_ABI_SCHEMA, 34);
+    const trace = evmTraceOutputFromTronReceipt({
+      id: TRON_TXID,
+      contractResult: [ABI_FALSE_WORD],
+      receipt: { result: "SUCCESS" },
+    });
+    expect(executedEvmRespondOutput(schema, true, trace)).toEqual(new Uint8Array([0]));
+    expect(() =>
+      executedEvmRespondOutput(
+        schema,
+        true,
+        evmTraceOutputFromTronReceipt({ id: TRON_TXID, receipt: { result: "SUCCESS" } }),
+      ),
+    ).toThrow(/returned no data/);
+    expect(() => executedEvmRespondOutput(new Uint8Array(0), true, trace)).toThrow(
+      /declares no return values/,
+    );
+  });
+});
+
+describe("evmTraceOutputFromTronReceipt: refusals", () => {
+  const cases: { name: string; receipt: JsonValue; error: RegExp }[] = [
+    { name: "a null body", receipt: null, error: /is not a receipt/ },
+    { name: "an array body", receipt: [], error: /is not a receipt/ },
+    { name: "a pending transaction", receipt: {}, error: /no receipt `id`/ },
+    {
+      name: "a REVERT [failure_body]",
+      receipt: {
+        id: TRON_TXID,
+        blockNumber: 71896097,
+        fee: 472800,
+        result: "FAILED",
+        receipt: { result: "REVERT" },
+      },
+      error: /call failed: FAILED$/,
+    },
+    {
+      name: "a REVERT carried by receipt.result alone, with its message",
+      receipt: { id: TRON_TXID, resMessage: "boom", receipt: { result: "REVERT" } },
+      error: /call failed: REVERT \(boom\)/,
+    },
+    {
+      name: "an unset result",
+      receipt: { id: TRON_TXID, receipt: { result: "DEFAULT" } },
+      error: /unclassifiable result "DEFAULT"/,
+    },
+    {
+      name: "an unknown result [unclassifiable_body]",
+      receipt: { id: TRON_TXID, receipt: { result: "WEIRD" } },
+      error: /unclassifiable result "WEIRD"/,
+    },
+    { name: "no result at all", receipt: { id: TRON_TXID }, error: /no execution result/ },
+    {
+      name: "a malformed contractResult element",
+      receipt: { id: TRON_TXID, contractResult: ["zz"], receipt: { result: "SUCCESS" } },
+      error: /contractResult\[0\] is not hex/,
+    },
+    {
+      name: "a malformed later element",
+      receipt: {
+        id: TRON_TXID,
+        contractResult: [ABI_TRUE_WORD, "0"],
+        receipt: { result: "SUCCESS" },
+      },
+      error: /contractResult\[1\] is not hex/,
+    },
+    {
+      name: "a non-array contractResult",
+      receipt: { id: TRON_TXID, contractResult: ABI_TRUE_WORD, receipt: { result: "SUCCESS" } },
+      error: /is not an array/,
+    },
+  ];
+
+  it.each(cases)("$name", ({ receipt, error }) => {
+    expect(() => evmTraceOutputFromTronReceipt(receipt)).toThrow(error);
   });
 });
 

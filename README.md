@@ -88,6 +88,7 @@ The recovery method employed for each supported chain:
 | Execution chain | Recovery method | SDK helper |
 | --- | --- | --- |
 | Ethereum | `debug_traceTransaction` RPC call (callTracer, top call frame) | [`evmTraceOutputFromCallFrame`](./packages/signet-midnight/src/abi-serde.ts) |
+| Tron | `/walletsolidity/gettransactioninfobyid` (the receipt's `contractResult[0]`) | [`evmTraceOutputFromTronReceipt`](./packages/signet-midnight/src/abi-serde.ts) |
 
 The MPC deserialises the recovered output using the `outputDeserializationSchema` the client contract provided in its `SignBidirectionalEventV1`. The encoding that schema describes is also chain-specific, so the schema must be written for the chain the transaction executes on.
 
@@ -96,6 +97,7 @@ The encoding employed for each supported chain:
 | Execution chain | Encoding |
 | --- | --- |
 | Ethereum | ABI |
+| Tron | ABI |
 
 ### Serialisation for attestation
 
@@ -821,7 +823,7 @@ yarn build:signet-midnight    # requires 'yarn compile:signet-midnight'
 
 ## Integration Tests
 
-Three end to end suites run against the local docker stack. The generic suite drives the smallest possible client (the test caller [contract](./packages/test-caller-contract/src/test-caller-contract.compact)) through the protocol: submit a signature request, get discovered via the signet signer's notification events, receive the MPC signature and check it against the caller's derived account, then verify in-circuit a respond-bidirectional attestation that the suite signs itself with the caller's response key, derived from the setup's MPC root key. The real-EVM suite carries on past signing: it broadcasts the signed call to the local anvil chain, lets the fakenet observe the mined execution and post its attestation, recomputes the attested bytes from the mined call's trace, checks the fakenet's output cache holds the same bytes, picks the attestation that verifies over them, and settles it in-circuit, for an executed call, a reverted one (`failed`) and a request whose nonce another transaction took (`unviable`). The Tron suite does the same on a local Tron chain (TRE): it broadcasts the MPC-signed `TriggerSmartContract` call, lets the fakenet watch the solidified receipt, and settles the attested verdict in-circuit for an executed call, a reverted one (`failed`) and a request that expired unbroadcast (`unviable`). A Tron request carries no output schema (the MPC refuses one), so the Tron suite checks verdicts only, never return data. Get them running locally:
+Three end to end suites run against the local docker stack. The generic suite drives the smallest possible client (the test caller [contract](./packages/test-caller-contract/src/test-caller-contract.compact)) through the protocol: submit a signature request, get discovered via the signet signer's notification events, receive the MPC signature and check it against the caller's derived account, then verify in-circuit a respond-bidirectional attestation that the suite signs itself with the caller's response key, derived from the setup's MPC root key. The real-EVM suite carries on past signing: it broadcasts the signed call to the local anvil chain, lets the fakenet observe the mined execution and post its attestation, recomputes the attested bytes from the mined call's trace, checks the fakenet's output cache holds the same bytes, picks the attestation that verifies over them, and settles it in-circuit, for an executed call, a reverted one (`failed`) and a request whose nonce another transaction took (`unviable`). The Tron suite does the same on a local Tron chain (TRE): it broadcasts the MPC-signed `TriggerSmartContract` call, lets the fakenet watch the solidified receipt, and settles the attested verdict in-circuit for an executed call, a reverted one (`failed`) and a request that expired unbroadcast (`unviable`). A Tron request carries the same bool output schema as the EVM requests, so the Tron suite also rebuilds the attested byte from the receipt's `contractResult` with `evmTraceOutputFromTronReceipt`. Get them running locally:
 
 1. Ensure you have all of the [prerequisites](#prerequisites) installed.
 2. From the repository root, install workspace dependencies, select the required Compact toolchain explicitly, and compile:
