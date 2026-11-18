@@ -1148,7 +1148,7 @@ describe("Tron submit circuits round-trip", () => {
   ];
 
   it.each(CASES)(
-    "$name stores the caller-supplied target, word and window as a width-0 Tron request",
+    "$name stores the caller-supplied target, word and window as a bool-schema Tron request",
     async ({ submit, expectedWord, selector }) => {
       const { contract, ctx } = await deployContract();
 
@@ -1175,7 +1175,7 @@ describe("Tron submit circuits round-trip", () => {
       expect(record.sender.bytes).toEqual(CALLER_ADDRESS_BYTES);
       expect(record.path).toEqual(EXPECTED_PATH);
       expect(record.executionDest).toEqual(EXPECTED_TRON_CAIP2);
-      expect(record.outputDeserializationSchema).toEqual(new Uint8Array(0));
+      expect(record.outputDeserializationSchema).toEqual(EXPECTED_SCHEMA);
       expect(record.respondSerializationSchema).toEqual(EXPECTED_RESPOND_SCHEMA);
 
       expect(idHex).toBe(requestIdHex(calculateRequestId(record)));
@@ -1276,18 +1276,42 @@ describe("verifyTronResponse", () => {
     return { contract, ctx: next, requestId: requestIdBytes(onlyRequestId(index)) };
   };
 
-  it.each([OutputKind.executed, OutputKind.failed, OutputKind.unviable])(
-    "a genuine kind-%s attestation verifies at width 0, consumes the request and records the verdict",
+  it("a genuine executed attestation of true verifies at width 1, consumes the request and records the verdict", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+
+    const next = (await contract.circuits.verifyTronResponse(ctx, event, OUTPUT_SUCCESS)).context;
+
+    const state = ledger(next.callContext.currentQueryContext.state);
+    expect(state.tronSignBidirectionalEventMap.isEmpty()).toBe(true);
+    expect(state.tronVerdicts.lookup(requestId)).toBe(OutputKind.executed);
+    expect(state.failureVerdicts.isEmpty()).toBe(true);
+  });
+
+  it("rejects a genuine executed attestation of false", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_FAILURE);
+    await expect(contract.circuits.verifyTronResponse(ctx, event, OUTPUT_FAILURE)).rejects.toThrow(
+      /Foreign call reported failure/,
+    );
+  });
+
+  it("rejects a tampered output: the attested true relabelled false", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    await expect(contract.circuits.verifyTronResponse(ctx, event, OUTPUT_FAILURE)).rejects.toThrow(
+      /Invalid attestation or output/,
+    );
+  });
+
+  it.each([OutputKind.failed, OutputKind.unviable])(
+    "rejects a genuine kind-%s attestation at width 1",
     async (outputKind) => {
       const { contract, ctx, requestId } = await tronRequestSubmitted();
-      const event = respond(MPC_RESPONSE_SECRET, requestId, outputKind, OUTPUT_EMPTY);
-
-      const next = (await contract.circuits.verifyTronResponse(ctx, event, OUTPUT_EMPTY)).context;
-
-      const state = ledger(next.callContext.currentQueryContext.state);
-      expect(state.tronSignBidirectionalEventMap.isEmpty()).toBe(true);
-      expect(state.tronVerdicts.lookup(requestId)).toBe(outputKind);
-      expect(state.failureVerdicts.isEmpty()).toBe(true);
+      const event = respond(MPC_RESPONSE_SECRET, requestId, outputKind, OUTPUT_SUCCESS);
+      await expect(
+        contract.circuits.verifyTronResponse(ctx, event, OUTPUT_SUCCESS),
+      ).rejects.toThrow(/Attestation is not an execution/);
     },
   );
 
@@ -1309,46 +1333,125 @@ describe("verifyTronResponse", () => {
         ),
       ),
     );
-    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_EMPTY);
-    await expect(contract.circuits.verifyTronResponse(next, event, OUTPUT_EMPTY)).rejects.toThrow(
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    await expect(contract.circuits.verifyTronResponse(next, event, OUTPUT_SUCCESS)).rejects.toThrow(
       /Not initialised/,
     );
   });
 
   it("rejects an imposter's signature", async () => {
     const { contract, ctx, requestId } = await tronRequestSubmitted();
-    const event = respond(IMPOSTER_SECRET, requestId, OutputKind.executed, OUTPUT_EMPTY);
-    await expect(contract.circuits.verifyTronResponse(ctx, event, OUTPUT_EMPTY)).rejects.toThrow(
+    const event = respond(IMPOSTER_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    await expect(contract.circuits.verifyTronResponse(ctx, event, OUTPUT_SUCCESS)).rejects.toThrow(
       /Invalid attestation or output/,
     );
   });
 
-  it("rejects a tampered kind: a failed attestation relabelled executed", async () => {
+  it("rejects a cross-width replay: a width-0 attestation cannot verify at width 1", async () => {
     const { contract, ctx, requestId } = await tronRequestSubmitted();
-    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
-    await expect(
-      contract.circuits.verifyTronResponse(
-        ctx,
-        { ...event, outputKind: OutputKind.executed },
-        OUTPUT_EMPTY,
-      ),
-    ).rejects.toThrow(/Invalid attestation or output/);
-  });
-
-  it("rejects a cross-width replay: a 1-byte-output attestation cannot verify at width 0", async () => {
-    const { contract, ctx, requestId } = await tronRequestSubmitted();
-    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
-    await expect(contract.circuits.verifyTronResponse(ctx, event, OUTPUT_EMPTY)).rejects.toThrow(
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_EMPTY);
+    await expect(contract.circuits.verifyTronResponse(ctx, event, OUTPUT_SUCCESS)).rejects.toThrow(
       /Invalid attestation or output/,
     );
   });
 
   it("rejects a genuinely attested EVM request: it settles Tron requests only", async () => {
     const { contract, ctx, requestId } = await requestSubmitted();
-    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
-    await expect(contract.circuits.verifyTronResponse(ctx, event, OUTPUT_EMPTY)).rejects.toThrow(
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    await expect(contract.circuits.verifyTronResponse(ctx, event, OUTPUT_SUCCESS)).rejects.toThrow(
       /Request not found/,
     );
+  });
+
+  it("verifyResponse does not settle a Tron request", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    await expect(contract.circuits.verifyResponse(ctx, event, OUTPUT_SUCCESS)).rejects.toThrow(
+      /Request not found/,
+    );
+  });
+
+  it("a second settle of the SAME request rejects (the first consumed it)", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_SUCCESS);
+    const next = (await contract.circuits.verifyTronResponse(ctx, event, OUTPUT_SUCCESS)).context;
+
+    await expect(contract.circuits.verifyTronResponse(next, event, OUTPUT_SUCCESS)).rejects.toThrow(
+      /Request not found/,
+    );
+  });
+});
+
+describe("verifyTronFailureResponse", () => {
+  const OUTPUT_EMPTY = new Uint8Array(0);
+
+  const tronRequestSubmitted = async () => {
+    const { contract, ctx } = await deployContract();
+    const next = (
+      await contract.circuits.submitTronRevertIfRequest(
+        ctx,
+        KEY_VERSION,
+        TRON_TARGET,
+        true,
+        TRON_WINDOW,
+      )
+    ).context;
+    const index = toSignBidirectionalEventIndex(
+      ledger(next.callContext.currentQueryContext.state).tronSignBidirectionalEventMap,
+    );
+    return { contract, ctx: next, requestId: requestIdBytes(onlyRequestId(index)) };
+  };
+
+  it.each([OutputKind.failed, OutputKind.unviable])(
+    "a genuine kind-%s attestation verifies at width 0, consumes the request and records the verdict",
+    async (outputKind) => {
+      const { contract, ctx, requestId } = await tronRequestSubmitted();
+      const event = respond(MPC_RESPONSE_SECRET, requestId, outputKind, OUTPUT_EMPTY);
+
+      const next = (await contract.circuits.verifyTronFailureResponse(ctx, event, OUTPUT_EMPTY))
+        .context;
+
+      const state = ledger(next.callContext.currentQueryContext.state);
+      expect(state.tronSignBidirectionalEventMap.isEmpty()).toBe(true);
+      expect(state.tronVerdicts.lookup(requestId)).toBe(outputKind);
+      expect(state.failureVerdicts.isEmpty()).toBe(true);
+    },
+  );
+
+  it("rejects an executed attestation, whatever its width", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.executed, OUTPUT_EMPTY);
+    await expect(
+      contract.circuits.verifyTronFailureResponse(ctx, event, OUTPUT_EMPTY),
+    ).rejects.toThrow(/Attestation is not a failure/);
+  });
+
+  it("rejects a tampered kind: a failed attestation relabelled unviable", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
+    await expect(
+      contract.circuits.verifyTronFailureResponse(
+        ctx,
+        { ...event, outputKind: OutputKind.unviable },
+        OUTPUT_EMPTY,
+      ),
+    ).rejects.toThrow(/Invalid attestation or output/);
+  });
+
+  it("rejects an imposter's signature", async () => {
+    const { contract, ctx, requestId } = await tronRequestSubmitted();
+    const event = respond(IMPOSTER_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
+    await expect(
+      contract.circuits.verifyTronFailureResponse(ctx, event, OUTPUT_EMPTY),
+    ).rejects.toThrow(/Invalid attestation or output/);
+  });
+
+  it("rejects a genuinely attested EVM request: it settles Tron requests only", async () => {
+    const { contract, ctx, requestId } = await requestSubmitted();
+    const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.failed, OUTPUT_EMPTY);
+    await expect(
+      contract.circuits.verifyTronFailureResponse(ctx, event, OUTPUT_EMPTY),
+    ).rejects.toThrow(/Request not found/);
   });
 
   it("verifyFailureResponse does not settle a Tron request", async () => {
@@ -1362,10 +1465,11 @@ describe("verifyTronResponse", () => {
   it("a second settle of the SAME request rejects (the first consumed it)", async () => {
     const { contract, ctx, requestId } = await tronRequestSubmitted();
     const event = respond(MPC_RESPONSE_SECRET, requestId, OutputKind.unviable, OUTPUT_EMPTY);
-    const next = (await contract.circuits.verifyTronResponse(ctx, event, OUTPUT_EMPTY)).context;
+    const next = (await contract.circuits.verifyTronFailureResponse(ctx, event, OUTPUT_EMPTY))
+      .context;
 
-    await expect(contract.circuits.verifyTronResponse(next, event, OUTPUT_EMPTY)).rejects.toThrow(
-      /Request not found/,
-    );
+    await expect(
+      contract.circuits.verifyTronFailureResponse(next, event, OUTPUT_EMPTY),
+    ).rejects.toThrow(/Request not found/);
   });
 });

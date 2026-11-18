@@ -180,3 +180,15 @@ export pure circuit calculateTronRequestIdV1_2_0(
 ): RequestId {
   return calculateTronRequestIdV1<2, 0>(request);
 }
+
+export pure circuit calculateTronRequestIdV1_1_34(
+  request: SignBidirectionalEventV1<TronTxParams<1>, 34, 0>
+): RequestId {
+  return calculateTronRequestIdV1<1, 34>(request);
+}
+
+export pure circuit calculateTronRequestIdV1_2_34(
+  request: SignBidirectionalEventV1<TronTxParams<2>, 34, 0>
+): RequestId {
+  return calculateTronRequestIdV1<2, 34>(request);
+}

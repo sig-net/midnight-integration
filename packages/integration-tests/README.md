@@ -85,18 +85,21 @@ and three flow files:
   same continuation on a local Tron chain (the compose `tron` service,
   TRE). The caller contract requests `TriggerSmartContract` calls against
   the `SignetTronTarget` Solidity contract through its Tron circuits
-  (`submitTronIsEvenRequest`, `submitTronRevertIfRequest`, requests in
-  the width-0 map at field 9). Each submit names a fresh TaPoS window: the
+  (`submitTronIsEvenRequest`, `submitTronRevertIfRequest`, bool-schema
+  requests in the map at field 9). Each submit names a fresh TaPoS window: the
   current head block as reference, its timestamp, an expiration and a fee
   limit. The MPC signs the transaction id (sha256 of the raw transaction
   it assembles with the derived Tron account as owner);
   `getSignedTronTransaction` attaches the verified signature and the suite
   broadcasts the result through `/wallet/broadcasthex`. The fakenet reads
-  the solidified receipt and attests the verdict over an EMPTY output (a
-  Tron request carries no output schema: the MPC refuses one, so no return
-  data is ever attested), and `verifyTronResponse` settles it at width 0
-  and records it in `tronVerdicts`. One leg per outcome kind:
-  - `executed`: `isEven(6)` succeeds, attested at its receipt's block.
+  the solidified receipt and attests the verdict. An execution is attested
+  over the receipt's `contractResult` decoded with the bool schema (one
+  byte). The suite rebuilds that byte from the same receipt with
+  `evmTraceOutputFromTronReceipt` and `executedEvmRespondOutput`.
+  `verifyTronResponse` settles an execution at width 1 and
+  `verifyTronFailureResponse` a failure at width 0; both record the verdict
+  in `tronVerdicts`. One leg per outcome kind:
+  - `executed`: `isEven(6)` returns true, attested at its receipt's block.
   - `failed`: `revertIf(true)` reverts, attested at its receipt's block.
   - `unviable`: an `isEven(7)` request whose window closes one 3-second
     slot after its reference is signed and never broadcast. Once the

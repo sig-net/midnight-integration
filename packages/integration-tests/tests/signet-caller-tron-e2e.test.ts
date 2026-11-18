@@ -1,12 +1,17 @@
 import type { TronTxWindow } from "@midnight-integration/test-caller-contract";
 import {
   asciiPadded,
+  assembleCalldata,
   boolAbiWord,
   buildTronRawTransaction,
   bytesToHex,
   calculateAttestedOutputHash,
   calculateRequestId,
   deriveTronAddress,
+  evmTraceOutputFromTronReceipt,
+  executedEvmRespondOutput,
+  isEvmContractCall,
+  type JsonValue,
   MpcOutputCacheReader,
   OutputKind,
   parseSecp256k1PublicKey,
@@ -15,10 +20,12 @@ import {
   requestIdHex,
   type RespondBidirectionalEvent,
   respondBidirectionalEventToCircuitInput,
+  type SignBidirectionalEvent,
   SIGNET_DEFAULT_KEY_VERSION,
   TRON_CAIP2_ID,
   tronAddressFromBase58,
   tronTransactionId,
+  type TronTxParams,
   TxParamType,
 } from "@sig-net/midnight";
 import { calculateSignetAttestationDigest } from "@sig-net/midnight/testing";
@@ -44,6 +51,7 @@ import {
   getSolidifiedTronHeadBlock,
   type TronBlockRef,
   tronRpcUrl,
+  type TronTransactionInfo,
   tronTxWindowFromBlock,
   waitForFreshTronHead,
 } from "../src/local-tron.ts";
@@ -64,6 +72,8 @@ const session = createCallerE2eSession(env);
 const TRON_REQUESTS_INDEX_FIELD = 9;
 
 const EMPTY_OUTPUT = new Uint8Array(0);
+
+const BOOL_OUTPUT_SCHEMA = asciiPadded('[{"name":"success","type":"bool"}]', 34);
 
 const TRON_FEE_LIMIT_SUN = 50_000_000n;
 
@@ -164,6 +174,9 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
   for (const leg of LEGS) {
     const broadcasts = leg.outcome !== OutputKind.unviable;
     let requestId: RequestIdHex;
+    let record: SignBidirectionalEvent<TronTxParams>;
+    let receipt: TronTransactionInfo | undefined;
+    let expectedOutput: Uint8Array;
     let reference: TronBlockRef;
     let txWindow: TronTxWindow;
     let signedTransaction: Uint8Array | undefined;
@@ -202,7 +215,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
         }
         requestId = firstFresh;
 
-        const record = await session
+        record = await session
           .responseReader(TRON_REQUESTS_INDEX_FIELD)
           .getTronSignatureRequest(requestId);
         expect(record.txParamType).toBe(TxParamType.tron);
@@ -220,7 +233,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
           },
         });
         expect(record.executionDest).toEqual(asciiPadded(TRON_CAIP2_ID, 64));
-        expect(record.outputDeserializationSchema).toEqual(EMPTY_OUTPUT);
+        expect(record.outputDeserializationSchema).toEqual(BOOL_OUTPUT_SCHEMA);
         expect(record.respondSerializationSchema).toEqual(EMPTY_OUTPUT);
         expect(requestId).toBe(requestIdHex(calculateRequestId(record)));
 
@@ -285,19 +298,20 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
           }
           const signed = signedTransaction;
           const rpc = tronRpcUrl(env);
-          const receipt = await withTronBlockPusher(rpc, () =>
+          const solidified = await withTronBlockPusher(rpc, () =>
             broadcastSignedTronTransaction(rpc, signed, txid, 3 * MINUTE),
           );
+          receipt = solidified;
           expect(
-            receipt.receipt?.result,
+            solidified.receipt?.result,
             "the execution result must match the leg's expected outcome",
           ).toBe(RECEIPT_RESULT[leg.outcome]);
-          expectedHeight = BigInt(receipt.blockNumber);
+          expectedHeight = BigInt(solidified.blockNumber);
           banner([
-            `${leg.name} transaction solidified (${String(receipt.receipt?.result)}):`,
+            `${leg.name} transaction solidified (${String(solidified.receipt?.result)}):`,
             "",
             `  txid:  ${bytesToHex(txid)}`,
-            `  block: ${String(receipt.blockNumber)}`,
+            `  block: ${String(solidified.blockNumber)}`,
           ]);
         },
         5 * MINUTE,
@@ -340,22 +354,42 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
     }
 
     it(
-      `${leg.name} attestation: the fakenet attests the request ${OutputKind[leg.outcome]} over an empty output`,
+      `${leg.name} attestation: the fakenet attests the request ${OutputKind[leg.outcome]} over the output rebuilt from the receipt`,
       async () => {
         expect(requestId).toBeDefined();
         expect(expectedHeight).toBeDefined();
+        if (leg.outcome === OutputKind.executed) {
+          if (receipt === undefined) {
+            throw new Error(`no solidified receipt for request ${requestId}`);
+          }
+          expectedOutput = executedEvmRespondOutput(
+            record.outputDeserializationSchema,
+            isEvmContractCall(assembleCalldata(record.txParams.calldata)),
+            evmTraceOutputFromTronReceipt(receipt as unknown as JsonValue),
+          );
+        } else {
+          expectedOutput = EMPTY_OUTPUT;
+        }
+        expect(
+          expectedOutput,
+          "isEven(6) returns true, one byte 0x01; a failure carries no output",
+        ).toEqual(leg.outcome === OutputKind.executed ? Uint8Array.of(1) : EMPTY_OUTPUT);
         const rpc = tronRpcUrl(env);
         const reader = session.responseReader(TRON_REQUESTS_INDEX_FIELD);
         const mpcResponseKey = parseSecp256k1PublicKey(requireEnv("MPC_RESPONSE_KEY"));
         const attested = await withTronBlockPusher(rpc, () =>
           pollUntilDefined(
             () =>
-              reader.getVerifiedRespondBidirectionalEvent(requestId, EMPTY_OUTPUT, mpcResponseKey),
+              reader.getVerifiedRespondBidirectionalEvent(
+                requestId,
+                expectedOutput,
+                mpcResponseKey,
+              ),
             5 * MINUTE,
             2000,
           ),
         );
-        expect(attested, "a posted attestation must verify over the empty output").toBeDefined();
+        expect(attested, "a posted attestation must verify over the expected output").toBeDefined();
         if (attested === undefined) {
           throw new Error("the toBeDefined assertion above proves this is unreachable");
         }
@@ -368,15 +402,17 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
           attested.blockHeight,
           "the attested height: the receipt's block, or the expiry boundary",
         ).toBe(expectedHeight);
-        expect(attested.serializedOutputLength, "the posted output width").toBe(0n);
+        expect(attested.serializedOutputLength, "the posted output width").toBe(
+          BigInt(expectedOutput.length),
+        );
         expect(attested.outputHash, "the posted output hash").toEqual(
-          calculateAttestedOutputHash(EMPTY_OUTPUT),
+          calculateAttestedOutputHash(expectedOutput),
         );
         const digest = calculateSignetAttestationDigest(
           requestIdBytes(requestId),
           attested.blockHeight,
           attested.outputKind,
-          EMPTY_OUTPUT,
+          expectedOutput,
         );
         expect(attested.digest, "the posted digest must be the one recomputed here").toEqual(
           digest,
@@ -387,10 +423,10 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
           networkId: getMidnightNodeConfig(env).networkId,
           signerContractAddress: requireEnv("MIDNIGHT_SIGNER_CONTRACT_ADDRESS"),
         });
-        expect(await fetchAttestedOutput(outputCache, requestId)).toEqual(EMPTY_OUTPUT);
+        expect(await fetchAttestedOutput(outputCache, requestId)).toEqual(expectedOutput);
 
         banner([
-          `${leg.name} attestation verifies over the empty output:`,
+          `${leg.name} attestation verifies over the output 0x${Buffer.from(expectedOutput).toString("hex")}:`,
           "",
           `  kind:   ${OutputKind[attested.outputKind]} (posted by the MPC)`,
           `  height: ${String(attested.blockHeight)}`,
@@ -401,15 +437,15 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
     );
 
     it(
-      `${leg.name} verify [signet-caller contract method call]: verifyTronResponse settles the attestation at width 0`,
+      `${leg.name} verify [signet-caller contract method call]: ${leg.outcome === OutputKind.executed ? "verifyTronResponse settles the attested true at width 1" : "verifyTronFailureResponse settles the attestation at width 0"}`,
       async () => {
         expect(attestedEvent).toBeDefined();
         const context = await session.callerContext();
+        const event = respondBidirectionalEventToCircuitInput(attestedEvent);
         await verifyAndAwaitConsumption(context, "tronSignBidirectionalEventMap", requestId, () =>
-          context.caller.callTx.verifyTronResponse(
-            respondBidirectionalEventToCircuitInput(attestedEvent),
-            EMPTY_OUTPUT,
-          ),
+          leg.outcome === OutputKind.executed
+            ? context.caller.callTx.verifyTronResponse(event, expectedOutput)
+            : context.caller.callTx.verifyTronFailureResponse(event, EMPTY_OUTPUT),
         );
         banner([`${leg.name} request ${requestId} verified in-circuit and consumed.`]);
       },

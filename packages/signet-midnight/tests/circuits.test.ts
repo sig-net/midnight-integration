@@ -770,6 +770,11 @@ describe("Tron circuits (circuit/TS lockstep)", () => {
     respondSerializationSchema: new Uint8Array(0),
   };
 
+  const TRON_BOOL_RECORD: SignBidirectionalEvent<TronTxParams> = {
+    ...TRON_RECORD,
+    outputDeserializationSchema: new TextEncoder().encode('[{"name":"success","type":"bool"}]'),
+  };
+
   it.each([
     {
       name: "<1, 0>",
@@ -789,6 +794,18 @@ describe("Tron circuits (circuit/TS lockstep)", () => {
         pureCircuits.calculateTronRequestIdV1_2_0(r),
       record: { ...TRON_RECORD, txParams: TWO_WORDS_AT_2 },
     },
+    {
+      name: "<1, 34> with the bool output schema",
+      oracle: (r: SignBidirectionalEvent<TronTxParams>) =>
+        pureCircuits.calculateTronRequestIdV1_1_34(r),
+      record: TRON_BOOL_RECORD,
+    },
+    {
+      name: "<2, 34> with the bool output schema and two used words",
+      oracle: (r: SignBidirectionalEvent<TronTxParams>) =>
+        pureCircuits.calculateTronRequestIdV1_2_34(r),
+      record: { ...TRON_BOOL_RECORD, txParams: TWO_WORDS_AT_2 },
+    },
   ])(
     "the TS request id equals the compiled calculateTronRequestIdV1 at $name",
     ({ oracle, record }) => {
@@ -799,6 +816,15 @@ describe("Tron circuits (circuit/TS lockstep)", () => {
   it("pins the probe contract's request id", () => {
     expect(bytesToHex(pureCircuits.calculateTronRequestIdV1_1_0(TRON_RECORD))).toBe(
       "b8425af03222be68e9ced2b7dcb384aa7de1dd6312be7aa6d631f57cdecbff00",
+    );
+  });
+
+  it("the output schema is not part of the request id", () => {
+    expect(pureCircuits.calculateTronRequestIdV1_1_34(TRON_BOOL_RECORD)).toEqual(
+      pureCircuits.calculateTronRequestIdV1_2_34({ ...TRON_BOOL_RECORD, txParams: AT_2_GARBAGE }),
+    );
+    expect(pureCircuits.calculateTronRequestIdV1_1_34(TRON_BOOL_RECORD)).toEqual(
+      pureCircuits.calculateTronRequestIdV1_1_0(TRON_RECORD),
     );
   });
 

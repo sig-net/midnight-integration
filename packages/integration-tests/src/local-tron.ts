@@ -214,6 +214,7 @@ export interface TronTransactionInfo {
   result?: string;
   resMessage?: string;
   receipt?: { result?: string };
+  contractResult?: string[];
 }
 
 /**
