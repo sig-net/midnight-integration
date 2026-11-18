@@ -2,7 +2,11 @@ import { decodeBase58, encodeBase58, getBytes, sha256, toBeArray } from "ethers"
 
 import { bigintToBytes32BE, hexToBytes, stripHexPrefix } from "./byte-codecs.ts";
 import { mpcSignatureToEcdsaSignature } from "./ecdsa-attestation.ts";
-import { deriveEvmAddress } from "./epsilon-derivation.ts";
+import {
+  deriveEvmAddress,
+  deriveSignBidirectionalEventSignerEvmAddress,
+  type SignBidirectionalEventKeySelector,
+} from "./epsilon-derivation.ts";
 import { pureCircuits } from "./managed/contract/index.js";
 import type { MpcSignature } from "./signet-contract-events.ts";
 import type { TronTxParams } from "./signet-tron-requests.ts";
@@ -53,7 +57,7 @@ export function tronAddressToBase58(address: Uint8Array): string {
 /**
  * @param text - The base58check text (`T…`)
  * @returns The 21-byte Tron address
- * @throws {Error} If the text is not base58, not 25 bytes, fails its checksum or does not carry the `0x41` prefix
+ * @throws {Error} If the text is not base58, not 25 bytes, fails its checksum, does not carry the `0x41` prefix or is not the canonical spelling of its bytes
  */
 export function tronAddressFromBase58(text: string): Uint8Array {
   let decoded: Uint8Array;
@@ -71,6 +75,9 @@ export function tronAddressFromBase58(text: string): Uint8Array {
     throw new Error("base58check checksum mismatch");
   }
   assertTronAddress(address, "Tron address");
+  if (encodeBase58(decoded) !== text) {
+    throw new Error(`not a canonical base58 Tron address: "${text}"`);
+  }
   return address;
 }
 
@@ -91,7 +98,25 @@ export function deriveTronAddress(
   contractAddress: string,
   path: string,
 ): TronAddress {
-  const bytes = tronAddressFromEvm(deriveEvmAddress(mpcSecp256k1PublicKey, contractAddress, path));
+  return tronAddressOfEvm(deriveEvmAddress(mpcSecp256k1PublicKey, contractAddress, path));
+}
+
+/**
+ * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key of the record's `keyVersion`, in any spelling `parseSecp256k1PublicKey` accepts
+ * @param request - The on-ledger request record, or its `sender` and `path`
+ * @returns The Tron address the MPC signs that request's transaction from, in both forms
+ */
+export function deriveSignBidirectionalEventSignerTronAddress(
+  mpcSecp256k1PublicKey: string,
+  request: SignBidirectionalEventKeySelector,
+): TronAddress {
+  return tronAddressOfEvm(
+    deriveSignBidirectionalEventSignerEvmAddress(mpcSecp256k1PublicKey, request),
+  );
+}
+
+function tronAddressOfEvm(evm: string): TronAddress {
+  const bytes = tronAddressFromEvm(evm);
   return { bytes, base58: tronAddressToBase58(bytes) };
 }
 

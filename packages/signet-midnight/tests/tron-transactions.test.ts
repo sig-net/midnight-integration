@@ -61,6 +61,11 @@ describe("Tron addresses", () => {
       text: "TpSyGx2w2bR9GdrDrYtrYwbvSPhwSmg7ER",
       error: /21 bytes with the 0x41 prefix/,
     },
+    {
+      name: "a leading 1 before a valid address",
+      text: `1${USDT_BASE58}`,
+      error: /not a canonical base58 Tron address/,
+    },
   ])("refuses $name in base58", ({ text, error }) => {
     expect(() => tronAddressFromBase58(text)).toThrow(error);
   });

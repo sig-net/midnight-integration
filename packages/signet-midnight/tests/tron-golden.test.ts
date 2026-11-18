@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 
 import type { AlignedValue } from "@midnight-ntwrk/compact-runtime";
+import { recoverAddress } from "ethers";
 import { describe, expect, it } from "vitest";
 
+import { signatureRespondedEventToSignature } from "../src/ecdsa-attestation.ts";
 import {
   buildSignedTronTransaction,
   buildTronRawTransaction,
@@ -13,12 +15,12 @@ import {
   hexToBytes,
   type SignatureRespondedEvent,
   type SignBidirectionalEvent,
+  tronAddressFromEvm,
   tronAddressToBase58,
   tronSignBidirectionalEventDescriptor,
   tronTransactionId,
   type TronTxParams,
   TxParamType,
-  verifyTronSignatureRespondedEvent,
 } from "../src/index.ts";
 import { ecdsaSignatureToMpcSignature } from "../src/testing.ts";
 
@@ -128,17 +130,11 @@ const SIGNED = [...FIXTURE.transactions, ...FIXTURE.mainnetUsdt].flatMap(
 const REAL_SIGNATURES = [
   ...FIXTURE.transactions.filter(({ name }) => name.startsWith("probe request signed by the MPC")),
   ...FIXTURE.mainnetUsdt,
-].flatMap(({ name, params, ownerBase58, signature }) =>
+].flatMap(({ name, params, owner, ownerBase58, signature }) =>
   params === undefined || signature === undefined
     ? []
-    : [{ name, params: tronTxParamsOf(params), ownerBase58, signature }],
+    : [{ name, params: tronTxParamsOf(params), owner, ownerBase58, signature }],
 );
-
-const [SAMPLE_REQUEST] = REQUESTS;
-if (SAMPLE_REQUEST === undefined) {
-  throw new Error("the fixture holds no request vector");
-}
-const SAMPLE_RECORD = SAMPLE_REQUEST.record;
 
 const responseOf = (signature: SignatureJson): SignatureRespondedEvent => ({
   requestId: new Uint8Array(32),
@@ -205,12 +201,14 @@ describe(`Tron golden vectors (sig-net/mpc ${FIXTURE.mpcCommit})`, () => {
   });
 
   it.each(REAL_SIGNATURES)(
-    "a real signature verifies against its owner: $name",
-    ({ params, ownerBase58, signature }) => {
-      const request: SignBidirectionalEvent<TronTxParams> = { ...SAMPLE_RECORD, txParams: params };
-      expect(verifyTronSignatureRespondedEvent(request, responseOf(signature), ownerBase58)).toBe(
-        true,
+    "a real signature recovers to its owner over the assembled id: $name",
+    ({ params, owner, ownerBase58, signature }) => {
+      const txid = tronTransactionId(buildTronRawTransaction(params, hexToBytes(owner)));
+      const signer = recoverAddress(
+        txid,
+        signatureRespondedEventToSignature(responseOf(signature)),
       );
+      expect(tronAddressToBase58(tronAddressFromEvm(signer))).toBe(ownerBase58);
     },
   );
 });

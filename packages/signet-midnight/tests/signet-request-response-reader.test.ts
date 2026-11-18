@@ -19,9 +19,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildSignedTronTransaction,
   buildTronRawTransaction,
+  bytesToHex,
   calculateRequestId,
   type DecodedSignetEvent,
   decodeSignetEvent,
+  deriveEpsilon,
   evmAddressAbiWord,
   findVerifiedRespondBidirectionalEvent,
   MPCDestination,
@@ -31,6 +33,7 @@ import {
   pureCircuits,
   requestIdHex,
   type RespondBidirectionalEvent,
+  SECP256K1_ORDER,
   type SignatureRespondedEvent,
   type SignBidirectionalEvent,
   signBidirectionalEventToSignedEvmTransaction,
@@ -720,7 +723,17 @@ describe("Tron requests", () => {
   };
   const TRON_REQUEST_ID = calculateRequestId(TRON_REQUEST);
   const TRON_REQUEST_ID_HEX = requestIdHex(TRON_REQUEST_ID);
-  const MPC_OWNER = tronAddressFromEvm(MPC_ADDRESS);
+  const MPC_ROOT_PUBLIC_KEY = MPC_KEY.publicKey;
+  const MPC_CHILD_KEY = new SigningKey(
+    `0x${(
+      (BigInt(MPC_KEY.privateKey) +
+        deriveEpsilon(bytesToHex(TRON_REQUEST.sender.bytes), bytesToHex(TRON_REQUEST.path))) %
+      SECP256K1_ORDER
+    )
+      .toString(16)
+      .padStart(64, "0")}`,
+  );
+  const MPC_OWNER = tronAddressFromEvm(computeAddress(MPC_CHILD_KEY.publicKey));
   const MPC_OWNER_BASE58 = tronAddressToBase58(MPC_OWNER);
   const TRON_RAW = buildTronRawTransaction(TRON_REQUEST.txParams, MPC_OWNER);
 
@@ -735,7 +748,7 @@ describe("Tron requests", () => {
       }),
     };
   };
-  const GENUINE_TRON_RESPONSE = signTronResponse(MPC_KEY);
+  const GENUINE_TRON_RESPONSE = signTronResponse(MPC_CHILD_KEY);
   const IMPOSTER_TRON_RESPONSE = signTronResponse(IMPOSTER_KEY);
 
   const makeTronReader = (posts: SignatureRespondedEvent[]) => {
@@ -789,11 +802,11 @@ describe("Tron requests", () => {
     );
   });
 
-  it("verifies posts against the base58 owner, past an imposter in front", async () => {
+  it("verifies posts against the owner derived from the record, past an imposter in front", async () => {
     const reader = makeTronReader([IMPOSTER_TRON_RESPONSE, GENUINE_TRON_RESPONSE]);
-    const { verified, verdicts } = await reader.getVerifiedSignatureRespondedEvent(
+    const { verified, verdicts } = await reader.getVerifiedTronSignatureRespondedEvent(
       TRON_REQUEST_ID_HEX,
-      MPC_OWNER_BASE58,
+      MPC_ROOT_PUBLIC_KEY,
     );
     expect(verified).toEqual(GENUINE_TRON_RESPONSE);
     expect(
@@ -810,16 +823,35 @@ describe("Tron requests", () => {
     ]);
   });
 
-  it("refuses an expected signer that is not a base58 Tron address", async () => {
+  it("verifies posts already in hand against the derived owner", async () => {
+    const reader = makeTronReader([]);
+    const { verified } = await reader.verifyTronSignatureRespondedEvents(
+      TRON_REQUEST_ID_HEX,
+      MPC_ROOT_PUBLIC_KEY,
+      [IMPOSTER_TRON_RESPONSE, GENUINE_TRON_RESPONSE].flatMap(
+        (post) => decodeSignetEvent(signatureRespondedEventOf(TRON_REQUEST_ID, post)) ?? [],
+      ),
+    );
+    expect(verified).toEqual(GENUINE_TRON_RESPONSE);
+  });
+
+  it("refuses the EVM verifier on a Tron record", async () => {
     const reader = makeTronReader([GENUINE_TRON_RESPONSE]);
     await expect(
       reader.getVerifiedSignatureRespondedEvent(TRON_REQUEST_ID_HEX, MPC_ADDRESS),
-    ).rejects.toThrow(/expected 25 bytes|not a base58/);
+    ).rejects.toThrow(/is not evmType2/);
+  });
+
+  it("refuses the Tron verifier on an evmType2 record", async () => {
+    const { reader } = makeReader([GENUINE_RESPONSE]);
+    await expect(
+      reader.getVerifiedTronSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ROOT_PUBLIC_KEY),
+    ).rejects.toThrow(/is not tron/);
   });
 
   it("assembles the signed transaction from the first verified post", async () => {
     const reader = makeTronReader([IMPOSTER_TRON_RESPONSE, GENUINE_TRON_RESPONSE]);
-    expect(await reader.getSignedTronTransaction(TRON_REQUEST_ID_HEX, MPC_OWNER_BASE58)).toEqual(
+    expect(await reader.getSignedTronTransaction(TRON_REQUEST_ID_HEX, MPC_ROOT_PUBLIC_KEY)).toEqual(
       buildSignedTronTransaction(TRON_RAW, GENUINE_TRON_RESPONSE.signature),
     );
   });
@@ -827,7 +859,7 @@ describe("Tron requests", () => {
   it("returns no signed transaction while no post verifies", async () => {
     const reader = makeTronReader([IMPOSTER_TRON_RESPONSE]);
     expect(
-      await reader.getSignedTronTransaction(TRON_REQUEST_ID_HEX, MPC_OWNER_BASE58),
+      await reader.getSignedTronTransaction(TRON_REQUEST_ID_HEX, MPC_ROOT_PUBLIC_KEY),
     ).toBeUndefined();
   });
 });
