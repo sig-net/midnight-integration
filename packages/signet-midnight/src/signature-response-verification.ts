@@ -42,21 +42,86 @@ function tronSigningHash(
   };
 }
 
-function signatureRecoversTo(
+/** What a signature response is checked against: the digest the MPC signs and the address that must have signed it. */
+export interface SignatureCheck {
+  /** The signing digest of the request's transaction. */
+  readonly signingHash: string | Uint8Array;
+  /** The 20-byte EVM form of the address that must have signed. */
+  readonly expectedAddress: Uint8Array;
+}
+
+/**
+ * Build the check of an evmType2 request's responses.
+ *
+ * @param request - The on-ledger evmType2 request record the responses answer
+ * @param expectedSigner - The EVM address (0x hex, any case, checksum not enforced) that must have signed
+ * @returns The check
+ * @throws {Error} If the request is not an evmType2 record, the record does not assemble, or `expectedSigner` is not an EVM address
+ */
+export function evmSignatureCheck(
+  request: AnySignBidirectionalEvent,
+  expectedSigner: string,
+): SignatureCheck {
+  return {
+    signingHash: evmSigningHash(request),
+    expectedAddress: getBytes(getAddress(expectedSigner.toLowerCase())),
+  };
+}
+
+/**
+ * Build the check of a Tron request's responses.
+ *
+ * @param request - The on-ledger Tron request record the responses answer
+ * @param mpcRootPublicKey - The MPC root public key of the record's `keyVersion`; the transaction owner is derived from it and the record's `sender` and `path`
+ * @returns The check
+ * @throws {Error} If the request is not a Tron record, the record does not assemble or the key does not parse
+ */
+export function tronSignatureCheck(
+  request: AnySignBidirectionalEvent,
+  mpcRootPublicKey: string,
+): SignatureCheck {
+  const { signingHash, owner } = tronSigningHash(request, mpcRootPublicKey);
+  return { signingHash, expectedAddress: owner.slice(1) };
+}
+
+/**
+ * Recover the 20-byte address that produced a response signature over a digest.
+ *
+ * @param signingHash - The digest the signature is over
+ * @param response - The posted signature record
+ * @returns The recovered 20-byte address
+ * @throws {Error} If the response is not a decodable signature
+ */
+export function recoverSignatureAddress(
   signingHash: string | Uint8Array,
   response: SignatureRespondedEvent,
-  expectedAddress: Uint8Array,
-): boolean {
+): Uint8Array {
+  return getBytes(recoverAddress(signingHash, signatureRespondedEventToSignature(response)));
+}
+
+/**
+ * Compare a recovered address with a check's expected address, byte for byte.
+ *
+ * @param check - The check the response is judged by
+ * @param recovered - The recovered 20-byte address
+ * @returns `true` iff the addresses are equal
+ */
+export function isExpectedSigner(check: SignatureCheck, recovered: Uint8Array): boolean {
+  const expected = check.expectedAddress;
+  return (
+    recovered.length === expected.length &&
+    recovered.every((byte, index) => byte === expected[index])
+  );
+}
+
+function signatureRecoversTo(check: SignatureCheck, response: SignatureRespondedEvent): boolean {
   let recovered: Uint8Array;
   try {
-    recovered = getBytes(recoverAddress(signingHash, signatureRespondedEventToSignature(response)));
+    recovered = recoverSignatureAddress(check.signingHash, response);
   } catch {
     return false;
   }
-  return (
-    recovered.length === expectedAddress.length &&
-    recovered.every((byte, index) => byte === expectedAddress[index])
-  );
+  return isExpectedSigner(check, recovered);
 }
 
 /**
@@ -93,9 +158,7 @@ export function recoverTronSignatureResponseSigner(
   mpcRootPublicKey: string,
 ): string {
   const { signingHash } = tronSigningHash(request, mpcRootPublicKey);
-  return tronAddressToBase58(
-    tronAddressFromEvm(recoverAddress(signingHash, signatureRespondedEventToSignature(response))),
-  );
+  return tronAddressToBase58(tronAddressFromEvm(recoverSignatureAddress(signingHash, response)));
 }
 
 /**
@@ -105,7 +168,7 @@ export function recoverTronSignatureResponseSigner(
  *
  * @param request - The on-ledger evmType2 request record the response answers.
  * @param response - The posted signature record answering it.
- * @param expectedSigner - The EVM address (any case, 0x hex) that must have signed.
+ * @param expectedSigner - The EVM address (0x hex, any case, checksum not enforced) that must have signed.
  * @returns `true` iff the response is a valid signature by `expectedSigner`.
  * @throws {Error} If the request is not an evmType2 record, the record does
  *   not assemble, or `expectedSigner` is not an EVM address.
@@ -115,8 +178,7 @@ export function verifyEvmSignatureRespondedEvent(
   response: SignatureRespondedEvent,
   expectedSigner: string,
 ): boolean {
-  const signingHash = evmSigningHash(request);
-  return signatureRecoversTo(signingHash, response, getBytes(getAddress(expectedSigner)));
+  return signatureRecoversTo(evmSignatureCheck(request, expectedSigner), response);
 }
 
 /**
@@ -133,6 +195,5 @@ export function verifyTronSignatureRespondedEvent(
   response: SignatureRespondedEvent,
   mpcRootPublicKey: string,
 ): boolean {
-  const { signingHash, owner } = tronSigningHash(request, mpcRootPublicKey);
-  return signatureRecoversTo(signingHash, response, owner.slice(1));
+  return signatureRecoversTo(tronSignatureCheck(request, mpcRootPublicKey), response);
 }

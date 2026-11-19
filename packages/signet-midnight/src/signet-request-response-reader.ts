@@ -12,7 +12,7 @@ import type {
   PublicDataProvider,
   SerializedContractState,
 } from "@midnight-ntwrk/midnight-js-types";
-import { getAddress, type Transaction } from "ethers";
+import { getAddress, hexlify, type Transaction } from "ethers";
 
 import { bytesToHex } from "./byte-codecs.ts";
 import {
@@ -23,8 +23,11 @@ import {
 } from "./ecdsa-attestation.ts";
 import { lookupSignetRequestAt } from "./signature-requests-state-reader.ts";
 import {
-  recoverEvmSignatureResponseSigner,
-  recoverTronSignatureResponseSigner,
+  evmSignatureCheck,
+  isExpectedSigner,
+  recoverSignatureAddress,
+  type SignatureCheck,
+  tronSignatureCheck,
 } from "./signature-response-verification.ts";
 import {
   type DecodedSignetEvent,
@@ -52,6 +55,8 @@ import {
   buildSignedTronTransaction,
   buildTronRawTransaction,
   deriveSignBidirectionalEventSignerTronAddress,
+  tronAddressFromEvm,
+  tronAddressToBase58,
 } from "./tron-transactions.ts";
 
 /**
@@ -135,8 +140,10 @@ export interface VerifiedSignatureResponseResult {
 /** The outcome of recovering a posted signature response's signer. */
 type SignerRecovery =
   | {
-      /** The recovered signer address. */
+      /** The recovered signer address, in the chain's spelling. */
       signer: string;
+      /** The recovered signer's 20-byte address. */
+      address: Uint8Array;
     }
   | {
       /** Why the post is not a decodable signature. */
@@ -145,8 +152,22 @@ type SignerRecovery =
 
 interface SignerCheck {
   readonly recoveryKey: string;
+  readonly signature: SignatureCheck;
   readonly expectedSigner: string;
-  readonly recover: (response: SignatureRespondedEvent) => string;
+  readonly spellSigner: (address: Uint8Array) => string;
+}
+
+function signerCheck(
+  recoveryKey: string,
+  signature: SignatureCheck,
+  spellSigner: (address: Uint8Array) => string,
+): SignerCheck {
+  return {
+    recoveryKey,
+    signature,
+    expectedSigner: spellSigner(signature.expectedAddress),
+    spellSigner,
+  };
 }
 
 /**
@@ -158,11 +179,13 @@ interface SignerCheck {
  * @returns The recovered signer, or why the signature does not decode.
  */
 function recoverSigner(check: SignerCheck, response: SignatureRespondedEvent): SignerRecovery {
+  let address: Uint8Array;
   try {
-    return { signer: check.recover(response) };
+    address = recoverSignatureAddress(check.signature.signingHash, response);
   } catch (error) {
     return { undecodable: String(error) };
   }
+  return { signer: check.spellSigner(address), address };
 }
 
 /**
@@ -173,7 +196,7 @@ function recoverSigner(check: SignerCheck, response: SignatureRespondedEvent): S
  * @returns Whether the post is signed by the expected signer.
  */
 function isSignedBy(check: SignerCheck, recovery: SignerRecovery): boolean {
-  return "signer" in recovery && recovery.signer === check.expectedSigner;
+  return "address" in recovery && isExpectedSigner(check.signature, recovery.address);
 }
 
 /**
@@ -434,11 +457,9 @@ export class SignetRequestResponseReader {
     expectedSigner: string,
   ): Promise<SignerCheck> {
     const request = await this.getEvmType2SignatureRequest(requestId);
-    return {
-      recoveryKey: "",
-      expectedSigner: getAddress(expectedSigner),
-      recover: (response) => recoverEvmSignatureResponseSigner(request, response),
-    };
+    return signerCheck("", evmSignatureCheck(request, expectedSigner), (address) =>
+      getAddress(hexlify(address)),
+    );
   }
 
   private async tronSignerCheck(
@@ -446,13 +467,9 @@ export class SignetRequestResponseReader {
     mpcRootPublicKey: string,
   ): Promise<SignerCheck> {
     const request = await this.getTronSignatureRequest(requestId);
-    return {
-      recoveryKey: mpcRootPublicKey,
-      expectedSigner: deriveSignBidirectionalEventSignerTronAddress(mpcRootPublicKey, request)
-        .base58,
-      recover: (response) =>
-        recoverTronSignatureResponseSigner(request, response, mpcRootPublicKey),
-    };
+    return signerCheck(mpcRootPublicKey, tronSignatureCheck(request, mpcRootPublicKey), (address) =>
+      tronAddressToBase58(tronAddressFromEvm(address)),
+    );
   }
 
   /**

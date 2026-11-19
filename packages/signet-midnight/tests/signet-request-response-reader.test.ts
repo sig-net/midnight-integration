@@ -48,7 +48,7 @@ import {
   type TronTxParams,
   TxParamType,
 } from "../src/index.ts";
-import { recoverEvmSignatureResponseSigner } from "../src/signature-response-verification.ts";
+import { recoverSignatureAddress } from "../src/signature-response-verification.ts";
 import { signBidirectionalEventDescriptor } from "../src/signet-evtype2tx-requests.ts";
 // Package-internal descriptors, imported from their defining modules.
 import { requestIdType } from "../src/signet-requests.ts";
@@ -71,12 +71,12 @@ vi.mock(import("../src/signature-response-verification.ts"), async (importOrigin
   const actual = await importOriginal();
   return {
     ...actual,
-    recoverEvmSignatureResponseSigner: vi.fn(actual.recoverEvmSignatureResponseSigner),
+    recoverSignatureAddress: vi.fn(actual.recoverSignatureAddress),
   };
 });
 
 beforeEach(() => {
-  vi.mocked(recoverEvmSignatureResponseSigner).mockClear();
+  vi.mocked(recoverSignatureAddress).mockClear();
 });
 
 // The ERC20 transfer(address,uint256) selector: a realistic calldata fixture.
@@ -469,6 +469,15 @@ const VERDICT_CASES: VerdictCase[] = [
     rejectedReasons: [undefined],
   },
   {
+    name: "a genuine post with a mixed-case expected signer whose checksum is wrong",
+    posts: [GENUINE_RESPONSE],
+    expectedSigner: `0x${MPC_ADDRESS.slice(2).replace(/[a-fA-F]/g, (char) =>
+      char === char.toLowerCase() ? char.toUpperCase() : char.toLowerCase(),
+    )}`,
+    verifiedPost: 0,
+    rejectedReasons: [undefined],
+  },
+  {
     name: "only an imposter post: nothing verifies",
     posts: [IMPOSTER_RESPONSE],
     expectedSigner: MPC_ADDRESS,
@@ -492,7 +501,7 @@ describe("getVerifiedSignatureRespondedEvent", () => {
     expect(
       await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS),
     ).toBeUndefined();
-    expect(recoverEvmSignatureResponseSigner).not.toHaveBeenCalled();
+    expect(recoverSignatureAddress).not.toHaveBeenCalled();
   });
 
   it.each(VERDICT_CASES)("resolves $name", async ({ posts, expectedSigner, verifiedPost }) => {
@@ -507,7 +516,7 @@ describe("getVerifiedSignatureRespondedEvent", () => {
     expect(await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS)).toEqual(
       GENUINE_RESPONSE,
     );
-    expect(recoverEvmSignatureResponseSigner).toHaveBeenCalledTimes(1);
+    expect(recoverSignatureAddress).toHaveBeenCalledTimes(1);
   });
 
   it("returns a valid response already read without touching the event source", async () => {
@@ -517,7 +526,7 @@ describe("getVerifiedSignatureRespondedEvent", () => {
       GENUINE_RESPONSE,
     );
     expect(queries.events).toBe(1);
-    expect(recoverEvmSignatureResponseSigner).toHaveBeenCalledTimes(2);
+    expect(recoverSignatureAddress).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -533,7 +542,7 @@ describe("getSignatureResponseVerdicts", () => {
       IMPOSTER_RESPONSE,
       GENUINE_RESPONSE,
     ]);
-    expect(recoverEvmSignatureResponseSigner).toHaveBeenCalledTimes(2);
+    expect(recoverSignatureAddress).toHaveBeenCalledTimes(2);
   });
 
   it.each(VERDICT_CASES)(
@@ -613,13 +622,13 @@ describe("polling the same request again", () => {
       await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS),
     ).toBeUndefined();
     // The imposter's post is re-read by the second scan and judged by the first alone.
-    expect(recoverEvmSignatureResponseSigner).toHaveBeenCalledTimes(1);
+    expect(recoverSignatureAddress).toHaveBeenCalledTimes(1);
 
     log = BOTH_EVENTS;
     expect(await reader.getVerifiedSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ADDRESS)).toEqual(
       GENUINE_RESPONSE,
     );
-    expect(recoverEvmSignatureResponseSigner).toHaveBeenCalledTimes(2);
+    expect(recoverSignatureAddress).toHaveBeenCalledTimes(2);
     expect(scans).toStrictEqual([{ fromBlock: 5 }, { fromBlock: 10 }, { fromBlock: 10 }]);
 
     // Both kinds were kept by the scans above, and this one resumes past them.
