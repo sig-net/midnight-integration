@@ -162,20 +162,24 @@ export type AnySignBidirectionalEvent =
   SignBidirectionalEvent | SignBidirectionalEvent<TronTxParams>;
 
 /**
+ * Type guard: narrow a request record to the evmType2 decomposition by its tag.
+ *
  * @param request - The request record
  * @returns `true` iff the record is tagged {@link TxParamType.evmType2}
  */
-export function isEvmType2SignBidirectionalEvent(
+export function isEvmRequest(
   request: AnySignBidirectionalEvent,
 ): request is SignBidirectionalEvent {
   return request.txParamType === TxParamType.evmType2;
 }
 
 /**
+ * Type guard: narrow a request record to the Tron decomposition by its tag.
+ *
  * @param request - The request record
  * @returns `true` iff the record is tagged {@link TxParamType.tron}
  */
-export function isTronSignBidirectionalEvent(
+export function isTronRequest(
   request: AnySignBidirectionalEvent,
 ): request is SignBidirectionalEvent<TronTxParams> {
   return request.txParamType === TxParamType.tron;

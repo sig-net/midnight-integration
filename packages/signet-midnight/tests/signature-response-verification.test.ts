@@ -313,21 +313,14 @@ describe("recoverTronSignatureResponseSigner", () => {
 
   it("refuses an evmType2 request", () => {
     expect(() =>
-      recoverTronSignatureResponseSigner(
-        REQUEST as unknown as SignBidirectionalEvent<TronTxParams>,
-        VALID_TRON_RESPONSE,
-        MPC_ROOT_PUBLIC_KEY,
-      ),
+      recoverTronSignatureResponseSigner(REQUEST, VALID_TRON_RESPONSE, MPC_ROOT_PUBLIC_KEY),
     ).toThrow(/expected a Tron request record, got txParamType 0/);
   });
 
   it("recoverEvmSignatureResponseSigner refuses a Tron request: its digest names the owner", () => {
-    expect(() =>
-      recoverEvmSignatureResponseSigner(
-        TRON_REQUEST as unknown as SignBidirectionalEvent,
-        VALID_TRON_RESPONSE,
-      ),
-    ).toThrow(/expected an evmType2 request record, got txParamType 1/);
+    expect(() => recoverEvmSignatureResponseSigner(TRON_REQUEST, VALID_TRON_RESPONSE)).toThrow(
+      /expected an evmType2 request record, got txParamType 1/,
+    );
   });
 });
 
@@ -404,11 +397,7 @@ describe("verifyTronSignatureRespondedEvent", () => {
 
   it("throws on an evmType2 request", () => {
     expect(() =>
-      verifyTronSignatureRespondedEvent(
-        REQUEST as unknown as SignBidirectionalEvent<TronTxParams>,
-        VALID_TRON_RESPONSE,
-        MPC_ROOT_PUBLIC_KEY,
-      ),
+      verifyTronSignatureRespondedEvent(REQUEST, VALID_TRON_RESPONSE, MPC_ROOT_PUBLIC_KEY),
     ).toThrow(/expected a Tron request record/);
   });
 });

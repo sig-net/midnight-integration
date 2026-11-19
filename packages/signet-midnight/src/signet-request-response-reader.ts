@@ -42,8 +42,8 @@ import {
 } from "./signet-evtype2tx-requests.ts";
 import {
   type AnySignBidirectionalEvent,
-  isEvmType2SignBidirectionalEvent,
-  isTronSignBidirectionalEvent,
+  isEvmRequest,
+  isTronRequest,
   type RequestIdHex,
   type SignBidirectionalEvent,
 } from "./signet-requests.ts";
@@ -400,7 +400,7 @@ export class SignetRequestResponseReader {
    */
   async getEvmType2SignatureRequest(requestId: RequestIdHex): Promise<SignBidirectionalEvent> {
     const request = await this.getSignatureRequest(requestId);
-    if (!isEvmType2SignBidirectionalEvent(request)) {
+    if (!isEvmRequest(request)) {
       throw new Error(
         `request ${requestId} is not evmType2 (txParamType ${String(request.txParamType)})`,
       );
@@ -417,7 +417,7 @@ export class SignetRequestResponseReader {
     requestId: RequestIdHex,
   ): Promise<SignBidirectionalEvent<TronTxParams>> {
     const request = await this.getSignatureRequest(requestId);
-    if (!isTronSignBidirectionalEvent(request)) {
+    if (!isTronRequest(request)) {
       throw new Error(
         `request ${requestId} is not tron (txParamType ${String(request.txParamType)})`,
       );

@@ -11,8 +11,8 @@ import { HashDomain } from "./managed/contract/index.js";
 import { calculateEvmType2TxParamsDigest } from "./signet-evtype2tx-requests.ts";
 import {
   type AnySignBidirectionalEvent,
-  isEvmType2SignBidirectionalEvent,
-  isTronSignBidirectionalEvent,
+  isEvmRequest,
+  isTronRequest,
   type RequestId,
   type RequestIdPreimage,
   requestIdPreimageDescriptor,
@@ -40,9 +40,9 @@ const REQUEST_ID_HASH_PREIMAGE = compactTupleDescriptor<[HashDomain, RequestIdPr
 export function calculateRequestId(request: AnySignBidirectionalEvent): RequestId {
   const { txParamType } = request;
   let txParamsDigest: Uint8Array;
-  if (isEvmType2SignBidirectionalEvent(request)) {
+  if (isEvmRequest(request)) {
     txParamsDigest = calculateEvmType2TxParamsDigest(request.txParams);
-  } else if (isTronSignBidirectionalEvent(request)) {
+  } else if (isTronRequest(request)) {
     txParamsDigest = calculateTronTxParamsDigest(request.txParams);
   } else {
     throw new Error(

@@ -8,8 +8,7 @@ import { getAddress, getBytes, recoverAddress } from "ethers";
 import { signatureRespondedEventToSignature } from "./ecdsa-attestation.ts";
 import type { SignatureRespondedEvent } from "./signet-contract-events.ts";
 import { signBidirectionalEventToUnsignedEvmTransaction } from "./signet-evtype2tx-requests.ts";
-import { type SignBidirectionalEvent, TxParamType } from "./signet-requests.ts";
-import type { TronTxParams } from "./signet-tron-requests.ts";
+import { type AnySignBidirectionalEvent, isEvmRequest, isTronRequest } from "./signet-requests.ts";
 import {
   buildTronRawTransaction,
   deriveSignBidirectionalEventSignerTronAddress,
@@ -18,8 +17,8 @@ import {
   tronTransactionId,
 } from "./tron-transactions.ts";
 
-function evmSigningHash(request: SignBidirectionalEvent): string {
-  if (request.txParamType !== TxParamType.evmType2) {
+function evmSigningHash(request: AnySignBidirectionalEvent): string {
+  if (!isEvmRequest(request)) {
     throw new Error(
       `expected an evmType2 request record, got txParamType ${String(request.txParamType)}`,
     );
@@ -28,10 +27,10 @@ function evmSigningHash(request: SignBidirectionalEvent): string {
 }
 
 function tronSigningHash(
-  request: SignBidirectionalEvent<TronTxParams>,
+  request: AnySignBidirectionalEvent,
   mpcRootPublicKey: string,
 ): { signingHash: Uint8Array; owner: Uint8Array } {
-  if (request.txParamType !== TxParamType.tron) {
+  if (!isTronRequest(request)) {
     throw new Error(
       `expected a Tron request record, got txParamType ${String(request.txParamType)}`,
     );
@@ -73,7 +72,7 @@ function signatureRecoversTo(
  *   {@link signBidirectionalEventToUnsignedEvmTransaction}).
  */
 export function recoverEvmSignatureResponseSigner(
-  request: SignBidirectionalEvent,
+  request: AnySignBidirectionalEvent,
   response: SignatureRespondedEvent,
 ): string {
   return recoverAddress(evmSigningHash(request), signatureRespondedEventToSignature(response));
@@ -87,7 +86,7 @@ export function recoverEvmSignatureResponseSigner(
  * @throws {Error} If the request is not a Tron record, the record does not assemble, the key does not parse or the response is not a decodable signature
  */
 export function recoverTronSignatureResponseSigner(
-  request: SignBidirectionalEvent<TronTxParams>,
+  request: AnySignBidirectionalEvent,
   response: SignatureRespondedEvent,
   mpcRootPublicKey: string,
 ): string {
@@ -110,7 +109,7 @@ export function recoverTronSignatureResponseSigner(
  *   not assemble, or `expectedSigner` is not an EVM address.
  */
 export function verifyEvmSignatureRespondedEvent(
-  request: SignBidirectionalEvent,
+  request: AnySignBidirectionalEvent,
   response: SignatureRespondedEvent,
   expectedSigner: string,
 ): boolean {
@@ -126,7 +125,7 @@ export function verifyEvmSignatureRespondedEvent(
  * @throws {Error} If the request is not a Tron record, the record does not assemble or the key does not parse
  */
 export function verifyTronSignatureRespondedEvent(
-  request: SignBidirectionalEvent<TronTxParams>,
+  request: AnySignBidirectionalEvent,
   response: SignatureRespondedEvent,
   mpcRootPublicKey: string,
 ): boolean {

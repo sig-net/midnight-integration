@@ -20,8 +20,8 @@ import {
   decodeSignBidirectionalEventNotificationPayload,
   decodeSignBidirectionalNotification,
   decodeSignetLogEvents,
-  isEvmType2SignBidirectionalEvent,
-  isTronSignBidirectionalEvent,
+  isEvmRequest,
+  isTronRequest,
   MPCDestination,
   MPCSignatureAlgorithm,
   OutputKind,
@@ -94,7 +94,7 @@ function onlyRequestEntry(
     throw new Error(`expected one stored request, got ${String(index.size)}`);
   }
   const [idHex, record] = entry;
-  if (!isEvmType2SignBidirectionalEvent(record)) {
+  if (!isEvmRequest(record)) {
     throw new Error(`expected an evmType2 request, got txParamType ${String(record.txParamType)}`);
   }
   return [idHex, record];
@@ -1115,7 +1115,7 @@ function onlyTronRequestEntry(
     throw new Error(`expected one stored request, got ${String(index.size)}`);
   }
   const [idHex, record] = entry;
-  if (!isTronSignBidirectionalEvent(record)) {
+  if (!isTronRequest(record)) {
     throw new Error(`expected a Tron request, got txParamType ${String(record.txParamType)}`);
   }
   return [idHex, record];
