@@ -1,18 +1,35 @@
 import { readFileSync } from "node:fs";
 
 import type { AlignedValue } from "@midnight-ntwrk/compact-runtime";
+import { compactDeserialize } from "@sig-net/midnight-serde";
 import { recoverAddress } from "ethers";
 import { describe, expect, it } from "vitest";
 
-import { signatureRespondedEventToSignature } from "../src/ecdsa-attestation.ts";
 import {
+  calculateSignetAttestationDigest,
+  signatureRespondedEventToSignature,
+} from "../src/ecdsa-attestation.ts";
+import {
+  assembleCalldata,
   buildSignedTronTransaction,
   buildTronRawTransaction,
   bytesToHex,
+  calculateAttestedOutputHash,
   calculateRequestId,
   calculateTronTxParamsDigest,
+  canonicalSchemaText,
   decodeTronSignBidirectionalEvent,
+  deriveRespondSchema,
+  deriveSignBidirectionalEventSignerTronAddress,
+  deserializeEvmOutput,
+  evmTraceOutputFromTronReceipt,
+  executedEvmRespondOutput,
   hexToBytes,
+  isEvmContractCall,
+  type JsonValue,
+  OutputKind,
+  parseRequestIdHex,
+  requestIdBytes,
   type SignatureRespondedEvent,
   type SignBidirectionalEvent,
   tronAddressFromEvm,
@@ -52,6 +69,16 @@ interface TransactionJson {
   signed?: string;
 }
 
+interface RespondVectorJson {
+  name: string;
+  receipt: JsonValue & { contractResult?: string[] };
+  blockHeight: number;
+  outcome: "executed" | "failed" | "extractionFailed";
+  output?: string;
+  attestedOutputHash?: string;
+  attestationDigest?: string;
+}
+
 interface TronGoldenFixture {
   mpcCommit: string;
   requests: {
@@ -74,10 +101,20 @@ interface TronGoldenFixture {
   compiledCell: { atoms: string[]; widths: number[]; requestId: string };
   transactions: TransactionJson[];
   mainnetUsdt: TransactionJson[];
+  respondRequest: {
+    requestId: string;
+    serializedTransaction: string;
+    outputDeserializationSchema: string;
+    respondSerializationSchema: string;
+    caip2Id: string;
+    owner: string;
+    mpcRootPublicKey: string;
+  };
+  respond: RespondVectorJson[];
 }
 
 const FIXTURE = JSON.parse(
-  readFileSync(new URL("./fixtures/tron-golden-mpc-40f76c3.json", import.meta.url), "utf8"),
+  readFileSync(new URL("./fixtures/tron-golden-mpc-3d586f30.json", import.meta.url), "utf8"),
 ) as TronGoldenFixture;
 
 const tronTxParamsOf = (json: TronTxParamsJson): TronTxParams => ({
@@ -136,6 +173,17 @@ const REAL_SIGNATURES = [
     : [{ name, params: tronTxParamsOf(params), owner, ownerBase58, signature }],
 );
 
+const BOOL_SCHEMA = canonicalSchemaText([{ name: "success", type: "bool" }]);
+
+const TEST_CALLER_RECORD = REQUESTS.find(({ name }) =>
+  name.includes("the compiled test-caller record"),
+)?.record;
+
+const RESPOND = FIXTURE.respond.map((vector) => ({
+  ...vector,
+  outputKind: vector.outcome === "failed" ? OutputKind.failed : OutputKind.executed,
+}));
+
 const responseOf = (signature: SignatureJson): SignatureRespondedEvent => ({
   requestId: new Uint8Array(32),
   signature: ecdsaSignatureToMpcSignature({
@@ -147,7 +195,24 @@ const responseOf = (signature: SignatureJson): SignatureRespondedEvent => ({
 
 describe(`Tron golden vectors (sig-net/mpc ${FIXTURE.mpcCommit})`, () => {
   it("names the MPC commit the vectors were generated at", () => {
-    expect(FIXTURE.mpcCommit).toBe("40f76c3fb43bbcd12d258b6220f724e1155ed2b9");
+    expect(FIXTURE.mpcCommit).toBe("3d586f30c0784155d0e9393b1500f1ca2ca6318d");
+  });
+
+  it("carries the bool output schema on every record but the MPC's pinned empty-schema one", () => {
+    expect(BOOL_SCHEMA).toBe('[{"name":"success","type":"bool"}]');
+    expect(new TextEncoder().encode(BOOL_SCHEMA)).toHaveLength(34);
+    expect(
+      REQUESTS.map(({ record }) => new TextDecoder().decode(record.outputDeserializationSchema)),
+    ).toEqual(["", BOOL_SCHEMA, BOOL_SCHEMA, BOOL_SCHEMA]);
+    expect(REQUESTS.map(({ record }) => record.respondSerializationSchema.length)).toEqual([
+      0, 0, 0, 0,
+    ]);
+    expect(REQUESTS[0]?.txParamsDigest).toBe(
+      "e387f99d546a394b96180956656c7800aae76b96ba459ed87919656a34d33400",
+    );
+    expect(REQUESTS[0]?.requestId).toBe(
+      "e74c66064dc639e473b095dfcf76eba53297df9b580868b14c382e0e2a901a00",
+    );
   });
 
   it.each(REQUESTS)(
@@ -158,9 +223,8 @@ describe(`Tron golden vectors (sig-net/mpc ${FIXTURE.mpcCommit})`, () => {
     },
   );
 
-  it("decodes the compiled probe record cell to the probe record and its id", () => {
-    const probe = REQUESTS.find(({ requestId }) => requestId === FIXTURE.compiledCell.requestId);
-    const descriptor = tronSignBidirectionalEventDescriptor(1, 0, 0);
+  it("decodes the compiled test-caller record cell to its record and id", () => {
+    const descriptor = tronSignBidirectionalEventDescriptor(1, 34, 0);
     const cell: AlignedValue = {
       value: FIXTURE.compiledCell.atoms.map(hexToBytes),
       alignment: descriptor.alignment(),
@@ -169,11 +233,11 @@ describe(`Tron golden vectors (sig-net/mpc ${FIXTURE.mpcCommit})`, () => {
       FIXTURE.compiledCell.widths.map((length) => ({ tag: "bytes", length })),
     );
     const decoded = decodeTronSignBidirectionalEvent(cell, "compiled probe record");
-    expect(decoded).toEqual(probe?.record);
+    expect(decoded).toEqual(TEST_CALLER_RECORD);
     expect(descriptor.toValue(decoded).map(bytesToHex)).toEqual(FIXTURE.compiledCell.atoms);
     expect(bytesToHex(calculateRequestId(decoded))).toBe(FIXTURE.compiledCell.requestId);
     expect(FIXTURE.compiledCell.requestId).toBe(
-      "b8425af03222be68e9ced2b7dcb384aa7de1dd6312be7aa6d631f57cdecbff00",
+      "e74c66064dc639e473b095dfcf76eba53297df9b580868b14c382e0e2a901a00",
     );
   });
 
@@ -209,6 +273,94 @@ describe(`Tron golden vectors (sig-net/mpc ${FIXTURE.mpcCommit})`, () => {
         signatureRespondedEventToSignature(responseOf(signature)),
       );
       expect(tronAddressToBase58(tronAddressFromEvm(signer))).toBe(ownerBase58);
+    },
+  );
+
+  it("assembles the MPC's transaction for the test-caller record from its derived owner", () => {
+    const request = FIXTURE.respondRequest;
+    if (TEST_CALLER_RECORD === undefined) throw new Error("no test-caller record");
+    const owner = deriveSignBidirectionalEventSignerTronAddress(
+      request.mpcRootPublicKey,
+      TEST_CALLER_RECORD,
+    );
+    expect(bytesToHex(owner.bytes)).toBe(request.owner);
+    expect(bytesToHex(buildTronRawTransaction(TEST_CALLER_RECORD.txParams, owner.bytes))).toBe(
+      request.serializedTransaction,
+    );
+    expect(bytesToHex(calculateRequestId(TEST_CALLER_RECORD))).toBe(request.requestId);
+    expect(request.outputDeserializationSchema).toBe(
+      bytesToHex(TEST_CALLER_RECORD.outputDeserializationSchema),
+    );
+    expect(request.respondSerializationSchema).toBe("");
+    expect(request.caip2Id).toBe("tron:mainnet");
+  });
+
+  it("covers a true, a false, a reverted and an unreadable receipt", () => {
+    expect(RESPOND.map(({ outcome, output }) => [outcome, output])).toEqual([
+      ["executed", "00"],
+      ["executed", "01"],
+      ["failed", ""],
+      ["extractionFailed", undefined],
+    ]);
+  });
+
+  it.each(RESPOND.filter(({ outcome }) => outcome === "executed"))(
+    "recovers the attested output from the receipt: $name",
+    ({ receipt, output }) => {
+      if (TEST_CALLER_RECORD === undefined) throw new Error("no test-caller record");
+      const schema = TEST_CALLER_RECORD.outputDeserializationSchema;
+      const isContractCall = isEvmContractCall(
+        assembleCalldata(TEST_CALLER_RECORD.txParams.calldata),
+      );
+      const recovered = executedEvmRespondOutput(
+        schema,
+        isContractCall,
+        evmTraceOutputFromTronReceipt(receipt),
+      );
+      expect(bytesToHex(recovered)).toBe(output);
+      const returnData = receipt.contractResult?.[0] ?? "";
+      const success = BigInt(`0x${returnData}`) === 1n;
+      expect(deserializeEvmOutput(schema, `0x${returnData}`)).toEqual({ success });
+      expect(compactDeserialize(deriveRespondSchema(schema), recovered)).toEqual({ success });
+    },
+  );
+
+  it.each(RESPOND.filter(({ outcome }) => outcome === "failed"))(
+    "refuses an executed output for a failed receipt: $name",
+    ({ receipt }) => {
+      expect(() => evmTraceOutputFromTronReceipt(receipt)).toThrow(/reports the call failed/);
+    },
+  );
+
+  it.each(RESPOND.filter(({ outcome }) => outcome === "extractionFailed"))(
+    "refuses an output the MPC parks: $name",
+    ({ receipt }) => {
+      if (TEST_CALLER_RECORD === undefined) throw new Error("no test-caller record");
+      expect(() =>
+        executedEvmRespondOutput(
+          TEST_CALLER_RECORD.outputDeserializationSchema,
+          isEvmContractCall(assembleCalldata(TEST_CALLER_RECORD.txParams.calldata)),
+          evmTraceOutputFromTronReceipt(receipt),
+        ),
+      ).toThrow(/returned no data/);
+    },
+  );
+
+  it.each(RESPOND.filter(({ outcome }) => outcome !== "extractionFailed"))(
+    "hashes the attested output and the attestation digest: $name",
+    ({ blockHeight, output, outputKind, attestedOutputHash, attestationDigest }) => {
+      const bytes = hexToBytes(output ?? "");
+      expect(bytesToHex(calculateAttestedOutputHash(bytes))).toBe(attestedOutputHash);
+      expect(
+        bytesToHex(
+          calculateSignetAttestationDigest(
+            requestIdBytes(parseRequestIdHex(FIXTURE.respondRequest.requestId)),
+            BigInt(blockHeight),
+            outputKind,
+            bytes,
+          ),
+        ),
+      ).toBe(attestationDigest);
     },
   );
 });
