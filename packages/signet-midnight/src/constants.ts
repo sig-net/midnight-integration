@@ -159,7 +159,7 @@ const mpcOutputCacheUrls: Record<DeployedNetwork, string> = {
     "https://storage.googleapis.com/midnight-cache-storage-testnet/v1/stagenet",
   [MidnightNetwork.Preview]: "",
   [MidnightNetwork.Preprod]: "",
-  [MidnightNetwork.Mainnet]: "",
+  [MidnightNetwork.Mainnet]: "https://storage.googleapis.com/midnight-cache-storage-mainnet/v1",
 };
 
 /**

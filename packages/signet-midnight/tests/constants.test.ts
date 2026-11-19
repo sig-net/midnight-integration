@@ -90,6 +90,10 @@ const UNPUBLISHED_NETWORKS: readonly DeployedNetwork[] = [
   MidnightNetwork.Preprod,
   MidnightNetwork.Mainnet,
 ];
+const UNPUBLISHED_CACHE_NETWORKS: readonly DeployedNetwork[] = [
+  MidnightNetwork.Preview,
+  MidnightNetwork.Preprod,
+];
 
 describe("getMpcRootPublicKey", () => {
   it("publishes the stagenet key in canonical 0x04 uncompressed SEC1 hex", () => {
@@ -110,9 +114,18 @@ describe("getMpcOutputCacheUrl", () => {
     );
   });
 
-  it.each(UNPUBLISHED_NETWORKS)("throws for %s, whose cache is not published yet", (network) => {
-    expect(() => getMpcOutputCacheUrl(network)).toThrow(/no MPC output cache URL/);
+  it("publishes the mainnet cache down to the MPC's object prefix", () => {
+    expect(getMpcOutputCacheUrl(MidnightNetwork.Mainnet)).toBe(
+      "https://storage.googleapis.com/midnight-cache-storage-mainnet/v1",
+    );
   });
+
+  it.each(UNPUBLISHED_CACHE_NETWORKS)(
+    "throws for %s, whose cache is not published yet",
+    (network) => {
+      expect(() => getMpcOutputCacheUrl(network)).toThrow(/no MPC output cache URL/);
+    },
+  );
 });
 
 describe("getSignetContractAddress", () => {
