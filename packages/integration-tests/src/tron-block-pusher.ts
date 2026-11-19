@@ -13,12 +13,15 @@ const PUSHER_SINK = tronAddressFromEvm("0x000000000000000000000000000000000000dE
  */
 export async function withTronBlockPusher<T>(rpcUrl: string, action: () => Promise<T>): Promise<T> {
   const stop = new AbortController();
+  const stopped = (): boolean => stop.signal.aborted;
   const pusher = (async () => {
-    while (!stop.signal.aborted) {
+    while (!stopped()) {
       try {
-        await sendTrxFromFunder(rpcUrl, PUSHER_SINK, 1n);
+        await sendTrxFromFunder(rpcUrl, PUSHER_SINK, 1n, stop.signal);
       } catch (error) {
-        console.warn(`block pusher: filler transfer failed (${String(error)})`);
+        if (!stopped()) {
+          console.warn(`block pusher: filler transfer failed (${String(error)})`);
+        }
       }
       await new Promise((resolve) => setTimeout(resolve, PUSH_INTERVAL_MS));
     }

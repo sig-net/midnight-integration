@@ -10,7 +10,11 @@ import {
 } from "@sig-net/midnight";
 import { computeAddress, concat, getBytes, SigningKey, toBeHex } from "ethers";
 
+import { pollUntilDefined } from "./poll.ts";
+
 const SECOND = 1000;
+
+const REQUEST_TIMEOUT_MS = 30 * SECOND;
 
 /**
  * @param env - The suite's env accumulator
@@ -27,11 +31,20 @@ const TRE_FUNDER_KEY = new SigningKey(
 /** */
 export const TRE_FUNDER_ADDRESS = tronAddressFromEvm(computeAddress(TRE_FUNDER_KEY.publicKey));
 
-async function tronPost<T>(rpcUrl: string, path: string, body: object): Promise<T> {
+async function tronPost<T>(
+  rpcUrl: string,
+  path: string,
+  body: object,
+  stop?: AbortSignal,
+): Promise<T> {
   const response = await fetch(`${rpcUrl.replace(/\/+$/, "")}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.any([
+      AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      ...(stop === undefined ? [] : [stop]),
+    ]),
   });
   if (!response.ok) {
     throw new Error(
@@ -49,7 +62,7 @@ export async function assertLocalTre(rpcUrl: string): Promise<void> {
   const url = `${rpcUrl.replace(/\/+$/, "")}/admin/accounts`;
   let page: string;
   try {
-    page = await (await fetch(url)).text();
+    page = await (await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })).text();
   } catch (error) {
     throw new Error(
       `Tron endpoint ${rpcUrl} is unreachable: start the \`tron\` docker compose service (TRE)`,
@@ -117,20 +130,23 @@ export async function waitForFreshTronHead(
   maxAgeMs: number,
   timeoutMs: number,
 ): Promise<TronBlockRef> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const head = await getTronHeadBlock(rpcUrl);
-    if (BigInt(Date.now()) - head.timestamp <= BigInt(maxAgeMs)) {
-      return head;
-    }
-    if (Date.now() > deadline) {
-      throw new Error(
-        `the Tron head (block ${String(head.number)} at ${String(head.timestamp)}) stayed more ` +
-          `than ${String(maxAgeMs)}ms behind the wall clock for ${String(timeoutMs)}ms`,
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, SECOND));
+  const seen: { head?: TronBlockRef } = {};
+  const fresh = await pollUntilDefined(
+    async () => {
+      const head = await getTronHeadBlock(rpcUrl);
+      seen.head = head;
+      return BigInt(Date.now()) - head.timestamp <= BigInt(maxAgeMs) ? head : undefined;
+    },
+    timeoutMs,
+    SECOND,
+  );
+  if (fresh === undefined) {
+    throw new Error(
+      `the Tron head (block ${String(seen.head?.number)} at ${String(seen.head?.timestamp)}) ` +
+        `stayed more than ${String(maxAgeMs)}ms behind the wall clock for ${String(timeoutMs)}ms`,
+    );
   }
+  return fresh;
 }
 
 /**
@@ -246,19 +262,17 @@ export async function waitForSolidifiedTransactionInfo(
   txid: Uint8Array,
   timeoutMs: number,
 ): Promise<TronTransactionInfo> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const info = await getSolidifiedTransactionInfo(rpcUrl, txid);
-    if (info !== undefined) {
-      return info;
-    }
-    if (Date.now() > deadline) {
-      throw new Error(
-        `transaction ${bytesToHex(txid)} did not solidify within ${String(timeoutMs)}ms`,
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, SECOND));
+  const info = await pollUntilDefined(
+    () => getSolidifiedTransactionInfo(rpcUrl, txid),
+    timeoutMs,
+    SECOND,
+  );
+  if (info === undefined) {
+    throw new Error(
+      `transaction ${bytesToHex(txid)} did not solidify within ${String(timeoutMs)}ms`,
+    );
   }
+  return info;
 }
 
 /** */
@@ -352,10 +366,11 @@ async function broadcastNodeTransaction(
   rpcUrl: string,
   reply: TronNodeBuildReply,
   what: string,
+  stop?: AbortSignal,
 ): Promise<Uint8Array> {
   const { signed, txid } = signNodeTransaction(reply, what);
   broadcastOutcome(
-    await tronPost<TronBroadcastReply>(rpcUrl, "/wallet/broadcasttransaction", signed),
+    await tronPost<TronBroadcastReply>(rpcUrl, "/wallet/broadcasttransaction", signed, stop),
     what,
   );
   return txid;
@@ -365,22 +380,30 @@ async function broadcastNodeTransaction(
  * @param rpcUrl - The HTTP API base URL of the LOCAL TRE
  * @param to - The 21-byte recipient address
  * @param amount - The amount, sun
+ * @param stop - Aborts the transfer's requests when it fires
  * @returns The transfer's transaction id
  */
 export async function sendTrxFromFunder(
   rpcUrl: string,
   to: Uint8Array,
   amount: bigint,
+  stop?: AbortSignal,
 ): Promise<Uint8Array> {
   return broadcastNodeTransaction(
     rpcUrl,
-    await tronPost<TronNodeBuildReply>(rpcUrl, "/wallet/createtransaction", {
-      owner_address: bytesToHex(TRE_FUNDER_ADDRESS),
-      to_address: bytesToHex(to),
-      amount: Number(amount),
-      visible: false,
-    }),
+    await tronPost<TronNodeBuildReply>(
+      rpcUrl,
+      "/wallet/createtransaction",
+      {
+        owner_address: bytesToHex(TRE_FUNDER_ADDRESS),
+        to_address: bytesToHex(to),
+        amount: Number(amount),
+        visible: false,
+      },
+      stop,
+    ),
     `TRX transfer of ${String(amount)} sun to ${bytesToHex(to)}`,
+    stop,
   );
 }
 
