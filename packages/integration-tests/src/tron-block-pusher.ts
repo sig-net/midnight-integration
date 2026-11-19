@@ -7,6 +7,8 @@ const PUSH_INTERVAL_MS = 2000;
 const PUSHER_SINK = tronAddressFromEvm("0x000000000000000000000000000000000000dEaD");
 
 /**
+ * Run an action while filler transfers keep the local TRE producing blocks.
+ *
  * @param rpcUrl - The HTTP API base URL of the LOCAL TRE
  * @param action - The wait to keep the chain moving for
  * @returns Whatever `action` resolves to

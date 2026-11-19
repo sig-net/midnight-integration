@@ -26,10 +26,7 @@ import {
   signBidirectionalEventDescriptorWith,
 } from "./signet-requests.ts";
 
-/** */
-export const TRON_CAIP2_ID = "tron:mainnet";
-
-/** */
+/** The Tron transaction decomposition of a request (Compact: `TronTxParams`): a TriggerSmartContract call. */
 export interface TronTxParams {
   refBlockBytes: Uint8Array;
   refBlockHash: Uint8Array;
@@ -42,6 +39,8 @@ export interface TronTxParams {
 }
 
 /**
+ * Runtime descriptor of {@link TronTxParams} at a calldata word capacity.
+ *
  * @param maxCalldataWords - Calldata word capacity
  * @returns The tx-params descriptor
  */
@@ -59,6 +58,8 @@ export function tronTxParamsDescriptor(maxCalldataWords: number): CompactType<Tr
 }
 
 /**
+ * Runtime descriptor of a Tron request record at the given capacities.
+ *
  * @param maxCalldataWords - Calldata word capacity
  * @param lenOutputDeserialization - Declared byte width of `outputDeserializationSchema` (Compact `#LenOutputDeserialization`)
  * @param lenRespondSerialization - Declared byte width of `respondSerializationSchema` (Compact `#LenRespondSerialization`)
@@ -105,6 +106,8 @@ const TRON_DIGEST_HEAD = compactTupleDescriptor<
 ]);
 
 /**
+ * Digest a Tron decomposition over its used calldata words: the TS twin of the `calculateTronTxParamsDigestV1` circuit.
+ *
  * @param txParams - The transaction decomposition to digest, at any capacity
  * @returns The 32-byte digest
  * @throws {Error} When the calldata word count exceeds its capacity

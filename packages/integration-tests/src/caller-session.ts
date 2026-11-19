@@ -249,6 +249,8 @@ export async function ensureMpcResponseKeyStored(
 }
 
 /**
+ * Run a verify circuit call and wait until it removes the request from its map.
+ *
  * @param context - The session's caller context
  * @param map - The request map the request lives in
  * @param requestId - The request the verify consumes

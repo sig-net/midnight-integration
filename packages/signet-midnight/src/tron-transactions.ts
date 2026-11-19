@@ -22,6 +22,8 @@ function assertTronAddress(address: Uint8Array, name: string): void {
 }
 
 /**
+ * Turn a 20-byte EVM address into its 21-byte Tron address.
+ *
  * @param evm - The 20-byte EVM address, as bytes or hex (optional `0x`, any case)
  * @returns The 21-byte Tron address
  * @throws {Error} If the input is not exactly 20 bytes
@@ -45,6 +47,8 @@ function base58CheckChecksum(address: Uint8Array): Uint8Array {
 }
 
 /**
+ * Encode a 21-byte Tron address as base58check text.
+ *
  * @param address - The 21-byte, `0x41`-prefixed Tron address
  * @returns The base58check text
  * @throws {Error} If the address has the wrong length or prefix
@@ -55,6 +59,8 @@ export function tronAddressToBase58(address: Uint8Array): string {
 }
 
 /**
+ * Decode base58check text into a 21-byte Tron address.
+ *
  * @param text - The base58check text (`T…`)
  * @returns The 21-byte Tron address
  * @throws {Error} If the text is not base58, not 25 bytes, fails its checksum, does not carry the `0x41` prefix or is not the canonical spelling of its bytes
@@ -81,13 +87,15 @@ export function tronAddressFromBase58(text: string): Uint8Array {
   return address;
 }
 
-/** */
+/** A Tron address as its 21 bytes and its base58check text. */
 export interface TronAddress {
   bytes: Uint8Array;
   base58: string;
 }
 
 /**
+ * Derive the Tron address the MPC signs from for a contract and path.
+ *
  * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key, in any spelling `parseSecp256k1PublicKey` accepts
  * @param contractAddress - The Midnight contract address the request originates from (`0x` prefix optional, case-insensitive)
  * @param path - The derivation path string
@@ -102,6 +110,8 @@ export function deriveTronAddress(
 }
 
 /**
+ * Derive the Tron address the MPC signs a request's transaction from.
+ *
  * @param mpcSecp256k1PublicKey - The MPC root secp256k1 public key of the record's `keyVersion`, in any spelling `parseSecp256k1PublicKey` accepts
  * @param request - The on-ledger request record, or its `sender` and `path`
  * @returns The Tron address the MPC signs that request's transaction from, in both forms
@@ -170,6 +180,8 @@ function tronCalldata(params: TronTxParams): number[] {
 }
 
 /**
+ * Build the protobuf raw bytes of the TriggerSmartContract transaction a request describes.
+ *
  * @param params - The request's transaction parameters
  * @param owner - The 21-byte Tron address of the request signing key (see {@link deriveTronAddress})
  * @returns The raw transaction bytes
@@ -212,6 +224,8 @@ export function buildTronRawTransaction(params: TronTxParams, owner: Uint8Array)
 }
 
 /**
+ * The transaction id (sha256 of the raw bytes): the digest the MPC signs.
+ *
  * @param raw - The raw transaction bytes ({@link buildTronRawTransaction})
  * @returns The 32-byte transaction id
  */
@@ -220,6 +234,8 @@ export function tronTransactionId(raw: Uint8Array): Uint8Array {
 }
 
 /**
+ * Attach the MPC signature to raw transaction bytes, giving the protobuf `Transaction` to broadcast.
+ *
  * @param raw - The raw transaction bytes ({@link buildTronRawTransaction})
  * @param signature - The signature as the MPC posts it
  * @returns The signed transaction bytes

@@ -15,6 +15,7 @@ import {
   MpcOutputCacheReader,
   OutputKind,
   parseSecp256k1PublicKey,
+  pureCircuits,
   requestIdBytes,
   type RequestIdHex,
   requestIdHex,
@@ -22,7 +23,6 @@ import {
   respondBidirectionalEventToCircuitInput,
   type SignBidirectionalEvent,
   SIGNET_DEFAULT_KEY_VERSION,
-  TRON_CAIP2_ID,
   tronAddressFromBase58,
   tronTransactionId,
   type TronTxParams,
@@ -232,7 +232,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
             },
           },
         });
-        expect(record.executionDest).toEqual(asciiPadded(TRON_CAIP2_ID, 64));
+        expect(record.executionDest).toEqual(pureCircuits.tronCaip2Id());
         expect(record.outputDeserializationSchema).toEqual(BOOL_OUTPUT_SCHEMA);
         expect(record.respondSerializationSchema).toEqual(EMPTY_OUTPUT);
         expect(requestId).toBe(requestIdHex(calculateRequestId(record)));

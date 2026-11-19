@@ -79,7 +79,6 @@ export {
 export { decodeTronSignBidirectionalEvent } from "./signet-tron-record-decoding.ts";
 export {
   calculateTronTxParamsDigest,
-  TRON_CAIP2_ID,
   tronSignBidirectionalEventDescriptor,
   type TronTxParams,
   tronTxParamsDescriptor,

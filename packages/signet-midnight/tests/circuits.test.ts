@@ -21,7 +21,6 @@ import {
   OutputKind,
   pureCircuits,
   type SignBidirectionalEvent,
-  TRON_CAIP2_ID,
   tronAddressFromEvm,
   type TronTxParams,
   TxParamType,
@@ -660,8 +659,7 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
 
 describe("Tron circuits (circuit/TS lockstep)", () => {
   it("tronCaip2Id is tron:mainnet zero-padded to the executionDest width", () => {
-    expect(pureCircuits.tronCaip2Id()).toEqual(asciiPadded(TRON_CAIP2_ID, EXECUTION_DEST_BYTES));
-    expect(TRON_CAIP2_ID).toBe("tron:mainnet");
+    expect(pureCircuits.tronCaip2Id()).toEqual(asciiPadded("tron:mainnet", EXECUTION_DEST_BYTES));
   });
 
   it("tronAddress prefixes the EVM address with 0x41", () => {

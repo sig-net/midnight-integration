@@ -17,6 +17,8 @@ const SECOND = 1000;
 const REQUEST_TIMEOUT_MS = 30 * SECOND;
 
 /**
+ * The Tron HTTP API base URL from the env, defaulting to the local TRE.
+ *
  * @param env - The suite's env accumulator
  * @returns The HTTP API base URL
  */
@@ -28,7 +30,7 @@ const TRE_FUNDER_KEY = new SigningKey(
   "0x0000000000000000000000000000000000000000000000000000000000000001",
 );
 
-/** */
+/** The 21-byte address of TRE's dev funder account (private key 0x00…01). */
 export const TRE_FUNDER_ADDRESS = tronAddressFromEvm(computeAddress(TRE_FUNDER_KEY.publicKey));
 
 async function tronPost<T>(
@@ -55,6 +57,8 @@ async function tronPost<T>(
 }
 
 /**
+ * Check that the endpoint is a ready local TRE whose dev funder holds TRX.
+ *
  * @param rpcUrl - The HTTP API base URL to probe
  * @throws {Error} If the endpoint is unreachable, is not a ready TRE, or its dev funder account holds no TRX
  */
@@ -88,7 +92,7 @@ interface TronBlockJson {
   block_header?: { raw_data: { number?: number; timestamp?: number } };
 }
 
-/** */
+/** A Tron block's height, id and timestamp. */
 export interface TronBlockRef {
   number: bigint;
   id: Uint8Array;
@@ -108,6 +112,8 @@ function tronBlockRef(block: TronBlockJson, what: string): TronBlockRef {
 }
 
 /**
+ * Read the node's head block.
+ *
  * @param rpcUrl - The HTTP API base URL
  * @returns The head block's identity
  */
@@ -119,6 +125,8 @@ export async function getTronHeadBlock(rpcUrl: string): Promise<TronBlockRef> {
 }
 
 /**
+ * Wait until the node's head block is no older than `maxAgeMs`.
+ *
  * @param rpcUrl - The HTTP API base URL
  * @param maxAgeMs - The largest acceptable head age, milliseconds
  * @param timeoutMs - How long to wait for a fresh head
@@ -150,6 +158,8 @@ export async function waitForFreshTronHead(
 }
 
 /**
+ * Read the node's solidified head block.
+ *
  * @param rpcUrl - The HTTP API base URL
  * @returns The solidified head block's identity
  */
@@ -161,6 +171,8 @@ export async function getSolidifiedTronHeadBlock(rpcUrl: string): Promise<TronBl
 }
 
 /**
+ * Read a solidified block by height.
+ *
  * @param rpcUrl - The HTTP API base URL
  * @param number - The block height
  * @returns The block identity, or `undefined` when that height is not solidified yet
@@ -178,6 +190,8 @@ export async function getSolidifiedTronBlock(
 }
 
 /**
+ * Build the TaPoS reference, timestamp, expiration and fee limit of a transaction from its reference block.
+ *
  * @param reference - The referenced block
  * @param validityMs - Milliseconds from the timestamp to the expiration
  * @param feeLimit - The energy fee ceiling, sun
@@ -198,6 +212,8 @@ export function tronTxWindowFromBlock(
 }
 
 /**
+ * Find the first solidified block after the reference block whose timestamp reaches the expiration.
+ *
  * @param rpcUrl - The HTTP API base URL
  * @param referenceNumber - The height the transaction's TaPoS fields name
  * @param expiration - The transaction's expiration, milliseconds
@@ -223,7 +239,7 @@ export async function findSolidifiedExpiryBoundary(
   }
 }
 
-/** */
+/** The fields of a node's transaction receipt the e2e reads. */
 export interface TronTransactionInfo {
   id: string;
   blockNumber: number;
@@ -234,6 +250,8 @@ export interface TronTransactionInfo {
 }
 
 /**
+ * Read a transaction's receipt from the solidified chain.
+ *
  * @param rpcUrl - The HTTP API base URL
  * @param txid - The 32-byte transaction id
  * @returns The receipt, or `undefined` while the transaction is not in a solidified block
@@ -251,6 +269,8 @@ export async function getSolidifiedTransactionInfo(
 }
 
 /**
+ * Wait until a transaction's receipt is in a solidified block.
+ *
  * @param rpcUrl - The HTTP API base URL
  * @param txid - The 32-byte transaction id
  * @param timeoutMs - How long to keep polling
@@ -275,7 +295,7 @@ export async function waitForSolidifiedTransactionInfo(
   return info;
 }
 
-/** */
+/** How the node took a broadcast it did not refuse. */
 export enum TronBroadcastOutcome {
   Accepted = "accepted",
   AlreadyKnown = "already-known",
@@ -302,6 +322,8 @@ function broadcastOutcome(reply: TronBroadcastReply, what: string): TronBroadcas
 }
 
 /**
+ * Broadcast a signed transaction, unless it already solidified, and wait for its solidified receipt.
+ *
  * @param rpcUrl - The HTTP API base URL
  * @param signedTransaction - The signed protobuf `Transaction` bytes
  * @param txid - The transaction's id (sha256 of its raw bytes)
@@ -377,6 +399,8 @@ async function broadcastNodeTransaction(
 }
 
 /**
+ * Send TRX from TRE's dev funder, without waiting for the transfer to land.
+ *
  * @param rpcUrl - The HTTP API base URL of the LOCAL TRE
  * @param to - The 21-byte recipient address
  * @param amount - The amount, sun
@@ -408,6 +432,8 @@ export async function sendTrxFromFunder(
 }
 
 /**
+ * Read an account's TRX balance.
+ *
  * @param rpcUrl - The HTTP API base URL
  * @param address - The 21-byte account address
  * @returns The balance in sun, 0 for an account that does not exist yet
@@ -421,6 +447,8 @@ export async function getTrxBalance(rpcUrl: string, address: Uint8Array): Promis
 }
 
 /**
+ * Fund an account from TRE's dev funder up to a target balance.
+ *
  * @param rpcUrl - The HTTP API base URL of the LOCAL TRE
  * @param address - The 21-byte account to top up
  * @param target - The balance to reach, sun
@@ -440,7 +468,7 @@ export async function topUpTrx(
   return getTrxBalance(rpcUrl, address);
 }
 
-/** */
+/** The parts of a compiled Solidity artifact a Tron deploy needs. */
 export interface TronContractArtifact {
   contractName: string;
   abi: JsonValue;
@@ -448,6 +476,8 @@ export interface TronContractArtifact {
 }
 
 /**
+ * Deploy a compiled contract from TRE's dev funder and wait for it to solidify.
+ *
  * @param rpcUrl - The HTTP API base URL of the LOCAL TRE
  * @param artifact - The compiled contract to deploy
  * @returns The deployed contract's 21-byte address
@@ -487,6 +517,8 @@ export async function deployTronContract(
 }
 
 /**
+ * Check whether an address holds contract code.
+ *
  * @param rpcUrl - The HTTP API base URL
  * @param address - The 21-byte address to probe
  * @returns `true` when code is present

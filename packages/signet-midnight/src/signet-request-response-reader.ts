@@ -394,6 +394,8 @@ export class SignetRequestResponseReader {
   }
 
   /**
+   * Fetch a request record that must carry the evmType2 decomposition.
+   *
    * @param requestId - The request id to look up
    * @returns The stored evmType2 request record
    * @throws {Error} When the request cannot be fetched (see {@link getSignatureRequest}) or carries another decomposition
@@ -409,6 +411,8 @@ export class SignetRequestResponseReader {
   }
 
   /**
+   * Fetch a request record that must carry the Tron decomposition.
+   *
    * @param requestId - The request id to look up
    * @returns The stored Tron request record
    * @throws {Error} When the request cannot be fetched (see {@link getSignatureRequest}) or carries another decomposition
@@ -603,6 +607,8 @@ export class SignetRequestResponseReader {
   }
 
   /**
+   * The Tron twin of {@link getVerifiedSignatureRespondedEvent}: the first response signed by the owner of the request's transaction.
+   *
    * @param requestId - The Tron request id to fetch a verified response for
    * @param mpcRootPublicKey - The MPC root public key of the record's `keyVersion`; the expected owner is derived from it and the record's `sender` and `path`
    * @returns The first valid response, or `undefined` when no valid response has been posted yet
@@ -643,6 +649,8 @@ export class SignetRequestResponseReader {
   }
 
   /**
+   * The Tron twin of {@link getSignatureResponseVerdicts}: every response of the request with its verdict.
+   *
    * @param requestId - The Tron request id to judge the responses of
    * @param mpcRootPublicKey - The MPC root public key of the record's `keyVersion`; the expected owner is derived from it and the record's `sender` and `path`
    * @returns The first valid response (if any) plus per-post verdicts, signers in base58
@@ -687,6 +695,8 @@ export class SignetRequestResponseReader {
   }
 
   /**
+   * The Tron twin of {@link verifySignatureRespondedEvents}: judge the request's responses among decoded events already in hand.
+   *
    * @param requestId - The Tron request id to verify responses for
    * @param mpcRootPublicKey - The MPC root public key of the record's `keyVersion`
    * @param events - Decoded signet events of any kinds and request ids, in emission order
@@ -749,6 +759,8 @@ export class SignetRequestResponseReader {
   }
 
   /**
+   * Assemble the broadcast-ready signed Tron transaction for a request, attaching the first verified response.
+   *
    * @param requestId - The request id to produce a signed transaction for
    * @param mpcRootPublicKey - The MPC root public key of the record's `keyVersion` (e.g. `getMpcRootPublicKey(network)`); the owner is derived from it and the record's `sender` and `path`
    * @returns The signed protobuf `Transaction` bytes, or `undefined` when no valid response has been posted yet

@@ -157,7 +157,7 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
   respondSerializationSchema: Uint8Array;
 }
 
-/** */
+/** A request record of any decomposition this SDK reads: evmType2 or Tron. */
 export type AnySignBidirectionalEvent =
   SignBidirectionalEvent | SignBidirectionalEvent<TronTxParams>;
 

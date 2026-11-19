@@ -24,6 +24,8 @@ const TRON_TARGET_ARTIFACT_URL = new URL(
 );
 
 /**
+ * Setup step: deploy the SignetTronTarget contract on the local TRE, unless the env names one with code.
+ *
  * @param env - The suite's env accumulator
  */
 export async function deployTronTargetStep(env: NodeJS.ProcessEnv): Promise<void> {
@@ -60,6 +62,8 @@ export async function deployTronTargetStep(env: NodeJS.ProcessEnv): Promise<void
 const DERIVED_TRON_ACCOUNT_TARGET_SUN = 1_000_000_000n;
 
 /**
+ * Setup step: fund the caller's MPC-derived Tron account so it can pay for its transactions.
+ *
  * @param env - The suite's env accumulator
  */
 export async function fundDerivedTronAccountStep(env: NodeJS.ProcessEnv): Promise<void> {

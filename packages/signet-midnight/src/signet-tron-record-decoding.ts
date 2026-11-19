@@ -9,6 +9,8 @@ const TRON_HEAD_ATOMS = 15;
 const TRON_TAIL_ATOMS = 5;
 
 /**
+ * Decode a stored Tron request record cell, reading its schema widths from the cell.
+ *
  * @param cell - The record cell as stored (value atoms plus alignment)
  * @param what - Error-message subject
  * @returns The decoded record

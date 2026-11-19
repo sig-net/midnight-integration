@@ -79,6 +79,8 @@ export function recoverEvmSignatureResponseSigner(
 }
 
 /**
+ * Recover the address that produced a response signature, over the id of the Tron transaction the request describes.
+ *
  * @param request - The on-ledger Tron request record the response answers
  * @param response - The posted signature record answering it
  * @param mpcRootPublicKey - The MPC root public key of the record's `keyVersion`; the transaction owner is derived from it and the record's `sender` and `path`
@@ -118,6 +120,8 @@ export function verifyEvmSignatureRespondedEvent(
 }
 
 /**
+ * Verify a posted response against its Tron request: does the signature recover to the transaction's owner?
+ *
  * @param request - The on-ledger Tron request record the response answers
  * @param response - The posted signature record answering it
  * @param mpcRootPublicKey - The MPC root public key of the record's `keyVersion`; the expected owner is derived from it and the record's `sender` and `path`
