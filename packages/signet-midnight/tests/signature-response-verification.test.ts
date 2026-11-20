@@ -1,24 +1,36 @@
 // Verification of MPC signature responses against their request record: the
-// unsigned EIP-1559 transaction is rebuilt exactly as the MPC assembles it,
-// and the posted signature record must recover to the expected signer over
+// unsigned EIP-1559 or Tron transaction is rebuilt exactly as the MPC
+// assembles it, and the posted signature record must recover to the expected signer over
 // its signing hash.
 
 import { computeAddress, SigningKey } from "ethers";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildTronRawTransaction,
+  bytesToHex,
   calculateRequestId,
+  deriveEpsilon,
+  deriveSignBidirectionalEventSignerEvmAddress,
+  deriveSignBidirectionalEventSignerTronAddress,
   evmAddressAbiWord,
   MPCDestination,
   MPCSignatureAlgorithm,
   numericAbiWord,
   pureCircuits,
-  recoverSignatureResponseSigner,
+  recoverEvmSignatureResponseSigner,
+  recoverTronSignatureResponseSigner,
+  SECP256K1_ORDER,
   type SignatureRespondedEvent,
   type SignBidirectionalEvent,
   signBidirectionalEventToUnsignedEvmTransaction,
+  tronAddressFromEvm,
+  tronAddressToBase58,
+  tronTransactionId,
+  type TronTxParams,
   TxParamType,
-  verifySignatureRespondedEvent,
+  verifyEvmSignatureRespondedEvent,
+  verifyTronSignatureRespondedEvent,
 } from "../src/index.ts";
 import { ecdsaSignatureToMpcSignature } from "../src/testing.ts";
 
@@ -117,24 +129,24 @@ const withWord = (index: number, word: Uint8Array): SignBidirectionalEvent => ({
 
 // ---- Tests ----
 
-describe("recoverSignatureResponseSigner", () => {
+describe("recoverEvmSignatureResponseSigner", () => {
   it("recovers the signing address from a genuine response", () => {
-    expect(recoverSignatureResponseSigner(REQUEST, VALID_RESPONSE)).toBe(MPC_ADDRESS);
+    expect(recoverEvmSignatureResponseSigner(REQUEST, VALID_RESPONSE)).toBe(MPC_ADDRESS);
   });
 
   it("rejects a response with an out-of-range recovery id", () => {
-    expect(() => recoverSignatureResponseSigner(REQUEST, withRecoveryId(5n))).toThrow(
+    expect(() => recoverEvmSignatureResponseSigner(REQUEST, withRecoveryId(5n))).toThrow(
       /recovery id/,
     );
   });
 
-  it("rejects a request of an unsupported txParamType", () => {
+  it("rejects a request that is not evmType2", () => {
     expect(() =>
-      recoverSignatureResponseSigner(
-        { ...REQUEST, txParamType: TxParamType.reserved },
+      recoverEvmSignatureResponseSigner(
+        { ...REQUEST, txParamType: TxParamType.tron },
         VALID_RESPONSE,
       ),
-    ).toThrow(/unsupported txParamType 1/);
+    ).toThrow(/expected an evmType2 request record, got txParamType 1/);
   });
 });
 
@@ -204,11 +216,188 @@ const VERIFY_CASES: VerifyCase[] = [
   },
 ];
 
-describe("verifySignatureRespondedEvent", () => {
+describe("verifyEvmSignatureRespondedEvent", () => {
   it.each(VERIFY_CASES)(
     "verdict on $name is $valid",
     ({ request, response, expectedSigner, valid }) => {
-      expect(verifySignatureRespondedEvent(request, response, expectedSigner)).toBe(valid);
+      expect(verifyEvmSignatureRespondedEvent(request, response, expectedSigner)).toBe(valid);
     },
   );
+
+  it("throws on a request that is not evmType2", () => {
+    expect(() =>
+      verifyEvmSignatureRespondedEvent(
+        { ...REQUEST, txParamType: TxParamType.tron },
+        VALID_RESPONSE,
+        MPC_ADDRESS,
+      ),
+    ).toThrow(/expected an evmType2 request record/);
+  });
+});
+
+const TRON_REQUEST: SignBidirectionalEvent<TronTxParams> = {
+  ...REQUEST,
+  txParamType: TxParamType.tron,
+  txParams: {
+    refBlockBytes: Uint8Array.from([0x27, 0x10]),
+    refBlockHash: bytes(8, 0x42),
+    timestamp: 1_728_000_000_000n,
+    expiration: 1_728_000_060_000n,
+    feeLimit: 50_000_000n,
+    contractAddress: tronAddressFromEvm(ERC20),
+    callValue: 0n,
+    calldata: REQUEST.txParams.calldata,
+  },
+  executionDest: pureCircuits.tronCaip2Id(),
+  outputDeserializationSchema: new Uint8Array(0),
+  respondSerializationSchema: new Uint8Array(0),
+};
+
+// The Tron owner is derived from a root key and the record's sender and path,
+// so these tests sign with the derived child secret of a known root.
+const MPC_ROOT_SECRET = BigInt(`0x${"11".repeat(32)}`);
+const MPC_ROOT_PUBLIC_KEY = new SigningKey(`0x${"11".repeat(32)}`).publicKey;
+const MPC_CHILD_KEY = new SigningKey(
+  `0x${(
+    (MPC_ROOT_SECRET +
+      deriveEpsilon(bytesToHex(TRON_REQUEST.sender.bytes), bytesToHex(TRON_REQUEST.path))) %
+    SECP256K1_ORDER
+  )
+    .toString(16)
+    .padStart(64, "0")}`,
+);
+const MPC_CHILD_ADDRESS = computeAddress(MPC_CHILD_KEY.publicKey);
+const MPC_TRON_ADDRESS = tronAddressToBase58(tronAddressFromEvm(MPC_CHILD_ADDRESS));
+const IMPOSTER_ROOT_PUBLIC_KEY = IMPOSTER_KEY.publicKey;
+
+const signTronResponse = (
+  key: SigningKey,
+  request: SignBidirectionalEvent<TronTxParams>,
+  owner: string,
+): SignatureRespondedEvent => {
+  const owner21 = tronAddressFromEvm(owner);
+  const signature = key.sign(tronTransactionId(buildTronRawTransaction(request.txParams, owner21)));
+  return {
+    requestId: calculateRequestId(request),
+    signature: ecdsaSignatureToMpcSignature({
+      r: BigInt(signature.r),
+      s: BigInt(signature.s),
+      recoveryId: signature.yParity,
+    }),
+  };
+};
+
+const VALID_TRON_RESPONSE = signTronResponse(MPC_CHILD_KEY, TRON_REQUEST, MPC_CHILD_ADDRESS);
+
+describe("recoverTronSignatureResponseSigner", () => {
+  it("signs from the owner the record and root key derive", () => {
+    expect(deriveSignBidirectionalEventSignerEvmAddress(MPC_ROOT_PUBLIC_KEY, TRON_REQUEST)).toBe(
+      MPC_CHILD_ADDRESS,
+    );
+    expect(
+      deriveSignBidirectionalEventSignerTronAddress(MPC_ROOT_PUBLIC_KEY, TRON_REQUEST).base58,
+    ).toBe(MPC_TRON_ADDRESS);
+  });
+
+  it("recovers the owner's base58 address from a genuine response", () => {
+    expect(
+      recoverTronSignatureResponseSigner(TRON_REQUEST, VALID_TRON_RESPONSE, MPC_ROOT_PUBLIC_KEY),
+    ).toBe(MPC_TRON_ADDRESS);
+  });
+
+  it("refuses a root key that does not parse", () => {
+    expect(() =>
+      recoverTronSignatureResponseSigner(TRON_REQUEST, VALID_TRON_RESPONSE, MPC_TRON_ADDRESS),
+    ).toThrow();
+  });
+
+  it("refuses an evmType2 request", () => {
+    expect(() =>
+      recoverTronSignatureResponseSigner(REQUEST, VALID_TRON_RESPONSE, MPC_ROOT_PUBLIC_KEY),
+    ).toThrow(/expected a Tron request record, got txParamType 0/);
+  });
+
+  it("recoverEvmSignatureResponseSigner refuses a Tron request: its digest names the owner", () => {
+    expect(() => recoverEvmSignatureResponseSigner(TRON_REQUEST, VALID_TRON_RESPONSE)).toThrow(
+      /expected an evmType2 request record, got txParamType 1/,
+    );
+  });
+});
+
+interface TronVerifyCase {
+  name: string;
+  request: SignBidirectionalEvent<TronTxParams>;
+  response: SignatureRespondedEvent;
+  mpcRootPublicKey: string;
+  valid: boolean;
+}
+
+const TRON_VERIFY_CASES: TronVerifyCase[] = [
+  {
+    name: "a genuine response",
+    request: TRON_REQUEST,
+    response: VALID_TRON_RESPONSE,
+    mpcRootPublicKey: MPC_ROOT_PUBLIC_KEY,
+    valid: true,
+  },
+  {
+    name: "a response signed by another key",
+    request: TRON_REQUEST,
+    response: signTronResponse(IMPOSTER_KEY, TRON_REQUEST, MPC_CHILD_ADDRESS),
+    mpcRootPublicKey: MPC_ROOT_PUBLIC_KEY,
+    valid: false,
+  },
+  {
+    name: "the imposter's signature over its own transaction, claimed for the MPC's",
+    request: TRON_REQUEST,
+    response: signTronResponse(IMPOSTER_KEY, TRON_REQUEST, computeAddress(IMPOSTER_KEY.publicKey)),
+    mpcRootPublicKey: MPC_ROOT_PUBLIC_KEY,
+    valid: false,
+  },
+  {
+    name: "a genuine signature checked against another root key",
+    request: TRON_REQUEST,
+    response: VALID_TRON_RESPONSE,
+    mpcRootPublicKey: IMPOSTER_ROOT_PUBLIC_KEY,
+    valid: false,
+  },
+  {
+    name: "a genuine signature over a DIFFERENT request (raised fee limit)",
+    request: { ...TRON_REQUEST, txParams: { ...TRON_REQUEST.txParams, feeLimit: 60_000_000n } },
+    response: VALID_TRON_RESPONSE,
+    mpcRootPublicKey: MPC_ROOT_PUBLIC_KEY,
+    valid: false,
+  },
+  {
+    name: "a genuine signature for another derivation path",
+    request: { ...TRON_REQUEST, path: new Uint8Array(32).fill(0x01) },
+    response: VALID_TRON_RESPONSE,
+    mpcRootPublicKey: MPC_ROOT_PUBLIC_KEY,
+    valid: false,
+  },
+  {
+    name: "an out-of-range recovery id",
+    request: TRON_REQUEST,
+    response: {
+      ...VALID_TRON_RESPONSE,
+      signature: { ...VALID_TRON_RESPONSE.signature, recoveryId: 5n },
+    },
+    mpcRootPublicKey: MPC_ROOT_PUBLIC_KEY,
+    valid: false,
+  },
+];
+
+describe("verifyTronSignatureRespondedEvent", () => {
+  it.each(TRON_VERIFY_CASES)(
+    "verdict on $name is $valid",
+    ({ request, response, mpcRootPublicKey, valid }) => {
+      expect(verifyTronSignatureRespondedEvent(request, response, mpcRootPublicKey)).toBe(valid);
+    },
+  );
+
+  it("throws on an evmType2 request", () => {
+    expect(() =>
+      verifyTronSignatureRespondedEvent(REQUEST, VALID_TRON_RESPONSE, MPC_ROOT_PUBLIC_KEY),
+    ).toThrow(/expected a Tron request record/);
+  });
 });

@@ -5,9 +5,10 @@
 // Without RUN_INTEGRATION_TESTS this is a no-op so plain `yarn test` stays
 // offline.
 //
-// The pipeline serves BOTH flow files: the base flow (whose request exists
-// to be SIGNED, never broadcast) and the real-EVM flow (which
-// broadcasts against the SignetEvmTarget contract on the local anvil). So on
+// The pipeline serves ALL THREE flow files: the base flow (whose request
+// exists to be SIGNED, never broadcast), the real-EVM flow (which
+// broadcasts against the SignetEvmTarget contract on the local anvil) and the
+// Tron flow (against SignetTronTarget on the local TRE). So on
 // top of the stack checks, wallet seeds and funding, MPC keys, signet and
 // responder compile/deploy, fakenet hand-off and caller compile/deploy, it
 // deploys the EVM target (early: fast and midnight-free) and funds the
@@ -38,6 +39,7 @@ import {
   persistFakenetHandoffToDotEnv,
   startFakenetResponder,
 } from "./steps.ts";
+import { deployTronTargetStep, fundDerivedTronAccountStep } from "./tron-steps.ts";
 import { ensureWalletSeeds, ensureWalletsFunded } from "./wallets.ts";
 
 /**
@@ -52,6 +54,10 @@ const STEPS: [
   [
     "setup: deploy the SignetEvmTarget EVM contract (hardhat compile + anvil deploy)",
     deployEvmTargetStep,
+  ],
+  [
+    "setup: deploy the SignetTronTarget contract (hardhat compile + TRE deploy)",
+    deployTronTargetStep,
   ],
   [
     "setup: resolve/generate wallet seeds (root + deployer/invoker/mpc responder)",
@@ -73,6 +79,7 @@ const STEPS: [
   ["setup: deploy caller contract", deployCallerContractStep],
   ["setup: check/derive MPC_RESPONSE_KEY for the caller contract", ensureMpcResponseKey],
   ["setup: fund the caller's derived EVM sender with ETH", fundDerivedSenderStep],
+  ["setup: fund the caller's derived Tron account with TRX", fundDerivedTronAccountStep],
 ];
 
 /**
