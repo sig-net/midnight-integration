@@ -83,6 +83,7 @@ export {
   type TronTxParams,
   tronTxParamsDescriptor,
 } from "./signet-tron-requests.ts";
+export * from "./tron-node-api.ts";
 export * from "./tron-transactions.ts";
 export * from "./url-redaction.ts";
 // Explicit list: ecdsa-attestation.ts also backs the ./testing entry point

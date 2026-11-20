@@ -1,6 +1,8 @@
 import { type BorshValue, compactSerialize, type Schema } from "@sig-net/midnight-serde";
 import { ethers } from "ethers";
 
+import type { TronTransactionReceipt } from "./tron-node-api.ts";
+
 // ---------------------------------------------------------------------------
 // Schema types
 // ---------------------------------------------------------------------------
@@ -581,6 +583,35 @@ const TRON_FAILURE_RESULTS = new Set([
   "TRANSFER_FAILED",
   "INVALID_CODE",
 ]);
+
+/** What a final receipt says about execution, as the MPC classifies it. */
+export enum TronExecutionResult {
+  /** Executed: the MPC attests `executed` over the return data. */
+  Succeeded,
+  /** Reverted or ran out of resources: the MPC attests `failed`. */
+  Failed,
+}
+
+/**
+ * Classifies a final receipt the way the MPC does before attesting it: the top-level result
+ * when present, else the contract result.
+ *
+ * @param receipt - The solidified receipt
+ * @returns The execution result
+ * @throws {Error} If the receipt carries no result or one the MPC does not classify (it keeps
+ *   polling such a receipt instead of attesting)
+ */
+export function tronReceiptExecutionResult(
+  receipt: Pick<TronTransactionReceipt, "result" | "receiptResult">,
+): TronExecutionResult {
+  const result = receipt.result ?? receipt.receiptResult;
+  if (result === undefined) {
+    throw new Error("Tron receipt carries no execution result");
+  }
+  if (TRON_SUCCESS_RESULTS.has(result)) return TronExecutionResult.Succeeded;
+  if (TRON_FAILURE_RESULTS.has(result)) return TronExecutionResult.Failed;
+  throw new Error(`unclassifiable Tron execution result "${result}"`);
+}
 
 /**
  * Decode a Tron hex string, `0x` optional, as the MPC's `decode_bytes`.
