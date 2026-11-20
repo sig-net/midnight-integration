@@ -6,11 +6,6 @@ This project integrates with the Midnight Network.
 
 The [Sig Network](https://sig.network) [Distributed MPC](https://github.com/sig-net/mpc) integration for the [Midnight Blockchain](https://midnight.network) allows contracts on Midnight to execute arbitrary transactions on foreign blockchains.
 
-> ## 🚧 Under Construction 🚧
->
-> This Integration is still Under Construction.
-> Use at your own risk and expect rapid iteration.
-
 It achieves this by exposing the MPC's [sign bidirectional flow](#sign-bidirectional-protocol-flow) to contracts on Midnight.
 
 This repository contains the pieces that make that flow available on Midnight:
