@@ -18,6 +18,9 @@ export {
   ethereumCaip2Id,
   tronCaip2Id,
   tronAddress,
+  tronInt64Max,
+  tronMaxExpirationSpanSeconds,
+  assertTronExpirationWindowV1,
   evmAddressAbiWord,
   numericAbiWord,
   boolAbiWord,
@@ -191,4 +194,12 @@ export pure circuit calculateTronTriggerSmartContractRequestIdV1_2_34(
   request: SignBidirectionalEventV1<TronTriggerSmartContractTxParams<2>, 34, 0>
 ): RequestId {
   return calculateTronTriggerSmartContractRequestIdV1<2, 34>(request);
+}
+
+// The Tron admission checks a client contract runs before notifying the MPC, at the 2-word
+// calldata capacity of an ERC20-style transfer (tests only, like the oracles above).
+export pure circuit assertTronTriggerSmartContractTxParamsV1_2(
+  txParams: TronTriggerSmartContractTxParams<2>
+): [] {
+  assertTronTriggerSmartContractTxParamsV1<2>(txParams);
 }
