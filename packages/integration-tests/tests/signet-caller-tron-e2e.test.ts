@@ -79,7 +79,7 @@ const TRON_FEE_LIMIT_SUN = 50_000_000n;
 
 const BROADCAST_VALIDITY_MS = 60n * 60_000n;
 
-const EXPIRING_VALIDITY_MS = 3_000n;
+const EXPIRING_VALIDITY_MS = 5n * 60_000n;
 
 const uint256Word = (value: bigint): Uint8Array => getBytes(toBeHex(value, 32));
 
@@ -328,7 +328,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
                 (await getSolidifiedTronHeadBlock(rpc)).timestamp >= txWindow.expiration
                   ? true
                   : undefined,
-              3 * MINUTE,
+              8 * MINUTE,
               1000,
             ),
           );
@@ -349,7 +349,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
             `  boundary: block ${String(expectedHeight)} (first solidified block at or past ${String(txWindow.expiration)})`,
           ]);
         },
-        5 * MINUTE,
+        10 * MINUTE,
       );
     }
 

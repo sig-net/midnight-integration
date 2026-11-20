@@ -101,8 +101,10 @@ and three flow files:
   in `tronVerdicts`. One leg per outcome kind:
   - `executed`: `isEven(6)` returns true, attested at its receipt's block.
   - `failed`: `revertIf(true)` reverts, attested at its receipt's block.
-  - `unviable`: an `isEven(7)` request whose window closes one 3-second
-    slot after its reference is signed and never broadcast. Once the
+  - `unviable`: an `isEven(7)` request whose window closes 5 minutes
+    after its reference block is signed and never broadcast. The window
+    must still be open when the request lands on Midnight, or the MPC
+    refuses the request. Once the
     solidified chain passes the expiration, the fakenet attests it
     unviable at the first solidified block at or past it (the suite finds
     that block independently).
