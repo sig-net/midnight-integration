@@ -68,12 +68,12 @@ services:
 
   fakenet:
     # The MPC fakenet responder (sig-net/solana-signet-program, fakenet-signer
-    # workspace) in Midnight-only mode (DISABLE_SOLANA). Polls the signet contract's
+    # workspace) in Midnight-only mode (DISABLE_SOLANA). Polls the signet signer's
     # notification registry via the indexer, signs with keys derived from MPC_ROOT_KEY,
     # and posts responses to the signet responder through the proof server.
     #
     # Only runs with `--profile fakenet` as it needs MPC_ROOT_KEY,
-    # MIDNIGHT_SIGNET_CONTRACT_ADDRESS and MIDNIGHT_RESPONDER_CONTRACT_ADDRESS,
+    # MIDNIGHT_SIGNER_CONTRACT_ADDRESS and MIDNIGHT_RESPONDER_CONTRACT_ADDRESS,
     # which exist only once the integration-tests setup has derived the key
     # and deployed the contracts.
     # The setup does the whole hand-off itself: it appends the three values to
@@ -81,7 +81,7 @@ services:
     # starts this service. Manual equivalent (and the FAKENET_MANAGED=0 path):
     #   docker compose --profile fakenet up -d --force-recreate fakenet
     container_name: 'fakenet-responder'
-    image: 'ghcr.io/sig-net/fakenet:0.38.0'
+    image: 'ghcr.io/sig-net/fakenet:0.39.0'
     profiles: ['fakenet']
     depends_on:
       indexer:
@@ -118,5 +118,5 @@ services:
       # All three are appended to the repo-root .env by the integration-tests
       # setup (which also starts this service), see packages/integration-tests/README.md.
       MPC_ROOT_KEY: '${MPC_ROOT_KEY:-}'
-      MIDNIGHT_SIGNET_CONTRACT_ADDRESS: '${MIDNIGHT_SIGNET_CONTRACT_ADDRESS:-}'
+      MIDNIGHT_SIGNER_CONTRACT_ADDRESS: '${MIDNIGHT_SIGNER_CONTRACT_ADDRESS:-}'
       MIDNIGHT_RESPONDER_CONTRACT_ADDRESS: '${MIDNIGHT_RESPONDER_CONTRACT_ADDRESS:-}'

@@ -1,7 +1,7 @@
 // The generic signet e2e flow: the minimal caller contract drives the
-// central signet contract end to end. It submits a signature request (with
+// central signet signer end to end. It submits a signature request (with
 // contract-fixed minimal calldata), watches the notification event land on
-// the singleton, polls the MPC's signature response on the responder and
+// the signet signer, polls the MPC's signature response on the responder and
 // verifies it against the caller's derived account, then verifies an
 // ECDSA-signed respond-bidirectional response in-circuit. The contracts are the ones the
 // caller globalSetup pipeline (src/setup/caller-global-setup.ts, wired by
@@ -229,8 +229,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
         "",
         `  request id: ${signatureRequestId}`,
         "",
-        "The response server (fakenet compose service, MIDNIGHT_SIGNET_CONTRACT_ADDRESS and",
-        "MIDNIGHT_RESPONDER_CONTRACT_ADDRESS set) polls the signet contract's notification",
+        "The response server (fakenet compose service, MIDNIGHT_SIGNER_CONTRACT_ADDRESS and",
+        "MIDNIGHT_RESPONDER_CONTRACT_ADDRESS set) polls the signet signer's notification",
         "events and should pick it up on its next poll (resolving it from THIS caller's",
         "ledger), sign the EVM tx and post the signature to the responder.",
       ]);
@@ -239,7 +239,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller generic e2e",
   );
 
   it(
-    "golden notification: the caller's submit emitted a decodable notification event on the signet contract",
+    "golden notification: the caller's submit emitted a decodable notification event on the signet signer",
     async () => {
       // Pins the SignBidirectionalEvent notification payload layout against
       // a LIVE indexer, read exactly the way the MPC reads it: the signet

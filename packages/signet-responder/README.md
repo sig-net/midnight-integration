@@ -33,7 +33,7 @@ npm install @sig-net/midnight-responder
 
 ## Related packages
 
-- [`@sig-net/midnight-contract`](https://www.npmjs.com/package/@sig-net/midnight-contract): the signet singleton, which integrating contracts notify of their requests.
+- [`@sig-net/midnight-signer`](https://www.npmjs.com/package/@sig-net/midnight-signer): the signet signer, which integrating contracts notify of their requests.
 - [`@sig-net/midnight`](https://www.npmjs.com/package/@sig-net/midnight): the client-agnostic protocol library for decoding these events and verifying responses, and the published per-network responder addresses (`getResponderContractAddress`).
 - [`@sig-net/midnight-contract-deploy`](https://www.npmjs.com/package/@sig-net/midnight-contract-deploy): the operator deploy flow (`deploySignetResponder`).
 

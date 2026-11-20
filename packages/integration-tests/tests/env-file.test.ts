@@ -19,7 +19,7 @@ describe("appendRepoDotEnv", () => {
     writeFileSync(file, existing, "utf8");
 
     appendRepoDotEnv(
-      { MPC_ROOT_KEY: "0xabc", MIDNIGHT_SIGNET_CONTRACT_ADDRESS: "0200aa" },
+      { MPC_ROOT_KEY: "0xabc", MIDNIGHT_SIGNER_CONTRACT_ADDRESS: "0200aa" },
       "test provenance",
       file,
     );
@@ -27,7 +27,7 @@ describe("appendRepoDotEnv", () => {
     const written = readFileSync(file, "utf8");
     expect(written.startsWith(existing)).toBe(true);
     expect(written.slice(existing.length)).toBe(
-      "\n# test provenance\nMPC_ROOT_KEY=0xabc\nMIDNIGHT_SIGNET_CONTRACT_ADDRESS=0200aa\n",
+      "\n# test provenance\nMPC_ROOT_KEY=0xabc\nMIDNIGHT_SIGNER_CONTRACT_ADDRESS=0200aa\n",
     );
   });
 

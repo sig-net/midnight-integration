@@ -34,9 +34,9 @@ the central notifier, the responder, a client contract, or the driver?*
 | Layer | Package | Owns | NEVER holds |
 |---|---|---|---|
 | **Seed SDK** | `packages/signet-midnight` | Client-agnostic protocol: request/response structs, request-id hashing, secp256k1 ECDSA attestations, the `CompactType` descriptors and readers, `pureCircuits` (compiled `circuits.compact`) | Anything specific to one client contract |
-| **Singleton notifier** | `packages/signet-contract` | The one central contract every client cross-contract-calls to emit a `SignBidirectionalEvent` event. The MPC discovers requesters by polling ITS events | Application logic, per-client state |
+| **Signet signer** | `packages/signet-signer` | The one central contract every client cross-contract-calls to emit a `SignBidirectionalEvent` event. The MPC discovers requesters by polling ITS events | Application logic, per-client state |
 | **Responder** | `packages/signet-responder` | The contract the MPC posts its responses to: `respond` and `respondBidirectional` emit them as events clients poll. Its zk bundle comes from the MinoCrab twin in `minocrab/` | Anything a client calls |
-| **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit requests (contract-fixed calldata, plus one circuit per real-EVM target method), verify the MPC's ECDSA attestation in-circuit and settle every outcome kind (`executed` at the schema's packed width, `failed` and `unviable` at width 0). Seals the signet contract address at deploy and pins the MPC response key once after deploy, through `initialise` | Reusable protocol code (that belongs in the seed). Business logic beyond what exercising the singleton needs |
+| **Client contract** | `packages/test-caller-contract` | One requester's circuits + ledger. The caller is the SMALLEST possible client: submit requests (contract-fixed calldata, plus one circuit per real-EVM target method), verify the MPC's ECDSA attestation in-circuit and settle every outcome kind (`executed` at the schema's packed width, `failed` and `unviable` at width 0). Seals the signet signer address at deploy and pins the MPC response key once after deploy, through `initialise` | Reusable protocol code (that belongs in the seed). Business logic beyond what exercising the signet signer needs |
 | **Driver** | `packages/integration-tests` | Orchestration a downstream app would do: build circuit args, submit calls via midnight-js, poll the signet responder, verify responses. The e2e drives the caller THROUGH these sequences | Rules a contract should enforce |
 
 Placement rule of thumb: **if a second contract would ever want it, it goes in
@@ -56,12 +56,12 @@ map before touching any stage:
 
 1. **Request**: the client circuit (`submitSignatureRequest`) builds the
    contract-enforced calldata, inserts the request into its request index,
-   and cross-contract-calls the signet contract to emit a
+   and cross-contract-calls the signet signer to emit a
    `SignBidirectionalEvent` event. The e2e recomputes the
    request id off-chain (`calculateRequestId`) and asserts it landed on the
    ledger.
 2. **Discover + sign**: the MPC responder (external, `/e2e` starts it) polls
-   the **signet contract's** notification events, resolves the request from
+   the **signet signer's** notification events, resolves the request from
    the requester's RAW ledger, signs the EVM tx, and posts a signature
    response to the signet responder.
 3. **Poll signed tx**: the e2e reconstructs a typed ethers `Transaction`
@@ -98,7 +98,7 @@ ledger/state exactly as the MPC does: the same view on both sides is the point.
 
 - `yarn build && yarn test` in the member you touched (AGENTS.md: `tsx`
   and vitest do NOT typecheck, so "it runs" is not verification). Root
-  `yarn compile` (skip-zk) wipes prover keys, the `build` of signet-contract
+  `yarn compile` (skip-zk) wipes prover keys, the `build` of signet-signer
   and signet-responder gates on their keys, and the test caller's unit tests
   read the signet and test-caller verifier keys: restore with `yarn compile:zk`
   before a root build or test, and never build while a zk compile is still
@@ -113,7 +113,7 @@ ledger/state exactly as the MPC does: the same view on both sides is the point.
 - **TS-only or skip-zk change** → `/e2e` (rerun): setup steps skip against
   the kept addresses, and only the flow re-runs. ~2 min. A skip-zk compile
   deletes the prover keys the flow proves with: restore them first with
-  `yarn compile:signet-contract:zk` and `yarn compile:test-caller-contract:zk`.
+  `yarn compile:signet-signer:zk` and `yarn compile:test-caller-contract:zk`.
 - **Circuit/struct/hash change** → `/e2e redeploy`: zk keygen (~10+ min) +
   the responder hand-off, all in one run. Background it.
 - **signet-responder circuit change**: change the circuit in
@@ -159,7 +159,7 @@ the submit leg short-circuits and the suite reaches your stage on real state
 - **Keep enums in hashed structs ≥ 2 variants**: a 1-variant enum hashes as a
   zero-width atom and desynchronizes the compiler from the ledger (see the
   `TxParamType` padding variant in `packages/signet-midnight/src/signet-requests.ts`).
-- **A client seals the signet contract address at deploy and pins the MPC
+- **A client seals the signet signer address at deploy and pins the MPC
   response key once after it, through `initialise`.**
   Its EVM accounts are epsilon-derived from its contract address, so a
   redeploy moves them. On the local loop the derived EVM sender holds only

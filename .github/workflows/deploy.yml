@@ -1,5 +1,5 @@
-# Deploys one protocol contract, the central signet singleton
-# (packages/signet-contract) or the signet responder
+# Deploys one protocol contract, the central signet signer
+# (packages/signet-signer) or the signet responder
 # (packages/signet-responder), to one Midnight network, at a chosen release
 # tag, from a wallet whose seed is the target environment's DEPLOYER_SEED
 # secret.
@@ -8,13 +8,17 @@
 # registers that NIGHT for dust generation and waits for the first spendable
 # DUST itself.
 #
+# The preprod and mainnet environments also carry a BLOCKFROST_PROJECT_ID
+# secret, the token of a Blockfrost project for that network: Blockfrost
+# serves their public node and indexer.
+#
 # A deploy sets NO contract maintenance authority (the CMA signing key is
 # sampled and dropped), so a deployed contract can never be updated: every run
 # creates a fresh, permanent contract instance, and the only way forward is a
 # new deployment.
 #
 # The record-address job then opens a PR writing the new address into the
-# contract's address table in @sig-net/midnight (signetContractAddresses or
+# contract's address table in @sig-net/midnight (signerContractAddresses or
 # responderContractAddresses), so a human reviews the address before it
 # reaches npm consumers.
 #
@@ -33,14 +37,13 @@ on:
         required: true
         type: choice
         options:
-          - signet-contract
+          - signet-signer
           - signet-responder
       network:
         description: "Midnight network to deploy to (must match a GitHub environment name)"
         required: true
         type: choice
         options:
-          - stagenet
           - preview
           - preprod
           - mainnet
@@ -165,24 +168,24 @@ jobs:
         run: yarn compile
       # Restore-only: ci.yml's integration job owns saving this cache (it
       # generates BOTH cached contracts' keys, whereas this job generates only
-      # signet-contract's, so a save from here would poison the key). An older
+      # signet-signer's, so a save from here would poison the key). An older
       # tag's .compact sources hash to a key nothing saved, so expect a miss
       # and the keygen below.
       - name: Restore prebuilt zk proving keys
-        if: ${{ inputs.contract == 'signet-contract' }}
+        if: ${{ inputs.contract == 'signet-signer' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            packages/signet-contract/src/managed
+            packages/signet-signer/src/managed
             packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
-      - name: Ensure signet-contract prover keys (the deploy transaction needs them)
-        if: ${{ inputs.contract == 'signet-contract' }}
+      - name: Ensure signet-signer prover keys (the deploy transaction needs them)
+        if: ${{ inputs.contract == 'signet-signer' }}
         run: |
-          if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
+          if ls packages/signet-signer/src/managed/keys/*.prover >/dev/null 2>&1; then
             echo "prover keys present (restored from the cache), skipping keygen"
           else
-            yarn compile:signet-contract:zk
+            yarn compile:signet-signer:zk
           fi
       # No cargo cache, for the same reason as the toolchain. The lock check
       # refuses a bundle whose hashes differ from the committed ones.
@@ -202,11 +205,13 @@ jobs:
           CONTRACT: ${{ inputs.contract }}
           NETWORK_ID: ${{ inputs.network }}
           DEPLOYER_SEED: ${{ secrets.DEPLOYER_SEED }}
-          # Optional per-environment endpoint overrides. Every network has
-          # built-in defaults, and a blank var falls through to them.
+          # Per-environment endpoint overrides. A blank var falls through to
+          # the built-in endpoints, which need the Blockfrost project token on
+          # preprod and mainnet.
           MIDNIGHT_NODE_URL: ${{ vars.MIDNIGHT_NODE_URL }}
           MIDNIGHT_NODE_INDEXER_URL: ${{ vars.MIDNIGHT_NODE_INDEXER_URL }}
           MIDNIGHT_NODE_PROOF_SERVER_URL: http://127.0.0.1:6300
+          BLOCKFROST_PROJECT_ID: ${{ secrets.BLOCKFROST_PROJECT_ID }}
           # $GITHUB_REF_NAME is the dispatching branch, so carry the tag over.
           TAG: ${{ inputs.tag }}
         run: |

@@ -16,15 +16,14 @@ export interface MpcOutputCacheConfig {
    * The cache's public URL down to the MPC's configured object prefix, e.g.
    * `https://storage.googleapis.com/<bucket>/<prefix>`. A trailing slash is
    * tolerated. Defaults to the cache this package publishes for `networkId`
-   * ({@link getMpcOutputCacheUrl}), so a network with none (the local
-   * standalone stack, and any deployed network with no published cache yet)
-   * must pass it.
+   * ({@link getMpcOutputCacheUrl}), so the local standalone stack, which
+   * has none, must pass it.
    */
   readonly cacheUrl?: string;
   /** The Midnight network id the MPC serves: the path segment after the prefix. */
   readonly networkId: string;
-  /** The signet singleton the MPC publishes through, 64 hex chars: the segment after the network. */
-  readonly signetContractAddress: string;
+  /** The signet signer the MPC publishes through, 64 hex chars: the segment after the network. */
+  readonly signerContractAddress: string;
 }
 
 /** The networks this package may publish an output cache for: every named one but the local stack. */
@@ -37,8 +36,7 @@ const DEPLOYED_NETWORKS: readonly string[] = Object.values(MidnightNetwork).filt
  *
  * @param networkId - The Midnight network id the MPC serves.
  * @returns The published cache URL.
- * @throws {Error} When `networkId` is not a deployed network, or is one with
- *   no cache published yet.
+ * @throws {Error} When `networkId` is not a deployed network.
  */
 function publishedCacheUrl(networkId: string): string {
   if (!DEPLOYED_NETWORKS.includes(networkId)) {
@@ -52,7 +50,7 @@ function publishedCacheUrl(networkId: string): string {
 /**
  * Reads attested serialised outputs out of the MPC's output cache. The MPC
  * writes a request's bytes to
- * `<prefix>/<networkId>/<signetContractAddress>/<requestId>.bin` before it
+ * `<prefix>/<networkId>/<signerContractAddress>/<requestId>.bin` before it
  * posts the matching attestation, so once an attestation is on chain a
  * missing object means the cache write was lost or the deployment provides
  * no cache, and an object found before any attestation is still unverified.
@@ -70,7 +68,7 @@ export class MpcOutputCacheReader {
     while (prefixUrl.endsWith("/")) {
       prefixUrl = prefixUrl.slice(0, -1);
     }
-    this.namespaceUrl = `${prefixUrl}/${config.networkId}/${config.signetContractAddress}`;
+    this.namespaceUrl = `${prefixUrl}/${config.networkId}/${config.signerContractAddress}`;
   }
 
   /**

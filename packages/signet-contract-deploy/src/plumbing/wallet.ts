@@ -11,11 +11,21 @@ import {
   ShieldedEncryptionPublicKey,
   UnshieldedAddress,
 } from "@midnightntwrk/wallet-sdk-address-format";
-import { DustWallet } from "@midnightntwrk/wallet-sdk-dust-wallet";
 import {
+  Lifecycle,
+  TransactionLifecycleServiceImpl,
+} from "@midnightntwrk/wallet-sdk-capabilities/transactionLifecycle";
+import { type DefaultDustConfiguration, DustWallet } from "@midnightntwrk/wallet-sdk-dust-wallet";
+import type { SyncService } from "@midnightntwrk/wallet-sdk-dust-wallet/v1";
+import {
+  type DefaultConfiguration,
   type FacadeState,
+  lifecycleTransactionTraits,
+  type LifecycleTx,
   mergeWalletEntries,
+  type ResolvedConfiguration,
   type TransactionIdentifier,
+  type WalletEntry,
   WalletEntrySchema,
   WalletFacade,
 } from "@midnightntwrk/wallet-sdk-facade";
@@ -27,12 +37,32 @@ import {
   type UnshieldedKeystore,
   UnshieldedWallet,
 } from "@midnightntwrk/wallet-sdk-unshielded-wallet";
-import { Cause, Option, Runtime } from "effect";
+import { redactUrlQuery } from "@sig-net/midnight";
+import { Cause, Either, Option, Runtime, type Schema } from "effect";
 
-import { formatDust } from "./format-dust.ts";
+import { formatDust } from "./format-amounts.ts";
 import type { MidnightNodeConfig } from "./midnight-node-config.ts";
 import { isLocalStandaloneNetwork, type NetworkId } from "./network-id.ts";
 import { parseSeed } from "./seed.ts";
+import {
+  checkWalletCacheChain,
+  checkWalletCacheEnvelope,
+  indexerWalletCacheChain,
+  readChainAnchor,
+  readWalletCacheText,
+  refuseWalletCache,
+  resolveWalletCacheLocation,
+  WALLET_CACHE_FORMAT_VERSION,
+  type WalletCacheChain,
+  type WalletCacheEnvelope,
+  walletCacheEnvVar,
+  type WalletCacheLocation,
+  type WalletCacheRefusal,
+  WalletCacheRejection,
+  type WalletCacheSnapshots,
+  WalletCacheWriter,
+  type WalletChainAnchor,
+} from "./wallet-cache.ts";
 
 // Consumers hold facades/states we hand them without adding the wallet-sdk
 // packages themselves — re-export the handle types alongside the builders.
@@ -98,7 +128,7 @@ export function defaultAdditionalFeeOverhead(networkId: NetworkId): bigint {
 }
 
 /**
- * Optional tuning knobs for {@link initialiseWalletFacade} (and
+ * Optional tuning knobs for {@link openSyncedWallet} (and
  * {@link withSyncedWalletFacade} and {@link WalletRegistry}, which pass them
  * through).
  */
@@ -109,6 +139,13 @@ export interface WalletFacadeOptions {
    * {@link defaultAdditionalFeeOverhead} for the facade's network.
    */
   additionalFeeOverhead?: bigint;
+  /**
+   * Whether the DUST wallet starts at the chain's Ledger 9 fork, leaving the
+   * Ledger 8 DUST events unread and absent from its transaction history.
+   * Defaults to true. Pass false for a wallet that must replay DUST from
+   * genesis.
+   */
+  skipLedgerV8DustHistory?: boolean;
 }
 
 /** The DUST a facade refusal reports holding and needing, in base units. */
@@ -183,50 +220,95 @@ export function deriveAddresses(keys: AccountKeys, networkId: NetworkId): Wallet
 }
 
 /**
- * Wire up the WalletFacade for the given keys + connection config. This only
- * constructs the three sub-wallets — it does NOT start syncing.
- *
- * @param keys - The derived role keys the facade drives.
- * @param config - The endpoints the facade connects to.
- * @param options - Facade tuning; see {@link WalletFacadeOptions}.
- * @returns The constructed facade, not yet syncing.
+ * Indexer events the shielded and DUST wallets apply per batch: per-batch
+ * overhead dominates a sync at the SDK's default of 10.
  */
-export function initialiseWalletFacade(
-  keys: AccountKeys,
+const SYNC_BATCH_SIZE = 1000;
+
+/** The transaction history a facade keeps, serialisable into its wallet cache. */
+type WalletHistoryStorage = InMemoryTransactionHistoryStorage<
+  WalletEntry,
+  Schema.Schema.Encoded<typeof WalletEntrySchema>
+>;
+
+/** A wallet's state read back from its cache, ready to build a facade from. */
+export interface RestoredWalletState {
+  /** The cache's snapshots, already proven restorable. */
+  readonly snapshots: WalletCacheSnapshots;
+  /** When the cache was written, as logged. */
+  readonly savedAt: string;
+  /** The restored transaction history. */
+  readonly history: WalletHistoryStorage;
+  /** The restored transaction lifecycle records. */
+  readonly lifecycle: Lifecycle.TransactionLifecycle<LifecycleTx>;
+}
+
+/**
+ * Whether the DUST wallet skips the Ledger 8 DUST history under `options`.
+ *
+ * @param options - Facade tuning.
+ * @returns The effective setting, true unless the options say otherwise.
+ */
+function skipsLedgerV8DustHistory(options: WalletFacadeOptions): boolean {
+  return options.skipLedgerV8DustHistory ?? true;
+}
+
+/**
+ * The facade configuration for a node config, before the facade resolves it.
+ *
+ * @param config - The endpoints the facade connects to.
+ * @param options - Facade tuning, see {@link WalletFacadeOptions}.
+ * @param history - The transaction history the facade keeps.
+ * @returns The configuration.
+ */
+function facadeConfiguration(
   config: MidnightNodeConfig,
-  options: WalletFacadeOptions = {},
-): Promise<WalletFacade> {
-  return WalletFacade.init({
-    configuration: {
-      networkId: config.networkId,
-      indexerClientConnection: {
-        indexerHttpUrl: config.indexerUrl,
-        indexerWsUrl: config.indexerWsUrl,
-      },
-      provingServerUrl: new URL(config.proofServerUrl),
-      // The facade talks to the node over WebSocket, so flip http(s) -> ws(s).
-      relayURL: new URL(config.nodeUrl.replace(/^http/, "ws")),
-      costParameters: {
-        additionalFeeOverhead:
-          options.additionalFeeOverhead ?? defaultAdditionalFeeOverhead(config.networkId),
-        feeBlocksMargin: FEE_BLOCKS_MARGIN,
-      },
-      txHistoryStorage: new InMemoryTransactionHistoryStorage(
-        WalletEntrySchema,
-        mergeWalletEntries,
-      ),
+  options: WalletFacadeOptions,
+  history: WalletHistoryStorage,
+): DefaultConfiguration {
+  return {
+    networkId: config.networkId,
+    indexerClientConnection: {
+      indexerHttpUrl: config.indexerUrl,
+      indexerWsUrl: config.indexerWsUrl,
     },
-    shielded: (cfg) => ShieldedWallet(cfg).startWithSeed(keys.seeds.shielded),
-    unshielded: (cfg) =>
-      UnshieldedWallet(cfg).startWithPublicKey(
-        UnshieldedPublicKey.fromKeyStore(keys.unshieldedKeystore),
-      ),
-    dust: (cfg) =>
-      DustWallet(cfg).startWithSeed(
-        keys.seeds.dust,
-        ledger.LedgerParameters.initialParameters().dust,
-      ),
-  });
+    provingServerUrl: new URL(config.proofServerUrl),
+    // The facade talks to the node over WebSocket, so flip http(s) -> ws(s).
+    relayURL: new URL(config.nodeUrl.replace(/^http/, "ws")),
+    costParameters: {
+      additionalFeeOverhead:
+        options.additionalFeeOverhead ?? defaultAdditionalFeeOverhead(config.networkId),
+      feeBlocksMargin: FEE_BLOCKS_MARGIN,
+    },
+    txHistoryStorage: history,
+  };
+}
+
+/**
+ * The shielded wallet class a facade's configuration builds.
+ *
+ * @param cfg - The resolved facade configuration.
+ * @returns The class, configured.
+ */
+function shieldedWalletClass(cfg: ResolvedConfiguration) {
+  return ShieldedWallet({ ...cfg, batchUpdates: { size: SYNC_BATCH_SIZE } });
+}
+
+/**
+ * The DUST wallet class a facade's configuration builds.
+ *
+ * @param cfg - The resolved facade configuration.
+ * @param options - Facade tuning, for the DUST history setting.
+ * @returns The class, configured.
+ */
+function dustWalletClass(cfg: ResolvedConfiguration, options: WalletFacadeOptions) {
+  // DustWallet's declared configuration omits the sync fields its default sync reads.
+  const dustConfiguration: DefaultDustConfiguration & SyncService.DefaultSyncConfiguration = {
+    ...cfg,
+    batchUpdates: { size: SYNC_BATCH_SIZE },
+    skipLedgerV8DustHistory: skipsLedgerV8DustHistory(options),
+  };
+  return DustWallet(dustConfiguration);
 }
 
 // Dust generates continuously once NIGHT is registered, but a fresh
@@ -513,31 +595,328 @@ export async function registerNightForDustGeneration(
 }
 
 /**
- * Run `fn` against a started-and-synced {@link WalletFacade}, then stop the
- * facade — even when `fn` throws. The one place the start / wait-for-sync /
- * stop boilerplate lives.
+ * Run `fn` against a wallet opened with {@link openSyncedWallet}, then stop
+ * it (writing its cache) even when `fn` throws.
  *
  * @param keys - The account to open the facade for (see {@link deriveAccountKeys}).
  * @param config - The stack the facade connects to.
+ * @param label - The wallet's role name, which names its cache and its log lines.
+ * @param env - The environment holding the wallet's cache path variable.
  * @param fn - Work to run with the live facade; receives the synced state for balance checks.
  * @param options - Optional facade tuning knobs (see {@link WalletFacadeOptions}).
  * @returns Whatever `fn` returns.
- * @throws {Error} Whatever {@link initialiseWalletFacade}, the facade start/sync, or `fn` throws.
+ * @throws {Error} Whatever {@link openSyncedWallet} or `fn` throws.
  */
 export async function withSyncedWalletFacade<T>(
   keys: AccountKeys,
   config: MidnightNodeConfig,
+  label: string,
+  env: Record<string, string | undefined>,
   fn: (facade: WalletFacade, state: FacadeState) => Promise<T>,
   options: WalletFacadeOptions = {},
 ): Promise<T> {
-  const facade = await initialiseWalletFacade(keys, config, options);
-  await facade.start(keys.seeds);
+  const wallet = await openSyncedWallet({ keys, config, label, env, options });
   try {
-    const state = await waitForSyncedStateLogging(facade, "wallet", config);
-    return await fn(facade, state);
+    return await fn(wallet.facade, await wallet.facade.waitForSyncedState());
   } finally {
-    await facade.stop().catch(() => undefined);
+    await wallet.stop();
   }
+}
+
+/** A wallet {@link openSyncedWallet} opened: started, synced and keeping its cache current. */
+export interface OpenedWallet extends RegisteredWallet {
+  /** Write the wallet's cache one last time and stop the facade. Never rejects. */
+  stop(): Promise<void>;
+}
+
+/**
+ * Prove a validated cache's snapshots restorable before any facade is
+ * built: each sub-wallet snapshot through its wallet's `tryRestore`, the
+ * history through the storage's, and the lifecycle records through their
+ * deserialiser. The trial sub-wallets are stopped again.
+ *
+ * @param envelope - The validated cache.
+ * @param config - The endpoints the facade will connect to.
+ * @param options - Facade tuning, see {@link WalletFacadeOptions}.
+ * @returns The restored state, or the refusal naming the unreadable part.
+ */
+async function restoreWalletState(
+  envelope: WalletCacheEnvelope,
+  config: MidnightNodeConfig,
+  options: WalletFacadeOptions,
+): Promise<RestoredWalletState | WalletCacheRefusal> {
+  const { snapshots } = envelope;
+  const unreadable = (part: string, reason: string): WalletCacheRefusal => ({
+    rejection: WalletCacheRejection.SnapshotUnreadable,
+    detail: `the ${part} snapshot cannot be restored: ${reason}`,
+  });
+  const history = InMemoryTransactionHistoryStorage.tryRestore(
+    snapshots.transactionHistory,
+    WalletEntrySchema,
+    mergeWalletEntries,
+  );
+  if (Either.isLeft(history)) return unreadable("transaction history", history.left.message);
+  const cfg = WalletFacade.resolveConfiguration(
+    facadeConfiguration(config, options, history.right),
+  );
+  const lifecycle = Lifecycle.deserialize(
+    snapshots.transactionLifecycle,
+    lifecycleTransactionTraits(cfg.forks.v9),
+  );
+  if (Either.isLeft(lifecycle)) return unreadable("transaction lifecycle", lifecycle.left.message);
+  const shielded = shieldedWalletClass(cfg).tryRestore(snapshots.shielded);
+  const unshielded = UnshieldedWallet(cfg).tryRestore(snapshots.unshielded);
+  const dust = dustWalletClass(cfg, options).tryRestore(snapshots.dust);
+  await Promise.all([
+    Either.isRight(shielded) ? shielded.right.stop() : undefined,
+    Either.isRight(unshielded) ? unshielded.right.stop() : undefined,
+    Either.isRight(dust) ? dust.right.stop() : undefined,
+  ]);
+  if (Either.isLeft(shielded)) return unreadable("shielded", shielded.left.message);
+  if (Either.isLeft(unshielded)) return unreadable("unshielded", unshielded.left.message);
+  if (Either.isLeft(dust)) return unreadable("dust", dust.left.message);
+  return {
+    snapshots,
+    savedAt: envelope.savedAt,
+    history: history.right,
+    lifecycle: lifecycle.right,
+  };
+}
+
+/**
+ * Validate a cache file's text for the wallet being opened, without acting
+ * on the outcome: the offline checks of {@link checkWalletCacheEnvelope},
+ * the chain checks of {@link checkWalletCacheChain}, then a trial restore of
+ * every snapshot through the wallet SDK.
+ *
+ * @param text - The cache file's contents.
+ * @param keys - The wallet's key material.
+ * @param config - The stack the facade will connect to.
+ * @param options - Facade tuning, see {@link WalletFacadeOptions}.
+ * @param chain - Reads the wallet's chain.
+ * @returns The restored state, or the first refusal.
+ * @throws {Error} If the chain cannot be reached, which says nothing about the cache.
+ */
+export async function validateWalletCache(
+  text: string,
+  keys: AccountKeys,
+  config: MidnightNodeConfig,
+  options: WalletFacadeOptions,
+  chain: WalletCacheChain,
+): Promise<RestoredWalletState | WalletCacheRefusal> {
+  const checked = checkWalletCacheEnvelope(text, {
+    networkId: config.networkId,
+    addresses: deriveAddresses(keys, config.networkId),
+    coinPublicKey: keys.shieldedSecretKeys.coinPublicKey,
+    encryptionPublicKey: keys.shieldedSecretKeys.encryptionPublicKey,
+    dustPublicKey: keys.dustSecretKey.publicKey,
+    skipLedgerV8DustHistory: skipsLedgerV8DustHistory(options),
+  });
+  if (!("envelope" in checked)) return checked;
+  const offChain = await checkWalletCacheChain(checked.envelope, chain);
+  if (offChain !== undefined) return offChain;
+  return restoreWalletState(checked.envelope, config, options);
+}
+
+/**
+ * Load a wallet's cache: read it, {@link validateWalletCache} it and act on
+ * the outcome, logging it. A refused cache at the default path is deleted
+ * so the wallet syncs from scratch, and one at an explicit path throws. A
+ * chain that cannot be reached throws and leaves the file in place,
+ * whatever its path.
+ *
+ * @param location - Where the cache file lives.
+ * @param keys - The wallet's key material.
+ * @param config - The stack the facade will connect to.
+ * @param options - Facade tuning, see {@link WalletFacadeOptions}.
+ * @param chain - Reads the wallet's chain.
+ * @param label - The wallet's role name, for the log lines.
+ * @returns The restored state, or undefined when the wallet syncs from scratch.
+ * @throws {WalletCacheInvalidError} If an explicitly named cache is refused.
+ * @throws {Error} If the file exists but cannot be read, or the chain cannot be reached.
+ */
+export async function loadWalletCache(
+  location: WalletCacheLocation,
+  keys: AccountKeys,
+  config: MidnightNodeConfig,
+  options: WalletFacadeOptions,
+  chain: WalletCacheChain,
+  label: string,
+): Promise<RestoredWalletState | undefined> {
+  const text = await readWalletCacheText(location, label);
+  if (text === undefined) return undefined;
+  const validated = await validateWalletCache(text, keys, config, options, chain);
+  if (!("snapshots" in validated)) return refuseWalletCache(location, validated, label);
+  console.log(
+    `${label} wallet: restored from cache ${location.displayPath} (saved ${validated.savedAt})`,
+  );
+  return validated;
+}
+
+/**
+ * Serialise a running facade's state for its cache.
+ *
+ * @param facade - The running facade.
+ * @param history - The transaction history the facade keeps.
+ * @returns The snapshots.
+ */
+async function captureWalletSnapshots(
+  facade: WalletFacade,
+  history: WalletHistoryStorage,
+): Promise<WalletCacheSnapshots> {
+  const [shielded, unshielded, dust, transactionHistory, transactionLifecycle] = await Promise.all([
+    facade.shielded.serializeState(),
+    facade.unshielded.serializeState(),
+    facade.dust.serializeState(),
+    history.serialize(),
+    facade.transactionLifecycleService.serializeState(),
+  ]);
+  return { shielded, unshielded, dust, transactionHistory, transactionLifecycle };
+}
+
+/**
+ * Wire up the WalletFacade for the given keys and connection config, fresh
+ * or from a cache's restored state. This only constructs the three
+ * sub-wallets: it does NOT start syncing.
+ *
+ * @param keys - The derived role keys the facade drives.
+ * @param config - The endpoints the facade connects to.
+ * @param options - Facade tuning, see {@link WalletFacadeOptions}.
+ * @param history - The transaction history the facade keeps, the restored one when restoring.
+ * @param restored - The cache's restored state, or undefined for a fresh wallet.
+ * @returns The constructed facade, not yet syncing.
+ */
+function initialiseWalletFacade(
+  keys: AccountKeys,
+  config: MidnightNodeConfig,
+  options: WalletFacadeOptions,
+  history: WalletHistoryStorage,
+  restored: RestoredWalletState | undefined,
+): Promise<WalletFacade> {
+  return WalletFacade.init({
+    configuration: facadeConfiguration(config, options, history),
+    ...(restored === undefined
+      ? {}
+      : {
+          transactionLifecycleService: (cfg, deps) =>
+            TransactionLifecycleServiceImpl.init({
+              txTraits: lifecycleTransactionTraits(cfg.forks.v9),
+              initialState: restored.lifecycle,
+              configuration: cfg,
+              clock: deps.clock,
+            }),
+        }),
+    shielded: (cfg) =>
+      restored === undefined
+        ? shieldedWalletClass(cfg).startWithSeed(keys.seeds.shielded)
+        : shieldedWalletClass(cfg).restore(restored.snapshots.shielded),
+    unshielded: (cfg) =>
+      restored === undefined
+        ? UnshieldedWallet(cfg).startWithPublicKey(
+            UnshieldedPublicKey.fromKeyStore(keys.unshieldedKeystore),
+          )
+        : UnshieldedWallet(cfg).restore(restored.snapshots.unshielded),
+    dust: (cfg) =>
+      restored === undefined
+        ? dustWalletClass(cfg, options).startWithSeed(
+            keys.seeds.dust,
+            ledger.LedgerParameters.initialParameters().dust,
+          )
+        : dustWalletClass(cfg, options).restore(restored.snapshots.dust),
+  });
+}
+
+/** What {@link openSyncedWallet} opens a wallet from. */
+export interface OpenWalletParams {
+  /** The wallet's key material (see {@link deriveAccountKeys}). */
+  readonly keys: AccountKeys;
+  /** The stack the facade connects to. */
+  readonly config: MidnightNodeConfig;
+  /** The wallet's role name, which names its cache (see {@link walletCacheEnvVar}) and its log lines. */
+  readonly label: string;
+  /** The environment holding the wallet's cache path variable. */
+  readonly env: Record<string, string | undefined>;
+  /** Facade tuning, see {@link WalletFacadeOptions}. */
+  readonly options?: WalletFacadeOptions;
+  /** Where the repository root search for the default cache path starts, the process's working directory when left out. */
+  readonly workingDirectory?: string;
+}
+
+/**
+ * Open a wallet started and synced, resuming from its cache file when a
+ * valid one exists (see {@link resolveWalletCacheLocation} and
+ * {@link loadWalletCache}), and keep that file current while it runs: on
+ * an interval, once when the first sync completes, and on
+ * {@link OpenedWallet.stop}.
+ *
+ * @param params - The wallet to open, see {@link OpenWalletParams}.
+ * @returns The opened wallet.
+ * @throws {WalletCacheInvalidError} If the wallet's explicitly named cache is refused.
+ * @throws {Error} If the cache file or the chain anchor cannot be read, a deployed network's indexer is behind the cache, or building, starting or syncing the facade fails.
+ */
+export async function openSyncedWallet(params: OpenWalletParams): Promise<OpenedWallet> {
+  const { keys, config, label, env, options = {} } = params;
+  const addresses = deriveAddresses(keys, config.networkId);
+  const location = resolveWalletCacheLocation(
+    env,
+    label,
+    config.networkId,
+    addresses,
+    params.workingDirectory ?? process.cwd(),
+  );
+  const chain = indexerWalletCacheChain(config.indexerUrl);
+  let restored: RestoredWalletState | undefined;
+  let chainAnchor: WalletChainAnchor | undefined;
+  if (location === undefined) {
+    console.log(
+      `${label} wallet: no repository root to keep a cache in and ${walletCacheEnvVar(label)} unset, syncing from scratch`,
+    );
+  } else {
+    restored = await loadWalletCache(location, keys, config, options, chain, label);
+    chainAnchor = await readChainAnchor(chain);
+    if (chainAnchor === undefined) {
+      console.log(
+        `${label} wallet: the indexer holds no block past genesis to anchor a cache to, running without one`,
+      );
+    }
+  }
+
+  const history =
+    restored?.history ??
+    new InMemoryTransactionHistoryStorage(WalletEntrySchema, mergeWalletEntries);
+  const facade = await initialiseWalletFacade(keys, config, options, history, restored);
+  const writer =
+    location === undefined || chainAnchor === undefined
+      ? undefined
+      : new WalletCacheWriter(
+          location,
+          {
+            formatVersion: WALLET_CACHE_FORMAT_VERSION,
+            networkId: config.networkId,
+            addresses,
+            chainAnchor,
+            skipLedgerV8DustHistory: skipsLedgerV8DustHistory(options),
+          },
+          () => captureWalletSnapshots(facade, history),
+          label,
+          restored?.snapshots,
+        );
+  const stop = async (): Promise<void> => {
+    await writer?.stop();
+    await facade.stop().catch(() => undefined);
+  };
+  try {
+    await facade.start(keys.seeds);
+    writer?.start();
+    await waitForSyncedStateLogging(facade, label, config);
+  } catch (error) {
+    await stop();
+    throw error;
+  }
+  if (writer !== undefined && location !== undefined && (await writer.flush(true))) {
+    console.log(`${label} wallet: cache written to ${location.displayPath} on sync completion`);
+  }
+  return { label, keys, facade, stop };
 }
 
 // How often a sync in progress reports itself.
@@ -554,6 +933,44 @@ const SYNC_HEARTBEAT_MS = 10_000;
 function syncPosition(applied: bigint, highest: bigint): string {
   if (highest <= 0n) return `${String(applied)}/?`;
   return `${String(applied)}/${String(highest)} (${String((applied * 100n) / highest)}%)`;
+}
+
+/** The unshielded sync facts {@link unshieldedSyncPosition} reports on. */
+export type UnshieldedSyncProgress = Pick<
+  FacadeState["unshielded"]["progress"],
+  "appliedId" | "highestTransactionId" | "isConnected" | "indexerLiveness"
+>;
+
+/**
+ * The unshielded wallet's sync position for the heartbeat. It follows one
+ * address's transactions, so its head arrives with the indexer's first
+ * progress frame for that address, and it reports synced only once the
+ * indexer's height also agrees with the node's finalized head.
+ *
+ * @param progress - The unshielded wallet's progress record.
+ * @returns What the wallet has applied, or what it is waiting for.
+ */
+export function unshieldedSyncPosition(progress: UnshieldedSyncProgress): string {
+  if (!progress.isConnected) return "waiting for the indexer's first progress frame";
+  const position =
+    progress.highestTransactionId <= 0n
+      ? "no transactions for this address"
+      : syncPosition(progress.appliedId, progress.highestTransactionId);
+  const liveness = progress.indexerLiveness;
+  switch (liveness._tag) {
+    case "Unknown":
+      return `${position}, node head check pending`;
+    case "Unavailable":
+      return `${position}, node head check failed ${String(liveness.consecutiveFailures)} time(s)`;
+    case "Behind":
+      return `${position}, indexer ${String(liveness.lag)} block(s) behind the node`;
+    case "WrongNetwork":
+      return `${position}, indexer and node disagree on block ${String(liveness.height)}`;
+    case "Skipped":
+    case "InSync":
+    case "Ahead":
+      return position;
+  }
 }
 
 /**
@@ -573,7 +990,7 @@ async function waitForSyncedStateLogging(
 ): Promise<FacadeState> {
   const started = Date.now();
   const elapsed = (): string => `${String(Math.round((Date.now() - started) / 1000))}s`;
-  console.log(`syncing ${label} wallet (indexer: ${config.indexerUrl})...`);
+  console.log(`syncing ${label} wallet (indexer: ${redactUrlQuery(config.indexerUrl)})...`);
   let latest: FacadeState | undefined;
   const subscription = facade.state().subscribe({
     next: (state) => {
@@ -584,9 +1001,9 @@ async function waitForSyncedStateLogging(
     const position =
       latest === undefined
         ? "no state yet"
-        : `shielded ${syncPosition(latest.shielded.progress.appliedIndex, latest.shielded.progress.highestIndex)}, ` +
-          `dust ${syncPosition(latest.dust.progress.appliedIndex, latest.dust.progress.highestIndex)}, ` +
-          `unshielded ${syncPosition(latest.unshielded.progress.appliedId, latest.unshielded.progress.highestTransactionId)}`;
+        : `shielded ${syncPosition(latest.shielded.progress.appliedIndex, latest.shielded.progress.highestRelevantWalletIndex)}, ` +
+          `dust ${syncPosition(latest.dust.progress.appliedIndex, latest.dust.progress.highestRelevantWalletIndex)}, ` +
+          `unshielded ${unshieldedSyncPosition(latest.unshielded.progress)}`;
     console.log(`  ${label} wallet still syncing after ${elapsed()}: ${position}`);
   }, SYNC_HEARTBEAT_MS);
   try {
@@ -631,14 +1048,16 @@ export function walletRegistryKey(seed: string): string {
  * every facade once, at the end.
  */
 export class WalletRegistry {
-  private readonly wallets = new Map<string, Promise<RegisteredWallet>>();
+  private readonly wallets = new Map<string, Promise<OpenedWallet>>();
 
   /**
    * @param config - The stack every facade in the registry connects to.
+   * @param env - The environment holding each wallet's cache path variable.
    * @param options - Facade tuning passed to every facade built here.
    */
   constructor(
     readonly config: MidnightNodeConfig,
+    private readonly env: Record<string, string | undefined>,
     private readonly options: WalletFacadeOptions = {},
   ) {}
 
@@ -663,22 +1082,19 @@ export class WalletRegistry {
     return opened;
   }
 
-  private async open(seed: string, label: string): Promise<RegisteredWallet> {
-    const keys = deriveAccountKeys(seed, this.config.networkId);
-    const facade = await initialiseWalletFacade(keys, this.config, this.options);
-    await facade.start(keys.seeds);
-    try {
-      await waitForSyncedStateLogging(facade, label, this.config);
-    } catch (error) {
-      await facade.stop().catch(() => undefined);
-      throw error;
-    }
-    return { label, keys, facade };
+  private open(seed: string, label: string): Promise<OpenedWallet> {
+    return openSyncedWallet({
+      keys: deriveAccountKeys(seed, this.config.networkId),
+      config: this.config,
+      label,
+      env: this.env,
+      options: this.options,
+    });
   }
 
   /**
-   * Stop every facade the registry opened. Safe to call more than once and
-   * with nothing opened.
+   * Stop every facade the registry opened, writing each wallet's cache.
+   * Safe to call more than once and with nothing opened.
    */
   async close(): Promise<void> {
     const opened = [...this.wallets.values()];
@@ -686,7 +1102,7 @@ export class WalletRegistry {
     await Promise.all(
       opened.map(async (pending) => {
         const wallet = await pending.catch(() => undefined);
-        await wallet?.facade.stop().catch(() => undefined);
+        await wallet?.stop();
       }),
     );
   }

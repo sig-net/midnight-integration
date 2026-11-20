@@ -56,9 +56,9 @@ export type CallerProviders = MidnightProviders<
 
 // The compiler output dirs (each holds contract/, keys/, zkir/) — the "zk
 // config roots" the proof + zk-config providers read proving/verifier keys
-// from. submitSignatureRequest cross-contract-calls the signet contract, so
+// from. submitSignatureRequest cross-contract-calls the signet signer, so
 // proving spans both: signetManagedPath is a compile-time symlink to the
-// deployed signet contract's managed output (see this package's compile
+// deployed signet signer's managed output (see this package's compile
 // script).
 const managedPath = fileURLToPath(new URL("./managed/test-caller-contract", import.meta.url));
 const signetManagedPath = fileURLToPath(new URL("./managed/SignetSigner", import.meta.url));
@@ -90,7 +90,7 @@ export function buildCallerProviders(
   // Retrieves the ZK artifacts of a contract needed to create proofs.
   const callerZkConfigProvider = new NodeZkConfigProvider<CallerCircuitId>(managedPath);
 
-  // The callee (signet contract) circuits, resolved for the cross-contract
+  // The callee (signet signer) circuits, resolved for the cross-contract
   // proof provider so submitSignatureRequest's whole call tree proves.
   const signetZkConfigProvider = new NodeZkConfigProvider<string>(signetManagedPath);
 
@@ -121,7 +121,7 @@ export function buildCallerProviders(
     zkConfigProvider: callerZkConfigProvider,
 
     // Creates proven, unbalanced transactions (proves the contract-call
-    // transcript). Spans the caller AND the signet contract so
+    // transcript). Spans the caller AND the signet signer so
     // submitSignatureRequest's cross-contract call resolves keys for the
     // whole call tree.
     proofProvider: createCrossContractProofServerProvider(config.proofServerUrl, [
@@ -137,7 +137,7 @@ export function buildCallerProviders(
 
     config: { networkId: config.networkId, ttlSeconds: TRANSACTION_TTL_MS / 1000 },
 
-    // The caller's one cross-contract callee is the signet contract it seals,
+    // The caller's one cross-contract callee is the signet signer it seals,
     // so every address resolves to the SignetSigner module: the runtime still
     // refuses a callee whose deployed verifier keys differ from that module's.
     contractModuleProvider: {

@@ -27,8 +27,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   Contract,
-  createSignetContractPrivateState,
-  type SignetContractPrivateState,
+  createSignetSignerPrivateState,
+  type SignetSignerPrivateState,
   witnesses,
 } from "../src/index.ts";
 
@@ -50,9 +50,9 @@ const NOTIFYING_CALLER = { bytes: bytes(32, 0xc1) };
 // ---- Harness ----
 
 const deployContract = async (circuitId: string) => {
-  const contract = new Contract<SignetContractPrivateState>(witnesses);
+  const contract = new Contract<SignetSignerPrivateState>(witnesses);
   const { currentContractState, currentPrivateState } = await contract.initialState(
-    createConstructorContext(createSignetContractPrivateState(), CPK),
+    createConstructorContext(createSignetSignerPrivateState(), CPK),
   );
   const contractAddress = sampleContractAddress();
   const ctx = createCircuitContext({

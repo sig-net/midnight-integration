@@ -137,15 +137,15 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            packages/signet-contract/src/managed
+            packages/signet-signer/src/managed
             packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
-      - name: Ensure signet-contract and test-caller zk keys (signet-contract's publish-safety check and the test caller's unit tests need them)
+      - name: Ensure signet-signer and test-caller zk keys (signet-signer's publish-safety check and the test caller's unit tests need them)
         run: |
-          if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
-            echo "signet-contract prover keys present (restored from the cache), skipping keygen"
+          if ls packages/signet-signer/src/managed/keys/*.prover >/dev/null 2>&1; then
+            echo "signet-signer prover keys present (restored from the cache), skipping keygen"
           else
-            yarn compile:signet-contract:zk
+            yarn compile:signet-signer:zk
           fi
           if ls packages/test-caller-contract/src/managed/test-caller-contract/keys/*.prover >/dev/null 2>&1; then
             echo "test-caller prover keys present (restored from the cache), skipping keygen"
@@ -262,7 +262,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            packages/signet-contract/src/managed
+            packages/signet-signer/src/managed
             packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
       # The responder's bundle is never in the zk cache: `yarn compile:zk`
@@ -285,7 +285,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            packages/signet-contract/src/managed
+            packages/signet-signer/src/managed
             packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
       - name: Start the local stack (midnight node, indexer, proof server, anvil)
