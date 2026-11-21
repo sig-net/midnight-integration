@@ -118,13 +118,13 @@ export function getMpcRootPublicKey(networkId: DeployedNetwork): string {
   return mpcRootPublicKeys[networkId];
 }
 
-// TODO: fill in each network's signet signer address as the signet
-// signer is deployed there. An empty string means "not yet deployed or
-// published" and makes getSignerContractAddress throw for that network.
+// Each network's signet signer address, filled in as the signet signer is
+// deployed there. An empty string means "not yet deployed or published" and
+// makes getSignerContractAddress throw for that network.
 const signerContractAddresses: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Preview]: "2b0f9ef9fe7e6d79628a12d245ae0d7efaaaeeca360d9f5f3e13214a5c325013",
   [MidnightNetwork.Preprod]: "c423fca48329307ba00383e8c40cf1b3a83a7728a2b6721e863cfa16d25fb3ec",
-  [MidnightNetwork.Mainnet]: "",
+  [MidnightNetwork.Mainnet]: "05d93f08c4faca911c32a047538bc4da08854773e405107eaf3daff3636f8f9b",
 };
 
 /**
@@ -152,7 +152,7 @@ export function getSignerContractAddress(networkId: DeployedNetwork): string {
 const responderContractAddresses: Record<DeployedNetwork, string> = {
   [MidnightNetwork.Preview]: "1616a3cf33ffc2c4678323150374b89a18807335bcbabd31621c56e0d3c0d203",
   [MidnightNetwork.Preprod]: "627ef19bb1db09b4261e31a4f87a6b299581c3d635c409bad9ac4547370ef4d5",
-  [MidnightNetwork.Mainnet]: "",
+  [MidnightNetwork.Mainnet]: "e3e3dc48ac9a8d220c729f67d9a375608dacf6152a35cff5d02eeb60be25eb1e",
 };
 
 /**

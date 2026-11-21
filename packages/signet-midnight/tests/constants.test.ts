@@ -138,38 +138,22 @@ describe("getSignerContractAddress", () => {
   const NETWORKS_WITH_SIGNER: readonly DeployedNetwork[] = [
     MidnightNetwork.Preview,
     MidnightNetwork.Preprod,
+    MidnightNetwork.Mainnet,
   ];
-  const NETWORKS_WITHOUT_SIGNER: readonly DeployedNetwork[] = [MidnightNetwork.Mainnet];
 
   it.each(NETWORKS_WITH_SIGNER)("publishes the %s signet signer", (network) => {
     expect(getSignerContractAddress(network)).toMatch(/^[0-9a-f]{64}$/);
   });
-
-  it.each(NETWORKS_WITHOUT_SIGNER)(
-    "throws for %s, which has no published signet signer",
-    (network) => {
-      expect(() => getSignerContractAddress(network)).toThrow(/no signet signer address/);
-    },
-  );
 });
 
 describe("getResponderContractAddress", () => {
   const NETWORKS_WITH_RESPONDER: readonly DeployedNetwork[] = [
     MidnightNetwork.Preview,
     MidnightNetwork.Preprod,
+    MidnightNetwork.Mainnet,
   ];
-  const NETWORKS_WITHOUT_RESPONDER: readonly DeployedNetwork[] = [MidnightNetwork.Mainnet];
 
   it.each(NETWORKS_WITH_RESPONDER)("publishes the %s responder", (network) => {
     expect(getResponderContractAddress(network)).toMatch(/^[0-9a-f]{64}$/);
   });
-
-  it.each(NETWORKS_WITHOUT_RESPONDER)(
-    "throws for %s, which has no published responder",
-    (network) => {
-      expect(() => getResponderContractAddress(network)).toThrow(
-        /no responder contract address published for the '[a-z]+' network yet/,
-      );
-    },
-  );
 });

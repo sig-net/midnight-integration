@@ -14,6 +14,7 @@ import {
 } from "../src/index.ts";
 
 const PREVIEW_SIGNET = getSignerContractAddress(MidnightNetwork.Preview);
+const MAINNET_SIGNET = getSignerContractAddress(MidnightNetwork.Mainnet);
 const PREVIEW_MPC_KEY = getMpcRootPublicKey(MidnightNetwork.Preview);
 const PREVIEW_MPC_KEY_NEAR_FORM =
   "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
@@ -55,9 +56,9 @@ describe("findSignerContractAddress / resolveSignerContractAddress", () => {
       found: { value: "ab".repeat(32), origin: CounterpartyOrigin.Environment },
     },
     {
-      name: "a set value on a deployed network the SDK publishes nothing for yet",
-      env: { NETWORK_ID: "mainnet", MIDNIGHT_SIGNER_CONTRACT_ADDRESS: "cd".repeat(32) },
-      found: { value: "cd".repeat(32), origin: CounterpartyOrigin.Environment },
+      name: "the published mainnet signet signer with nothing set",
+      env: { NETWORK_ID: "mainnet" },
+      found: { value: MAINNET_SIGNET, origin: CounterpartyOrigin.Published },
     },
     {
       name: "nothing on the local stack",
@@ -98,11 +99,6 @@ describe("findSignerContractAddress / resolveSignerContractAddress", () => {
       name: "nothing on the local stack",
       env: { NETWORK_ID: "undeployed" },
       error: /required on "undeployed": deploy one with deploySignetSigner/,
-    },
-    {
-      name: "nothing on a deployed network the SDK publishes nothing for yet",
-      env: { NETWORK_ID: "mainnet" },
-      error: /required on "mainnet": the SDK publishes no signet signer for it yet/,
     },
   ];
 
