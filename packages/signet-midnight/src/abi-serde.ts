@@ -1,7 +1,7 @@
 import { type BorshValue, compactSerialize, type Schema } from "@sig-net/midnight-serde";
 import { ethers } from "ethers";
 
-import type { TronTransactionReceipt } from "./tron-node-api.ts";
+import type { TronTransactionInfo } from "./tron-node-api.ts";
 
 // ---------------------------------------------------------------------------
 // Schema types
@@ -602,7 +602,7 @@ export enum TronExecutionResult {
  *   polling such a receipt instead of attesting)
  */
 export function tronReceiptExecutionResult(
-  receipt: Pick<TronTransactionReceipt, "result" | "receiptResult">,
+  receipt: Pick<TronTransactionInfo, "result" | "receiptResult">,
 ): TronExecutionResult {
   const result = receipt.result ?? receipt.receiptResult;
   if (result === undefined) {
