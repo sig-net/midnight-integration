@@ -145,8 +145,8 @@ export async function broadcastTronTransaction(
   );
 }
 
-/** A final (solidified) Tron transaction receipt: what the MPC attests from. */
-export interface TronTransactionReceipt {
+/** A final (solidified) `TransactionInfo`, java-tron's transaction receipt: what the MPC attests from. */
+export interface TronTransactionInfo {
   readonly id: Uint8Array;
   readonly blockNumber: bigint;
   /** The block's timestamp in milliseconds. */
@@ -184,7 +184,7 @@ interface TransactionInfoAnswer {
 export async function getSolidifiedTronTransactionInfo(
   rpcUrl: string,
   txId: Uint8Array,
-): Promise<TronTransactionReceipt | undefined> {
+): Promise<TronTransactionInfo | undefined> {
   const body = JSON.parse(
     await tronNodePost(rpcUrl, "/walletsolidity/gettransactioninfobyid", {
       value: bytesToHex(txId),

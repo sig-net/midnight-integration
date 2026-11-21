@@ -18,7 +18,7 @@ import {
   TronExecutionResult,
   tronReceiptExecutionResult,
   tronTaposReference,
-  type TronTransactionReceipt,
+  type TronTransactionInfo,
 } from "../src/index.ts";
 
 interface NileFixture {
@@ -199,7 +199,7 @@ describe("getSolidifiedTronTransactionInfo", () => {
   });
 });
 
-const RECEIPT: Pick<TronTransactionReceipt, "result" | "receiptResult"> = {
+const RECEIPT: Pick<TronTransactionInfo, "result" | "receiptResult"> = {
   result: undefined,
   receiptResult: "SUCCESS",
 };
