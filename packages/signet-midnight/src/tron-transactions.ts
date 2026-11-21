@@ -9,6 +9,7 @@ import {
 } from "./epsilon-derivation.ts";
 import { pureCircuits } from "./managed/contract/index.js";
 import type { MpcSignature } from "./signet-contract-events.ts";
+import { type SignBidirectionalEvent, TxParamType } from "./signet-requests.ts";
 import type { TronTxParams } from "./signet-tron-requests.ts";
 
 const TRON_ADDRESS_PREFIX = 0x41;
@@ -221,6 +222,40 @@ export function buildTronRawTransaction(params: TronTxParams, owner: Uint8Array)
     ...int64Field(14, params.timestamp, "timestamp"),
     ...int64Field(18, params.feeLimit, "feeLimit"),
   ]);
+}
+
+/** The unsigned Tron transaction the MPC signs for a request. */
+export interface UnsignedTronTransaction {
+  /** The `raw` protobuf bytes. */
+  readonly raw: Uint8Array;
+  /** sha256 of `raw`: the transaction id, and the digest the MPC signs. */
+  readonly txId: Uint8Array;
+  /** The request's derived signer, the transaction's owner. */
+  readonly owner: TronAddress;
+}
+
+/**
+ * Rebuilds the exact unsigned transaction the MPC signs for an on-ledger Tron request record:
+ * its transaction parameters, owned by the key the MPC derives from the record's sender and path.
+ *
+ * @param request - The on-ledger request record
+ * @param mpcRootPublicKey - The MPC root secp256k1 public key of the record's `keyVersion`, in any
+ *   spelling `parseSecp256k1PublicKey` accepts
+ * @returns The raw transaction, its id and its owner
+ * @throws {Error} If the record is not a Tron request or a field cannot be encoded
+ */
+export function signBidirectionalEventToUnsignedTronTransaction(
+  request: SignBidirectionalEvent<TronTxParams>,
+  mpcRootPublicKey: string,
+): UnsignedTronTransaction {
+  if (request.txParamType !== TxParamType.tron) {
+    throw new Error(
+      `expected a Tron request record, got txParamType ${String(request.txParamType)}`,
+    );
+  }
+  const owner = deriveSignBidirectionalEventSignerTronAddress(mpcRootPublicKey, request);
+  const raw = buildTronRawTransaction(request.txParams, owner.bytes);
+  return { raw, txId: tronTransactionId(raw), owner };
 }
 
 /**
