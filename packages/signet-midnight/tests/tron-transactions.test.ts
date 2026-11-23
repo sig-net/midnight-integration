@@ -10,7 +10,7 @@ import {
   tronAddressFromBase58,
   tronAddressFromEvm,
   tronAddressToBase58,
-  type TronTxParams,
+  type TronTriggerSmartContractTxParams,
 } from "../src/index.ts";
 
 const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
@@ -88,7 +88,7 @@ describe("Tron addresses", () => {
   });
 });
 
-const VALID_PARAMS: TronTxParams = {
+const VALID_PARAMS: TronTriggerSmartContractTxParams = {
   refBlockBytes: Uint8Array.from([0x27, 0x10]),
   refBlockHash: bytes(8, 0x42),
   timestamp: 1_728_000_000_000n,

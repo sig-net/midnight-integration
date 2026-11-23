@@ -157,38 +157,38 @@ export pure circuit constructSignBidirectionalEventV1_1_0_0_34(
   );
 }
 
-export pure circuit calculateTronTxParamsDigestV1_1(
-  txParams: TronTxParams<1>
+export pure circuit calculateTronTriggerSmartContractTxParamsDigestV1_1(
+  txParams: TronTriggerSmartContractTxParams<1>
 ): Bytes<32> {
-  return calculateTronTxParamsDigestV1<1>(txParams);
+  return calculateTronTriggerSmartContractTxParamsDigestV1<1>(txParams);
 }
 
-export pure circuit calculateTronTxParamsDigestV1_2(
-  txParams: TronTxParams<2>
+export pure circuit calculateTronTriggerSmartContractTxParamsDigestV1_2(
+  txParams: TronTriggerSmartContractTxParams<2>
 ): Bytes<32> {
-  return calculateTronTxParamsDigestV1<2>(txParams);
+  return calculateTronTriggerSmartContractTxParamsDigestV1<2>(txParams);
 }
 
-export pure circuit calculateTronRequestIdV1_1_0(
-  request: SignBidirectionalEventV1<TronTxParams<1>, 0, 0>
+export pure circuit calculateTronTriggerSmartContractRequestIdV1_1_0(
+  request: SignBidirectionalEventV1<TronTriggerSmartContractTxParams<1>, 0, 0>
 ): RequestId {
-  return calculateTronRequestIdV1<1, 0>(request);
+  return calculateTronTriggerSmartContractRequestIdV1<1, 0>(request);
 }
 
-export pure circuit calculateTronRequestIdV1_2_0(
-  request: SignBidirectionalEventV1<TronTxParams<2>, 0, 0>
+export pure circuit calculateTronTriggerSmartContractRequestIdV1_2_0(
+  request: SignBidirectionalEventV1<TronTriggerSmartContractTxParams<2>, 0, 0>
 ): RequestId {
-  return calculateTronRequestIdV1<2, 0>(request);
+  return calculateTronTriggerSmartContractRequestIdV1<2, 0>(request);
 }
 
-export pure circuit calculateTronRequestIdV1_1_34(
-  request: SignBidirectionalEventV1<TronTxParams<1>, 34, 0>
+export pure circuit calculateTronTriggerSmartContractRequestIdV1_1_34(
+  request: SignBidirectionalEventV1<TronTriggerSmartContractTxParams<1>, 34, 0>
 ): RequestId {
-  return calculateTronRequestIdV1<1, 34>(request);
+  return calculateTronTriggerSmartContractRequestIdV1<1, 34>(request);
 }
 
-export pure circuit calculateTronRequestIdV1_2_34(
-  request: SignBidirectionalEventV1<TronTxParams<2>, 34, 0>
+export pure circuit calculateTronTriggerSmartContractRequestIdV1_2_34(
+  request: SignBidirectionalEventV1<TronTriggerSmartContractTxParams<2>, 34, 0>
 ): RequestId {
-  return calculateTronRequestIdV1<2, 34>(request);
+  return calculateTronTriggerSmartContractRequestIdV1<2, 34>(request);
 }

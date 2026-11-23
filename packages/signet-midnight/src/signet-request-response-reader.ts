@@ -50,7 +50,7 @@ import {
   type RequestIdHex,
   type SignBidirectionalEvent,
 } from "./signet-requests.ts";
-import type { TronTxParams } from "./signet-tron-requests.ts";
+import type { TronTriggerSmartContractTxParams } from "./signet-tron-requests.ts";
 import {
   buildSignedTronTransaction,
   buildTronRawTransaction,
@@ -440,13 +440,13 @@ export class SignetRequestResponseReader {
    * @returns The stored Tron request record
    * @throws {Error} When the request cannot be fetched (see {@link getSignatureRequest}) or carries another decomposition
    */
-  async getTronSignatureRequest(
+  async getTronTriggerSmartContractSignatureRequest(
     requestId: RequestIdHex,
-  ): Promise<SignBidirectionalEvent<TronTxParams>> {
+  ): Promise<SignBidirectionalEvent<TronTriggerSmartContractTxParams>> {
     const request = await this.getSignatureRequest(requestId);
     if (!isTronRequest(request)) {
       throw new Error(
-        `request ${requestId} is not tron (txParamType ${String(request.txParamType)})`,
+        `request ${requestId} is not tronTriggerSmartContract (txParamType ${String(request.txParamType)})`,
       );
     }
     return request;
@@ -466,7 +466,7 @@ export class SignetRequestResponseReader {
     requestId: RequestIdHex,
     mpcRootPublicKey: string,
   ): Promise<SignerCheck> {
-    const request = await this.getTronSignatureRequest(requestId);
+    const request = await this.getTronTriggerSmartContractSignatureRequest(requestId);
     return signerCheck(mpcRootPublicKey, tronSignatureCheck(request, mpcRootPublicKey), (address) =>
       tronAddressToBase58(tronAddressFromEvm(address)),
     );
@@ -787,7 +787,7 @@ export class SignetRequestResponseReader {
     requestId: RequestIdHex,
     mpcRootPublicKey: string,
   ): Promise<Uint8Array | undefined> {
-    const request = await this.getTronSignatureRequest(requestId);
+    const request = await this.getTronTriggerSmartContractSignatureRequest(requestId);
     const verified = await this.getVerifiedTronSignatureRespondedEvent(requestId, mpcRootPublicKey);
     if (verified === undefined) {
       return undefined;

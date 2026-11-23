@@ -76,12 +76,12 @@ export {
   toSignBidirectionalEventIndex,
   TxParamType,
 } from "./signet-requests.ts";
-export { decodeTronSignBidirectionalEvent } from "./signet-tron-record-decoding.ts";
+export { decodeTronTriggerSmartContractSignBidirectionalEvent } from "./signet-tron-record-decoding.ts";
 export {
-  calculateTronTxParamsDigest,
+  calculateTronTriggerSmartContractTxParamsDigest,
   tronSignBidirectionalEventDescriptor,
-  type TronTxParams,
-  tronTxParamsDescriptor,
+  type TronTriggerSmartContractTxParams,
+  tronTriggerSmartContractTxParamsDescriptor,
 } from "./signet-tron-requests.ts";
 export * from "./tron-transactions.ts";
 export * from "./url-redaction.ts";

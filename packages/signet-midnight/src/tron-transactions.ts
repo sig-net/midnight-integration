@@ -9,7 +9,7 @@ import {
 } from "./epsilon-derivation.ts";
 import { pureCircuits } from "./managed/contract/index.js";
 import type { MpcSignature } from "./signet-contract-events.ts";
-import type { TronTxParams } from "./signet-tron-requests.ts";
+import type { TronTriggerSmartContractTxParams } from "./signet-tron-requests.ts";
 
 const TRON_ADDRESS_PREFIX = 0x41;
 
@@ -166,7 +166,7 @@ function bytesField(field: number, bytes: Uint8Array | readonly number[]): numbe
   return bytes.length === 0 ? [] : lengthDelimitedField(field, bytes);
 }
 
-function tronCalldata(params: TronTxParams): number[] {
+function tronCalldata(params: TronTriggerSmartContractTxParams): number[] {
   if (!params.calldata.is_some) {
     return [];
   }
@@ -187,7 +187,10 @@ function tronCalldata(params: TronTxParams): number[] {
  * @returns The raw transaction bytes
  * @throws {Error} If a field cannot be represented
  */
-export function buildTronRawTransaction(params: TronTxParams, owner: Uint8Array): Uint8Array {
+export function buildTronRawTransaction(
+  params: TronTriggerSmartContractTxParams,
+  owner: Uint8Array,
+): Uint8Array {
   if (params.refBlockBytes.length !== 2) {
     throw new Error("refBlockBytes must be TaPoS' two bytes");
   }

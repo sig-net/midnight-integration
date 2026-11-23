@@ -27,7 +27,7 @@ import {
   type SignBidirectionalEventIndex,
   TxParamType,
 } from "./signet-requests.ts";
-import { decodeTronSignBidirectionalEvent } from "./signet-tron-record-decoding.ts";
+import { decodeTronTriggerSmartContractSignBidirectionalEvent } from "./signet-tron-record-decoding.ts";
 
 // Atom position of `txParamType` in a stored record: the chain-agnostic head
 // of SignBidirectionalEventV1 (keyVersion through txParamType) occupies the first
@@ -62,8 +62,8 @@ function decodeSignBidirectionalEvent(cell: AlignedValue): AnySignBidirectionalE
   switch (paramType) {
     case TxParamType.evmType2:
       return decodeEvmType2SignBidirectionalEvent(cell, what);
-    case TxParamType.tron:
-      return decodeTronSignBidirectionalEvent(cell, what);
+    case TxParamType.tronTriggerSmartContract:
+      return decodeTronTriggerSmartContractSignBidirectionalEvent(cell, what);
     default:
       throw new Error(`unsupported txParamType ${String(paramType)}`);
   }

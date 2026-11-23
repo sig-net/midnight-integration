@@ -8,7 +8,7 @@ import {
   bytesToHex,
   calculateEvmType2TxParamsDigest,
   calculateRequestId,
-  calculateTronTxParamsDigest,
+  calculateTronTriggerSmartContractTxParamsDigest,
   decodeSignBidirectionalNotification,
   evmAddressAbiWord,
   type EvmType2TxParams,
@@ -22,7 +22,7 @@ import {
   pureCircuits,
   type SignBidirectionalEvent,
   tronAddressFromEvm,
-  type TronTxParams,
+  type TronTriggerSmartContractTxParams,
   TxParamType,
 } from "../src/index.ts";
 
@@ -651,7 +651,7 @@ describe("calculateRequestIdV1 (circuit/TS lockstep)", () => {
     expect(() =>
       pureCircuits.calculateEvmType2RequestIdV1_1_0_0_34({
         ...RECORD,
-        txParamType: TxParamType.tron,
+        txParamType: TxParamType.tronTriggerSmartContract,
       }),
     ).toThrow(/must tag txParams as evmType2/);
   });
@@ -678,14 +678,14 @@ describe("Tron circuits (circuit/TS lockstep)", () => {
     contractAddress: Uint8Array.from([0x41, ...bytes(20, 0xcd)]),
     callValue: 0n,
   };
-  const AT_1: TronTxParams = {
+  const AT_1: TronTriggerSmartContractTxParams = {
     ...SCALARS,
     calldata: {
       is_some: true,
       value: { selector: TRANSFER_SELECTOR, noWords: 1n, words: [bytes(32, 0x33)] },
     },
   };
-  const AT_2_GARBAGE: TronTxParams = {
+  const AT_2_GARBAGE: TronTriggerSmartContractTxParams = {
     ...SCALARS,
     calldata: {
       is_some: true,
@@ -696,14 +696,14 @@ describe("Tron circuits (circuit/TS lockstep)", () => {
       },
     },
   };
-  const ABSENT_AT_1: TronTxParams = {
+  const ABSENT_AT_1: TronTriggerSmartContractTxParams = {
     ...SCALARS,
     calldata: {
       is_some: false,
       value: { selector: bytes(4, 0x77), noWords: 1n, words: [bytes(32, 0x77)] },
     },
   };
-  const TWO_WORDS_AT_2: TronTxParams = {
+  const TWO_WORDS_AT_2: TronTriggerSmartContractTxParams = {
     ...SCALARS,
     callValue: 1_000_000n,
     calldata: {
@@ -715,51 +715,59 @@ describe("Tron circuits (circuit/TS lockstep)", () => {
   it.each([
     {
       name: "one used word at capacity 1",
-      oracle: (p: TronTxParams) => pureCircuits.calculateTronTxParamsDigestV1_1(p),
+      oracle: (p: TronTriggerSmartContractTxParams) =>
+        pureCircuits.calculateTronTriggerSmartContractTxParamsDigestV1_1(p),
       params: AT_1,
     },
     {
       name: "one used word and a garbage slot at capacity 2",
-      oracle: (p: TronTxParams) => pureCircuits.calculateTronTxParamsDigestV1_2(p),
+      oracle: (p: TronTriggerSmartContractTxParams) =>
+        pureCircuits.calculateTronTriggerSmartContractTxParamsDigestV1_2(p),
       params: AT_2_GARBAGE,
     },
     {
       name: "an absent calldata with garbage in its value",
-      oracle: (p: TronTxParams) => pureCircuits.calculateTronTxParamsDigestV1_1(p),
+      oracle: (p: TronTriggerSmartContractTxParams) =>
+        pureCircuits.calculateTronTriggerSmartContractTxParamsDigestV1_1(p),
       params: ABSENT_AT_1,
     },
     {
       name: "two used words and a call value at capacity 2",
-      oracle: (p: TronTxParams) => pureCircuits.calculateTronTxParamsDigestV1_2(p),
+      oracle: (p: TronTriggerSmartContractTxParams) =>
+        pureCircuits.calculateTronTriggerSmartContractTxParamsDigestV1_2(p),
       params: TWO_WORDS_AT_2,
     },
   ])("the TS digest equals the compiled circuit: $name", ({ oracle, params }) => {
-    expect(bytesToHex(calculateTronTxParamsDigest(params))).toBe(bytesToHex(oracle(params)));
+    expect(bytesToHex(calculateTronTriggerSmartContractTxParamsDigest(params))).toBe(
+      bytesToHex(oracle(params)),
+    );
   });
 
   it("is the same digest whatever the capacity and whatever sits in unused slots", () => {
-    expect(pureCircuits.calculateTronTxParamsDigestV1_2(AT_2_GARBAGE)).toEqual(
-      pureCircuits.calculateTronTxParamsDigestV1_1(AT_1),
+    expect(pureCircuits.calculateTronTriggerSmartContractTxParamsDigestV1_2(AT_2_GARBAGE)).toEqual(
+      pureCircuits.calculateTronTriggerSmartContractTxParamsDigestV1_1(AT_1),
     );
   });
 
   it("refuses a word count past the capacity, circuit and TS", () => {
-    const over: TronTxParams = {
+    const over: TronTriggerSmartContractTxParams = {
       ...AT_1,
       calldata: { is_some: true, value: { ...AT_1.calldata.value, noWords: 2n } },
     };
-    expect(() => pureCircuits.calculateTronTxParamsDigestV1_1(over)).toThrow(
+    expect(() => pureCircuits.calculateTronTriggerSmartContractTxParamsDigestV1_1(over)).toThrow(
       /calldata noWords exceeds capacity/,
     );
-    expect(() => calculateTronTxParamsDigest(over)).toThrow(/calldata noWords exceeds capacity/);
+    expect(() => calculateTronTriggerSmartContractTxParamsDigest(over)).toThrow(
+      /calldata noWords exceeds capacity/,
+    );
   });
 
-  const TRON_RECORD: SignBidirectionalEvent<TronTxParams> = {
+  const TRON_RECORD: SignBidirectionalEvent<TronTriggerSmartContractTxParams> = {
     keyVersion: 1n,
     sender: { bytes: bytes(32, 0xab) },
     path: asciiPadded("tron-probe", 32),
     algo: MPCSignatureAlgorithm.ecdsa,
-    txParamType: TxParamType.tron,
+    txParamType: TxParamType.tronTriggerSmartContract,
     txParams: AT_1,
     executionDest: pureCircuits.tronCaip2Id(),
     signatureDest: MPCDestination.unused,
@@ -768,7 +776,7 @@ describe("Tron circuits (circuit/TS lockstep)", () => {
     respondSerializationSchema: new Uint8Array(0),
   };
 
-  const TRON_BOOL_RECORD: SignBidirectionalEvent<TronTxParams> = {
+  const TRON_BOOL_RECORD: SignBidirectionalEvent<TronTriggerSmartContractTxParams> = {
     ...TRON_RECORD,
     outputDeserializationSchema: new TextEncoder().encode('[{"name":"success","type":"bool"}]'),
   };
@@ -776,63 +784,68 @@ describe("Tron circuits (circuit/TS lockstep)", () => {
   it.each([
     {
       name: "<1, 0>",
-      oracle: (r: SignBidirectionalEvent<TronTxParams>) =>
-        pureCircuits.calculateTronRequestIdV1_1_0(r),
+      oracle: (r: SignBidirectionalEvent<TronTriggerSmartContractTxParams>) =>
+        pureCircuits.calculateTronTriggerSmartContractRequestIdV1_1_0(r),
       record: TRON_RECORD,
     },
     {
       name: "<2, 0> with a garbage slot",
-      oracle: (r: SignBidirectionalEvent<TronTxParams>) =>
-        pureCircuits.calculateTronRequestIdV1_2_0(r),
+      oracle: (r: SignBidirectionalEvent<TronTriggerSmartContractTxParams>) =>
+        pureCircuits.calculateTronTriggerSmartContractRequestIdV1_2_0(r),
       record: { ...TRON_RECORD, txParams: AT_2_GARBAGE },
     },
     {
       name: "<2, 0> with two used words",
-      oracle: (r: SignBidirectionalEvent<TronTxParams>) =>
-        pureCircuits.calculateTronRequestIdV1_2_0(r),
+      oracle: (r: SignBidirectionalEvent<TronTriggerSmartContractTxParams>) =>
+        pureCircuits.calculateTronTriggerSmartContractRequestIdV1_2_0(r),
       record: { ...TRON_RECORD, txParams: TWO_WORDS_AT_2 },
     },
     {
       name: "<1, 34> with the bool output schema",
-      oracle: (r: SignBidirectionalEvent<TronTxParams>) =>
-        pureCircuits.calculateTronRequestIdV1_1_34(r),
+      oracle: (r: SignBidirectionalEvent<TronTriggerSmartContractTxParams>) =>
+        pureCircuits.calculateTronTriggerSmartContractRequestIdV1_1_34(r),
       record: TRON_BOOL_RECORD,
     },
     {
       name: "<2, 34> with the bool output schema and two used words",
-      oracle: (r: SignBidirectionalEvent<TronTxParams>) =>
-        pureCircuits.calculateTronRequestIdV1_2_34(r),
+      oracle: (r: SignBidirectionalEvent<TronTriggerSmartContractTxParams>) =>
+        pureCircuits.calculateTronTriggerSmartContractRequestIdV1_2_34(r),
       record: { ...TRON_BOOL_RECORD, txParams: TWO_WORDS_AT_2 },
     },
   ])(
-    "the TS request id equals the compiled calculateTronRequestIdV1 at $name",
+    "the TS request id equals the compiled calculateTronTriggerSmartContractRequestIdV1 at $name",
     ({ oracle, record }) => {
       expect(bytesToHex(calculateRequestId(record))).toBe(bytesToHex(oracle(record)));
     },
   );
 
   it("pins the probe contract's request id", () => {
-    expect(bytesToHex(pureCircuits.calculateTronRequestIdV1_1_0(TRON_RECORD))).toBe(
-      "b8425af03222be68e9ced2b7dcb384aa7de1dd6312be7aa6d631f57cdecbff00",
-    );
+    expect(
+      bytesToHex(pureCircuits.calculateTronTriggerSmartContractRequestIdV1_1_0(TRON_RECORD)),
+    ).toBe("b8425af03222be68e9ced2b7dcb384aa7de1dd6312be7aa6d631f57cdecbff00");
   });
 
   it("the output schema is not part of the request id", () => {
-    expect(pureCircuits.calculateTronRequestIdV1_1_34(TRON_BOOL_RECORD)).toEqual(
-      pureCircuits.calculateTronRequestIdV1_2_34({ ...TRON_BOOL_RECORD, txParams: AT_2_GARBAGE }),
+    expect(
+      pureCircuits.calculateTronTriggerSmartContractRequestIdV1_1_34(TRON_BOOL_RECORD),
+    ).toEqual(
+      pureCircuits.calculateTronTriggerSmartContractRequestIdV1_2_34({
+        ...TRON_BOOL_RECORD,
+        txParams: AT_2_GARBAGE,
+      }),
     );
-    expect(pureCircuits.calculateTronRequestIdV1_1_34(TRON_BOOL_RECORD)).toEqual(
-      pureCircuits.calculateTronRequestIdV1_1_0(TRON_RECORD),
-    );
+    expect(
+      pureCircuits.calculateTronTriggerSmartContractRequestIdV1_1_34(TRON_BOOL_RECORD),
+    ).toEqual(pureCircuits.calculateTronTriggerSmartContractRequestIdV1_1_0(TRON_RECORD));
   });
 
-  it("the circuit refuses a request whose tag is not tron", () => {
+  it("the circuit refuses a request whose tag is not tronTriggerSmartContract", () => {
     expect(() =>
-      pureCircuits.calculateTronRequestIdV1_1_0({
+      pureCircuits.calculateTronTriggerSmartContractRequestIdV1_1_0({
         ...TRON_RECORD,
         txParamType: TxParamType.evmType2,
       }),
-    ).toThrow(/must tag txParams as tron/);
+    ).toThrow(/must tag txParams as tronTriggerSmartContract/);
   });
 });
 
@@ -845,8 +858,8 @@ describe("HashDomain protocol indices", () => {
     [HashDomain.evmType2TxAccessEntry, 4],
     [HashDomain.evmType2TxStorageKey, 5],
     [HashDomain.attestedOutput, 6],
-    [HashDomain.tronTxHeader, 7],
-    [HashDomain.tronTxWord, 8],
+    [HashDomain.tronTriggerSmartContractTxHeader, 7],
+    [HashDomain.tronTriggerSmartContractTxWord, 8],
   ])("pins domain %i to protocol index %i", (domain: HashDomain, index: number) => {
     expect(domain).toBe(index);
   });

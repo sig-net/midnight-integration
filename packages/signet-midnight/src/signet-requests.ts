@@ -25,7 +25,7 @@ import {
   UINT_8,
 } from "./compact-descriptors.ts";
 import type { EvmType2TxParams } from "./signet-evtype2tx-requests.ts";
-import type { TronTxParams } from "./signet-tron-requests.ts";
+import type { TronTriggerSmartContractTxParams } from "./signet-tron-requests.ts";
 
 // Public re-export: these types appear throughout the request record's shape.
 export type { ContractAddress, Maybe } from "./compact-descriptors.ts";
@@ -70,7 +70,7 @@ export const requestIdType: CompactType<RequestId> = BYTES_32;
 export const TxParamType = {
   /** `EvmType2TxParams` (signet-evtype2tx-requests.ts): an EIP-1559 EVM transaction. */
   evmType2: 0,
-  tron: 1,
+  tronTriggerSmartContract: 1,
 } as const;
 
 /**
@@ -159,7 +159,7 @@ export interface SignBidirectionalEvent<TxParams = EvmType2TxParams> {
 
 /** A request record of any decomposition this SDK reads: evmType2 or Tron. */
 export type AnySignBidirectionalEvent =
-  SignBidirectionalEvent | SignBidirectionalEvent<TronTxParams>;
+  SignBidirectionalEvent | SignBidirectionalEvent<TronTriggerSmartContractTxParams>;
 
 /**
  * Type guard: narrow a request record to the evmType2 decomposition by its tag.
@@ -177,12 +177,12 @@ export function isEvmRequest(
  * Type guard: narrow a request record to the Tron decomposition by its tag.
  *
  * @param request - The request record
- * @returns `true` iff the record is tagged {@link TxParamType.tron}
+ * @returns `true` iff the record is tagged {@link TxParamType.tronTriggerSmartContract}
  */
 export function isTronRequest(
   request: AnySignBidirectionalEvent,
-): request is SignBidirectionalEvent<TronTxParams> {
-  return request.txParamType === TxParamType.tron;
+): request is SignBidirectionalEvent<TronTriggerSmartContractTxParams> {
+  return request.txParamType === TxParamType.tronTriggerSmartContract;
 }
 
 // ---- Runtime descriptor toolkit (TS twin of the compiled struct codecs) ----

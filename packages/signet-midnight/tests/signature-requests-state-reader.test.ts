@@ -541,7 +541,7 @@ describe("readSignetRequestsLedgerFromState: dispatch and shape errors", () => {
     ).toThrow(/unsupported txParamType 2/);
   });
 
-  it("decodes a cell tagged tron with the Tron layout, refusing an evmType2 cell", () => {
+  it("decodes a cell tagged tronTriggerSmartContract with the Tron layout, refusing an evmType2 cell", () => {
     const { value, alignment } = cellsOf();
     value[4] = Uint8Array.of(1);
     expect(() =>

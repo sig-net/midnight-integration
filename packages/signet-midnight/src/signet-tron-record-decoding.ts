@@ -2,7 +2,10 @@ import type { AlignedValue } from "@midnight-ntwrk/compact-runtime";
 
 import { declaredWidths, decodeExactly } from "./compact-descriptors.ts";
 import type { SignBidirectionalEvent } from "./signet-requests.ts";
-import { tronSignBidirectionalEventDescriptor, type TronTxParams } from "./signet-tron-requests.ts";
+import {
+  tronSignBidirectionalEventDescriptor,
+  type TronTriggerSmartContractTxParams,
+} from "./signet-tron-requests.ts";
 
 const TRON_FIXED_ATOMS = 20;
 const TRON_HEAD_ATOMS = 15;
@@ -16,10 +19,10 @@ const TRON_TAIL_ATOMS = 5;
  * @returns The decoded record
  * @throws {Error} If the cell is not a decodable Tron request record
  */
-export function decodeTronSignBidirectionalEvent(
+export function decodeTronTriggerSmartContractSignBidirectionalEvent(
   cell: AlignedValue,
   what: string,
-): SignBidirectionalEvent<TronTxParams> {
+): SignBidirectionalEvent<TronTriggerSmartContractTxParams> {
   const widths = declaredWidths(cell, what);
   if (widths.length < TRON_FIXED_ATOMS) {
     throw new Error(

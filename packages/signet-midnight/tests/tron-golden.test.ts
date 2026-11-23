@@ -16,9 +16,9 @@ import {
   bytesToHex,
   calculateAttestedOutputHash,
   calculateRequestId,
-  calculateTronTxParamsDigest,
+  calculateTronTriggerSmartContractTxParamsDigest,
   canonicalSchemaText,
-  decodeTronSignBidirectionalEvent,
+  decodeTronTriggerSmartContractSignBidirectionalEvent,
   deriveRespondSchema,
   deriveSignBidirectionalEventSignerTronAddress,
   deserializeEvmOutput,
@@ -36,12 +36,12 @@ import {
   tronAddressToBase58,
   tronSignBidirectionalEventDescriptor,
   tronTransactionId,
-  type TronTxParams,
+  type TronTriggerSmartContractTxParams,
   TxParamType,
 } from "../src/index.ts";
 import { ecdsaSignatureToMpcSignature } from "../src/testing.ts";
 
-interface TronTxParamsJson {
+interface TronTriggerSmartContractTxParamsJson {
   refBlockBytes: string;
   refBlockHash: string;
   timestamp: string;
@@ -60,7 +60,7 @@ interface SignatureJson {
 
 interface TransactionJson {
   name: string;
-  params?: TronTxParamsJson;
+  params?: TronTriggerSmartContractTxParamsJson;
   owner: string;
   ownerBase58: string;
   raw: string;
@@ -88,7 +88,7 @@ interface TronGoldenFixture {
       sender: string;
       path: string;
       algo: number;
-      txParams: TronTxParamsJson;
+      txParams: TronTriggerSmartContractTxParamsJson;
       executionDest: string;
       signatureDest: number;
       params: string;
@@ -117,7 +117,9 @@ const FIXTURE = JSON.parse(
   readFileSync(new URL("./fixtures/tron-golden-mpc-3d586f30.json", import.meta.url), "utf8"),
 ) as TronGoldenFixture;
 
-const tronTxParamsOf = (json: TronTxParamsJson): TronTxParams => ({
+const tronTriggerSmartContractTxParamsOf = (
+  json: TronTriggerSmartContractTxParamsJson,
+): TronTriggerSmartContractTxParams => ({
   refBlockBytes: hexToBytes(json.refBlockBytes),
   refBlockHash: hexToBytes(json.refBlockHash),
   timestamp: BigInt(json.timestamp),
@@ -142,21 +144,23 @@ const REQUESTS = FIXTURE.requests.map(({ name, record, txParamsDigest, requestId
     sender: { bytes: hexToBytes(record.sender) },
     path: hexToBytes(record.path),
     algo: record.algo,
-    txParamType: TxParamType.tron,
-    txParams: tronTxParamsOf(record.txParams),
+    txParamType: TxParamType.tronTriggerSmartContract,
+    txParams: tronTriggerSmartContractTxParamsOf(record.txParams),
     executionDest: hexToBytes(record.executionDest),
     signatureDest: record.signatureDest,
     params: hexToBytes(record.params),
     outputDeserializationSchema: hexToBytes(record.outputDeserializationSchema),
     respondSerializationSchema: hexToBytes(record.respondSerializationSchema),
-  } satisfies SignBidirectionalEvent<TronTxParams>,
+  } satisfies SignBidirectionalEvent<TronTriggerSmartContractTxParams>,
   txParamsDigest,
   requestId,
 }));
 
 const ASSEMBLED = [...FIXTURE.transactions, ...FIXTURE.mainnetUsdt].flatMap(
   ({ name, params, owner, raw, txid }) =>
-    params === undefined ? [] : [{ name, params: tronTxParamsOf(params), owner, raw, txid }],
+    params === undefined
+      ? []
+      : [{ name, params: tronTriggerSmartContractTxParamsOf(params), owner, raw, txid }],
 );
 
 const SIGNED = [...FIXTURE.transactions, ...FIXTURE.mainnetUsdt].flatMap(
@@ -170,7 +174,7 @@ const REAL_SIGNATURES = [
 ].flatMap(({ name, params, owner, ownerBase58, signature }) =>
   params === undefined || signature === undefined
     ? []
-    : [{ name, params: tronTxParamsOf(params), owner, ownerBase58, signature }],
+    : [{ name, params: tronTriggerSmartContractTxParamsOf(params), owner, ownerBase58, signature }],
 );
 
 const BOOL_SCHEMA = canonicalSchemaText([{ name: "success", type: "bool" }]);
@@ -218,7 +222,9 @@ describe(`Tron golden vectors (sig-net/mpc ${FIXTURE.mpcCommit})`, () => {
   it.each(REQUESTS)(
     "D_tron and the request id of $name",
     ({ record, txParamsDigest, requestId }) => {
-      expect(bytesToHex(calculateTronTxParamsDigest(record.txParams))).toBe(txParamsDigest);
+      expect(bytesToHex(calculateTronTriggerSmartContractTxParamsDigest(record.txParams))).toBe(
+        txParamsDigest,
+      );
       expect(bytesToHex(calculateRequestId(record))).toBe(requestId);
     },
   );
@@ -232,7 +238,10 @@ describe(`Tron golden vectors (sig-net/mpc ${FIXTURE.mpcCommit})`, () => {
     expect(cell.alignment.map((segment) => segment.tag === "atom" && segment.value)).toEqual(
       FIXTURE.compiledCell.widths.map((length) => ({ tag: "bytes", length })),
     );
-    const decoded = decodeTronSignBidirectionalEvent(cell, "compiled probe record");
+    const decoded = decodeTronTriggerSmartContractSignBidirectionalEvent(
+      cell,
+      "compiled probe record",
+    );
     expect(decoded).toEqual(TEST_CALLER_RECORD);
     expect(descriptor.toValue(decoded).map(bytesToHex)).toEqual(FIXTURE.compiledCell.atoms);
     expect(bytesToHex(calculateRequestId(decoded))).toBe(FIXTURE.compiledCell.requestId);

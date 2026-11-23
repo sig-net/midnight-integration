@@ -40,7 +40,7 @@ import {
   signetFieldNodeByPath,
   type SignetMiscEvent,
   toSignBidirectionalEventIndex,
-  type TronTxParams,
+  type TronTriggerSmartContractTxParams,
   TxParamType,
 } from "@sig-net/midnight";
 import { attestRespondBidirectional, secp256k1PublicKeyOf } from "@sig-net/midnight/testing";
@@ -1109,7 +1109,7 @@ const TRON_REQUESTS_INDEX_FIELD = 9;
 
 function onlyTronRequestEntry(
   index: SignBidirectionalEventIndex,
-): readonly [RequestIdHex, SignBidirectionalEvent<TronTxParams>] {
+): readonly [RequestIdHex, SignBidirectionalEvent<TronTriggerSmartContractTxParams>] {
   const entry = [...index.entries()][0];
   if (entry === undefined) {
     throw new Error(`expected one stored request, got ${String(index.size)}`);
@@ -1166,7 +1166,7 @@ describe("Tron submit circuits round-trip", () => {
         readSignetRequestsLedgerFromState(state, [TRON_REQUESTS_INDEX_FIELD]).requestsIndex,
       ).toEqual(typedIndex);
 
-      expect(record.txParamType).toBe(TxParamType.tron);
+      expect(record.txParamType).toBe(TxParamType.tronTriggerSmartContract);
       expect(record.txParams).toEqual({
         ...TRON_WINDOW,
         contractAddress: TRON_TARGET,

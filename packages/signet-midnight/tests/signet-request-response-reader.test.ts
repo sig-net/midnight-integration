@@ -45,7 +45,7 @@ import {
   tronAddressToBase58,
   tronSignBidirectionalEventDescriptor,
   tronTransactionId,
-  type TronTxParams,
+  type TronTriggerSmartContractTxParams,
   TxParamType,
 } from "../src/index.ts";
 import { recoverSignatureAddress } from "../src/signature-response-verification.ts";
@@ -889,9 +889,9 @@ describe("getVerifiedRespondBidirectionalEvent", () => {
 });
 
 describe("Tron requests", () => {
-  const TRON_REQUEST: SignBidirectionalEvent<TronTxParams> = {
+  const TRON_REQUEST: SignBidirectionalEvent<TronTriggerSmartContractTxParams> = {
     ...REQUEST,
-    txParamType: TxParamType.tron,
+    txParamType: TxParamType.tronTriggerSmartContract,
     txParams: {
       refBlockBytes: Uint8Array.from([0x27, 0x10]),
       refBlockHash: bytes(8, 0x42),
@@ -969,7 +969,9 @@ describe("Tron requests", () => {
   it("fetches the stored Tron record", async () => {
     const reader = makeTronReader([]);
     expect(await reader.getSignatureRequest(TRON_REQUEST_ID_HEX)).toEqual(TRON_REQUEST);
-    expect(await reader.getTronSignatureRequest(TRON_REQUEST_ID_HEX)).toEqual(TRON_REQUEST);
+    expect(await reader.getTronTriggerSmartContractSignatureRequest(TRON_REQUEST_ID_HEX)).toEqual(
+      TRON_REQUEST,
+    );
   });
 
   it("refuses the record where an evmType2 one is required", async () => {
@@ -984,9 +986,9 @@ describe("Tron requests", () => {
 
   it("refuses an evmType2 record where a Tron one is required", async () => {
     const { reader } = makeReader([]);
-    await expect(reader.getTronSignatureRequest(REQUEST_ID_HEX)).rejects.toThrow(
-      /is not tron \(txParamType 0\)/,
-    );
+    await expect(
+      reader.getTronTriggerSmartContractSignatureRequest(REQUEST_ID_HEX),
+    ).rejects.toThrow(/is not tronTriggerSmartContract \(txParamType 0\)/);
   });
 
   it("verifies posts against the owner derived from the record, past an imposter in front", async () => {
@@ -1036,7 +1038,7 @@ describe("Tron requests", () => {
     const { reader } = makeReader([GENUINE_RESPONSE]);
     await expect(
       reader.getVerifiedTronSignatureRespondedEvent(REQUEST_ID_HEX, MPC_ROOT_PUBLIC_KEY),
-    ).rejects.toThrow(/is not tron/);
+    ).rejects.toThrow(/is not tronTriggerSmartContract/);
   });
 
   it("assembles the signed transaction from the first verified post", async () => {

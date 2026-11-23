@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   calculateRequestId,
-  decodeTronSignBidirectionalEvent,
+  decodeTronTriggerSmartContractSignBidirectionalEvent,
   lookupSignetRequestAt,
   MPCDestination,
   MPCSignatureAlgorithm,
@@ -12,19 +12,19 @@ import {
   requestIdHex,
   type SignBidirectionalEvent,
   tronSignBidirectionalEventDescriptor,
-  type TronTxParams,
+  type TronTriggerSmartContractTxParams,
   TxParamType,
 } from "../src/index.ts";
 import { requestIdType } from "../src/signet-requests.ts";
 
 const bytes = (length: number, fill: number) => new Uint8Array(length).fill(fill);
 
-const TRON_REQUEST: SignBidirectionalEvent<TronTxParams> = {
+const TRON_REQUEST: SignBidirectionalEvent<TronTriggerSmartContractTxParams> = {
   keyVersion: 1n,
   sender: { bytes: bytes(32, 0x01) },
   path: bytes(32, 0x03),
   algo: MPCSignatureAlgorithm.ecdsa,
-  txParamType: TxParamType.tron,
+  txParamType: TxParamType.tronTriggerSmartContract,
   txParams: {
     refBlockBytes: Uint8Array.from([0x27, 0x10]),
     refBlockHash: bytes(8, 0x42),
@@ -49,7 +49,9 @@ const TRON_REQUEST: SignBidirectionalEvent<TronTxParams> = {
   respondSerializationSchema: new Uint8Array(0),
 };
 
-const cellOf = (request: SignBidirectionalEvent<TronTxParams>): AlignedValue => {
+const cellOf = (
+  request: SignBidirectionalEvent<TronTriggerSmartContractTxParams>,
+): AlignedValue => {
   const descriptor = tronSignBidirectionalEventDescriptor(
     request.txParams.calldata.value.words.length,
     request.outputDeserializationSchema.length,
@@ -58,7 +60,7 @@ const cellOf = (request: SignBidirectionalEvent<TronTxParams>): AlignedValue => 
   return { value: descriptor.toValue(request), alignment: descriptor.alignment() };
 };
 
-describe("decodeTronSignBidirectionalEvent", () => {
+describe("decodeTronTriggerSmartContractSignBidirectionalEvent", () => {
   it.each([
     { name: "capacity 2", request: TRON_REQUEST },
     {
@@ -94,13 +96,15 @@ describe("decodeTronSignBidirectionalEvent", () => {
       },
     },
   ])("decodes a record at $name back to itself", ({ request }) => {
-    expect(decodeTronSignBidirectionalEvent(cellOf(request), "test record")).toEqual(request);
+    expect(
+      decodeTronTriggerSmartContractSignBidirectionalEvent(cellOf(request), "test record"),
+    ).toEqual(request);
   });
 
   it("rejects a cell with fewer than the fixed field count of atoms", () => {
     const { value, alignment } = cellOf(TRON_REQUEST);
     expect(() =>
-      decodeTronSignBidirectionalEvent(
+      decodeTronTriggerSmartContractSignBidirectionalEvent(
         { value: value.slice(0, 19), alignment: alignment.slice(0, 19) },
         "test record",
       ),
@@ -110,7 +114,7 @@ describe("decodeTronSignBidirectionalEvent", () => {
   it("rejects a calldata-word region holding an atom of another width", () => {
     const { value, alignment } = cellOf(TRON_REQUEST);
     expect(() =>
-      decodeTronSignBidirectionalEvent(
+      decodeTronTriggerSmartContractSignBidirectionalEvent(
         {
           value,
           alignment: alignment.map((segment, i) =>

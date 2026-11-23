@@ -26,8 +26,8 @@ import {
   signBidirectionalEventDescriptorWith,
 } from "./signet-requests.ts";
 
-/** The Tron transaction decomposition of a request (Compact: `TronTxParams`): a TriggerSmartContract call. */
-export interface TronTxParams {
+/** The Tron transaction decomposition of a request (Compact: `TronTriggerSmartContractTxParams`): a TriggerSmartContract call. */
+export interface TronTriggerSmartContractTxParams {
   refBlockBytes: Uint8Array;
   refBlockHash: Uint8Array;
   timestamp: bigint;
@@ -39,13 +39,15 @@ export interface TronTxParams {
 }
 
 /**
- * Runtime descriptor of {@link TronTxParams} at a calldata word capacity.
+ * Runtime descriptor of {@link TronTriggerSmartContractTxParams} at a calldata word capacity.
  *
  * @param maxCalldataWords - Calldata word capacity
  * @returns The tx-params descriptor
  */
-export function tronTxParamsDescriptor(maxCalldataWords: number): CompactType<TronTxParams> {
-  return compactStructDescriptor<TronTxParams>({
+export function tronTriggerSmartContractTxParamsDescriptor(
+  maxCalldataWords: number,
+): CompactType<TronTriggerSmartContractTxParams> {
+  return compactStructDescriptor<TronTriggerSmartContractTxParams>({
     refBlockBytes: BYTES_2,
     refBlockHash: BYTES_8,
     timestamp: UINT_64,
@@ -69,9 +71,9 @@ export function tronSignBidirectionalEventDescriptor(
   maxCalldataWords: number,
   lenOutputDeserialization: number,
   lenRespondSerialization: number,
-): CompactType<SignBidirectionalEvent<TronTxParams>> {
+): CompactType<SignBidirectionalEvent<TronTriggerSmartContractTxParams>> {
   return signBidirectionalEventDescriptorWith(
-    tronTxParamsDescriptor(maxCalldataWords),
+    tronTriggerSmartContractTxParamsDescriptor(maxCalldataWords),
     lenOutputDeserialization,
     lenRespondSerialization,
   );
@@ -106,13 +108,15 @@ const TRON_DIGEST_HEAD = compactTupleDescriptor<
 ]);
 
 /**
- * Digest a Tron decomposition over its used calldata words: the TS twin of the `calculateTronTxParamsDigestV1` circuit.
+ * Digest a Tron decomposition over its used calldata words: the TS twin of the `calculateTronTriggerSmartContractTxParamsDigestV1` circuit.
  *
  * @param txParams - The transaction decomposition to digest, at any capacity
  * @returns The 32-byte digest
  * @throws {Error} When the calldata word count exceeds its capacity
  */
-export function calculateTronTxParamsDigest(txParams: TronTxParams): Uint8Array {
+export function calculateTronTriggerSmartContractTxParamsDigest(
+  txParams: TronTriggerSmartContractTxParams,
+): Uint8Array {
   const { calldata } = txParams;
   const noWords = calldata.is_some ? calldata.value.noWords : 0n;
   const selector = calldata.is_some ? calldata.value.selector : new Uint8Array(4);
@@ -120,7 +124,7 @@ export function calculateTronTxParamsDigest(txParams: TronTxParams): Uint8Array 
     throw new Error("calldata noWords exceeds capacity");
   }
   let acc = transientHash(TRON_DIGEST_HEAD, [
-    HashDomain.tronTxHeader,
+    HashDomain.tronTriggerSmartContractTxHeader,
     txParams.refBlockBytes,
     txParams.refBlockHash,
     txParams.timestamp,
@@ -133,7 +137,11 @@ export function calculateTronTxParamsDigest(txParams: TronTxParams): Uint8Array 
     noWords,
   ]);
   for (const word of calldata.value.words.slice(0, Number(noWords))) {
-    acc = transientHash(DOMAIN_FIELD_BYTES_32, [HashDomain.tronTxWord, acc, word]);
+    acc = transientHash(DOMAIN_FIELD_BYTES_32, [
+      HashDomain.tronTriggerSmartContractTxWord,
+      acc,
+      word,
+    ]);
   }
   return upgradeFromTransient(acc);
 }

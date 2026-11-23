@@ -25,7 +25,7 @@ import {
   SIGNET_DEFAULT_KEY_VERSION,
   tronAddressFromBase58,
   tronTransactionId,
-  type TronTxParams,
+  type TronTriggerSmartContractTxParams,
   TxParamType,
 } from "@sig-net/midnight";
 import { calculateSignetAttestationDigest } from "@sig-net/midnight/testing";
@@ -174,7 +174,7 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
   for (const leg of LEGS) {
     const broadcasts = leg.outcome !== OutputKind.unviable;
     let requestId: RequestIdHex;
-    let record: SignBidirectionalEvent<TronTxParams>;
+    let record: SignBidirectionalEvent<TronTriggerSmartContractTxParams>;
     let receipt: TronTransactionInfo | undefined;
     let expectedOutput: Uint8Array;
     let reference: TronBlockRef;
@@ -217,8 +217,8 @@ describe.skipIf(!process.env.RUN_INTEGRATION_TESTS)("signet-caller Tron e2e", ()
 
         record = await session
           .responseReader(TRON_REQUESTS_INDEX_FIELD)
-          .getTronSignatureRequest(requestId);
-        expect(record.txParamType).toBe(TxParamType.tron);
+          .getTronTriggerSmartContractSignatureRequest(requestId);
+        expect(record.txParamType).toBe(TxParamType.tronTriggerSmartContract);
         expect(record.txParams).toEqual({
           ...txWindow,
           contractAddress: target,

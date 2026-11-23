@@ -27,7 +27,7 @@ import {
   tronAddressFromEvm,
   tronAddressToBase58,
   tronTransactionId,
-  type TronTxParams,
+  type TronTriggerSmartContractTxParams,
   TxParamType,
   verifyEvmSignatureRespondedEvent,
   verifyTronSignatureRespondedEvent,
@@ -143,7 +143,7 @@ describe("recoverEvmSignatureResponseSigner", () => {
   it("rejects a request that is not evmType2", () => {
     expect(() =>
       recoverEvmSignatureResponseSigner(
-        { ...REQUEST, txParamType: TxParamType.tron },
+        { ...REQUEST, txParamType: TxParamType.tronTriggerSmartContract },
         VALID_RESPONSE,
       ),
     ).toThrow(/expected an evmType2 request record, got txParamType 1/);
@@ -227,7 +227,7 @@ describe("verifyEvmSignatureRespondedEvent", () => {
   it("throws on a request that is not evmType2", () => {
     expect(() =>
       verifyEvmSignatureRespondedEvent(
-        { ...REQUEST, txParamType: TxParamType.tron },
+        { ...REQUEST, txParamType: TxParamType.tronTriggerSmartContract },
         VALID_RESPONSE,
         MPC_ADDRESS,
       ),
@@ -235,9 +235,9 @@ describe("verifyEvmSignatureRespondedEvent", () => {
   });
 });
 
-const TRON_REQUEST: SignBidirectionalEvent<TronTxParams> = {
+const TRON_REQUEST: SignBidirectionalEvent<TronTriggerSmartContractTxParams> = {
   ...REQUEST,
-  txParamType: TxParamType.tron,
+  txParamType: TxParamType.tronTriggerSmartContract,
   txParams: {
     refBlockBytes: Uint8Array.from([0x27, 0x10]),
     refBlockHash: bytes(8, 0x42),
@@ -272,7 +272,7 @@ const IMPOSTER_ROOT_PUBLIC_KEY = IMPOSTER_KEY.publicKey;
 
 const signTronResponse = (
   key: SigningKey,
-  request: SignBidirectionalEvent<TronTxParams>,
+  request: SignBidirectionalEvent<TronTriggerSmartContractTxParams>,
   owner: string,
 ): SignatureRespondedEvent => {
   const owner21 = tronAddressFromEvm(owner);
@@ -326,7 +326,7 @@ describe("recoverTronSignatureResponseSigner", () => {
 
 interface TronVerifyCase {
   name: string;
-  request: SignBidirectionalEvent<TronTxParams>;
+  request: SignBidirectionalEvent<TronTriggerSmartContractTxParams>;
   response: SignatureRespondedEvent;
   mpcRootPublicKey: string;
   valid: boolean;

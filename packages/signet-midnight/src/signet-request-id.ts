@@ -1,5 +1,5 @@
 // The signet request id computation: the TS twin of Signet.compact's
-// `calculateEvmType2RequestIdV1` and `calculateTronRequestIdV1` circuits (see
+// `calculateEvmType2RequestIdV1` and `calculateTronTriggerSmartContractRequestIdV1` circuits (see
 // the deviation note in signet-requests.ts). Chain-agnostic entry point that digests each record's
 // transaction by its `txParamType` tag, so every decomposition mints ids
 // through this one function.
@@ -18,7 +18,7 @@ import {
   requestIdPreimageDescriptor,
   TxParamType,
 } from "./signet-requests.ts";
-import { calculateTronTxParamsDigest } from "./signet-tron-requests.ts";
+import { calculateTronTriggerSmartContractTxParamsDigest } from "./signet-tron-requests.ts";
 
 const REQUEST_ID_HASH_PREIMAGE = compactTupleDescriptor<[HashDomain, RequestIdPreimage]>([
   HASH_DOMAIN,
@@ -43,12 +43,12 @@ export function calculateRequestId(request: AnySignBidirectionalEvent): RequestI
   if (isEvmRequest(request)) {
     txParamsDigest = calculateEvmType2TxParamsDigest(request.txParams);
   } else if (isTronRequest(request)) {
-    txParamsDigest = calculateTronTxParamsDigest(request.txParams);
+    txParamsDigest = calculateTronTriggerSmartContractTxParamsDigest(request.txParams);
   } else {
     throw new Error(
       `unsupported txParamType ${String(txParamType)}: this id computation ` +
-        `understands evmType2 (${String(TxParamType.evmType2)}) and tron ` +
-        `(${String(TxParamType.tron)})`,
+        `understands evmType2 (${String(TxParamType.evmType2)}) and tronTriggerSmartContract ` +
+        `(${String(TxParamType.tronTriggerSmartContract)})`,
     );
   }
   const preimage: RequestIdPreimage = {
