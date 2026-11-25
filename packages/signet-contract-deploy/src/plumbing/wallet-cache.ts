@@ -1006,6 +1006,14 @@ export class WalletCacheWriter {
     await this.flush(false);
   }
 
+  /**
+   * Capture the wallet, again after a turn of the event loop while the
+   * unshielded snapshot and the transaction history disagree, up to
+   * {@link WALLET_CACHE_CAPTURE_ATTEMPTS} captures. Snapshots whose facts
+   * cannot be read are returned as they are.
+   *
+   * @returns The snapshots, or undefined when every capture disagreed.
+   */
   private async captureConsistent(): Promise<WalletCacheSnapshots | undefined> {
     for (let attempt = 0; attempt < WALLET_CACHE_CAPTURE_ATTEMPTS; attempt += 1) {
       if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 0));
