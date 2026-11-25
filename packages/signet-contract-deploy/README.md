@@ -59,7 +59,7 @@ In a checkout of the [sig-net/midnight-integration](https://github.com/sig-net/m
 ```ts
 import { deploySignetSigner, deploySignetResponder } from "@sig-net/midnight-contract-deploy";
 
-const signet signer = await deploySignetSigner(process.env);
+const signer = await deploySignetSigner(process.env);
 const responder = await deploySignetResponder(process.env);
 ```
 
