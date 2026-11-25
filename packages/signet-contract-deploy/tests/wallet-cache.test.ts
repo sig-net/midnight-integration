@@ -14,6 +14,7 @@ import {
   readChainAnchor,
   resolveWalletCacheLocation,
   sealWalletCache,
+  WALLET_CACHE_CAPTURE_ATTEMPTS,
   WALLET_CACHE_WRITE_INTERVAL_MS,
   type WalletCacheChain,
   walletCacheDigest,
@@ -881,6 +882,49 @@ describe("WalletCacheWriter", () => {
       expect.any(Error),
     );
     await expect(writer.flush(false)).resolves.toBe(true);
+  });
+
+  it("captures again when the unshielded snapshot is behind the transaction history", async () => {
+    const location = await freshLocation();
+    const { snapshots, ...header } = fixture.envelope;
+    const torn: WalletCacheSnapshots = { ...snapshots, unshielded: fixture.earlier.unshielded };
+    expect(
+      checkWalletCacheEnvelope(
+        JSON.stringify(sealWalletCache({ ...header, snapshots: torn })),
+        identity,
+      ),
+    ).toMatchObject({ rejection: WalletCacheRejection.InconsistentSnapshots });
+    const capture = vi
+      .fn<() => Promise<WalletCacheSnapshots>>()
+      .mockResolvedValueOnce(torn)
+      .mockResolvedValue(snapshots);
+    const writer = new WalletCacheWriter(location, header, capture, "deployer");
+    await expect(writer.flush(false)).resolves.toBe(true);
+    expect(capture).toHaveBeenCalledTimes(2);
+    expect(checkWalletCacheEnvelope(await readFile(location.path, "utf8"), identity)).toMatchObject(
+      {
+        envelope: { snapshots },
+      },
+    );
+  });
+
+  it("keeps the last file when every capture is behind the transaction history", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const location = await freshLocation();
+    const { snapshots, ...header } = fixture.envelope;
+    const torn: WalletCacheSnapshots = { ...snapshots, unshielded: fixture.earlier.unshielded };
+    const capture = vi.fn<() => Promise<WalletCacheSnapshots>>().mockResolvedValue(snapshots);
+    const writer = new WalletCacheWriter(location, header, capture, "deployer");
+    await expect(writer.flush(false)).resolves.toBe(true);
+    const saved = await readFile(location.path, "utf8");
+    capture.mockClear();
+    capture.mockResolvedValue(torn);
+    await expect(writer.flush(false)).resolves.toBe(false);
+    expect(capture).toHaveBeenCalledTimes(WALLET_CACHE_CAPTURE_ATTEMPTS);
+    expect(warn).toHaveBeenCalledWith(
+      `deployer wallet: the unshielded snapshot and the transaction history disagreed in ${String(WALLET_CACHE_CAPTURE_ATTEMPTS)} captures, cache ${location.path} keeps its last contents`,
+    );
+    expect(await readFile(location.path, "utf8")).toBe(saved);
   });
 
   it("captures once per interval after start and stops with a final write", async () => {

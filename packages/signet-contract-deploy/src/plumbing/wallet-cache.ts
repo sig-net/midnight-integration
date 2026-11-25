@@ -929,6 +929,9 @@ export async function writeWalletCacheAtomically(
 /** How often a {@link WalletCacheWriter} snapshots a running wallet, in milliseconds. */
 export const WALLET_CACHE_WRITE_INTERVAL_MS = 10_000;
 
+/** How many times a {@link WalletCacheWriter} captures a wallet whose unshielded snapshot and transaction history disagree before it skips the write. */
+export const WALLET_CACHE_CAPTURE_ATTEMPTS = 3;
+
 /**
  * Whether two captures hold the same state.
  *
@@ -1003,9 +1006,30 @@ export class WalletCacheWriter {
     await this.flush(false);
   }
 
+  private async captureConsistent(): Promise<WalletCacheSnapshots | undefined> {
+    for (let attempt = 0; attempt < WALLET_CACHE_CAPTURE_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 0));
+      const snapshots = await this.capture();
+      const inner = innerSnapshotFacts(snapshots);
+      if (
+        "rejection" in inner ||
+        unshieldedInconsistencies(inner, this.header.addresses.unshielded).length === 0
+      ) {
+        return snapshots;
+      }
+    }
+    return undefined;
+  }
+
   private async write(force: boolean): Promise<boolean> {
     try {
-      const snapshots = await this.capture();
+      const snapshots = await this.captureConsistent();
+      if (snapshots === undefined) {
+        console.warn(
+          `${this.label} wallet: the unshielded snapshot and the transaction history disagreed in ${String(WALLET_CACHE_CAPTURE_ATTEMPTS)} captures, cache ${this.location.displayPath} keeps its last contents`,
+        );
+        return false;
+      }
       if (!force && this.lastWritten !== undefined && sameSnapshots(snapshots, this.lastWritten)) {
         return false;
       }
