@@ -751,6 +751,73 @@ module Signet {
     return calculateRequestIdV1(preimage);
   }
 
+  // ---- Tron admission checks -------------------------------------------------------------------------
+  // The MPC drops a Tron request it cannot encode or whose validity window it does not admit at the
+  // source block (the block of the transaction that notifies it), and a dropped request is never
+  // answered: no signature and no attestation, so nothing can settle it. A client contract runs these
+  // checks so that such a request is refused on Midnight instead.
+
+  // The largest value of Tron's int64 wire fields (timestamp, expiration, fee_limit, call_value).
+  export pure circuit tronInt64Max(): Uint<64> {
+    return 9223372036854775807;
+  }
+
+  // The longest validity window the MPC admits, in seconds: an expiration at most 24 h past the
+  // source block, java-tron's own cap.
+  export pure circuit tronMaxExpirationSpanSeconds(): Uint<64> {
+    return 86400;
+  }
+
+  // Asserts every numeric field fits its int64 wire field, which the MPC needs to encode the
+  // transaction, and that the transaction expires after its own timestamp.
+  export pure circuit assertTronTriggerSmartContractTxParamsV1<#maxCalldataWords>(
+    txParams: TronTriggerSmartContractTxParams<maxCalldataWords>
+  ): [] {
+    assert(txParams.timestamp <= tronInt64Max(), "Tron timestamp exceeds int64");
+    assert(txParams.expiration <= tronInt64Max(), "Tron expiration exceeds int64");
+    assert(txParams.feeLimit <= tronInt64Max(), "Tron fee limit exceeds int64");
+    assert(txParams.callValue <= tronInt64Max(), "Tron call value exceeds int64");
+    assert(txParams.expiration > txParams.timestamp, "Tron expiration must follow its timestamp");
+  }
+
+  // Asserts the MPC admits a transaction expiring at `expiration` (milliseconds) from a request this
+  // block notifies: the window must still be open at the block time and close within the 24 h cap,
+  // with the caller's margins in seconds on both sides. The MPC reads the block time in whole
+  // seconds, and so does the ledger, so the checks compare whole seconds: `expirationSeconds` must
+  // be floor(expiration / 1000), which Compact cannot divide, so the caller computes it (a witness)
+  // and this circuit asserts it. Passing makes the expiration at least
+  // (minRemainingSeconds + 1) s after the block time and at least capMarginSeconds s inside the cap.
+  // The block time is the ledger's at the including block, not the prover's, so a transaction that
+  // passed here when proved fails if its block comes too late or too early.
+  export circuit assertTronExpirationWindowV1(
+    expiration: Uint<64>,
+    expirationSeconds: Uint<64>,
+    minRemainingSeconds: Uint<64>,
+    capMarginSeconds: Uint<64>
+  ): [] {
+    // The block-time comparisons disclose their bounds, so every input is disclosed: a request
+    // publishes its expiration anyway.
+    const ms = disclose(expiration);
+    const seconds = disclose(expirationSeconds);
+    const minRemaining = disclose(minRemainingSeconds);
+    assert(
+      seconds * 1000 <= ms && ms < seconds * 1000 + 1000,
+      "expirationSeconds is not the expiration in whole seconds"
+    );
+    // Block time < seconds - minRemaining.
+    assert(
+      seconds > minRemaining && blockTimeLt((seconds - minRemaining) as Uint<64>),
+      "Tron expiration too close to the block time"
+    );
+    // Block time >= seconds + 1 + capMargin - 24 h; trivially so when that is <= 0.
+    const earliest = seconds + 1 + disclose(capMarginSeconds);
+    assert(
+      earliest <= tronMaxExpirationSpanSeconds() ||
+        blockTimeGte((earliest - tronMaxExpirationSpanSeconds()) as Uint<64>),
+      "Tron expiration too far past the block time"
+    );
+  }
+
   // ---- ABI Calldata Word Construction Utilities ------------------------------------------------------
   // Canonical ABI word builders and readers. Words MUST be stored in canonical
   // ABI form (big-endian, per the ABI spec). These utilities help construct
