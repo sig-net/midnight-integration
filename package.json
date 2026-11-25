@@ -38,8 +38,10 @@
     "test:signet-responder": "yarn workspace @sig-net/midnight-responder run test",
     "build:signet-responder": "yarn workspace @sig-net/midnight-responder run build",
     "deploy:signet-responder": "yarn workspace @sig-net/midnight-contract-deploy run deploy:signet-responder",
-    "build:midnight-serde-rs": "cargo build --locked --manifest-path packages/midnight-serde-rs/Cargo.toml",
-    "test:midnight-serde-rs": "cargo test --locked --manifest-path packages/midnight-serde-rs/Cargo.toml"
+    "test:signet-responder:minocrab": "cd packages/signet-responder/minocrab && cargo test --locked",
+    "build:midnight-serde-rs": "cd packages/midnight-serde-rs && cargo build --locked",
+    "test:midnight-serde-rs": "cd packages/midnight-serde-rs && cargo test --locked",
+    "verify": "bash scripts/verify.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

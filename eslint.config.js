@@ -39,6 +39,8 @@ export default defineConfig([
     "**/src/managed/**",
     "**/tests/fixtures/managed/**",
     "packages/midnight-serde-conformance/managed/**",
+    // The MinoCrab crate's tests write compactc output under its cargo target.
+    "packages/signet-responder/minocrab/target/**",
     // Publish-only tsc emit: absent until a published package builds.
     "**/dist/**",
     // hardhat output: absent until `yarn compile:evm` runs.

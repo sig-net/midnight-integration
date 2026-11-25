@@ -1,7 +1,9 @@
 //! The bundle builder against compactc's compile of
-//! `../src/signet-responder.compact` (run `yarn compile` first). A stand-in
-//! keygen replaces zkir-v3, so these pin what the builder does with its
-//! output; `yarn compile:zk` runs the real one against the committed lock.
+//! `../src/signet-responder.compact`. A stand-in keygen replaces zkir-v3, so
+//! these pin what the builder does with its output; `yarn compile:zk` runs
+//! the real one against the committed lock.
+
+mod common;
 
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
@@ -11,11 +13,11 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use signet_responder_zk::{LockMode, build_bundle, compactc_circuits};
 
-/// A copy of compactc's fresh output (`yarn compile` writes it), so a test
-/// cannot touch the real one. Each test passes its own `name`, so tests
-/// running in parallel never share a directory.
+/// A copy of [`common::compactc_output`], so a test cannot touch the shared
+/// one. Each test passes its own `name`, so tests running in parallel never
+/// share a directory.
 fn fresh_copy(name: &str) -> PathBuf {
-    let fresh = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/managed");
+    let fresh = common::compactc_output();
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = std::fs::remove_dir_all(&dir);
     for sub in ["compiler", "zkir"] {
