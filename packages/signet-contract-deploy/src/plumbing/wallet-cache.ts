@@ -290,7 +290,7 @@ const UNSHIELDED_FACTS_SCHEMA = Schema.parseJson(
     appliedId: Schema.BigInt,
     state: Schema.Struct({
       availableUtxos: Schema.Array(Schema.Struct({ utxo: UTXO_SCHEMA })),
-      pendingUtxos: Schema.Array(Schema.Struct({ utxo: Schema.Struct({ utxo: UTXO_SCHEMA }) })),
+      pendingUtxos: Schema.Array(Schema.Struct({ utxo: UTXO_SCHEMA })),
     }),
   }),
 );
@@ -383,7 +383,7 @@ function innerSnapshotFacts(
     unshieldedAddress: unshielded.right.publicKey.address,
     utxos: [
       ...state.availableUtxos.map((entry) => entry.utxo),
-      ...state.pendingUtxos.map((entry) => entry.utxo.utxo),
+      ...state.pendingUtxos.map((entry) => entry.utxo),
     ].map((utxo) => ({ owner: utxo.owner, key: utxoKey(utxo.intentHash, utxo.outputNo) })),
     finalizedUnshielded: history.right.entries.flatMap((entry) =>
       entry.lifecycle.status === "finalized" && entry.unshielded !== undefined

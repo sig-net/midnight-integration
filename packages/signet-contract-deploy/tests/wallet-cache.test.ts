@@ -299,6 +299,29 @@ describe("checkWalletCacheEnvelope", () => {
     });
   });
 
+  it("accepts a cache the SDK saved with a NIGHT transaction in flight", () => {
+    const { state } = JSON.parse(fixture.inFlight.snapshots.unshielded) as { state: JsonObject };
+    expect(state).toEqual({
+      availableUtxos: [],
+      pendingUtxos: [
+        {
+          utxo: {
+            value: "5000000000",
+            owner: identity.addresses.unshielded,
+            type: "00".repeat(32),
+            intentHash: "5b".repeat(32),
+            outputNo: 0,
+          },
+          meta: { ctime: "2026-11-11T08:40:48.000Z", registeredForDustGeneration: true },
+          ttl: "2026-11-11T13:00:00.000Z",
+        },
+      ],
+    });
+    expect(checkWalletCacheEnvelope(JSON.stringify(fixture.inFlight), identity)).toEqual({
+      envelope: fixture.inFlight,
+    });
+  });
+
   it("refuses text that is not JSON", () => {
     expect(checkWalletCacheEnvelope("{", identity)).toMatchObject({
       rejection: WalletCacheRejection.Unparseable,

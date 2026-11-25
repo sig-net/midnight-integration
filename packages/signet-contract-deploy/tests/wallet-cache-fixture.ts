@@ -21,6 +21,7 @@ import {
   sealWalletCache,
   type WalletCacheChain,
   type WalletCacheEnvelope,
+  type WalletCacheFields,
   type WalletCacheSnapshots,
 } from "../src/plumbing/wallet-cache.ts";
 
@@ -54,12 +55,17 @@ export const FIXTURE_CHAIN: WalletCacheChain = {
     }),
 };
 
-/** A valid cache for {@link FIXTURE_SEED}, and the same wallet's snapshots from an earlier save. */
+/**
+ * A valid cache for {@link FIXTURE_SEED}, the same cache saved with a NIGHT
+ * transaction in flight, and the same wallet's snapshots from an earlier save.
+ */
 export interface WalletCacheFixture {
   /** The fixture wallet's keys. */
   readonly keys: AccountKeys;
   /** The valid, sealed cache. */
   readonly envelope: WalletCacheEnvelope;
+  /** The same cache with its one NIGHT UTXO booked by a transaction in flight, as the SDK writes it. */
+  readonly inFlight: WalletCacheEnvelope;
   /** The snapshots of an earlier save of the same wallet. */
   readonly earlier: WalletCacheSnapshots;
 }
@@ -137,15 +143,24 @@ export async function buildWalletCacheFixture(): Promise<WalletCacheFixture> {
   };
   const withCursor = (snapshot: string, field: string, value: string): string =>
     JSON.stringify({ ...(JSON.parse(snapshot) as object), [field]: value });
-  const unshieldedWith = (cursor: string, utxos: readonly object[]): string => {
+  const unshieldedWith = (
+    cursor: string,
+    utxos: readonly object[],
+    pending: readonly object[] = [],
+  ): string => {
     const parsed = JSON.parse(fresh.unshielded) as { state: object };
     return JSON.stringify({
       ...parsed,
       appliedId: cursor,
-      state: { ...parsed.state, availableUtxos: utxos },
+      state: { ...parsed.state, availableUtxos: utxos, pendingUtxos: pending },
     });
   };
-  const envelope = sealWalletCache({
+  const booked = UnshieldedWallet(cfg).restore(
+    unshieldedWith("736462", [], [{ ...utxo, ttl: "2026-11-11T13:00:00.000Z" }]),
+  );
+  const unshieldedInFlight = await booked.serializeState();
+  await booked.stop();
+  const fields: WalletCacheFields = {
     formatVersion: 1,
     networkId: FIXTURE_CONFIG.networkId,
     addresses,
@@ -159,6 +174,11 @@ export async function buildWalletCacheFixture(): Promise<WalletCacheFixture> {
       transactionHistory: JSON.stringify({ version: "v2", entries: [historyEntry] }),
       transactionLifecycle: JSON.stringify({ version: "v2", records: [] }),
     },
+  };
+  const envelope = sealWalletCache(fields);
+  const inFlight = sealWalletCache({
+    ...fields,
+    snapshots: { ...fields.snapshots, unshielded: unshieldedInFlight },
   });
   const earlier: WalletCacheSnapshots = {
     shielded: withCursor(fresh.shielded, "offset", "1800000"),
@@ -167,5 +187,5 @@ export async function buildWalletCacheFixture(): Promise<WalletCacheFixture> {
     transactionHistory: JSON.stringify({ version: "v2", entries: [] }),
     transactionLifecycle: JSON.stringify({ version: "v2", records: [] }),
   };
-  return { keys, envelope, earlier };
+  return { keys, envelope, inFlight, earlier };
 }
