@@ -18,6 +18,17 @@ import {
   signetResponderCompiledContract,
 } from "./signet-responder-binding.ts";
 
+const buildSignetResponderDeployTransaction: DeployTransactionBuilder = (
+  networkId,
+  coinPublicKeyHex,
+) =>
+  buildDeployTransaction(
+    signetResponderCompiledContract,
+    networkId,
+    coinPublicKeyHex,
+    createSignetResponderPrivateState(),
+  );
+
 /**
  * Deploy the signet responder through {@link deployProtocolContract}, which
  * logs `deployed signet-responder at <address>` on success.
@@ -68,14 +79,3 @@ export async function estimateSignetResponderDeploy(
     wallets,
   );
 }
-
-const buildSignetResponderDeployTransaction: DeployTransactionBuilder = (
-  networkId,
-  coinPublicKeyHex,
-) =>
-  buildDeployTransaction(
-    signetResponderCompiledContract,
-    networkId,
-    coinPublicKeyHex,
-    createSignetResponderPrivateState(),
-  );

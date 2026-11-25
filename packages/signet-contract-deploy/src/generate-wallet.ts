@@ -5,14 +5,12 @@ import { NETWORK_IDS, type NetworkId } from "./plumbing/network-id.ts";
 import { generateMnemonic, ParseError, parseSeed, SeedFormat } from "./plumbing/seed.ts";
 import { deriveAccountKeys, deriveAddresses, type WalletAddresses } from "./plumbing/wallet.ts";
 
-/**
- * Generate a wallet from a fresh random 24-word mnemonic.
- *
- * @param networkIds - The networks to derive the wallet's addresses for.
- * @returns The mnemonic, its seed in hex and the addresses per network.
- */
-export function generateWallet(networkIds: readonly NetworkId[]): GeneratedWallet {
-  return walletFromMnemonic(generateMnemonic(), networkIds);
+/** One network's encoding of a wallet's addresses. */
+export interface NetworkAddresses {
+  /** The network the addresses are encoded for. */
+  readonly networkId: NetworkId;
+  /** The wallet's unshielded, shielded and dust addresses there. */
+  readonly addresses: WalletAddresses;
 }
 
 /** A wallet's secret in both spellings and the addresses it owns. */
@@ -23,14 +21,6 @@ export interface GeneratedWallet {
   readonly seedHex: string;
   /** The wallet's addresses on each requested network, in the order requested. */
   readonly addresses: readonly NetworkAddresses[];
-}
-
-/** One network's encoding of a wallet's addresses. */
-export interface NetworkAddresses {
-  /** The network the addresses are encoded for. */
-  readonly networkId: NetworkId;
-  /** The wallet's unshielded, shielded and dust addresses there. */
-  readonly addresses: WalletAddresses;
 }
 
 /**
@@ -58,6 +48,16 @@ export function walletFromMnemonic(
       addresses: deriveAddresses(deriveAccountKeys(mnemonic, networkId), networkId),
     })),
   };
+}
+
+/**
+ * Generate a wallet from a fresh random 24-word mnemonic.
+ *
+ * @param networkIds - The networks to derive the wallet's addresses for.
+ * @returns The mnemonic, its seed in hex and the addresses per network.
+ */
+export function generateWallet(networkIds: readonly NetworkId[]): GeneratedWallet {
+  return walletFromMnemonic(generateMnemonic(), networkIds);
 }
 
 /**

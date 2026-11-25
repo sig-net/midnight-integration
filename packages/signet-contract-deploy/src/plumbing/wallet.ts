@@ -152,77 +152,6 @@ export interface WalletFacadeOptions {
   skipLedgerV8DustHistory?: boolean;
 }
 
-/** The DUST a facade refusal reports holding and needing, in base units. */
-export interface DustShortfall {
-  /** The DUST the facade found available to the refused call. */
-  readonly have: bigint;
-  /** The DUST the refused call needs. */
-  readonly need: bigint;
-}
-
-// A facade refusal that names its shortfall does so as "(have X, need Y)":
-// the dust-registration refusal ("Insufficient generated dust to cover
-// registration fee (have X, need Y)") does, the balancing refusals (see
-// isInsufficientDust) name no amount.
-const DUST_SHORTFALL = /dust\b.*?\(have (\d+), need (\d+)\)/i;
-
-/**
- * The amounts a facade refusal names when it refuses for lack of DUST.
- *
- * @param error - What a facade call threw.
- * @returns The named shortfall, or undefined for a refusal that names no
- *   amount and for any other error.
- */
-export function dustShortfall(error: unknown): DustShortfall | undefined {
-  const match = DUST_SHORTFALL.exec(String(error));
-  const have = match?.[1];
-  const need = match?.[2];
-  return have === undefined || need === undefined
-    ? undefined
-    : { have: BigInt(have), need: BigInt(need) };
-}
-
-/**
- * Parse a seed and derive the three role keys (Zswap / NightExternal / Dust).
- * Pure crypto — no network. This is the step that exercises the ledger WASM.
- *
- * @param seed - The wallet seed, as hex or a BIP-39 mnemonic.
- * @param networkId - The network the unshielded keystore is bound to.
- * @returns The Zswap, Dust and unshielded role keys.
- * @throws {Error} If the seed is rejected by the HD wallet or key derivation fails.
- */
-export function deriveAccountKeys(seed: string, networkId: NetworkId): AccountKeys {
-  const { seed: seedBytes } = parseSeed(seed);
-  const seeds = WalletSeeds.fromMasterSeed(seedBytes);
-  const shieldedSecretKeys = ledger.ZswapSecretKeys.fromSeed(seeds.shielded);
-  const dustSecretKey = ledger.DustSecretKey.fromSeed(seeds.dust);
-  const unshieldedKeystore = createKeystore(
-    { kind: "schnorr", secret: seeds.unshielded },
-    networkId,
-  );
-
-  return { seeds, shieldedSecretKeys, dustSecretKey, unshieldedKeystore };
-}
-
-/**
- * Compute the three bech32m addresses from the keys. Pure — no network.
- *
- * @param keys - The derived role keys.
- * @param networkId - The network the addresses are encoded for.
- * @returns The wallet's unshielded, shielded and dust addresses.
- */
-export function deriveAddresses(keys: AccountKeys, networkId: NetworkId): WalletAddresses {
-  const shieldedAddr = new ShieldedAddress(
-    ShieldedCoinPublicKey.fromHexString(keys.shieldedSecretKeys.coinPublicKey),
-    ShieldedEncryptionPublicKey.fromHexString(keys.shieldedSecretKeys.encryptionPublicKey),
-  );
-  return {
-    unshielded: keys.unshieldedKeystore.getBech32Address().asString(),
-    shielded: MidnightBech32m.encode(networkId, shieldedAddr).asString(),
-    dust: DustAddress.encodePublicKey(networkId, keys.dustSecretKey.publicKey),
-  };
-}
-
 /**
  * Indexer events the shielded and DUST wallets apply per batch: per-batch
  * overhead dominates a sync at the SDK's default of 10.
@@ -316,6 +245,90 @@ function dustWalletClass(
     skipLedgerV8DustHistory: skipsLedgerV8DustHistory(options),
   };
   return DustWallet(dustConfiguration);
+}
+
+/**
+ * One sub-wallet's sync position as "applied/highest", the two indices every
+ * sub-wallet's progress record carries under its own field names.
+ *
+ * @param applied - The index the sub-wallet has applied up to.
+ * @param highest - The highest index the indexer reports.
+ * @returns The position, with a percentage once the highest index is known.
+ */
+function syncPosition(applied: bigint, highest: bigint): string {
+  if (highest <= 0n) return `${String(applied)}/?`;
+  return `${String(applied)}/${String(highest)} (${String((applied * 100n) / highest)}%)`;
+}
+
+/** The DUST a facade refusal reports holding and needing, in base units. */
+export interface DustShortfall {
+  /** The DUST the facade found available to the refused call. */
+  readonly have: bigint;
+  /** The DUST the refused call needs. */
+  readonly need: bigint;
+}
+
+// A facade refusal that names its shortfall does so as "(have X, need Y)":
+// the dust-registration refusal ("Insufficient generated dust to cover
+// registration fee (have X, need Y)") does, the balancing refusals (see
+// isInsufficientDust) name no amount.
+const DUST_SHORTFALL = /dust\b.*?\(have (\d+), need (\d+)\)/i;
+
+/**
+ * The amounts a facade refusal names when it refuses for lack of DUST.
+ *
+ * @param error - What a facade call threw.
+ * @returns The named shortfall, or undefined for a refusal that names no
+ *   amount and for any other error.
+ */
+export function dustShortfall(error: unknown): DustShortfall | undefined {
+  const match = DUST_SHORTFALL.exec(String(error));
+  const have = match?.[1];
+  const need = match?.[2];
+  return have === undefined || need === undefined
+    ? undefined
+    : { have: BigInt(have), need: BigInt(need) };
+}
+
+/**
+ * Parse a seed and derive the three role keys (Zswap / NightExternal / Dust).
+ * Pure crypto — no network. This is the step that exercises the ledger WASM.
+ *
+ * @param seed - The wallet seed, as hex or a BIP-39 mnemonic.
+ * @param networkId - The network the unshielded keystore is bound to.
+ * @returns The Zswap, Dust and unshielded role keys.
+ * @throws {Error} If the seed is rejected by the HD wallet or key derivation fails.
+ */
+export function deriveAccountKeys(seed: string, networkId: NetworkId): AccountKeys {
+  const { seed: seedBytes } = parseSeed(seed);
+  const seeds = WalletSeeds.fromMasterSeed(seedBytes);
+  const shieldedSecretKeys = ledger.ZswapSecretKeys.fromSeed(seeds.shielded);
+  const dustSecretKey = ledger.DustSecretKey.fromSeed(seeds.dust);
+  const unshieldedKeystore = createKeystore(
+    { kind: "schnorr", secret: seeds.unshielded },
+    networkId,
+  );
+
+  return { seeds, shieldedSecretKeys, dustSecretKey, unshieldedKeystore };
+}
+
+/**
+ * Compute the three bech32m addresses from the keys. Pure — no network.
+ *
+ * @param keys - The derived role keys.
+ * @param networkId - The network the addresses are encoded for.
+ * @returns The wallet's unshielded, shielded and dust addresses.
+ */
+export function deriveAddresses(keys: AccountKeys, networkId: NetworkId): WalletAddresses {
+  const shieldedAddr = new ShieldedAddress(
+    ShieldedCoinPublicKey.fromHexString(keys.shieldedSecretKeys.coinPublicKey),
+    ShieldedEncryptionPublicKey.fromHexString(keys.shieldedSecretKeys.encryptionPublicKey),
+  );
+  return {
+    unshielded: keys.unshieldedKeystore.getBech32Address().asString(),
+    shielded: MidnightBech32m.encode(networkId, shieldedAddr).asString(),
+    dust: DustAddress.encodePublicKey(networkId, keys.dustSecretKey.publicKey),
+  };
 }
 
 // Dust generates continuously once NIGHT is registered, but a fresh
@@ -833,6 +846,90 @@ function initialiseWalletFacade(
   });
 }
 
+// How often a sync in progress reports itself.
+const SYNC_HEARTBEAT_MS = 10_000;
+
+/** The unshielded sync facts {@link unshieldedSyncPosition} reports on. */
+export type UnshieldedSyncProgress = Pick<
+  FacadeState["unshielded"]["progress"],
+  "appliedId" | "highestTransactionId" | "isConnected" | "indexerLiveness"
+>;
+
+/**
+ * The unshielded wallet's sync position for the heartbeat. It follows one
+ * address's transactions, so its head arrives with the indexer's first
+ * progress frame for that address, and it reports synced only once the
+ * indexer's height also agrees with the node's finalized head.
+ *
+ * @param progress - The unshielded wallet's progress record.
+ * @returns What the wallet has applied, or what it is waiting for.
+ */
+export function unshieldedSyncPosition(progress: UnshieldedSyncProgress): string {
+  if (!progress.isConnected) return "waiting for the indexer's first progress frame";
+  const position =
+    progress.highestTransactionId <= 0n
+      ? "no transactions for this address"
+      : syncPosition(progress.appliedId, progress.highestTransactionId);
+  const liveness = progress.indexerLiveness;
+  switch (liveness._tag) {
+    case "Unknown":
+      return `${position}, node head check pending`;
+    case "Unavailable":
+      return `${position}, node head check failed ${String(liveness.consecutiveFailures)} time(s)`;
+    case "Behind":
+      return `${position}, indexer ${String(liveness.lag)} block(s) behind the node`;
+    case "WrongNetwork":
+      return `${position}, indexer and node disagree on block ${String(liveness.height)}`;
+    case "Skipped":
+    case "InSync":
+    case "Ahead":
+      return position;
+  }
+}
+
+/**
+ * Wait for a started facade to report itself synced, logging a heartbeat
+ * every {@link SYNC_HEARTBEAT_MS} with the elapsed time and each sub-wallet's
+ * position, so a long first sync on a deployed network shows it is moving.
+ *
+ * @param facade - The started facade to wait on.
+ * @param label - The wallet's name in the log lines (its role, e.g. `root`).
+ * @param config - The stack the facade syncs against, named in the first line.
+ * @returns The synced state.
+ */
+async function waitForSyncedStateLogging(
+  facade: WalletFacade,
+  label: string,
+  config: MidnightNodeConfig,
+): Promise<FacadeState> {
+  const started = Date.now();
+  const elapsed = (): string => `${String(Math.round((Date.now() - started) / 1000))}s`;
+  console.log(`syncing ${label} wallet (indexer: ${redactUrlQuery(config.indexerUrl)})...`);
+  let latest: FacadeState | undefined;
+  const subscription = facade.state().subscribe({
+    next: (state) => {
+      latest = state;
+    },
+  });
+  const heartbeat = setInterval(() => {
+    const position =
+      latest === undefined
+        ? "no state yet"
+        : `shielded ${syncPosition(latest.shielded.progress.appliedIndex, latest.shielded.progress.highestRelevantWalletIndex)}, ` +
+          `dust ${syncPosition(latest.dust.progress.appliedIndex, latest.dust.progress.highestRelevantWalletIndex)}, ` +
+          `unshielded ${unshieldedSyncPosition(latest.unshielded.progress)}`;
+    console.log(`  ${label} wallet still syncing after ${elapsed()}: ${position}`);
+  }, SYNC_HEARTBEAT_MS);
+  try {
+    const state = await facade.waitForSyncedState();
+    console.log(`${label} wallet synced in ${elapsed()}`);
+    return state;
+  } finally {
+    clearInterval(heartbeat);
+    subscription.unsubscribe();
+  }
+}
+
 /** What {@link openSyncedWallet} opens a wallet from. */
 export interface OpenWalletParams {
   /** The wallet's key material (see {@link deriveAccountKeys}). */
@@ -924,103 +1021,6 @@ export async function openSyncedWallet(params: OpenWalletParams): Promise<Opened
     console.log(`${label} wallet: cache written to ${location.displayPath} on sync completion`);
   }
   return { label, keys, facade, stop };
-}
-
-// How often a sync in progress reports itself.
-const SYNC_HEARTBEAT_MS = 10_000;
-
-/**
- * One sub-wallet's sync position as "applied/highest", the two indices every
- * sub-wallet's progress record carries under its own field names.
- *
- * @param applied - The index the sub-wallet has applied up to.
- * @param highest - The highest index the indexer reports.
- * @returns The position, with a percentage once the highest index is known.
- */
-function syncPosition(applied: bigint, highest: bigint): string {
-  if (highest <= 0n) return `${String(applied)}/?`;
-  return `${String(applied)}/${String(highest)} (${String((applied * 100n) / highest)}%)`;
-}
-
-/** The unshielded sync facts {@link unshieldedSyncPosition} reports on. */
-export type UnshieldedSyncProgress = Pick<
-  FacadeState["unshielded"]["progress"],
-  "appliedId" | "highestTransactionId" | "isConnected" | "indexerLiveness"
->;
-
-/**
- * The unshielded wallet's sync position for the heartbeat. It follows one
- * address's transactions, so its head arrives with the indexer's first
- * progress frame for that address, and it reports synced only once the
- * indexer's height also agrees with the node's finalized head.
- *
- * @param progress - The unshielded wallet's progress record.
- * @returns What the wallet has applied, or what it is waiting for.
- */
-export function unshieldedSyncPosition(progress: UnshieldedSyncProgress): string {
-  if (!progress.isConnected) return "waiting for the indexer's first progress frame";
-  const position =
-    progress.highestTransactionId <= 0n
-      ? "no transactions for this address"
-      : syncPosition(progress.appliedId, progress.highestTransactionId);
-  const liveness = progress.indexerLiveness;
-  switch (liveness._tag) {
-    case "Unknown":
-      return `${position}, node head check pending`;
-    case "Unavailable":
-      return `${position}, node head check failed ${String(liveness.consecutiveFailures)} time(s)`;
-    case "Behind":
-      return `${position}, indexer ${String(liveness.lag)} block(s) behind the node`;
-    case "WrongNetwork":
-      return `${position}, indexer and node disagree on block ${String(liveness.height)}`;
-    case "Skipped":
-    case "InSync":
-    case "Ahead":
-      return position;
-  }
-}
-
-/**
- * Wait for a started facade to report itself synced, logging a heartbeat
- * every {@link SYNC_HEARTBEAT_MS} with the elapsed time and each sub-wallet's
- * position, so a long first sync on a deployed network shows it is moving.
- *
- * @param facade - The started facade to wait on.
- * @param label - The wallet's name in the log lines (its role, e.g. `root`).
- * @param config - The stack the facade syncs against, named in the first line.
- * @returns The synced state.
- */
-async function waitForSyncedStateLogging(
-  facade: WalletFacade,
-  label: string,
-  config: MidnightNodeConfig,
-): Promise<FacadeState> {
-  const started = Date.now();
-  const elapsed = (): string => `${String(Math.round((Date.now() - started) / 1000))}s`;
-  console.log(`syncing ${label} wallet (indexer: ${redactUrlQuery(config.indexerUrl)})...`);
-  let latest: FacadeState | undefined;
-  const subscription = facade.state().subscribe({
-    next: (state) => {
-      latest = state;
-    },
-  });
-  const heartbeat = setInterval(() => {
-    const position =
-      latest === undefined
-        ? "no state yet"
-        : `shielded ${syncPosition(latest.shielded.progress.appliedIndex, latest.shielded.progress.highestRelevantWalletIndex)}, ` +
-          `dust ${syncPosition(latest.dust.progress.appliedIndex, latest.dust.progress.highestRelevantWalletIndex)}, ` +
-          `unshielded ${unshieldedSyncPosition(latest.unshielded.progress)}`;
-    console.log(`  ${label} wallet still syncing after ${elapsed()}: ${position}`);
-  }, SYNC_HEARTBEAT_MS);
-  try {
-    const state = await facade.waitForSyncedState();
-    console.log(`${label} wallet synced in ${elapsed()}`);
-    return state;
-  } finally {
-    clearInterval(heartbeat);
-    subscription.unsubscribe();
-  }
 }
 
 /** A wallet a {@link WalletRegistry} holds started and synced. */

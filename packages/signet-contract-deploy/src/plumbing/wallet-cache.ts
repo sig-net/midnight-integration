@@ -54,21 +54,6 @@ const WALLET_CACHE_ENVELOPE_SCHEMA = Schema.Struct({
   digest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/)),
 });
 
-/**
- * The label's runs of letters and digits.
- *
- * @param label - The wallet's role name.
- * @returns The runs, in order.
- * @throws {Error} If there are none.
- */
-function labelWords(label: string): string[] {
-  const words = label.split(/[^A-Za-z0-9]+/).filter((word) => word !== "");
-  if (words.length === 0) {
-    throw new Error(`wallet label "${label}" holds no letter or digit to name its cache after`);
-  }
-  return words;
-}
-
 /** A block the indexer reports, by height and hash. */
 export type ChainBlock = WalletCacheEnvelope["chainAnchor"]["seenBlock"];
 
@@ -94,6 +79,246 @@ export interface WalletCacheLocation {
   readonly envVar: string;
   /** The path as logged: relative to the repository root when it lies inside it. */
   readonly displayPath: string;
+}
+
+/**
+ * A refusal's detail on one line: for a multi-line parse failure tree, the
+ * field path it descends through followed by its innermost line, which
+ * names the actual cause.
+ *
+ * @param refusal - The refusal to describe.
+ * @returns The detail on one line.
+ */
+function refusalCause(refusal: WalletCacheRefusal): string {
+  const lines = refusal.detail
+    .trimEnd()
+    .split("\n")
+    .map((line) => line.replace(/^[\s─-╿]+/u, ""));
+  const innermost = lines.at(-1) ?? refusal.detail;
+  const path = lines.filter((line) => /^\[.*\]$/u.test(line)).join("");
+  return path === "" ? innermost : `${path} ${innermost}`;
+}
+
+const UTXO_SCHEMA = Schema.Struct({
+  owner: Schema.String,
+  intentHash: Schema.String,
+  outputNo: Schema.Number,
+});
+
+const SNAPSHOT_FORMAT_FIELDS = {
+  version: Schema.NonEmptyString,
+  writtenBy: Schema.NonEmptyString,
+};
+
+const SHIELDED_FACTS_SCHEMA = Schema.parseJson(
+  Schema.Struct({
+    ...SNAPSHOT_FORMAT_FIELDS,
+    publicKeys: Schema.Struct({ coinPublicKey: Schema.String, encryptionPublicKey: Schema.String }),
+    networkId: Schema.String,
+    offset: Schema.BigInt,
+  }),
+);
+const UNSHIELDED_FACTS_SCHEMA = Schema.parseJson(
+  Schema.Struct({
+    ...SNAPSHOT_FORMAT_FIELDS,
+    publicKey: Schema.Struct({ address: Schema.String }),
+    networkId: Schema.String,
+    appliedId: Schema.BigInt,
+    state: Schema.Struct({
+      availableUtxos: Schema.Array(Schema.Struct({ utxo: UTXO_SCHEMA })),
+      pendingUtxos: Schema.Array(Schema.Struct({ utxo: UTXO_SCHEMA })),
+    }),
+  }),
+);
+const HISTORY_FACTS_SCHEMA = Schema.parseJson(
+  Schema.Struct({
+    version: Schema.NonEmptyString,
+    entries: Schema.Array(
+      Schema.Struct({
+        status: Schema.optional(Schema.String),
+        lifecycle: Schema.Struct({ status: Schema.String }),
+        unshielded: Schema.optional(
+          Schema.Struct({
+            id: Schema.Number,
+            createdUtxos: Schema.Array(
+              Schema.Struct({
+                owner: Schema.String,
+                intentHash: Schema.String,
+                outputIndex: Schema.Number,
+              }),
+            ),
+            spentUtxos: Schema.Array(
+              Schema.Struct({ intentHash: Schema.String, outputIndex: Schema.Number }),
+            ),
+          }),
+        ),
+      }),
+    ),
+  }),
+);
+const DUST_FACTS_SCHEMA = Schema.parseJson(
+  Schema.Struct({
+    ...SNAPSHOT_FORMAT_FIELDS,
+    publicKey: Schema.Struct({ publicKey: Schema.String }),
+    networkId: Schema.String,
+    offset: Schema.BigInt,
+  }),
+);
+
+/** What the sub-wallet snapshots record about themselves, read for the cache's cross-checks. */
+interface InnerSnapshotFacts {
+  readonly coinPublicKey: string;
+  readonly encryptionPublicKey: string;
+  readonly unshieldedAddress: string;
+  /** Every UTXO the unshielded snapshot holds, available or booked. */
+  readonly utxos: readonly { readonly owner: string; readonly key: string }[];
+  /** The unshielded side of every finalized transaction history entry. */
+  readonly finalizedUnshielded: readonly {
+    readonly succeeded: boolean;
+    readonly failed: boolean;
+    readonly id: number;
+    readonly created: readonly { readonly owner: string; readonly key: string }[];
+    readonly spent: readonly string[];
+  }[];
+  readonly dustPublicKey: string;
+  readonly networkIds: {
+    readonly shielded: string;
+    readonly unshielded: string;
+    readonly dust: string;
+  };
+  /** The shielded wallet's cursor, an indexer ledger event id. */
+  readonly shieldedEventCursor: bigint;
+  /** The DUST wallet's cursor, an indexer ledger event id. */
+  readonly dustEventCursor: bigint;
+  /** The unshielded wallet's cursor, an indexer transaction id. */
+  readonly unshieldedTransactionCursor: bigint;
+}
+
+/**
+ * The refusal for a sub-wallet snapshot missing the facts the cross-checks read.
+ *
+ * @param part - The snapshot's name.
+ * @param cause - What the schema found missing.
+ * @returns The refusal.
+ */
+function unreadableFacts(part: string, cause: string): WalletCacheRefusal {
+  return {
+    rejection: WalletCacheRejection.Unparseable,
+    detail: `the ${part} snapshot does not record its own identity, network and cursor: ${cause}`,
+  };
+}
+
+/**
+ * Read the facts each sub-wallet snapshot records about itself.
+ *
+ * @param snapshots - The cache's sub-wallet snapshots.
+ * @returns The facts, or the refusal naming the snapshot that lacks them.
+ */
+function innerSnapshotFacts(
+  snapshots: WalletCacheSnapshots,
+): InnerSnapshotFacts | WalletCacheRefusal {
+  const shielded = Schema.decodeUnknownEither(SHIELDED_FACTS_SCHEMA)(snapshots.shielded);
+  if (Either.isLeft(shielded)) return unreadableFacts("shielded", shielded.left.message);
+  const unshielded = Schema.decodeUnknownEither(UNSHIELDED_FACTS_SCHEMA)(snapshots.unshielded);
+  if (Either.isLeft(unshielded)) return unreadableFacts("unshielded", unshielded.left.message);
+  const dust = Schema.decodeUnknownEither(DUST_FACTS_SCHEMA)(snapshots.dust);
+  if (Either.isLeft(dust)) return unreadableFacts("dust", dust.left.message);
+  const history = Schema.decodeUnknownEither(HISTORY_FACTS_SCHEMA)(snapshots.transactionHistory);
+  if (Either.isLeft(history)) return unreadableFacts("transaction history", history.left.message);
+  const { state } = unshielded.right;
+  const utxoKey = (intentHash: string, output: number): string => `${intentHash}#${String(output)}`;
+  return {
+    coinPublicKey: shielded.right.publicKeys.coinPublicKey,
+    encryptionPublicKey: shielded.right.publicKeys.encryptionPublicKey,
+    unshieldedAddress: unshielded.right.publicKey.address,
+    utxos: [
+      ...state.availableUtxos.map((entry) => entry.utxo),
+      ...state.pendingUtxos.map((entry) => entry.utxo),
+    ].map((utxo) => ({ owner: utxo.owner, key: utxoKey(utxo.intentHash, utxo.outputNo) })),
+    finalizedUnshielded: history.right.entries.flatMap((entry) =>
+      entry.lifecycle.status === "finalized" && entry.unshielded !== undefined
+        ? [
+            {
+              succeeded: entry.status === "SUCCESS",
+              failed: entry.status === "FAILURE",
+              id: entry.unshielded.id,
+              created: entry.unshielded.createdUtxos.map((utxo) => ({
+                owner: utxo.owner,
+                key: utxoKey(utxo.intentHash, utxo.outputIndex),
+              })),
+              spent: entry.unshielded.spentUtxos.map((utxo) =>
+                utxoKey(utxo.intentHash, utxo.outputIndex),
+              ),
+            },
+          ]
+        : [],
+    ),
+    dustPublicKey: dust.right.publicKey.publicKey,
+    networkIds: {
+      shielded: shielded.right.networkId,
+      unshielded: unshielded.right.networkId,
+      dust: dust.right.networkId,
+    },
+    shieldedEventCursor: shielded.right.offset,
+    dustEventCursor: dust.right.offset,
+    unshieldedTransactionCursor: unshielded.right.appliedId,
+  };
+}
+
+/**
+ * Where the unshielded snapshot and the transaction history disagree: the
+ * unshielded cursor is behind a transaction the history finalized, a UTXO
+ * the history shows created for this address and never spent is missing
+ * from the snapshot, or the snapshot holds a UTXO no finalized transaction
+ * created. The unshielded wallet syncs its address's whole history, so the
+ * two describe the same transactions.
+ *
+ * @param inner - The snapshots' facts.
+ * @param address - The wallet's unshielded address.
+ * @returns One description per disagreement, empty when they agree.
+ */
+function unshieldedInconsistencies(inner: InnerSnapshotFacts, address: string): string[] {
+  const settled = inner.finalizedUnshielded.filter((entry) => !entry.failed);
+  const newest = Math.max(0, ...settled.map((entry) => entry.id));
+  const spent = new Set(settled.flatMap((entry) => entry.spent));
+  const created = new Set(
+    settled
+      .flatMap((entry) => entry.created)
+      .filter((utxo) => utxo.owner === address)
+      .map((utxo) => utxo.key),
+  );
+  const held = new Set(inner.utxos.map((utxo) => utxo.key));
+  const lost = settled
+    .filter((entry) => entry.succeeded)
+    .flatMap((entry) => entry.created)
+    .filter((utxo) => utxo.owner === address && !spent.has(utxo.key) && !held.has(utxo.key));
+  const unexplained = [...held].filter((key) => !created.has(key));
+  return [
+    inner.unshieldedTransactionCursor < BigInt(newest)
+      ? [
+          `cursor ${String(inner.unshieldedTransactionCursor)} behind finalized transaction ${String(newest)}`,
+        ]
+      : [],
+    lost.length > 0 ? [`${String(lost.length)} unspent UTXO(s) of the history missing`] : [],
+    unexplained.length > 0
+      ? [`${String(unexplained.length)} UTXO(s) no finalized transaction created`]
+      : [],
+  ].flat();
+}
+
+/**
+ * The label's runs of letters and digits.
+ *
+ * @param label - The wallet's role name.
+ * @returns The runs, in order.
+ * @throws {Error} If there are none.
+ */
+function labelWords(label: string): string[] {
+  const words = label.split(/[^A-Za-z0-9]+/).filter((word) => word !== "");
+  if (words.length === 0) {
+    throw new Error(`wallet label "${label}" holds no letter or digit to name its cache after`);
+  }
+  return words;
 }
 
 /**
@@ -263,172 +488,6 @@ export interface WalletCacheIdentity {
 
 const VERSIONED_SCHEMA = Schema.Struct({ formatVersion: Schema.Unknown });
 
-const UTXO_SCHEMA = Schema.Struct({
-  owner: Schema.String,
-  intentHash: Schema.String,
-  outputNo: Schema.Number,
-});
-
-const SNAPSHOT_FORMAT_FIELDS = {
-  version: Schema.NonEmptyString,
-  writtenBy: Schema.NonEmptyString,
-};
-
-const SHIELDED_FACTS_SCHEMA = Schema.parseJson(
-  Schema.Struct({
-    ...SNAPSHOT_FORMAT_FIELDS,
-    publicKeys: Schema.Struct({ coinPublicKey: Schema.String, encryptionPublicKey: Schema.String }),
-    networkId: Schema.String,
-    offset: Schema.BigInt,
-  }),
-);
-const UNSHIELDED_FACTS_SCHEMA = Schema.parseJson(
-  Schema.Struct({
-    ...SNAPSHOT_FORMAT_FIELDS,
-    publicKey: Schema.Struct({ address: Schema.String }),
-    networkId: Schema.String,
-    appliedId: Schema.BigInt,
-    state: Schema.Struct({
-      availableUtxos: Schema.Array(Schema.Struct({ utxo: UTXO_SCHEMA })),
-      pendingUtxos: Schema.Array(Schema.Struct({ utxo: UTXO_SCHEMA })),
-    }),
-  }),
-);
-const HISTORY_FACTS_SCHEMA = Schema.parseJson(
-  Schema.Struct({
-    version: Schema.NonEmptyString,
-    entries: Schema.Array(
-      Schema.Struct({
-        status: Schema.optional(Schema.String),
-        lifecycle: Schema.Struct({ status: Schema.String }),
-        unshielded: Schema.optional(
-          Schema.Struct({
-            id: Schema.Number,
-            createdUtxos: Schema.Array(
-              Schema.Struct({
-                owner: Schema.String,
-                intentHash: Schema.String,
-                outputIndex: Schema.Number,
-              }),
-            ),
-            spentUtxos: Schema.Array(
-              Schema.Struct({ intentHash: Schema.String, outputIndex: Schema.Number }),
-            ),
-          }),
-        ),
-      }),
-    ),
-  }),
-);
-const DUST_FACTS_SCHEMA = Schema.parseJson(
-  Schema.Struct({
-    ...SNAPSHOT_FORMAT_FIELDS,
-    publicKey: Schema.Struct({ publicKey: Schema.String }),
-    networkId: Schema.String,
-    offset: Schema.BigInt,
-  }),
-);
-
-/** What the sub-wallet snapshots record about themselves, read for the cache's cross-checks. */
-interface InnerSnapshotFacts {
-  readonly coinPublicKey: string;
-  readonly encryptionPublicKey: string;
-  readonly unshieldedAddress: string;
-  /** Every UTXO the unshielded snapshot holds, available or booked. */
-  readonly utxos: readonly { readonly owner: string; readonly key: string }[];
-  /** The unshielded side of every finalized transaction history entry. */
-  readonly finalizedUnshielded: readonly {
-    readonly succeeded: boolean;
-    readonly failed: boolean;
-    readonly id: number;
-    readonly created: readonly { readonly owner: string; readonly key: string }[];
-    readonly spent: readonly string[];
-  }[];
-  readonly dustPublicKey: string;
-  readonly networkIds: {
-    readonly shielded: string;
-    readonly unshielded: string;
-    readonly dust: string;
-  };
-  /** The shielded wallet's cursor, an indexer ledger event id. */
-  readonly shieldedEventCursor: bigint;
-  /** The DUST wallet's cursor, an indexer ledger event id. */
-  readonly dustEventCursor: bigint;
-  /** The unshielded wallet's cursor, an indexer transaction id. */
-  readonly unshieldedTransactionCursor: bigint;
-}
-
-/**
- * Read the facts each sub-wallet snapshot records about itself.
- *
- * @param snapshots - The cache's sub-wallet snapshots.
- * @returns The facts, or the refusal naming the snapshot that lacks them.
- */
-function innerSnapshotFacts(
-  snapshots: WalletCacheSnapshots,
-): InnerSnapshotFacts | WalletCacheRefusal {
-  const shielded = Schema.decodeUnknownEither(SHIELDED_FACTS_SCHEMA)(snapshots.shielded);
-  if (Either.isLeft(shielded)) return unreadableFacts("shielded", shielded.left.message);
-  const unshielded = Schema.decodeUnknownEither(UNSHIELDED_FACTS_SCHEMA)(snapshots.unshielded);
-  if (Either.isLeft(unshielded)) return unreadableFacts("unshielded", unshielded.left.message);
-  const dust = Schema.decodeUnknownEither(DUST_FACTS_SCHEMA)(snapshots.dust);
-  if (Either.isLeft(dust)) return unreadableFacts("dust", dust.left.message);
-  const history = Schema.decodeUnknownEither(HISTORY_FACTS_SCHEMA)(snapshots.transactionHistory);
-  if (Either.isLeft(history)) return unreadableFacts("transaction history", history.left.message);
-  const { state } = unshielded.right;
-  const utxoKey = (intentHash: string, output: number): string => `${intentHash}#${String(output)}`;
-  return {
-    coinPublicKey: shielded.right.publicKeys.coinPublicKey,
-    encryptionPublicKey: shielded.right.publicKeys.encryptionPublicKey,
-    unshieldedAddress: unshielded.right.publicKey.address,
-    utxos: [
-      ...state.availableUtxos.map((entry) => entry.utxo),
-      ...state.pendingUtxos.map((entry) => entry.utxo),
-    ].map((utxo) => ({ owner: utxo.owner, key: utxoKey(utxo.intentHash, utxo.outputNo) })),
-    finalizedUnshielded: history.right.entries.flatMap((entry) =>
-      entry.lifecycle.status === "finalized" && entry.unshielded !== undefined
-        ? [
-            {
-              succeeded: entry.status === "SUCCESS",
-              failed: entry.status === "FAILURE",
-              id: entry.unshielded.id,
-              created: entry.unshielded.createdUtxos.map((utxo) => ({
-                owner: utxo.owner,
-                key: utxoKey(utxo.intentHash, utxo.outputIndex),
-              })),
-              spent: entry.unshielded.spentUtxos.map((utxo) =>
-                utxoKey(utxo.intentHash, utxo.outputIndex),
-              ),
-            },
-          ]
-        : [],
-    ),
-    dustPublicKey: dust.right.publicKey.publicKey,
-    networkIds: {
-      shielded: shielded.right.networkId,
-      unshielded: unshielded.right.networkId,
-      dust: dust.right.networkId,
-    },
-    shieldedEventCursor: shielded.right.offset,
-    dustEventCursor: dust.right.offset,
-    unshieldedTransactionCursor: unshielded.right.appliedId,
-  };
-}
-
-/**
- * The refusal for a sub-wallet snapshot missing the facts the cross-checks read.
- *
- * @param part - The snapshot's name.
- * @param cause - What the schema found missing.
- * @returns The refusal.
- */
-function unreadableFacts(part: string, cause: string): WalletCacheRefusal {
-  return {
-    rejection: WalletCacheRejection.Unparseable,
-    detail: `the ${part} snapshot does not record its own identity, network and cursor: ${cause}`,
-  };
-}
-
 /**
  * Check a cache file's text against the wallet being opened, without network
  * access, in this order. It parses as this build's format with every field
@@ -530,47 +589,6 @@ export function checkWalletCacheEnvelope(
 }
 
 /**
- * Where the unshielded snapshot and the transaction history disagree: the
- * unshielded cursor is behind a transaction the history finalized, a UTXO
- * the history shows created for this address and never spent is missing
- * from the snapshot, or the snapshot holds a UTXO no finalized transaction
- * created. The unshielded wallet syncs its address's whole history, so the
- * two describe the same transactions.
- *
- * @param inner - The snapshots' facts.
- * @param address - The wallet's unshielded address.
- * @returns One description per disagreement, empty when they agree.
- */
-function unshieldedInconsistencies(inner: InnerSnapshotFacts, address: string): string[] {
-  const settled = inner.finalizedUnshielded.filter((entry) => !entry.failed);
-  const newest = Math.max(0, ...settled.map((entry) => entry.id));
-  const spent = new Set(settled.flatMap((entry) => entry.spent));
-  const created = new Set(
-    settled
-      .flatMap((entry) => entry.created)
-      .filter((utxo) => utxo.owner === address)
-      .map((utxo) => utxo.key),
-  );
-  const held = new Set(inner.utxos.map((utxo) => utxo.key));
-  const lost = settled
-    .filter((entry) => entry.succeeded)
-    .flatMap((entry) => entry.created)
-    .filter((utxo) => utxo.owner === address && !spent.has(utxo.key) && !held.has(utxo.key));
-  const unexplained = [...held].filter((key) => !created.has(key));
-  return [
-    inner.unshieldedTransactionCursor < BigInt(newest)
-      ? [
-          `cursor ${String(inner.unshieldedTransactionCursor)} behind finalized transaction ${String(newest)}`,
-        ]
-      : [],
-    lost.length > 0 ? [`${String(lost.length)} unspent UTXO(s) of the history missing`] : [],
-    unexplained.length > 0
-      ? [`${String(unexplained.length)} UTXO(s) no finalized transaction created`]
-      : [],
-  ].flat();
-}
-
-/**
  * Reads one block from the chain the wallet syncs on.
  *
  * @param height - The block height, or undefined for the latest block.
@@ -616,6 +634,54 @@ const TIP_BLOCK_SCHEMA = Schema.Struct({
     }),
   ),
 });
+
+/**
+ * Run one `block` query against an indexer.
+ *
+ * @param indexerUrl - The indexer's HTTP GraphQL endpoint.
+ * @param query - The query, taking an optional `$offset: BlockOffset`.
+ * @param height - The block height, or undefined for the latest block.
+ * @param blockSchema - The shape of the block the query selects.
+ * @returns The block, or undefined when the chain has no block at that height.
+ * @throws {Error} If the indexer cannot be reached, refuses the query or answers in another shape.
+ */
+async function indexerBlockQuery<A, I>(
+  indexerUrl: string,
+  query: string,
+  height: number | undefined,
+  blockSchema: Schema.Schema<A, I>,
+): Promise<A | undefined> {
+  const response = await fetch(indexerUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ query, variables: height === undefined ? {} : { offset: { height } } }),
+  }).catch((error: unknown) => {
+    throw new Error(`indexer ${redactUrlQuery(indexerUrl)} cannot be reached for the block query`, {
+      cause: error,
+    });
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `indexer ${redactUrlQuery(indexerUrl)} answered the block query with HTTP ${String(response.status)}`,
+    );
+  }
+  const answer = Schema.decodeUnknownSync(
+    Schema.parseJson(
+      Schema.Struct({
+        data: Schema.optional(Schema.NullOr(Schema.Struct({ block: Schema.NullOr(blockSchema) }))),
+        errors: Schema.optional(Schema.Array(Schema.Struct({ message: Schema.String }))),
+      }),
+    ),
+  )(text);
+  const errors = answer.errors ?? [];
+  if (errors.length > 0) {
+    throw new Error(
+      `indexer ${redactUrlQuery(indexerUrl)} refused the block query: ${errors.map((error) => error.message).join(", ")}`,
+    );
+  }
+  return answer.data?.block ?? undefined;
+}
 
 /**
  * A {@link WalletCacheChain} over an indexer's GraphQL `block` query. The
@@ -674,54 +740,6 @@ export function indexerWalletCacheChain(indexerUrl: string): WalletCacheChain {
       };
     },
   };
-}
-
-/**
- * Run one `block` query against an indexer.
- *
- * @param indexerUrl - The indexer's HTTP GraphQL endpoint.
- * @param query - The query, taking an optional `$offset: BlockOffset`.
- * @param height - The block height, or undefined for the latest block.
- * @param blockSchema - The shape of the block the query selects.
- * @returns The block, or undefined when the chain has no block at that height.
- * @throws {Error} If the indexer cannot be reached, refuses the query or answers in another shape.
- */
-async function indexerBlockQuery<A, I>(
-  indexerUrl: string,
-  query: string,
-  height: number | undefined,
-  blockSchema: Schema.Schema<A, I>,
-): Promise<A | undefined> {
-  const response = await fetch(indexerUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ query, variables: height === undefined ? {} : { offset: { height } } }),
-  }).catch((error: unknown) => {
-    throw new Error(`indexer ${redactUrlQuery(indexerUrl)} cannot be reached for the block query`, {
-      cause: error,
-    });
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(
-      `indexer ${redactUrlQuery(indexerUrl)} answered the block query with HTTP ${String(response.status)}`,
-    );
-  }
-  const answer = Schema.decodeUnknownSync(
-    Schema.parseJson(
-      Schema.Struct({
-        data: Schema.optional(Schema.NullOr(Schema.Struct({ block: Schema.NullOr(blockSchema) }))),
-        errors: Schema.optional(Schema.Array(Schema.Struct({ message: Schema.String }))),
-      }),
-    ),
-  )(text);
-  const errors = answer.errors ?? [];
-  if (errors.length > 0) {
-    throw new Error(
-      `indexer ${redactUrlQuery(indexerUrl)} refused the block query: ${errors.map((error) => error.message).join(", ")}`,
-    );
-  }
-  return answer.data?.block ?? undefined;
 }
 
 /**
@@ -819,24 +837,6 @@ export async function checkWalletCacheChain(
     );
   }
   return undefined;
-}
-
-/**
- * A refusal's detail on one line: for a multi-line parse failure tree, the
- * field path it descends through followed by its innermost line, which
- * names the actual cause.
- *
- * @param refusal - The refusal to describe.
- * @returns The detail on one line.
- */
-function refusalCause(refusal: WalletCacheRefusal): string {
-  const lines = refusal.detail
-    .trimEnd()
-    .split("\n")
-    .map((line) => line.replace(/^[\s─-╿]+/u, ""));
-  const innermost = lines.at(-1) ?? refusal.detail;
-  const path = lines.filter((line) => /^\[.*\]$/u.test(line)).join("");
-  return path === "" ? innermost : `${path} ${innermost}`;
 }
 
 /** A cache file the wallet was told to use explicitly, refused. */
