@@ -35,6 +35,68 @@ import {
   WalletRegistry,
 } from "./plumbing/wallet.ts";
 
+/** The environment variable that turns a deploy entrypoint into an estimate (see {@link isDeployEstimateOnly}). */
+export const DEPLOY_ESTIMATE_ONLY_ENV_VAR = "DEPLOY_ESTIMATE_ONLY";
+
+/** A deploy priced and ready to submit. */
+interface PreparedDeploy {
+  readonly wallet: RegisteredWallet;
+  readonly deployTransaction: DeployTransaction;
+  readonly fee: bigint;
+  readonly funding: AccountFunding;
+}
+
+/**
+ * The part a deploy and its estimate share: log the settings, sync the
+ * deployer wallet, build the deploy transaction and log the balances and
+ * the fee. Submits nothing.
+ *
+ * @param heading - The line logged above the settings table.
+ * @param buildTransaction - Builds the contract's deploy transaction.
+ * @param env - The environment the deploy reads.
+ * @param deployConfig - The deploy config resolved from `env`.
+ * @param registry - The registry to take the deployer wallet from.
+ * @param announceFundingAddress - Whether to log the deployer's NIGHT address ahead of the sync.
+ * @returns The wallet, the built transaction, its fee and the wallet's balances.
+ */
+async function prepareProtocolContractDeploy(
+  heading: string,
+  buildTransaction: DeployTransactionBuilder,
+  env: Record<string, string | undefined>,
+  deployConfig: DeployConfig,
+  registry: WalletRegistry,
+  announceFundingAddress: boolean,
+): Promise<PreparedDeploy> {
+  const { networkId } = deployConfig.midnightNodeConfig;
+  console.log(heading);
+  console.table(deployEnvironmentTable(env, deployConfig.midnightNodeConfig));
+
+  // Logged ahead of the wallet sync, so the address can be funded while it runs.
+  if (announceFundingAddress && !isLocalStandaloneNetwork(networkId)) {
+    console.log(deployerFundingLine(deployConfig.deployerSeed, networkId));
+  }
+  const wallet = await registry.wallet(deployConfig.deployerSeed, "deployer");
+  const syncedState = await wallet.facade.waitForSyncedState();
+  const funding = accountFunding(syncedState, deriveAddresses(wallet.keys, networkId));
+  console.log(`deployer balance: ${formatFunding(funding)}\n${formatUtxoBreakdown(syncedState)}`);
+
+  const deployTransaction = await buildTransaction(
+    networkId,
+    wallet.keys.shieldedSecretKeys.coinPublicKey,
+  );
+  console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
+
+  const fee = await estimateUnprovenTransactionFee(
+    wallet.facade,
+    deployTransaction.serializedTransaction,
+  );
+  console.log(
+    `estimated fee budget: ${formatDust(fee)} DUST for 1 transaction (balancing fees additional)`,
+  );
+  console.log(formatNightToGenerateDust(fee, ledger.LedgerParameters.initialParameters().dust));
+  return { wallet, deployTransaction, fee, funding };
+}
+
 /** The outcome of a successful contract deployment. */
 export interface ContractDeployment {
   /** Address of the deployed contract on Midnight. */
@@ -232,9 +294,6 @@ export async function estimateProtocolContractDeploy(
   }
 }
 
-/** The environment variable that turns a deploy entrypoint into an estimate (see {@link isDeployEstimateOnly}). */
-export const DEPLOY_ESTIMATE_ONLY_ENV_VAR = "DEPLOY_ESTIMATE_ONLY";
-
 /**
  * Whether the environment asks a deploy entrypoint to price its deploy with
  * {@link estimateProtocolContractDeploy} and stop. Only `1` asks for it, and
@@ -249,63 +308,4 @@ export function isDeployEstimateOnly(env: Record<string, string | undefined>): b
   if (raw === undefined || raw === "0") return false;
   if (raw === "1") return true;
   throw new Error(`${DEPLOY_ESTIMATE_ONLY_ENV_VAR} must be 1 or 0, got "${raw}"`);
-}
-
-/** A deploy priced and ready to submit. */
-interface PreparedDeploy {
-  readonly wallet: RegisteredWallet;
-  readonly deployTransaction: DeployTransaction;
-  readonly fee: bigint;
-  readonly funding: AccountFunding;
-}
-
-/**
- * The part a deploy and its estimate share: log the settings, sync the
- * deployer wallet, build the deploy transaction and log the balances and
- * the fee. Submits nothing.
- *
- * @param heading - The line logged above the settings table.
- * @param buildTransaction - Builds the contract's deploy transaction.
- * @param env - The environment the deploy reads.
- * @param deployConfig - The deploy config resolved from `env`.
- * @param registry - The registry to take the deployer wallet from.
- * @param announceFundingAddress - Whether to log the deployer's NIGHT address ahead of the sync.
- * @returns The wallet, the built transaction, its fee and the wallet's balances.
- */
-async function prepareProtocolContractDeploy(
-  heading: string,
-  buildTransaction: DeployTransactionBuilder,
-  env: Record<string, string | undefined>,
-  deployConfig: DeployConfig,
-  registry: WalletRegistry,
-  announceFundingAddress: boolean,
-): Promise<PreparedDeploy> {
-  const { networkId } = deployConfig.midnightNodeConfig;
-  console.log(heading);
-  console.table(deployEnvironmentTable(env, deployConfig.midnightNodeConfig));
-
-  // Logged ahead of the wallet sync, so the address can be funded while it runs.
-  if (announceFundingAddress && !isLocalStandaloneNetwork(networkId)) {
-    console.log(deployerFundingLine(deployConfig.deployerSeed, networkId));
-  }
-  const wallet = await registry.wallet(deployConfig.deployerSeed, "deployer");
-  const syncedState = await wallet.facade.waitForSyncedState();
-  const funding = accountFunding(syncedState, deriveAddresses(wallet.keys, networkId));
-  console.log(`deployer balance: ${formatFunding(funding)}\n${formatUtxoBreakdown(syncedState)}`);
-
-  const deployTransaction = await buildTransaction(
-    networkId,
-    wallet.keys.shieldedSecretKeys.coinPublicKey,
-  );
-  console.log(`contract address (pre-submit): ${deployTransaction.contractAddress}`);
-
-  const fee = await estimateUnprovenTransactionFee(
-    wallet.facade,
-    deployTransaction.serializedTransaction,
-  );
-  console.log(
-    `estimated fee budget: ${formatDust(fee)} DUST for 1 transaction (balancing fees additional)`,
-  );
-  console.log(formatNightToGenerateDust(fee, ledger.LedgerParameters.initialParameters().dust));
-  return { wallet, deployTransaction, fee, funding };
 }

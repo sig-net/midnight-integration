@@ -19,6 +19,17 @@ import {
   signetSignerCompiledContract,
 } from "./signet-signer-binding.ts";
 
+const buildSignetSignerDeployTransaction: DeployTransactionBuilder = (
+  networkId,
+  coinPublicKeyHex,
+) =>
+  buildDeployTransaction(
+    signetSignerCompiledContract,
+    networkId,
+    coinPublicKeyHex,
+    createSignetSignerPrivateState(),
+  );
+
 /**
  * Deploy the signet signer through {@link deployProtocolContract}, which
  * logs `deployed signet-signer at <address>` on success.
@@ -64,14 +75,3 @@ export async function estimateSignetSignerDeploy(
     wallets,
   );
 }
-
-const buildSignetSignerDeployTransaction: DeployTransactionBuilder = (
-  networkId,
-  coinPublicKeyHex,
-) =>
-  buildDeployTransaction(
-    signetSignerCompiledContract,
-    networkId,
-    coinPublicKeyHex,
-    createSignetSignerPrivateState(),
-  );

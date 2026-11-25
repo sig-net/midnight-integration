@@ -4,6 +4,12 @@ import type * as ledger from "@midnightntwrk/ledger-v9";
 
 import { formatDust, formatNight } from "./format-amounts.ts";
 
+/** The rates of the ledger's dust parameters that set how fast NIGHT generates DUST and up to what cap. */
+export type DustGenerationRates = Pick<
+  ledger.DustParameters,
+  "nightDustRatio" | "generationDecayRate"
+>;
+
 /**
  * The NIGHT whose dust generation reaches `dust` within `seconds` of being
  * registered, starting from no DUST. One STAR generates
@@ -28,12 +34,6 @@ export function nightToGenerateDust(
   const specksPerStar = linear < rates.nightDustRatio ? linear : rates.nightDustRatio;
   return (dust + specksPerStar - 1n) / specksPerStar;
 }
-
-/** The rates of the ledger's dust parameters that set how fast NIGHT generates DUST and up to what cap. */
-export type DustGenerationRates = Pick<
-  ledger.DustParameters,
-  "nightDustRatio" | "generationDecayRate"
->;
 
 /** The generation times {@link formatNightToGenerateDust} prices a fee at. */
 const GENERATION_HORIZONS: readonly { readonly label: string; readonly seconds: bigint }[] = [
