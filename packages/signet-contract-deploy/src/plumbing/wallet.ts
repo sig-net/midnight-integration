@@ -15,7 +15,11 @@ import {
   Lifecycle,
   TransactionLifecycleServiceImpl,
 } from "@midnightntwrk/wallet-sdk-capabilities/transactionLifecycle";
-import { type DefaultDustConfiguration, DustWallet } from "@midnightntwrk/wallet-sdk-dust-wallet";
+import {
+  type DefaultDustConfiguration,
+  DustWallet,
+  type DustWalletClass,
+} from "@midnightntwrk/wallet-sdk-dust-wallet";
 import type { SyncService } from "@midnightntwrk/wallet-sdk-dust-wallet/v1";
 import {
   type DefaultConfiguration,
@@ -30,7 +34,7 @@ import {
   WalletFacade,
 } from "@midnightntwrk/wallet-sdk-facade";
 import { WalletSeeds } from "@midnightntwrk/wallet-sdk-hd";
-import { ShieldedWallet } from "@midnightntwrk/wallet-sdk-shielded";
+import { ShieldedWallet, type ShieldedWalletClass } from "@midnightntwrk/wallet-sdk-shielded";
 import {
   createKeystore,
   PublicKey as UnshieldedPublicKey,
@@ -290,7 +294,7 @@ function facadeConfiguration(
  * @param cfg - The resolved facade configuration.
  * @returns The class, configured.
  */
-function shieldedWalletClass(cfg: ResolvedConfiguration) {
+function shieldedWalletClass(cfg: ResolvedConfiguration): ShieldedWalletClass {
   return ShieldedWallet({ ...cfg, batchUpdates: { size: SYNC_BATCH_SIZE } });
 }
 
@@ -301,7 +305,10 @@ function shieldedWalletClass(cfg: ResolvedConfiguration) {
  * @param options - Facade tuning, for the DUST history setting.
  * @returns The class, configured.
  */
-function dustWalletClass(cfg: ResolvedConfiguration, options: WalletFacadeOptions) {
+function dustWalletClass(
+  cfg: ResolvedConfiguration,
+  options: WalletFacadeOptions,
+): DustWalletClass {
   // DustWallet's declared configuration omits the sync fields its default sync reads.
   const dustConfiguration: DefaultDustConfiguration & SyncService.DefaultSyncConfiguration = {
     ...cfg,
