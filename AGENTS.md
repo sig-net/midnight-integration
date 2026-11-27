@@ -33,7 +33,8 @@ node-modules`). Its members live under `packages/`:
   generic deploy/wallet/config plumbing (`src/plumbing/`) every contract
   package's deploy script composes.
 - **`packages/integration-tests`** — everything that needs a running stack:
-  the signet-caller e2e flows (generic and real-EVM) and their setup pipeline.
+  the signet-caller e2e flows (generic, real-EVM and real-Tron) and their
+  setup pipeline.
 - **`packages/midnight-serde-ts`**: `@sig-net/midnight-serde`, a thin wrapper
   over native borsh-js schemas and values with optional zero padding.
 - **`packages/midnight-serde-conformance`**: private compiler-backed evidence

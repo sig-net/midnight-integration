@@ -1,0 +1,497 @@
+{
+  "compiledCell": {
+    "atoms": [
+      "01",
+      "abababababababababababababababababababababababababababababababab",
+      "63616c6c65722d70617468",
+      "",
+      "01",
+      "2710",
+      "4242424242424242",
+      "0080d3549201",
+      "606ad4549201",
+      "00ca9a3b",
+      "41cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "",
+      "01",
+      "a9059cbb",
+      "01",
+      "3333333333333333333333333333333333333333333333333333333333333333",
+      "74726f6e3a6d61696e6e6574",
+      "",
+      "",
+      "5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c227d5d",
+      ""
+    ],
+    "requestId": "e74c66064dc639e473b095dfcf76eba53297df9b580868b14c382e0e2a901a00",
+    "widths": [1, 32, 32, 1, 1, 2, 8, 8, 8, 8, 21, 8, 1, 4, 2, 32, 64, 1, 64, 34, 0]
+  },
+  "mainnetUsdt": [
+    {
+      "name": "usdt-transfer-1",
+      "owner": "4120eb85916a10d2c6542613e4c9517b5e99b2dee9",
+      "ownerBase58": "TCyGmY2CWDynAFZYrscvMBh5KDg1rM9DSy",
+      "params": {
+        "callValue": "0",
+        "calldata": {
+          "isSome": true,
+          "noWords": 2,
+          "selector": "a9059cbb",
+          "words": [
+            "000000000000000000000000d9e02baf48ed306afc63cfa816a2b6be8442036a",
+            "0000000000000000000000000000000000000000000000000000000008f428f8"
+          ]
+        },
+        "contractAddress": "41a614f803b6fd780986a42c78ec9c7f77e6ded13c",
+        "expiration": "1791347212314",
+        "feeLimit": "50000000",
+        "refBlockBytes": "db6f",
+        "refBlockHash": "15ff9c9c504ad4a8",
+        "timestamp": "1791346912314"
+      },
+      "raw": "0a02db6f220815ff9c9c504ad4a8409a80f5a491345aae01081f12a9010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412740a154120eb85916a10d2c6542613e4c9517b5e99b2dee9121541a614f803b6fd780986a42c78ec9c7f77e6ded13c2244a9059cbb000000000000000000000000d9e02baf48ed306afc63cfa816a2b6be8442036a0000000000000000000000000000000000000000000000000000000008f428f870bad8e2a49134900180e1eb17",
+      "signature": {
+        "r": "6dd566be40f29f6810849d1e96ba1644b81351351e6a38d2c4001fbacd974c25",
+        "s": "4c7d12f87c6d5e949d38b4be19b1441654f3ec65d693d20503d67b1f8df2c8fd",
+        "v": 1
+      },
+      "signed": "0ad3010a02db6f220815ff9c9c504ad4a8409a80f5a491345aae01081f12a9010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412740a154120eb85916a10d2c6542613e4c9517b5e99b2dee9121541a614f803b6fd780986a42c78ec9c7f77e6ded13c2244a9059cbb000000000000000000000000d9e02baf48ed306afc63cfa816a2b6be8442036a0000000000000000000000000000000000000000000000000000000008f428f870bad8e2a49134900180e1eb1712416dd566be40f29f6810849d1e96ba1644b81351351e6a38d2c4001fbacd974c254c7d12f87c6d5e949d38b4be19b1441654f3ec65d693d20503d67b1f8df2c8fd01",
+      "txid": "d3741faef8cd6594923d7d827b610b12ce9bc80f65822c827c8fd7a612570540"
+    },
+    {
+      "name": "usdt-transfer-2",
+      "owner": "41ae66176d60791bb32afb5dc1ce1bde49fa36f094",
+      "ownerBase58": "TRsLst15qTMhghSdHDAawsf9qs1N5vJrMw",
+      "params": {
+        "callValue": "0",
+        "calldata": {
+          "isSome": true,
+          "noWords": 2,
+          "selector": "a9059cbb",
+          "words": [
+            "000000000000000000000000c4340d0d09255ea247e4479e7249d30c0750c456",
+            "0000000000000000000000000000000000000000000000000000000005f5e100"
+          ]
+        },
+        "contractAddress": "41a614f803b6fd780986a42c78ec9c7f77e6ded13c",
+        "expiration": "1791346965000",
+        "feeLimit": "100000000",
+        "refBlockBytes": "db6d",
+        "refBlockHash": "dfbf37c9f2e525e2",
+        "timestamp": "1791346907899"
+      },
+      "raw": "0a02db6d2208dfbf37c9f2e525e24088f4e5a491345aae01081f12a9010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412740a1541ae66176d60791bb32afb5dc1ce1bde49fa36f094121541a614f803b6fd780986a42c78ec9c7f77e6ded13c2244a9059cbb000000000000000000000000c4340d0d09255ea247e4479e7249d30c0750c4560000000000000000000000000000000000000000000000000000000005f5e10070fbb5e2a49134900180c2d72f",
+      "signature": {
+        "r": "3d3b35a0fc35f96562b0fb341c4214caf37b4fa3374c509e373dee55aba69dde",
+        "s": "60e967938461b2abf06e98c60d3c515dd2b90afa2ebb5eed4cde4db24f63793a",
+        "v": 1
+      },
+      "signed": "0ad3010a02db6d2208dfbf37c9f2e525e24088f4e5a491345aae01081f12a9010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412740a1541ae66176d60791bb32afb5dc1ce1bde49fa36f094121541a614f803b6fd780986a42c78ec9c7f77e6ded13c2244a9059cbb000000000000000000000000c4340d0d09255ea247e4479e7249d30c0750c4560000000000000000000000000000000000000000000000000000000005f5e10070fbb5e2a49134900180c2d72f12413d3b35a0fc35f96562b0fb341c4214caf37b4fa3374c509e373dee55aba69dde60e967938461b2abf06e98c60d3c515dd2b90afa2ebb5eed4cde4db24f63793a01",
+      "txid": "5d7cbea4d755f56e3cf659970ec8aac2fc40bb976bccf9e30e18f326c8565fb3"
+    },
+    {
+      "name": "usdt-transfer-3",
+      "owner": "413b415050b1e79e38507cb6e48dacc227affdd50c",
+      "ownerBase58": "TFNX7TKYCm1kUYDECjkrogBwYZvt69XQNy",
+      "raw": "0a02db702208f9d9cd09eb41b04c40d8ebeda491345a9204081f128b040a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412d5030a15413b415050b1e79e38507cb6e48dacc227affdd50c12154139dd12a54e2bab7c82aa14a1e158b34263d2d51022a4036f21b898000000000000000000000000a614f803b6fd780986a42c78ec9c7f77e6ded13c000000000000000000000000f35cd6b5b86dfe89d3cea693b333276314b764d1000000000000000000000000aa2580f5a3da5a870843efe6ce832e1f6e15847f000000000000000000000000000000000000000000000000000000007d2b7500000000000000000000000000000000000000000000000000000000000016e360000000000000000000000000000000000000000000000000000000006ac5c997000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000007df0000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000004192acedda5a49261c8318c390d69352599c5c015004d85701d98ca3f8873858ec3e63bde39d404913537c4f31651b4c5e8f9b78ff9f18765679c92d159300b6da1c00000000000000000000000000000000000000000000000000000000000000280270f8f7e2a49134900180f5ca0e",
+      "signature": {
+        "r": "d21d40beaa249fb02bcfbbab54c926e5d3a923b286e08109fa8349fa6bdac021",
+        "s": "5d5389184eb5f87fda5ca05513432dcecb56b1cb40a8fc74559644215978058d",
+        "v": 1
+      },
+      "signed": "0ab7040a02db702208f9d9cd09eb41b04c40d8ebeda491345a9204081f128b040a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412d5030a15413b415050b1e79e38507cb6e48dacc227affdd50c12154139dd12a54e2bab7c82aa14a1e158b34263d2d51022a4036f21b898000000000000000000000000a614f803b6fd780986a42c78ec9c7f77e6ded13c000000000000000000000000f35cd6b5b86dfe89d3cea693b333276314b764d1000000000000000000000000aa2580f5a3da5a870843efe6ce832e1f6e15847f000000000000000000000000000000000000000000000000000000007d2b7500000000000000000000000000000000000000000000000000000000000016e360000000000000000000000000000000000000000000000000000000006ac5c997000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000007df0000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000004192acedda5a49261c8318c390d69352599c5c015004d85701d98ca3f8873858ec3e63bde39d404913537c4f31651b4c5e8f9b78ff9f18765679c92d159300b6da1c00000000000000000000000000000000000000000000000000000000000000280270f8f7e2a49134900180f5ca0e1241d21d40beaa249fb02bcfbbab54c926e5d3a923b286e08109fa8349fa6bdac0215d5389184eb5f87fda5ca05513432dcecb56b1cb40a8fc74559644215978058d01",
+      "txid": "28d1a62ac5053680cb7ee18a53bf0d077ca9840ab5fcca2f1d78cdf45ff46cfd"
+    }
+  ],
+  "mpcCommit": "3d586f30c0784155d0e9393b1500f1ca2ca6318d",
+  "requests": [
+    {
+      "name": "sample_tron_record (empty schemas, the MPC's pinned vector)",
+      "record": {
+        "algo": 0,
+        "executionDest": "74726f6e3a6d61696e6e657400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "keyVersion": 1,
+        "outputDeserializationSchema": "",
+        "params": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "path": "63616c6c65722d70617468000000000000000000000000000000000000000000",
+        "respondSerializationSchema": "",
+        "sender": "abababababababababababababababababababababababababababababababab",
+        "signatureDest": 0,
+        "txParams": {
+          "callValue": "0",
+          "calldata": {
+            "isSome": true,
+            "noWords": 1,
+            "selector": "a9059cbb",
+            "words": ["3333333333333333333333333333333333333333333333333333333333333333"]
+          },
+          "contractAddress": "41cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "expiration": "1728000060000",
+          "feeLimit": "1000000000",
+          "refBlockBytes": "2710",
+          "refBlockHash": "4242424242424242",
+          "timestamp": "1728000000000"
+        }
+      },
+      "requestId": "e74c66064dc639e473b095dfcf76eba53297df9b580868b14c382e0e2a901a00",
+      "txParamsDigest": "e387f99d546a394b96180956656c7800aae76b96ba459ed87919656a34d33400"
+    },
+    {
+      "name": "sample_tron_record with the bool output schema (the compiled test-caller record)",
+      "record": {
+        "algo": 0,
+        "executionDest": "74726f6e3a6d61696e6e657400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "keyVersion": 1,
+        "outputDeserializationSchema": "5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c227d5d",
+        "params": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "path": "63616c6c65722d70617468000000000000000000000000000000000000000000",
+        "respondSerializationSchema": "",
+        "sender": "abababababababababababababababababababababababababababababababab",
+        "signatureDest": 0,
+        "txParams": {
+          "callValue": "0",
+          "calldata": {
+            "isSome": true,
+            "noWords": 1,
+            "selector": "a9059cbb",
+            "words": ["3333333333333333333333333333333333333333333333333333333333333333"]
+          },
+          "contractAddress": "41cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "expiration": "1728000060000",
+          "feeLimit": "1000000000",
+          "refBlockBytes": "2710",
+          "refBlockHash": "4242424242424242",
+          "timestamp": "1728000000000"
+        }
+      },
+      "requestId": "e74c66064dc639e473b095dfcf76eba53297df9b580868b14c382e0e2a901a00",
+      "txParamsDigest": "e387f99d546a394b96180956656c7800aae76b96ba459ed87919656a34d33400"
+    },
+    {
+      "name": "absent calldata at capacity 1",
+      "record": {
+        "algo": 0,
+        "executionDest": "74726f6e3a6d61696e6e657400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "keyVersion": 1,
+        "outputDeserializationSchema": "5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c227d5d",
+        "params": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "path": "63616c6c65722d70617468000000000000000000000000000000000000000000",
+        "respondSerializationSchema": "",
+        "sender": "abababababababababababababababababababababababababababababababab",
+        "signatureDest": 0,
+        "txParams": {
+          "callValue": "0",
+          "calldata": {
+            "isSome": false,
+            "noWords": 0,
+            "selector": "00000000",
+            "words": ["0000000000000000000000000000000000000000000000000000000000000000"]
+          },
+          "contractAddress": "41cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "expiration": "1728000060000",
+          "feeLimit": "1000000000",
+          "refBlockBytes": "2710",
+          "refBlockHash": "4242424242424242",
+          "timestamp": "1728000000000"
+        }
+      },
+      "requestId": "d86dc50cc99324c50759d836b6a0641157e9e5c979de796209afd9efa710bb00",
+      "txParamsDigest": "ad2868cd9549b3085ffed555bd5e7bff4b3ae1c0d6e10b617e3469bb458d9e00"
+    },
+    {
+      "name": "two used words at capacity 3, call value, key version 2",
+      "record": {
+        "algo": 0,
+        "executionDest": "74726f6e3a6d61696e6e657400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "keyVersion": 2,
+        "outputDeserializationSchema": "5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c227d5d",
+        "params": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "path": "0303030303030303030303030303030303030303030303030303030303030303",
+        "respondSerializationSchema": "",
+        "sender": "0101010101010101010101010101010101010101010101010101010101010101",
+        "signatureDest": 0,
+        "txParams": {
+          "callValue": "1000000",
+          "calldata": {
+            "isSome": true,
+            "noWords": 2,
+            "selector": "12345678",
+            "words": [
+              "1111111111111111111111111111111111111111111111111111111111111111",
+              "1212121212121212121212121212121212121212121212121212121212121212",
+              "9999999999999999999999999999999999999999999999999999999999999999"
+            ]
+          },
+          "contractAddress": "41cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "expiration": "1728000060000",
+          "feeLimit": "50000000",
+          "refBlockBytes": "2710",
+          "refBlockHash": "4242424242424242",
+          "timestamp": "1728000000000"
+        }
+      },
+      "requestId": "805efcfa6d53f5691b7be05611f67e72f6417f13b73a5181374c1ac053e0ca00",
+      "txParamsDigest": "d3b3dba36f81b621449bfda033d86ebcfba18fc443f20a8099acca40a3a2e900"
+    }
+  ],
+  "respond": [
+    {
+      "attestationDigest": "8515e790c9af0af8c84e9847cf666f51a810d007f2cb8dcf00399e8e421b8900",
+      "attestedOutputHash": "147442d994989099b61820b2eb5c09c7d00f747088f07c8af69b4c8d03eab300",
+      "blockHeight": 71896097,
+      "name": "recorded Nile USDT receipt, contractResult the ABI false word",
+      "outcome": "executed",
+      "output": "00",
+      "receipt": {
+        "blockNumber": 71896097,
+        "blockTimeStamp": 1792220502000,
+        "contractResult": ["0000000000000000000000000000000000000000000000000000000000000000"],
+        "contract_address": "41eca9bc828a3005b9a3b909f2cc5c2a54794de05f",
+        "fee": 472800,
+        "id": "24157817b0db1a156e7244d4417cbd7303f32b06449fcbad739f124b6b8e4c82",
+        "log": [
+          {
+            "address": "eca9bc828a3005b9a3b909f2cc5c2a54794de05f",
+            "data": "0000000000000000000000000000000000000000000000000000000000000001",
+            "topics": [
+              "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+              "000000000000000000000000bdf81069827deba7d39729eb387eda8827e5525c",
+              "000000000000000000000000bdf81069827deba7d39729eb387eda8827e5525c"
+            ]
+          }
+        ],
+        "receipt": {
+          "energy_fee": 472800,
+          "energy_usage_total": 14650,
+          "net_usage": 345,
+          "origin_energy_usage": 9922,
+          "result": "SUCCESS"
+        }
+      }
+    },
+    {
+      "attestationDigest": "656877a5d764d87bee1c9c2fb4a07315ad0fe4cab0b8c9b1219ce9a161abf700",
+      "attestedOutputHash": "964128a9faf20651ee613e71193d276de06718f194a8517e32805be89e1d6e00",
+      "blockHeight": 71896097,
+      "name": "recorded Nile USDT receipt with contractResult set to the ABI true word",
+      "outcome": "executed",
+      "output": "01",
+      "receipt": {
+        "blockNumber": 71896097,
+        "blockTimeStamp": 1792220502000,
+        "contractResult": ["0000000000000000000000000000000000000000000000000000000000000001"],
+        "contract_address": "41eca9bc828a3005b9a3b909f2cc5c2a54794de05f",
+        "fee": 472800,
+        "id": "24157817b0db1a156e7244d4417cbd7303f32b06449fcbad739f124b6b8e4c82",
+        "log": [
+          {
+            "address": "eca9bc828a3005b9a3b909f2cc5c2a54794de05f",
+            "data": "0000000000000000000000000000000000000000000000000000000000000001",
+            "topics": [
+              "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+              "000000000000000000000000bdf81069827deba7d39729eb387eda8827e5525c",
+              "000000000000000000000000bdf81069827deba7d39729eb387eda8827e5525c"
+            ]
+          }
+        ],
+        "receipt": {
+          "energy_fee": 472800,
+          "energy_usage_total": 14650,
+          "net_usage": 345,
+          "origin_energy_usage": 9922,
+          "result": "SUCCESS"
+        }
+      }
+    },
+    {
+      "attestationDigest": "9a4442bf57ff95bc6a123e246e28440a8401c307a435c456d8184003182e4000",
+      "attestedOutputHash": "457658ccd1c76524eb79c8b2b32db01dadf14adf6c74e27d870b31a941bce600",
+      "blockHeight": 71896097,
+      "name": "recorded Nile USDT receipt reverted (FAILED, REVERT)",
+      "outcome": "failed",
+      "output": "",
+      "receipt": {
+        "blockNumber": 71896097,
+        "blockTimeStamp": 1792220502000,
+        "contractResult": [""],
+        "contract_address": "41eca9bc828a3005b9a3b909f2cc5c2a54794de05f",
+        "fee": 472800,
+        "id": "24157817b0db1a156e7244d4417cbd7303f32b06449fcbad739f124b6b8e4c82",
+        "receipt": {
+          "energy_fee": 472800,
+          "energy_usage_total": 14650,
+          "net_usage": 345,
+          "origin_energy_usage": 9922,
+          "result": "REVERT"
+        },
+        "result": "FAILED"
+      }
+    },
+    {
+      "blockHeight": 71896097,
+      "name": "recorded Nile USDT receipt without contractResult",
+      "outcome": "extractionFailed",
+      "receipt": {
+        "blockNumber": 71896097,
+        "blockTimeStamp": 1792220502000,
+        "contract_address": "41eca9bc828a3005b9a3b909f2cc5c2a54794de05f",
+        "fee": 472800,
+        "id": "24157817b0db1a156e7244d4417cbd7303f32b06449fcbad739f124b6b8e4c82",
+        "log": [
+          {
+            "address": "eca9bc828a3005b9a3b909f2cc5c2a54794de05f",
+            "data": "0000000000000000000000000000000000000000000000000000000000000001",
+            "topics": [
+              "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+              "000000000000000000000000bdf81069827deba7d39729eb387eda8827e5525c",
+              "000000000000000000000000bdf81069827deba7d39729eb387eda8827e5525c"
+            ]
+          }
+        ],
+        "receipt": {
+          "energy_fee": 472800,
+          "energy_usage_total": 14650,
+          "net_usage": 345,
+          "origin_energy_usage": 9922,
+          "result": "SUCCESS"
+        }
+      }
+    }
+  ],
+  "respondRequest": {
+    "caip2Id": "tron:mainnet",
+    "mpcRootPublicKey": "041b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1",
+    "outputDeserializationSchema": "5b7b226e616d65223a2273756363657373222c2274797065223a22626f6f6c227d5d",
+    "owner": "41591b60a7d8142f17806412274c401e5743a19229",
+    "requestId": "e74c66064dc639e473b095dfcf76eba53297df9b580868b14c382e0e2a901a00",
+    "respondSerializationSchema": "",
+    "serializedTransaction": "0a0227102208424242424242424240e0d4d1a6a5325a8e01081f1289010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412540a1541591b60a7d8142f17806412274c401e5743a19229121541cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd2224a9059cbb3333333333333333333333333333333333333333333333333333333333333333708080cea6a53290018094ebdc03"
+  },
+  "transactions": [
+    {
+      "name": "sample_tron_params, owner 0x41ab..ab",
+      "owner": "41abababababababababababababababababababab",
+      "ownerBase58": "TRcvCk5fLxxgRc7KopfPXb3GzUqZMjcKkn",
+      "params": {
+        "callValue": "0",
+        "calldata": {
+          "isSome": true,
+          "noWords": 1,
+          "selector": "a9059cbb",
+          "words": ["3333333333333333333333333333333333333333333333333333333333333333"]
+        },
+        "contractAddress": "41cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "expiration": "1728000060000",
+        "feeLimit": "1000000000",
+        "refBlockBytes": "2710",
+        "refBlockHash": "4242424242424242",
+        "timestamp": "1728000000000"
+      },
+      "raw": "0a0227102208424242424242424240e0d4d1a6a5325a8e01081f1289010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412540a1541abababababababababababababababababababab121541cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd2224a9059cbb3333333333333333333333333333333333333333333333333333333333333333708080cea6a53290018094ebdc03",
+      "signature": {
+        "r": "6dd566be40f29f6810849d1e96ba1644b81351351e6a38d2c4001fbacd974c25",
+        "s": "4c7d12f87c6d5e949d38b4be19b1441654f3ec65d693d20503d67b1f8df2c8fd",
+        "v": 1
+      },
+      "signed": "0ab4010a0227102208424242424242424240e0d4d1a6a5325a8e01081f1289010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412540a1541abababababababababababababababababababab121541cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd2224a9059cbb3333333333333333333333333333333333333333333333333333333333333333708080cea6a53290018094ebdc0312416dd566be40f29f6810849d1e96ba1644b81351351e6a38d2c4001fbacd974c254c7d12f87c6d5e949d38b4be19b1441654f3ec65d693d20503d67b1f8df2c8fd01",
+      "txid": "a8405ba315289de734bf303e6b45c9d875d0f60a6bc9dd789c069d54fdb66f25"
+    },
+    {
+      "name": "plain TRX transfer (absent calldata, call value)",
+      "owner": "41abababababababababababababababababababab",
+      "ownerBase58": "TRcvCk5fLxxgRc7KopfPXb3GzUqZMjcKkn",
+      "params": {
+        "callValue": "1000000",
+        "calldata": {
+          "isSome": false,
+          "noWords": 0,
+          "selector": "00000000",
+          "words": []
+        },
+        "contractAddress": "41cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "expiration": "1728000060000",
+        "feeLimit": "1000000000",
+        "refBlockBytes": "2710",
+        "refBlockHash": "4242424242424242",
+        "timestamp": "1728000000000"
+      },
+      "raw": "0a0227102208424242424242424240e0d4d1a6a5325a6b081f12670a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412320a1541abababababababababababababababababababab121541cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd18c0843d708080cea6a53290018094ebdc03",
+      "txid": "f709953d9174258034ef47415ce2fdeba889f4c954bad3c9ca84434ba56e77ea"
+    },
+    {
+      "name": "selector only (zero used words)",
+      "owner": "41abababababababababababababababababababab",
+      "ownerBase58": "TRcvCk5fLxxgRc7KopfPXb3GzUqZMjcKkn",
+      "params": {
+        "callValue": "0",
+        "calldata": {
+          "isSome": true,
+          "noWords": 0,
+          "selector": "a9059cbb",
+          "words": ["3333333333333333333333333333333333333333333333333333333333333333"]
+        },
+        "contractAddress": "41cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "expiration": "1728000060000",
+        "feeLimit": "1000000000",
+        "refBlockBytes": "2710",
+        "refBlockHash": "4242424242424242",
+        "timestamp": "1728000000000"
+      },
+      "raw": "0a0227102208424242424242424240e0d4d1a6a5325a6d081f12690a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412340a1541abababababababababababababababababababab121541cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd2204a9059cbb708080cea6a53290018094ebdc03",
+      "txid": "bb3c8902d0076e7ed048a382f72e22f7fc98b57b4394d8c5f4b677a64e99b549"
+    },
+    {
+      "name": "one used word with an unused slot",
+      "owner": "41abababababababababababababababababababab",
+      "ownerBase58": "TRcvCk5fLxxgRc7KopfPXb3GzUqZMjcKkn",
+      "params": {
+        "callValue": "0",
+        "calldata": {
+          "isSome": true,
+          "noWords": 1,
+          "selector": "a9059cbb",
+          "words": [
+            "3333333333333333333333333333333333333333333333333333333333333333",
+            "9999999999999999999999999999999999999999999999999999999999999999"
+          ]
+        },
+        "contractAddress": "41cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "expiration": "1728000060000",
+        "feeLimit": "1000000000",
+        "refBlockBytes": "2710",
+        "refBlockHash": "4242424242424242",
+        "timestamp": "1728000000000"
+      },
+      "raw": "0a0227102208424242424242424240e0d4d1a6a5325a8e01081f1289010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412540a1541abababababababababababababababababababab121541cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd2224a9059cbb3333333333333333333333333333333333333333333333333333333333333333708080cea6a53290018094ebdc03",
+      "txid": "a8405ba315289de734bf303e6b45c9d875d0f60a6bc9dd789c069d54fdb66f25"
+    },
+    {
+      "name": "probe request signed by the MPC (balanceOf, owner = derived key)",
+      "owner": "41bb807655fe759fa7d6a404eec135f48166ecf888",
+      "ownerBase58": "TT4dFeMc5i6BL79hek7fGQmAvVbkQraKjo",
+      "params": {
+        "callValue": "0",
+        "calldata": {
+          "isSome": true,
+          "noWords": 1,
+          "selector": "70a08231",
+          "words": ["000000000000000000000000bb807655fe759fa7d6a404eec135f48166ecf888"]
+        },
+        "contractAddress": "41eca9bc828a3005b9a3b909f2cc5c2a54794de05f",
+        "expiration": "1793973893193",
+        "feeLimit": "50000000",
+        "refBlockBytes": "d373",
+        "refBlockHash": "a2d9fd102ba161d6",
+        "timestamp": "1793952293193"
+      },
+      "raw": "0a02d3732208a2d9fd102ba161d640c9f0b4899b345a8e01081f1289010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412540a1541bb807655fe759fa7d6a404eec135f48166ecf888121541eca9bc828a3005b9a3b909f2cc5c2a54794de05f222470a08231000000000000000000000000bb807655fe759fa7d6a404eec135f48166ecf88870c9c28eff9a34900180e1eb17",
+      "signature": {
+        "r": "d8d5638aaef90671afdd8f95bc76b9ff3e7bb85b7caf49e9350b6cf6451363ad",
+        "s": "55b59b61dd4900786bfd1f3aaad32bfd6b04f4900317104002b1d23ec8d11a24",
+        "v": 0
+      },
+      "signed": "0ab3010a02d3732208a2d9fd102ba161d640c9f0b4899b345a8e01081f1289010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412540a1541bb807655fe759fa7d6a404eec135f48166ecf888121541eca9bc828a3005b9a3b909f2cc5c2a54794de05f222470a08231000000000000000000000000bb807655fe759fa7d6a404eec135f48166ecf88870c9c28eff9a34900180e1eb171241d8d5638aaef90671afdd8f95bc76b9ff3e7bb85b7caf49e9350b6cf6451363ad55b59b61dd4900786bfd1f3aaad32bfd6b04f4900317104002b1d23ec8d11a2400",
+      "txid": "a723cbec722feb527c0ec8892bc01c8624ccd2eea59e01e693399537a8b5265e"
+    }
+  ]
+}

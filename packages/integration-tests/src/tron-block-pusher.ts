@@ -1,0 +1,37 @@
+import { tronAddressFromEvm } from "@sig-net/midnight";
+
+import { sendTrxFromFunder } from "./local-tron.ts";
+
+const PUSH_INTERVAL_MS = 2000;
+
+const PUSHER_SINK = tronAddressFromEvm("0x000000000000000000000000000000000000dEaD");
+
+/**
+ * Run an action while filler transfers keep the local TRE producing blocks.
+ *
+ * @param rpcUrl - The HTTP API base URL of the LOCAL TRE
+ * @param action - The wait to keep the chain moving for
+ * @returns Whatever `action` resolves to
+ */
+export async function withTronBlockPusher<T>(rpcUrl: string, action: () => Promise<T>): Promise<T> {
+  const stop = new AbortController();
+  const stopped = (): boolean => stop.signal.aborted;
+  const pusher = (async () => {
+    while (!stopped()) {
+      try {
+        await sendTrxFromFunder(rpcUrl, PUSHER_SINK, 1n, stop.signal);
+      } catch (error) {
+        if (!stopped()) {
+          console.warn(`block pusher: filler transfer failed (${String(error)})`);
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, PUSH_INTERVAL_MS));
+    }
+  })();
+  try {
+    return await action();
+  } finally {
+    stop.abort();
+    await pusher;
+  }
+}
