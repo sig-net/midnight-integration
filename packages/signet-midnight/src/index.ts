@@ -72,6 +72,7 @@ export {
   toSignBidirectionalEventIndex,
   TxParamType,
 } from "./signet-requests.ts";
+export * from "./url-redaction.ts";
 // Explicit list: ecdsa-attestation.ts also backs the ./testing entry point
 // (the attestation-minting helpers that take a secret key live THERE), and
 // its record decoder (mpcSignatureToEcdsaSignature) and noble-point parser

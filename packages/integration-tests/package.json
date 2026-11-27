@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The generic signet-caller e2e: drives the central signet contract through the minimal caller contract against a running Midnight stack. Env-gated: the flow file skips entirely unless RUN_INTEGRATION_TESTS is set.",
+  "description": "The generic signet-caller e2e: drives the central signet signer through the minimal caller contract against a running Midnight stack. Env-gated: the flow file skips entirely unless RUN_INTEGRATION_TESTS is set.",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "compile:evm": "hardhat compile",

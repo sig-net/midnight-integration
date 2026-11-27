@@ -2,7 +2,7 @@
 #
 #   @sig-net/midnight-serde           (packages/midnight-serde-ts)
 #   @sig-net/midnight                 (packages/signet-midnight)
-#   @sig-net/midnight-contract        (packages/signet-contract)
+#   @sig-net/midnight-signer          (packages/signet-signer)
 #   @sig-net/midnight-responder       (packages/signet-responder)
 #   @sig-net/midnight-contract-deploy (packages/signet-contract-deploy)
 #
@@ -117,11 +117,11 @@ jobs:
         run: |
           V_SERDE=$(node -p "require('./packages/midnight-serde-ts/package.json').version")
           V_MIDNIGHT=$(node -p "require('./packages/signet-midnight/package.json').version")
-          V_CONTRACT=$(node -p "require('./packages/signet-contract/package.json').version")
+          V_CONTRACT=$(node -p "require('./packages/signet-signer/package.json').version")
           V_RESPONDER=$(node -p "require('./packages/signet-responder/package.json').version")
           V_DEPLOY=$(node -p "require('./packages/signet-contract-deploy/package.json').version")
           if [ "$V_MIDNIGHT" != "$V_SERDE" ] || [ "$V_MIDNIGHT" != "$V_CONTRACT" ] || [ "$V_MIDNIGHT" != "$V_RESPONDER" ] || [ "$V_MIDNIGHT" != "$V_DEPLOY" ]; then
-            echo "::error::package versions diverge: @sig-net/midnight-serde=$V_SERDE @sig-net/midnight=$V_MIDNIGHT @sig-net/midnight-contract=$V_CONTRACT @sig-net/midnight-responder=$V_RESPONDER @sig-net/midnight-contract-deploy=$V_DEPLOY"
+            echo "::error::package versions diverge: @sig-net/midnight-serde=$V_SERDE @sig-net/midnight=$V_MIDNIGHT @sig-net/midnight-signer=$V_CONTRACT @sig-net/midnight-responder=$V_RESPONDER @sig-net/midnight-contract-deploy=$V_DEPLOY"
             exit 1
           fi
           TAG_VERSION="${GITHUB_REF_NAME#v}"
@@ -136,15 +136,15 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            packages/signet-contract/src/managed
+            packages/signet-signer/src/managed
             packages/test-caller-contract/src/managed
           key: zk-keys-${{ runner.os }}-${{ steps.compact.outputs.version }}-${{ hashFiles('packages/*/src/*.compact', '!packages/signet-responder/src/*.compact') }}
-      - name: Ensure signet-contract and test-caller zk keys (the published managed assets and the test caller's unit tests need them)
+      - name: Ensure signet-signer and test-caller zk keys (the published managed assets and the test caller's unit tests need them)
         run: |
-          if ls packages/signet-contract/src/managed/keys/*.prover >/dev/null 2>&1; then
-            echo "signet-contract prover keys present (restored from the cache), skipping keygen"
+          if ls packages/signet-signer/src/managed/keys/*.prover >/dev/null 2>&1; then
+            echo "signet-signer prover keys present (restored from the cache), skipping keygen"
           else
-            yarn compile:signet-contract:zk
+            yarn compile:signet-signer:zk
           fi
           if ls packages/test-caller-contract/src/managed/test-caller-contract/keys/*.prover >/dev/null 2>&1; then
             echo "test-caller prover keys present (restored from the cache), skipping keygen"
@@ -166,7 +166,7 @@ jobs:
           for entry in \
             "midnight-serde-ts:@sig-net/midnight-serde" \
             "signet-midnight:@sig-net/midnight" \
-            "signet-contract:@sig-net/midnight-contract" \
+            "signet-signer:@sig-net/midnight-signer" \
             "signet-responder:@sig-net/midnight-responder" \
             "signet-contract-deploy:@sig-net/midnight-contract-deploy"; do
             dir="${entry%%:*}"

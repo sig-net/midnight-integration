@@ -734,24 +734,24 @@ describe("parseSecp256k1PublicKey", () => {
   });
 });
 
-// The stagenet MPC root key as the MPC operators hand it out (NEAR form) and
+// The preview MPC root key as the MPC operators hand it out (NEAR form) and
 // its canonical spelling: a fixed vector, computed independently of the
 // parser, so the canonicaliser cannot drift with it.
-const STAGENET_NEAR_FORM =
-  "secp256k1:3Ww8iFjqTHufye5aRGUvrQqETegR4gVUcW8FX5xzscaN9ENhpkffojsxJwi6N1RbbHMTxYa9UyKeqK3fsMuwxjR5";
-const STAGENET_CANONICAL =
-  "0x047dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d8432847f591ab25ca454effb522ec2eaf04b7e1c83ba65ae731ea98dd52eb7d458dd4";
-const STAGENET_COMPRESSED = "0x027dd8ecafa5d9c921485b6ac33476870e98c3378e395f3c8fae92ce4943d84328";
+const PREVIEW_NEAR_FORM =
+  "secp256k1:54hU5wcCmVUPFWLDALXMh1fFToZsVXrx9BbTbHzSfQq1Kd1rJZi52iPa4QQxo6s5TgjWqgpY8HamYuUDzG6fAaUq";
+const PREVIEW_CANONICAL =
+  "0x04cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61ca3e59da1c194aa90108098a9e5cdc55d3b3297cdefbc085ffafd0f2c34ae61a";
+const PREVIEW_COMPRESSED = "0x02cb41bab8bc97121f4902514ca57a284f167b9239ecb8176831d1ef0fede87c61";
 
 describe("normaliseSecp256k1PublicKey", () => {
   it.each([
-    { name: "NEAR secp256k1:<base58>", value: STAGENET_NEAR_FORM },
-    { name: "the canonical spelling itself", value: STAGENET_CANONICAL },
-    { name: "uncompressed SEC1 hex without prefix", value: STAGENET_CANONICAL.slice(2) },
-    { name: "compressed SEC1 hex", value: STAGENET_COMPRESSED },
-    { name: "uppercase hex", value: `0x${STAGENET_CANONICAL.slice(2).toUpperCase()}` },
+    { name: "NEAR secp256k1:<base58>", value: PREVIEW_NEAR_FORM },
+    { name: "the canonical spelling itself", value: PREVIEW_CANONICAL },
+    { name: "uncompressed SEC1 hex without prefix", value: PREVIEW_CANONICAL.slice(2) },
+    { name: "compressed SEC1 hex", value: PREVIEW_COMPRESSED },
+    { name: "uppercase hex", value: `0x${PREVIEW_CANONICAL.slice(2).toUpperCase()}` },
   ] satisfies ParseCase[])("canonicalises $name", ({ value }) => {
-    expect(normaliseSecp256k1PublicKey(value)).toBe(STAGENET_CANONICAL);
+    expect(normaliseSecp256k1PublicKey(value)).toBe(PREVIEW_CANONICAL);
   });
 
   it.each(PARSE_REJECT_CASES)("rejects $name", ({ value }) => {

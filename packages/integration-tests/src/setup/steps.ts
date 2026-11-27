@@ -1,6 +1,6 @@
 // The generic setup steps shared by the caller pipeline: MPC key derivation,
 // the dust-spend rejection translation, the protocol contracts' compile +
-// deploy (signet singleton and responder), and the fakenet responder
+// deploy (signet signer and responder), and the fakenet responder
 // hand-off. Each step keeps its skip-if-env-var-set semantics (presence of
 // the canonical env var doubles as the skip signal) and mutates the shared
 // env accumulator. Run by setup/caller-global-setup.ts in vitest's
@@ -12,8 +12,8 @@ import { join } from "node:path";
 import { deriveMidnightResponseKey, formatSecp256k1PublicKey } from "@sig-net/midnight";
 import {
   type ContractDeployment,
-  deploySignetContract,
   deploySignetResponder,
+  deploySignetSigner,
   type WalletRegistry,
 } from "@sig-net/midnight-contract-deploy";
 
@@ -43,12 +43,12 @@ interface ProtocolContract {
   role: string;
 }
 
-const SIGNET_CONTRACT: ProtocolContract = {
-  name: "signet-contract",
-  addressVar: "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
+const SIGNET_SIGNER: ProtocolContract = {
+  name: "signet-signer",
+  addressVar: "MIDNIGHT_SIGNER_CONTRACT_ADDRESS",
   compileTimeoutMs: 14 * MINUTE,
-  deploy: deploySignetContract,
-  role: "the central signet contract on Midnight — records signature requests",
+  deploy: deploySignetSigner,
+  role: "the central signet signer on Midnight: records signature requests",
 };
 
 const SIGNET_RESPONDER: ProtocolContract = {
@@ -166,7 +166,7 @@ export function ensureMpcSecp256k1Pubkey(env: NodeJS.ProcessEnv): void {
 }
 
 // The protocol contracts are compiled + deployed FIRST: a client contract
-// seals the signet contract's address as the cross-contract emitter, the
+// seals the signet signer's address as the cross-contract emitter, the
 // client compile symlinks the signet's managed output (its ZK keys) for the
 // cross-contract proof, and the fakenet needs both addresses to start.
 
@@ -196,12 +196,12 @@ export function trustsPrebuiltZkKeys(env: NodeJS.ProcessEnv, keysDir: string): b
 }
 
 /**
- * Compile the signet contract, including proving keys when they are absent.
+ * Compile the signet signer, including proving keys when they are absent.
  *
  * @param env - The suite's env accumulator.
  */
-export async function compileSignetContract(env: NodeJS.ProcessEnv): Promise<void> {
-  await compileProtocolContract(env, SIGNET_CONTRACT);
+export async function compileSignetSigner(env: NodeJS.ProcessEnv): Promise<void> {
+  await compileProtocolContract(env, SIGNET_SIGNER);
 }
 
 /**
@@ -254,16 +254,16 @@ export async function explainDustSpendRejection<T>(
 }
 
 /**
- * Deploy the signet contract and record its address in the accumulator.
+ * Deploy the signet signer and record its address in the accumulator.
  *
  * @param env - The suite's env accumulator, mutated with the address.
  * @param wallets - The pipeline's registry, holding the deployer wallet the funding step synced.
  */
-export async function deploySignetContractStep(
+export async function deploySignetSignerStep(
   env: NodeJS.ProcessEnv,
   wallets: WalletRegistry,
 ): Promise<void> {
-  await deployProtocolContractStep(env, wallets, SIGNET_CONTRACT);
+  await deployProtocolContractStep(env, wallets, SIGNET_SIGNER);
 }
 
 /**
@@ -330,7 +330,7 @@ export function ensureMpcResponseKey(env: NodeJS.ProcessEnv): void {
 /** The env keys docker compose interpolates into the fakenet service — the hand-off payload. */
 const FAKENET_HANDOFF_KEYS = [
   "MPC_ROOT_KEY",
-  "MIDNIGHT_SIGNET_CONTRACT_ADDRESS",
+  "MIDNIGHT_SIGNER_CONTRACT_ADDRESS",
   "MIDNIGHT_RESPONDER_CONTRACT_ADDRESS",
 ] as const;
 
@@ -452,5 +452,5 @@ export async function startFakenetResponder(env: NodeJS.ProcessEnv): Promise<voi
   }
   console.log("fakenet-responder container is running");
   console.log(" ➜ watch it: `docker logs -f fakenet-responder` — healthy startup prints");
-  console.log('   "MidnightMonitor: polling signet contract events at <signet address>"');
+  console.log('   "MidnightMonitor: polling signet signer events at <signet address>"');
 }

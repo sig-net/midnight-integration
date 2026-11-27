@@ -30,8 +30,8 @@ import {
 import {
   deriveAccountKeys,
   getMidnightNodeConfig,
-  initialiseWalletFacade,
-  type WalletFacade,
+  type OpenedWallet,
+  openSyncedWallet,
 } from "@sig-net/midnight-contract-deploy";
 import { expect } from "vitest";
 
@@ -87,7 +87,7 @@ export interface CallerE2eSession {
  * @returns The session.
  */
 export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession {
-  let sharedWallet: { facade: WalletFacade; context: CallerContext } | undefined;
+  let sharedWallet: { wallet: OpenedWallet; context: CallerContext } | undefined;
 
   // MPC-style readers over the caller (requester) / signet responder pair,
   // built lazily on first use and keyed by the request map's ledger field
@@ -102,9 +102,8 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
       if (!sharedWallet) {
         const nodeConfig = getMidnightNodeConfig(env);
         const keys = deriveAccountKeys(requireEnv(env, "INVOKER_SEED"), nodeConfig.networkId);
-        const facade = await initialiseWalletFacade(keys, nodeConfig);
-        await facade.start(keys.seeds);
-        await facade.waitForSyncedState();
+        const wallet = await openSyncedWallet({ keys, config: nodeConfig, label: "invoker", env });
+        const facade = wallet.facade;
 
         const contractAddress = requireEnv(env, "MIDNIGHT_CALLER_CONTRACT_ADDRESS");
         const providers = buildCallerProviders(facade, keys, nodeConfig);
@@ -121,9 +120,9 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
           privateStateId: CALLER_PRIVATE_STATE_ID,
           initialPrivateState: privateState,
         });
-        sharedWallet = { facade, context: { providers, caller, contractAddress } };
+        sharedWallet = { wallet, context: { providers, caller, contractAddress } };
       }
-      await sharedWallet.facade.waitForSyncedState();
+      await sharedWallet.wallet.facade.waitForSyncedState();
       return sharedWallet.context;
     },
 
@@ -153,7 +152,7 @@ export function createCallerE2eSession(env: NodeJS.ProcessEnv): CallerE2eSession
     },
 
     async stop(): Promise<void> {
-      await sharedWallet?.facade.stop().catch(() => undefined);
+      await sharedWallet?.wallet.stop();
     },
   };
 }

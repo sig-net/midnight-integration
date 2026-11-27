@@ -1,6 +1,6 @@
 // The NODE binding of the signet responder to its compiled assets: the
 // environment-specific half @sig-net/midnight-responder does not ship, the
-// responder's counterpart of signet-contract-binding.ts.
+// responder's counterpart of signet-signer-binding.ts.
 
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -13,7 +13,7 @@ import {
 
 import { makeVacantCompiledContract } from "./plumbing/deploy.ts";
 
-// Resolved through the package specifier, as signetContractManagedPath is:
+// Resolved through the package specifier, as signetSignerManagedPath is:
 // the managed/ dir sits beside the entry module both in the repo
 // (src/index.ts + src/managed, keys from `yarn compile:signet-responder:zk`)
 // and in the npm tarball (dist/index.js + dist/managed, which always carries

@@ -5,8 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   deployEnvironmentTable,
+  deployerFundingLine,
   DeploySettingSource,
   getMidnightNodeConfig,
+  isDeployEstimateOnly,
 } from "../src/index.ts";
 
 const SEED = "00000000000000000000000000000000000000000000000000000000000000aa";
@@ -62,5 +64,80 @@ describe("deployEnvironmentTable", () => {
       },
     });
     expect(JSON.stringify(table)).not.toContain(SEED);
+  });
+
+  it("masks the Blockfrost project token in every URL it reports", () => {
+    const env = { NETWORK_ID: "preprod", BLOCKFROST_PROJECT_ID: "token" };
+    const table = deployEnvironmentTable(env, getMidnightNodeConfig(env));
+    expect(table.MIDNIGHT_NODE_URL?.value).toBe(
+      "https://rpc.midnight-preprod.blockfrost.io/?project_id=REDACTED",
+    );
+    expect(table.MIDNIGHT_NODE_INDEXER_URL?.value).toBe(
+      "https://midnight-preprod.blockfrost.io/api/v0?project_id=REDACTED",
+    );
+    expect(table.MIDNIGHT_NODE_INDEXER_WS_URL?.value).toBe(
+      "wss://midnight-preprod.blockfrost.io/api/v0/ws?project_id=REDACTED",
+    );
+    expect(JSON.stringify(table)).not.toContain("token");
+  });
+
+  it("masks the query values of an overridden proof server and faucet URL", () => {
+    const env = {
+      MIDNIGHT_NODE_PROOF_SERVER_URL: "https://prover.example/?api_key=token",
+      MIDNIGHT_FAUCET_URL: "https://faucet.example/?key=token",
+    };
+    const table = deployEnvironmentTable(env, getMidnightNodeConfig(env));
+    expect(table.MIDNIGHT_NODE_PROOF_SERVER_URL?.value).toBe(
+      "https://prover.example/?api_key=REDACTED",
+    );
+    expect(table.MIDNIGHT_FAUCET_URL?.value).toBe("https://faucet.example/?key=REDACTED");
+  });
+});
+
+describe("deployerFundingLine", () => {
+  interface Case {
+    networkId: string;
+    address: string;
+  }
+  const CASES: Case[] = [
+    {
+      networkId: "preview",
+      address: "mn_addr_preview1zn4kwy7yhh03dancq9fde3ndn84c597hg8wculjawjwhe6zndqeqa8hm2l",
+    },
+    {
+      networkId: "preprod",
+      address: "mn_addr_preprod1zn4kwy7yhh03dancq9fde3ndn84c597hg8wculjawjwhe6zndqeqaxftez",
+    },
+    {
+      networkId: "mainnet",
+      address: "mn_addr1zn4kwy7yhh03dancq9fde3ndn84c597hg8wculjawjwhe6zndqeqxjae64",
+    },
+  ];
+
+  it.each(CASES)("names the seed's NIGHT address on $networkId", ({ networkId, address }) => {
+    expect(deployerFundingLine(SEED, networkId)).toBe(
+      `deployer NIGHT address (fund this one): ${address}`,
+    );
+  });
+
+  it("refuses a seed that is neither hex nor a mnemonic", () => {
+    expect(() => deployerFundingLine("not a seed", "preview")).toThrow();
+  });
+});
+
+describe("isDeployEstimateOnly", () => {
+  it.each([
+    { name: "unset", env: {}, estimateOnly: false },
+    { name: "blank", env: { DEPLOY_ESTIMATE_ONLY: " " }, estimateOnly: false },
+    { name: "0", env: { DEPLOY_ESTIMATE_ONLY: "0" }, estimateOnly: false },
+    { name: "1", env: { DEPLOY_ESTIMATE_ONLY: "1" }, estimateOnly: true },
+  ])("is $estimateOnly when the variable is $name", ({ env, estimateOnly }) => {
+    expect(isDeployEstimateOnly(env)).toBe(estimateOnly);
+  });
+
+  it.each(["true", "yes", "2"])("refuses %s, so a misspelt request never deploys", (value) => {
+    expect(() => isDeployEstimateOnly({ DEPLOY_ESTIMATE_ONLY: value })).toThrow(
+      `DEPLOY_ESTIMATE_ONLY must be 1 or 0, got "${value}"`,
+    );
   });
 });
